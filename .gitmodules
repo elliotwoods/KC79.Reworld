@@ -1,0 +1,3 @@
+[submodule "PortalFW/lib/msgpack-arduino"]
+	path = PortalFW/lib/msgpack-arduino
+	url = https://github.com/elliotwoods/msgpack-arduino.git
