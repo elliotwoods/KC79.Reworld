@@ -1,5 +1,6 @@
 #pragma once
 
+#include "GUI.h"
 #include "Log.h"
 #include "MotorDriverSettings.h"
 #include "MotorDriver.h"
@@ -16,6 +17,7 @@ namespace Modules {
 		void setup();
 		void update();
 		
+		GUI * gui;
 		ID * id;
 		RS485 * rs485;
 

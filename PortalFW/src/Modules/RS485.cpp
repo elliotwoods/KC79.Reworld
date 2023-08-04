@@ -55,6 +55,9 @@ namespace Modules {
 			if(exception) {
 				log(LogLevel::Error, exception.what());
 			}
+			else {
+				log(LogLevel::Status, "RS485 Rx");
+			}
 
 			cobsStream.nextIncomingPacket();
 		}

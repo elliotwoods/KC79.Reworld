@@ -104,12 +104,20 @@ namespace Modules {
 			inspector->add(widget);
 		}
 
+		inspector->addLiveValue<size_t>("Rx count", [this]() {
+			return this->debug.rxCount;
+			});
+
 		{
 			auto widget = make_shared<ofxCvGui::Widgets::Heartbeat>("Tx", [this]() {
 				return this->debug.isFrameNewMessageTx.isFrameNew;
 				});
 			inspector->add(widget);
 		}
+
+		inspector->addLiveValue<size_t>("Tx count", [this]() {
+			return this->debug.txCount;
+			});
 
 		{
 			auto widget = make_shared<ofxCvGui::Widgets::Heartbeat>("Rx Error", [this]() {
@@ -260,6 +268,7 @@ namespace Modules {
 		this->debug.lastMessagePackTx = headerAndBody;
 
 		this->debug.isFrameNewMessageTx.notify();
+		this->debug.txCount++;
 	}
 
 	//----------
@@ -339,6 +348,7 @@ namespace Modules {
 					this->processIncoming(json);
 					this->lastIncomingMessageTime = std::chrono::system_clock::now();
 					this->debug.isFrameNewMessageRx.notify();
+					this->debug.rxCount++;
 				}
 			}
 			// Continuation of COB packet

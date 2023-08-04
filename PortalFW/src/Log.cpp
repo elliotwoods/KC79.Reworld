@@ -9,22 +9,19 @@ HardwareSerial serial(PB7, PB6);
 
 //----------
 void
-log(const LogLevel& level, const char* format, ...)
+log(const LogLevel& level, const char* message)
 {
-	va_list args;
-	va_start(args, format);
-	Logger::X().print(format, args);
-	va_end(args);
+	log((LogMessage) {
+		level
+		, message
+		});
 }
 
 //----------
 void
-log(const char* format, ...)
+log(const LogMessage& message)
 {
-	va_list args;
-	va_start(args, format);
-	Logger::X().print(format, args);
-	va_end(args);
+	Logger::X().log(message);
 }
 
 #pragma mark Logger
@@ -60,57 +57,23 @@ Logger::setup()
 
 //----------
 void
-Logger::print(const char * message)
+Logger::log(const LogMessage& logMessage)
 {
-	serial.print(message);
-	this->messageHistory.push_back(std::string(message));
-
-	while(this->messageHistory.size() > LOGGER_HISTORY_SIZE) {
-		this->messageHistory.pop_front();
-	}
-}
-
-//----------
-void
-Logger::print(const char * format, ...)
-{
-	char message[LOG_MESSAGE_LENGTH];
-	{
-		va_list args;
-		va_start(args, format);
-		sprintf(message, format, args);
-		va_end(args);
+	switch(logMessage.level) {
+	case LogLevel::Status:
+		break;
+	case LogLevel::Warning:
+		serial.print("[W] ");
+		break;
+	case LogLevel::Error:
+		serial.print("[E] ");
+		break;
+	default:
+		break;
 	}
 
-	serial.println(message);
-	this->messageHistory.push_back(std::string(message));
-
-	while(this->messageHistory.size() > LOGGER_HISTORY_SIZE) {
-		this->messageHistory.pop_front();
-	}
-}
-
-//----------
-void
-Logger::print(const std::string & message)
-{
-	serial.println(message.c_str());
-	this->messageHistory.push_back(message);
-
-	while(this->messageHistory.size() > LOGGER_HISTORY_SIZE) {
-		this->messageHistory.pop_front();
-	}
-}
-
-//----------
-const std::string&
-Logger::getLastMessage() const
-{
-	if(this->messageHistory.empty()) {
-		static std::string emptyString;
-		return emptyString;
-	}
-	else {
-		return this->messageHistory.back();
+	serial.println(logMessage.message.c_str());
+	for(auto logListener : this->logListeners) {
+		logListener->onLogMessage(logMessage);
 	}
 }

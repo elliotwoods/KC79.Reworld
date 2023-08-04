@@ -1,16 +1,15 @@
 #include "App.h"
 #include <Arduino.h>
 
-#include "GUI/Controller.h"
-#include "GUI/Panels/SplashScreen.h"
-
 namespace Modules {
 	//----------
 	void
 	App::setup()
 	{
 		Logger::setup();
-		GUI::Controller::X().init(std::make_shared<GUI::Panels::SplashScreen>());
+
+		this->gui = new GUI();
+		this->gui->setup();
 
 		this->id = new ID(ID::Config());
 		this->id->setup();
@@ -38,7 +37,6 @@ namespace Modules {
 	void
 	App::update()
 	{
-		GUI::Controller::X().update();
 		this->id->update();
 		this->rs485->update();
 		this->motorDriverSettings->update();
@@ -46,5 +44,7 @@ namespace Modules {
 		this->motorDriverB->update();
 		this->homeSwitchA->update();
 		this->homeSwitchB->update();
+
+		this->gui->update();
 	}
 }

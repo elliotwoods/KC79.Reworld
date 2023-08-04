@@ -10,6 +10,7 @@
             "includePath": [
                 "C:/dev/openFrameworks/apps/Reworld/PortalFW/include",
                 "C:/dev/openFrameworks/apps/Reworld/PortalFW/src",
+                "C:/dev/openFrameworks/apps/Reworld/PortalFW/lib/u8g2stm32/src",
                 "C:/dev/openFrameworks/apps/Reworld/PortalFW/lib/msgpack-arduino/src",
                 "C:/dev/openFrameworks/apps/Reworld/PortalFW/.pio/libdeps/nucleo_g070rb/U8g2/src",
                 "C:/Users/elliot/.platformio/packages/framework-arduinoststm32/libraries/Wire/src",
@@ -55,6 +56,7 @@
                 "path": [
                     "C:/dev/openFrameworks/apps/Reworld/PortalFW/include",
                     "C:/dev/openFrameworks/apps/Reworld/PortalFW/src",
+                    "C:/dev/openFrameworks/apps/Reworld/PortalFW/lib/u8g2stm32/src",
                     "C:/dev/openFrameworks/apps/Reworld/PortalFW/lib/msgpack-arduino/src",
                     "C:/dev/openFrameworks/apps/Reworld/PortalFW/.pio/libdeps/nucleo_g070rb/U8g2/src",
                     "C:/Users/elliot/.platformio/packages/framework-arduinoststm32/libraries/Wire/src",

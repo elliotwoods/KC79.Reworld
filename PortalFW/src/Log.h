@@ -4,9 +4,8 @@
 
 #include <sstream>
 #include <memory>
-#include <deque>
-
-#define LOGGER_HISTORY_SIZE 10
+#include <vector>
+#include <functional>
 
 void initLoggerSerial();
 
@@ -15,8 +14,19 @@ enum LogLevel {
 	, Warning
 	, Error
 };
-void log(const LogLevel&, const char* format, ...);
-void log(const char* format, ...);
+
+struct LogMessage {
+	LogLevel level;
+	std::string message;
+};
+
+void log(const LogLevel&, const char* message);
+void log(const LogMessage&);
+
+class ILogListener {
+public:
+	virtual void onLogMessage(const LogMessage&) = 0;
+};
 
 class Logger {
 public:
@@ -25,12 +35,9 @@ public:
 	static Logger& X();
 	static std::shared_ptr<Logger> get();
 
-	void print(const char *);
-	void print(const char * format, ...);
-	void print(const std::string &);
+	void log(const LogMessage&);
 
-	const std::string& getLastMessage() const;
+	std::vector<ILogListener*> logListeners;
 private:
 	Logger();
-	std::deque<std::string> messageHistory;
 };

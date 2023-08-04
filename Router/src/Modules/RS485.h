@@ -68,6 +68,9 @@ namespace Modules {
 			IsFrameNew isFrameNewDeviceRxSuccess;
 			IsFrameNew isFrameNewDeviceRxFail;
 			IsFrameNew isFrameNewDeviceError;
+
+			size_t rxCount = 0;
+			size_t txCount = 0;
 		} debug;
 	}; 
 }
