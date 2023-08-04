@@ -1,5 +1,7 @@
 #pragma once
 
+#include <Stream.h>
+
 namespace Modules {
 	class Base {
 	public:

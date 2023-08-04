@@ -82,12 +82,9 @@ namespace GUI {
 		currentPanel->update();
 
 		// DRAW THE CURRENT PANEL
-		this->u8g2.firstPage();
-		do
-		{
-			currentPanel->draw(this->u8g2);
-		}
-		while(this->u8g2.nextPage());
+		this->u8g2.clearBuffer();
+		currentPanel->draw(this->u8g2);
+		this->u8g2.sendBuffer();
 	}
 	
 	//----------

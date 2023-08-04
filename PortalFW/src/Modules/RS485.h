@@ -1,4 +1,6 @@
+#pragma once
 #include "Base.h"
+#include "Exception.h"
 
 namespace Modules {
 	class App;
@@ -11,5 +13,11 @@ namespace Modules {
 	protected:
 		App * app;
 		void processIncoming();
+		Exception processCOBSPacket();
+
+		void beginTransmission();
+		void endTransmission();
+		
+		void transmitOutbox();
 	};
 }

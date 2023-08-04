@@ -38,6 +38,9 @@ namespace Modules {
 			readValue += (digitalRead(this->config.binaryPins[i]) == HIGH ? 0 : 1) << i;
 		}
 
+		// offset by 1 (0 is the host)
+		readValue += 1;
+
 		{
 			char message[64];
 			sprintf(message, "Board ID : %d", readValue);
