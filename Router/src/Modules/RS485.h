@@ -2,6 +2,7 @@
 
 #include "ofSerial.h"
 #include "ofxCvGui.h"
+#include "Base.h"
 
 struct IsFrameNew {
 	void notify() {
@@ -16,7 +17,7 @@ struct IsFrameNew {
 };
 
 namespace Modules {
-	class RS485 : public ofxCvGui::IInspectable {
+	class RS485 : public Base {
 	public:
 		struct Config {
 			std::string comPort = "COM15";
@@ -27,14 +28,16 @@ namespace Modules {
 		typedef int8_t Target;
 
 		RS485();
-		void init();
-		void update();
 
-		ofxCvGui::PanelPtr getPanel();
+		string getTypeName() const override;
+		void init() override;
+		void update() override;
+
 		void populateInspector(ofxCvGui::InspectArguments&);
 
 		static vector<uint8_t> makeHeader(const Target&);
 
+		void transmitRawPacket(const uint8_t* data, size_t);
 		void transmitPoll(const Target&);
 		void transmitMessage(const Target&, const nlohmann::json&);
 		void transmitHeaderAndBody(const vector<uint8_t>& header
@@ -55,6 +58,11 @@ namespace Modules {
 		std::chrono::system_clock::time_point lastPoll;
 		std::chrono::system_clock::time_point lastKeepAlive;
 		std::chrono::system_clock::time_point lastIncomingMessageTime = std::chrono::system_clock::now();
+
+		struct : ofParameterGroup {
+			ofParameter<bool> flood{ "Flood", false };
+			PARAM_DECLARE("RS485", flood);
+		} parameters;
 
 		struct {
 			/// <summary>

@@ -16,6 +16,12 @@
     <ClCompile Include="src\cobs-c\cobs.cpp">
       <Filter>src\cobs-c</Filter>
     </ClCompile>
+    <ClCompile Include="src\Modules\FWUpdate.cpp">
+      <Filter>src\Modules</Filter>
+    </ClCompile>
+    <ClCompile Include="src\Modules\App.cpp">
+      <Filter>src\Modules</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <Filter Include="src">
@@ -40,6 +46,15 @@
     </ClInclude>
     <ClInclude Include="src\cobs-c\cobs.h">
       <Filter>src\cobs-c</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Modules\FWUpdate.h">
+      <Filter>src\Modules</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Modules\Base.h">
+      <Filter>src\Modules</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Modules\App.h">
+      <Filter>src\Modules</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>

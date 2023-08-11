@@ -21,9 +21,7 @@ namespace Modules {
 			, U8G2_R2
 			, u8x8_byte_stm32_hw_i2c
 			, u8x8_stm32_gpio_and_delay);
-#ifdef MM_CONFIG_OLED_RESET_ENABLED
-		u8x8_SetPin(this->u8g2.getU8x8(), U8X8_PIN_RESET, MM_CONFIG_OLED_PIN_RESET);
-#endif
+		
 		u8x8_SetI2CAddress(this->u8g2.getU8x8(), 0x3c);
 		this->u8g2.begin();
 

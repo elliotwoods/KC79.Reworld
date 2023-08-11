@@ -16,16 +16,23 @@ namespace Modules {
 	//----------
 	RS485::RS485()
 	{
-		this->onPopulateInspector += [this](ofxCvGui::InspectArguments& args) {
-			this->populateInspector(args);
-		};
+
+	}
+
+	//----------
+	string
+		RS485::getTypeName() const
+	{
+		return "RS485";
 	}
 
 	//----------
 	void
 		RS485::init()
 	{
-
+		this->onPopulateInspector += [this](ofxCvGui::InspectArguments& args) {
+			this->populateInspector(args);
+		};
 	}
 
 	//----------
@@ -42,13 +49,12 @@ namespace Modules {
 			this->debug.isFrameNewDeviceRxFail.update();
 			this->debug.isFrameNewDeviceError.update();
 		}
-	}
 
-	//----------
-	ofxCvGui::PanelPtr
-		RS485::getPanel()
-	{
-		return ofxCvGui::PanelPtr();
+		if (this->parameters.flood) {
+			if (this->serial.isInitialized()) {
+				this->serial.writeByte((char) 100);
+			}
+		}
 	}
 
 	//----------
@@ -146,6 +152,10 @@ namespace Modules {
 				});
 			inspector->add(widget);
 		}
+
+		inspector->addSpacer();
+
+		inspector->addParameterGroup(this->parameters);
 	}
 
 	//----------
@@ -176,6 +186,46 @@ namespace Modules {
 		msgpack_sbuffer_destroy(&headerBuffer);
 
 		return header;
+	}
+
+	//----------
+	void
+		RS485::transmitRawPacket(const uint8_t* data, size_t size)
+	{
+		// allocate buffer of max size for cobs
+		vector<uint8_t> binaryCOBS(size * 255 / 254 + 2);
+
+		// Perform the encode
+		auto encodeResult = cobs_encode(binaryCOBS.data()
+			, binaryCOBS.size()
+			, data
+			, size);
+
+		// Check we encoded OK
+		if (encodeResult.status != COBS_ENCODE_OK) {
+			ofLogError("LaserSystem") << "Failed to encode COBS : " << encodeResult.status;
+			return;
+		}
+
+		// Crop the message to the correct number of bytes
+		binaryCOBS.resize(encodeResult.out_len);
+
+		// Send the data to serial
+		auto bytesWritten = this->serial.writeBytes(binaryCOBS.data(), binaryCOBS.size());
+
+		// Check that all bytes were sent
+		if (bytesWritten != binaryCOBS.size()) {
+			ofLogError("LaserSystem") << "Failed to write all " << binaryCOBS.size() << " bytes to stream";
+		}
+
+		// Send the EOP (this doesn't come with cobs-c
+		this->serial.writeByte((unsigned char)0);
+
+		// Store the messagepack representation in case the user wants to debug it
+		this->debug.lastMessagePackTx.assign(data, data + size);
+
+		this->debug.isFrameNewMessageTx.notify();
+		this->debug.txCount++;
 	}
 
 	//----------
@@ -235,40 +285,8 @@ namespace Modules {
 			, body.begin()
 			, body.end());
 
-		// allocate buffer of max size for cobs
-		vector<uint8_t> binaryCOBS(headerAndBody.size() * 255 / 254 + 2);
-
-		// Perform the encode
-		auto encodeResult = cobs_encode(binaryCOBS.data()
-			, binaryCOBS.size()
-			, headerAndBody.data()
+		this->transmitRawPacket(headerAndBody.data()
 			, headerAndBody.size());
-
-		// Check we encoded OK
-		if (encodeResult.status != COBS_ENCODE_OK) {
-			ofLogError("LaserSystem") << "Failed to encode COBS : " << encodeResult.status;
-			return;
-		}
-
-		// Crop the message to the correct number of bytes
-		binaryCOBS.resize(encodeResult.out_len);
-
-		// Send the data to serial
-		auto bytesWritten = this->serial.writeBytes(binaryCOBS.data(), binaryCOBS.size());
-
-		// Check that all bytes were sent
-		if (bytesWritten != binaryCOBS.size()) {
-			ofLogError("LaserSystem") << "Failed to write all " << binaryCOBS.size() << " bytes to stream";
-		}
-
-		// Send the EOP (this doesn't come with cobs-c
-		this->serial.writeByte((unsigned char)0);
-
-		// Store the messagepack representation in case the user wants to debug it
-		this->debug.lastMessagePackTx = headerAndBody;
-
-		this->debug.isFrameNewMessageTx.notify();
-		this->debug.txCount++;
 	}
 
 	//----------

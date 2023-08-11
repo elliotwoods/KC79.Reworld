@@ -2,7 +2,6 @@
 #include "Modules/App.h"
 
 Modules::App app;
-uint32_t frame = 0;
 
 void setup() {
 	// LED's
@@ -17,6 +16,4 @@ void loop() {
 	analogWrite(PB3, (millis() % 1024) / 32);
 	
 	app.update();
-
-	frame++;
 }
