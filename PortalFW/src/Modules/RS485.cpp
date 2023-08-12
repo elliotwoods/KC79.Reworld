@@ -91,9 +91,9 @@ namespace Modules {
 			}
 
 			// First element is target address
-			int32_t targetAddress;
+			int8_t targetAddress;
 			{
-				if(!msgpack::readInt<int32_t>(cobsStream, targetAddress)) {
+				if(!msgpack::readInt<int8_t>(cobsStream, targetAddress)) {
 					return Exception(formatError);
 				}
 
@@ -105,8 +105,8 @@ namespace Modules {
 
 			// Second element is the source address (we ignore)
 			{
-				uint8_t _;
-				if(!msgpack::readInt<uint8_t>(cobsStream, _)) {
+				int8_t _;
+				if(!msgpack::readInt<int8_t>(cobsStream, _)) {
 					return Exception(formatError);
 				}
 			}

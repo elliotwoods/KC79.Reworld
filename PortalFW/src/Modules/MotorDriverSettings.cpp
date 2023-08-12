@@ -176,6 +176,18 @@ namespace Modules {
 			this->setCurrent(value);
 			return true;
 		}
+		else if(strcmp(key, "setMicrostepResolution") == 0) {
+			int32_t value;
+
+			// we use int32_t since we already use this symbol elsewhere
+			// (to save space in flash we use the same one again here)
+			if(!msgpack::readInt<int32_t>(stream, value)) {
+				return false;
+			}
+
+			this->setMicrostepResolution((MicrostepResolution) value);
+			return true;
+		}
 
 		return false;
 	}

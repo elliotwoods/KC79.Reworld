@@ -13,7 +13,7 @@ void setup() {
 
 void loop() {
 	// Cycle LED's
-	analogWrite(PB3, (millis() % 1024) / 32);
+	analogWrite(PB3, (millis() % 1000) / 64);
 	
 	app.update();
 }

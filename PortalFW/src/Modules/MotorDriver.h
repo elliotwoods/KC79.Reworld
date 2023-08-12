@@ -4,6 +4,8 @@
 #include <stdint.h>
 #include <stddef.h>
 
+#include "HardwareTimer.h"
+
 namespace Modules {
 	class MotorDriver : public Base {
 	public:
@@ -29,6 +31,7 @@ namespace Modules {
 
 		void testSteps(size_t stepCount, uint32_t delayBetweenSteps);
 		void testRoutine();
+		void testTimer(uint32_t period_us, uint32_t target_count);
 
 	protected:
 		void pushState();
@@ -43,5 +46,11 @@ namespace Modules {
 			bool enabled = false;
 			bool direction = false;
 		} state;
+
+		struct {
+			TIM_TypeDef * timer;
+			HardwareTimer * hardwareTimer;
+			int32_t currentCount;
+		} timer;
 	};
 }

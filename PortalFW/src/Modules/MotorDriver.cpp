@@ -137,6 +137,49 @@ namespace Modules {
 	}
 
 	//----------
+	void
+	MotorDriver::testTimer(uint32_t period_us, uint32_t target_count)
+	{
+		this->setEnabled(true);
+
+		// note the library accepts all different formats (ticks, us, hz)
+
+		auto stepPin = digitalPinToPinName(this->config.Step);
+		this->timer.timer = (TIM_TypeDef *) pinmap_peripheral(stepPin, PinMap_TIM);
+		this->timer.hardwareTimer = new HardwareTimer(this->timer.timer);
+		auto channel = STM_PIN_CHANNEL(pinmap_function(stepPin, PinMap_TIM));
+		this->timer.hardwareTimer->setMode(channel, TIMER_OUTPUT_COMPARE_PWM1, stepPin);
+		this->timer.hardwareTimer->setOverflow(period_us, MICROSEC_FORMAT);
+		this->timer.hardwareTimer->setCaptureCompare(channel
+			, 127
+			, TimerCompareFormat_t::RESOLUTION_8B_COMPARE_FORMAT);
+		this->timer.currentCount = 0;
+		this->timer.hardwareTimer->attachInterrupt([this]() {
+			this->timer.currentCount++;
+		});
+		this->timer.hardwareTimer->resume();
+
+		log(LogLevel::Status, "Test begin");
+
+		do {
+			HAL_Delay(1);
+			{
+				char message[100];
+				sprintf(message, "%d\n", (int) this->timer.currentCount);
+				log(LogLevel::Status, message);
+			}
+		} while (this->timer.currentCount < target_count);
+
+		log(LogLevel::Status, "Test end");
+		this->timer.hardwareTimer->pause();
+
+		// destroy it for now (so that we can call multiple times)
+		delete this->timer.hardwareTimer;
+
+		this->setEnabled(false);
+	}
+
+	//----------
 	void 
 	MotorDriver::pushState()
 	{
@@ -169,6 +212,31 @@ namespace Modules {
 			}
 
 			this->testRoutine();
+
+			return true;
+		}
+		else if(strcmp(key, "testTimer") == 0) {
+			// Expecting an array with 2 values [period_us, target_count]
+			size_t arraySize;
+			if(!msgpack::readArraySize(stream, arraySize)) {
+				return false;
+			}
+
+			if(arraySize < 2) {
+				return false;
+			}
+
+			uint32_t period_us;
+			uint32_t target_count;
+			if(!msgpack::readInt<uint32_t>(stream, period_us)) {
+				return false;
+			}
+			if(!msgpack::readInt<uint32_t>(stream, target_count)) {
+				return false;
+			}
+
+			this->testTimer(period_us, target_count);
+			return true;
 		}
 
 		return false;

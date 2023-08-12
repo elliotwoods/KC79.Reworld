@@ -13,15 +13,15 @@ namespace Modules {
 			float vrefRatio { 10.0f / (22.0f + 10.0f) };
 		};
 
-		enum MicrostepResolution {
-			_1 = 1,
-			_2 = 2,
-			_4 = 4,
-			_8 = 8,
-			_16 = 16,
-			_32 = 32,
-			_128 = 128,
-			_256 = 256
+		enum MicrostepResolution : uint8_t {
+			_1 = 0,
+			_2 = 1,
+			_4 = 2,
+			_8 = 3,
+			_16 = 4,
+			_32 = 5,
+			_128 = 7,
+			_256 = 8
 		};
 
 		typedef float Amps;

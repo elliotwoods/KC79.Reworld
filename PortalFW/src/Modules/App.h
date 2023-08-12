@@ -1,6 +1,9 @@
 #pragma once
 
-#include "GUI.h"
+#ifndef GUI_DISABLED
+	#include "GUI.h"
+#endif
+
 #include "Logger.h"
 #include "MotorDriverSettings.h"
 #include "MotorDriver.h"
@@ -18,8 +21,9 @@ namespace Modules {
 
 		void setup();
 		void update();
-		
+#ifndef GUI_DISABLED
 		GUI * gui;
+#endif
 		ID * id;
 		RS485 * rs485;
 

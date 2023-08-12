@@ -15,8 +15,10 @@ namespace Modules {
 	{
 		Logger::setup();
 
+#ifndef GUI_DISABLED
 		this->gui = new GUI();
 		this->gui->setup();
+#endif
 
 		this->id = new ID();
 		this->id->setup();
@@ -52,7 +54,9 @@ namespace Modules {
 		this->homeSwitchA->update();
 		this->homeSwitchB->update();
 
-		//this->gui->update();
+#ifndef GUI_DISABLED
+		this->gui->update();
+#endif
 	}
 
 	//----------

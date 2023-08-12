@@ -60,7 +60,7 @@ namespace Modules {
 
 		{
 			char message[64];
-			sprintf(message, "Board ID : %d", readValue);
+			sprintf(message, "Board ID : %d", (int) readValue);
 			log(LogLevel::Status, message);
 		}
 
@@ -88,7 +88,7 @@ namespace Modules {
 
 				{
 					char message[64];
-					sprintf(message, "New ID : %d", this->value);
+					sprintf(message, "New ID : %d", (int) this->value);
 					log(LogLevel::Status, message);
 				}
 			}
