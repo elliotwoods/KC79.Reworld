@@ -11,6 +11,13 @@ namespace Modules {
 	}
 
 	//----------
+	const char *
+	GUI::getTypeName() const
+	{
+		return "GUI";
+	}
+
+	//----------
 	void
 	GUI::setup()
 	{

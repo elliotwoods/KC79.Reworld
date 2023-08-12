@@ -15,6 +15,11 @@ namespace Modules {
 			this->fwUpdate = make_shared<FWUpdate>(this->rs485);
 			this->modules.push_back(this->fwUpdate);
 		}
+
+		{
+			this->moduleControl = make_shared<ModuleControl>(this->rs485);
+			this->modules.push_back(this->moduleControl);
+		}
 	}
 
 	//----------

@@ -19,6 +19,8 @@ namespace Modules {
 
 		MotorDriver(const Config&);
 
+		const char * getTypeName() const;
+
 		void setEnabled(bool);
 		bool getEnabled() const;
 
@@ -33,6 +35,8 @@ namespace Modules {
 		void pushEnabled();
 		void pushDirection();
 
+		bool processIncomingByKey(const char * key, Stream &) override;
+		
 		const Config config;
 
 		struct {

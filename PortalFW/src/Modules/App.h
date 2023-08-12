@@ -1,7 +1,7 @@
 #pragma once
 
 #include "GUI.h"
-#include "Log.h"
+#include "Logger.h"
 #include "MotorDriverSettings.h"
 #include "MotorDriver.h"
 #include "ID.h"
@@ -14,6 +14,8 @@
 namespace Modules {
 	class App : public Base {
 	public:
+		const char * getTypeName() const;
+
 		void setup();
 		void update();
 		
@@ -27,5 +29,7 @@ namespace Modules {
 
 		HomeSwitch * homeSwitchA;
 		HomeSwitch * homeSwitchB;
+	protected:
+		bool processIncomingByKey(const char * key, Stream &) override;
 	};
 }

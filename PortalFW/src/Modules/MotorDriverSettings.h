@@ -28,6 +28,8 @@ namespace Modules {
 
 		MotorDriverSettings(const Config&);
 
+		const char * getTypeName() const;
+
 		void setMicrostepResolution(MicrostepResolution);
 		MicrostepResolution getMicrostepResolution() const;
 
@@ -43,6 +45,8 @@ namespace Modules {
 		void pushMicrostepResoltuion();
 		void pushSleep();
 		void pushCurrent();
+
+		bool processIncomingByKey(const char * key, Stream &) override;
 
 		struct {
 			MicrostepResolution microStepResolution = MicrostepResolution::_256;

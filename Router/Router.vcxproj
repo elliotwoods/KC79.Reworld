@@ -113,6 +113,7 @@
     <ClCompile Include="src\main.cpp" />
     <ClCompile Include="src\Modules\App.cpp" />
     <ClCompile Include="src\Modules\FWUpdate.cpp" />
+    <ClCompile Include="src\Modules\ModuleControl.cpp" />
     <ClCompile Include="src\Modules\RS485.cpp" />
     <ClCompile Include="src\ofApp.cpp" />
     <ClCompile Include="src\pch_App.cpp">
@@ -125,6 +126,7 @@
     <ClInclude Include="src\Modules\App.h" />
     <ClInclude Include="src\Modules\Base.h" />
     <ClInclude Include="src\Modules\FWUpdate.h" />
+    <ClInclude Include="src\Modules\ModuleControl.h" />
     <ClInclude Include="src\Modules\RS485.h" />
     <ClInclude Include="src\ofApp.h" />
     <ClInclude Include="src\pch_App.h" />
@@ -133,11 +135,11 @@
     <ProjectReference Include="$(OF_ROOT)\libs\openFrameworksCompiled\project\vs\openframeworksLib.vcxproj">
       <Project>{5837595d-aca9-485c-8e76-729040ce4b0b}</Project>
     </ProjectReference>
-    <ProjectReference Include="..\..\..\..\..\Users\elliot\Kimchi and Chips Dropbox\Elliot Woods\KC78 - Light Barrier Type 4\Site Files\openFrameworks for copy in\addons\ofxMessagePack\ofxMessagePackLib\ofxMessagePack.vcxproj">
-      <Project>{b6ef2661-4d10-4dae-b4cf-bd0a92ea864c}</Project>
-    </ProjectReference>
     <ProjectReference Include="..\..\..\addons\ofxCvGui\ofxCvGuiLib\ofxCvGuiLib.vcxproj">
       <Project>{6f0ddb4f-4014-4433-919b-9d956c034bad}</Project>
+    </ProjectReference>
+    <ProjectReference Include="..\..\..\addons\ofxMessagePack\ofxMessagePackLib\ofxMessagePack.vcxproj">
+      <Project>{b6ef2661-4d10-4dae-b4cf-bd0a92ea864c}</Project>
     </ProjectReference>
   </ItemGroup>
   <ItemGroup>

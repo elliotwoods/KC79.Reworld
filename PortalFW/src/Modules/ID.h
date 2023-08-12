@@ -5,19 +5,17 @@
 #include "HardwareSerial.h"
 #include <memory>
 
+#define ID_PORTAL_MIN 1
+#define ID_PORTAL_MAX 127
+
 namespace Modules {
 	class ID : public Base{
 	public:
 		typedef uint8_t Value;
 
-		struct Config {
-			Value defaultValue = 0;
+		ID();
 
-			uint32_t binaryPins[4] {PD0, PD1, PD2, PD3};
-		};
-
-		ID(const Config&);
-
+		const char * getTypeName() const;
 		void setup();
 		void initFromBoard();
 		void update();
@@ -25,9 +23,9 @@ namespace Modules {
 		Value get() const;
 		bool getIsIDNewThisFrame() const;
 	protected:
-		const Config config;
+		static const uint32_t binaryPins[4];
 
-		Value value;
+		Value value = 1;
 		bool isIDNewThisFrame = true;
 		bool markNewID = false;
 	};

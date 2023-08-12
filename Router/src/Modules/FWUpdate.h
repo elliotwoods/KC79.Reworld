@@ -31,7 +31,7 @@ namespace Modules {
 
 		struct : ofParameterGroup {
 			struct : ofParameterGroup {
-				ofParameter<bool> enabled{ "Announce", true };
+				ofParameter<bool> enabled{ "Enabled", false };
 				ofParameter<float> period{ "Period [s]", 0.2 };
 				PARAM_DECLARE("Announce", enabled, period);
 			} announce;

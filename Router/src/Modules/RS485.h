@@ -23,8 +23,9 @@ namespace Modules {
 			std::string comPort = "COM15";
 		};
 
-		// 0 = Host
 		// -1 = Everybody
+		// 0 = Host
+		// 1-127 = Clients
 		typedef int8_t Target;
 
 		RS485();
@@ -60,8 +61,12 @@ namespace Modules {
 		std::chrono::system_clock::time_point lastIncomingMessageTime = std::chrono::system_clock::now();
 
 		struct : ofParameterGroup {
-			ofParameter<bool> flood{ "Flood", false };
-			PARAM_DECLARE("RS485", flood);
+			struct : ofParameterGroup {
+				ofParameter<int> targetID{ "Target ID", 16 };
+				ofParameter<bool> flood{ "Flood", false };
+				PARAM_DECLARE("Debug", targetID, flood);
+			} debug;
+			PARAM_DECLARE("RS485", debug);
 		} parameters;
 
 		struct {

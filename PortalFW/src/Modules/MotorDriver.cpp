@@ -1,8 +1,10 @@
 #include "MotorDriver.h"
+#include "Logger.h"
 
 #include <Arduino.h>
 
 namespace Modules {
+#pragma mark MotorDriver::Config
 	//----------
 	MotorDriver::Config
 	MotorDriver::Config::MotorA()
@@ -31,6 +33,7 @@ namespace Modules {
 		return config;
 	}
 
+#pragma mark MotorDriver
 	//----------
 	MotorDriver::MotorDriver(const Config& config)
 	: config(config)
@@ -41,6 +44,13 @@ namespace Modules {
 		pinMode(this->config.Direction, OUTPUT);
 
 		this->pushState();
+	}
+
+	//----------
+	const char *
+	MotorDriver::getTypeName() const
+	{
+		return "MotorDriver";
 	}
 
 	//----------
@@ -93,7 +103,7 @@ namespace Modules {
 		int slowest = 50;
 		int count = 100000;
 
-		// CCW
+		log(LogLevel::Status, "Test routine CCW");
 		{
 			this->setDirection(false);
 			int i=slowest;
@@ -107,7 +117,7 @@ namespace Modules {
 
 		delay(100);
 
-		// CW
+		log(LogLevel::Status, "Test routine CW");
 		{
 			this->setDirection(true);
 			int i=slowest;
@@ -120,6 +130,8 @@ namespace Modules {
 		}
 
 		delay(100);
+
+		log(LogLevel::Status, "Test routine complete");
 
 		this->setEnabled(false);
 	}
@@ -144,5 +156,21 @@ namespace Modules {
 	MotorDriver::pushDirection()
 	{
 		digitalWrite(this->config.Direction, this->state.direction);
+	}
+
+	//----------
+	bool
+	MotorDriver::processIncomingByKey(const char * key, Stream& stream)
+	{
+		if(strcmp(key, "testRoutine") == 0) {
+			// Next item will be a Nil
+			if(!msgpack::readNil(stream, true)) {
+				return false;
+			}
+
+			this->testRoutine();
+		}
+
+		return false;
 	}
 }

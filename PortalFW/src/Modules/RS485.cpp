@@ -4,7 +4,7 @@
 #include <msgpack.hpp>
 
 #include "App.h"
-#include "Log.h"
+#include "Logger.h"
 #include "Exception.h"
 
 HardwareSerial serialRS485(PA3, PA2);
@@ -17,6 +17,13 @@ namespace Modules {
 	: app(app)
 	{
 
+	}
+
+	//----------
+	const char *
+	RS485::getTypeName() const
+	{
+		return "RS485";
 	}
 
 	//---------
@@ -84,15 +91,15 @@ namespace Modules {
 			}
 
 			// First element is target address
+			int32_t targetAddress;
 			{
-				int32_t targetAddress;
 				if(!msgpack::readInt<int32_t>(cobsStream, targetAddress)) {
 					return Exception(formatError);
 				}
 
 				// An address of -1 means it's addressed to all devices
 				if(targetAddress == this->app->id->get() || targetAddress == -1) {
-					weShouldProcess = true;
+ 					weShouldProcess = true;
 				}
 			}
 

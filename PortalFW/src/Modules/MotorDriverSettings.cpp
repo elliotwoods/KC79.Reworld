@@ -44,6 +44,13 @@ namespace Modules {
 	}
 
 	//----------
+	const char *
+	MotorDriverSettings::getTypeName() const
+	{
+		return "MotorDriverSettings";
+	}
+
+	//----------
 	void
 	MotorDriverSettings::setMicrostepResolution(MicrostepResolution value)
 	{
@@ -154,5 +161,22 @@ namespace Modules {
 			pwmRatio = 1.0f;
 		}
 		analogWrite(this->config.pinVREF, (uint32_t) (255.0f * pwmRatio));
+	}
+
+	//----------
+	bool
+	MotorDriverSettings::processIncomingByKey(const char * key, Stream & stream)
+	{
+		if(strcmp(key, "setCurrent") == 0) {
+			Amps value;
+			if(!msgpack::readFloat(stream, value)) {
+				return false;
+			}
+
+			this->setCurrent(value);
+			return true;
+		}
+
+		return false;
 	}
 }

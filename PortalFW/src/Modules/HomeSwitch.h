@@ -19,6 +19,7 @@ namespace Modules {
 		};
 		
 		HomeSwitch(const Config& = Config());
+		const char * getTypeName() const;
 
 		static std::set<HomeSwitch*> allHomeSwitches;
 		void handleInterrupt();

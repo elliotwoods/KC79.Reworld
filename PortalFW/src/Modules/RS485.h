@@ -8,6 +8,7 @@ namespace Modules {
 	class RS485 : public Base {
 	public:
 		RS485(App *);
+		const char * getTypeName() const;
 		void setup() override;
 		void update() override;
 	protected:

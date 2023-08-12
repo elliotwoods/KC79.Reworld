@@ -22,6 +22,9 @@
     <ClCompile Include="src\Modules\App.cpp">
       <Filter>src\Modules</Filter>
     </ClCompile>
+    <ClCompile Include="src\Modules\ModuleControl.cpp">
+      <Filter>src\Modules</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <Filter Include="src">
@@ -54,6 +57,9 @@
       <Filter>src\Modules</Filter>
     </ClInclude>
     <ClInclude Include="src\Modules\App.h">
+      <Filter>src\Modules</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Modules\ModuleControl.h">
       <Filter>src\Modules</Filter>
     </ClInclude>
   </ItemGroup>

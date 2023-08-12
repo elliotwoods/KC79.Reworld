@@ -4,7 +4,7 @@
 #include <vector>
 #include "Base.h"
 #include <U8g2lib.h>
-#include "Log.h"
+#include "Logger.h"
 
 #define GUI_MAX_LOG_LINES 5
 
@@ -12,6 +12,8 @@ namespace Modules {
 	class GUI : public Base, public ILogListener {
 	public:
 		GUI();
+		
+		const char * getTypeName() const;
 		void setup() override;
 		void update() override;
 

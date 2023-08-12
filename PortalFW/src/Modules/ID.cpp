@@ -1,15 +1,27 @@
 #include "ID.h"
 #include <Arduino.h>
-#include "Log.h"
+#include "Logger.h"
 
-HardwareSerial serialID(PB9, PB8);
+#define ID_RX_PIN PB9
+#define ID_TX_PIN PB8
+
+HardwareSerial serialID(ID_RX_PIN, ID_TX_PIN);
 
 namespace Modules {
 	//----------
-	ID::ID(const Config& config)
-	: config(config) 
+	const uint32_t ID::binaryPins[4] {PD0, PD1, PD2, PD3};
+
+	//----------
+	ID::ID()
 	{
-		this->value = config.defaultValue;
+
+	}
+
+	//----------
+	const char *
+	ID::getTypeName() const
+	{
+		return "ID";
 	}
 
 	//---------
@@ -18,7 +30,7 @@ namespace Modules {
 	{
 		// set the pin modes
 		for(size_t i=0; i<4; i++) {
-			pinMode(config.binaryPins[i], INPUT_PULLUP);
+			pinMode(ID::binaryPins[i], INPUT_PULLUP);
 		}
 
 		// initialise the serial device
@@ -26,6 +38,11 @@ namespace Modules {
 
 		// init from the board
 		this->initFromBoard();
+
+		// flush the incoming serial buffer (we often get a 0 byte on startup)
+		while(serialID.available()) {
+			serialID.read();
+		}
 	}
 
 	//----------
@@ -35,7 +52,7 @@ namespace Modules {
 		// accumulate values from the pins
 		int readValue = 0;
 		for(int i=0; i<4; i++) {
-			readValue += (digitalRead(this->config.binaryPins[i]) == HIGH ? 0 : 1) << i;
+			readValue += (digitalRead(ID::binaryPins[i]) == HIGH ? 0 : 1) << i;
 		}
 
 		// offset by 1 (0 is the host)
@@ -57,21 +74,27 @@ namespace Modules {
 		// For now we presume 1 byte values
 		serialID.write(this->value);
 
-		// Check for incoming IDs
+		// Check for incoming IDs 
 		while(serialID.available()) {
 			uint8_t previousID;
 		
-			serialID.readBytes(&previousID, 1);
-			this->value = previousID + 1;
-			this->markNewID = true;
+			auto bytesRead = serialID.readBytes(&previousID, 1);
+			
+			// check we received a valid ID
+			// (otherwise might be a spurious packet, especially `\0`)
+			if(previousID >= ID_PORTAL_MIN && previousID < ID_PORTAL_MAX) {
+				this->value = previousID + 1;
+				this->markNewID = true;
 
-			{
-				char message[64];
-				sprintf(message, "New ID : %d", this->value);
-				log(LogLevel::Status, message);
+				{
+					char message[64];
+					sprintf(message, "New ID : %d", this->value);
+					log(LogLevel::Status, message);
+				}
 			}
-		}
 
+		}
+		
 		// New ID this frame flag
 		{
 			this->isIDNewThisFrame = this->markNewID;

@@ -10,6 +10,7 @@ interruptCallback()
 }
 
 namespace Modules {
+#pragma mark HomeSwitch
 	//----------
 	std::set<HomeSwitch*> HomeSwitch::allHomeSwitches;
 
@@ -39,6 +40,7 @@ namespace Modules {
 		return config;
 	}
 
+#pragma mark HomeSwitch
 	//----------
 	HomeSwitch::HomeSwitch(const Config& config)
 	: config(config)
@@ -49,6 +51,13 @@ namespace Modules {
 		attachInterrupt(digitalPinToInterrupt(this->config.pinRightSwitch), interruptCallback, FALLING);
 
 		HomeSwitch::allHomeSwitches.insert(this);
+	}
+
+	//----------
+	const char *
+	HomeSwitch::getTypeName() const
+	{
+		return "HomeSwitch";
 	}
 
 	//-----------

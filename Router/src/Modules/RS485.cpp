@@ -50,7 +50,7 @@ namespace Modules {
 			this->debug.isFrameNewDeviceError.update();
 		}
 
-		if (this->parameters.flood) {
+		if (this->parameters.debug.flood) {
 			if (this->serial.isInitialized()) {
 				this->serial.writeByte((char) 100);
 			}
@@ -95,7 +95,7 @@ namespace Modules {
 
 		if (this->serial.isInitialized()) {
 			inspector->addButton("Send poll", [this]() {
-				this->transmitPoll(1);
+				this->transmitPoll((Target) this->parameters.debug.targetID.get());
 				}, ' ');
 
 			inspector->addButton("Send test message", [this]() {
