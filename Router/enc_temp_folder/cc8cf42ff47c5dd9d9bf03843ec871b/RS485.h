@@ -62,7 +62,7 @@ namespace Modules {
 
 		struct : ofParameterGroup {
 			struct : ofParameterGroup {
-				ofParameter<int> targetID{ "Target ID", 1 };
+				ofParameter<int> targetID{ "Target ID", 16 };
 				ofParameter<bool> flood{ "Flood", false };
 				PARAM_DECLARE("Debug", targetID, flood);
 			} debug;

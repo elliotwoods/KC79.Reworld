@@ -140,6 +140,11 @@ namespace Modules {
 	void
 	MotorDriver::testTimer(uint32_t period_us, uint32_t target_count)
 	{
+		// Clamp the period for safety
+		if(period_us < 20 ){
+			period_us = 20;
+		}
+
 		this->setEnabled(true);
 
 		// note the library accepts all different formats (ticks, us, hz)
@@ -162,10 +167,15 @@ namespace Modules {
 		log(LogLevel::Status, "Test begin");
 
 		do {
-			HAL_Delay(1);
+			HAL_Delay(10);
+
+			// Print message
 			{
 				char message[100];
-				sprintf(message, "%d\n", (int) this->timer.currentCount);
+				sprintf(message, "%d->%d (%d)\n"
+					, (int) this->timer.currentCount
+					, (int) target_count
+					, (int) period_us);
 				log(LogLevel::Status, message);
 			}
 		} while (this->timer.currentCount < target_count);
@@ -232,6 +242,11 @@ namespace Modules {
 				return false;
 			}
 			if(!msgpack::readInt<uint32_t>(stream, target_count)) {
+				return false;
+			}
+
+			// Check some variables
+			if(period_us < 1 || target_count < 1) {
 				return false;
 			}
 

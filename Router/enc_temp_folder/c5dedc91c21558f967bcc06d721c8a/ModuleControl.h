@@ -30,18 +30,18 @@ namespace Modules {
 
 		struct : ofParameterGroup {
 			struct : ofParameterGroup {
-				ofParameter<int> targetID{ "Target ID", 1 };
+				ofParameter<int> targetID{ "Target ID", 16 };
 				struct : ofParameterGroup {
 					ofParameter<float> current{ "Current", 0.1f, 0.0f, 0.3f };
-					ofParameter<int> microstepResolution{ "Microstep resolution", 128, 1, 256 };
+					ofParameter<int> microstepResolution{ "Microstep resolution", 256, 1, 256 };
 					PARAM_DECLARE("motorDriverSettings", current, microstepResolution);
 				} motorDriverSettings;
 
 				struct timerTest : ofParameterGroup {
-					ofParameter<int> count{ "Count", 4000, 1, 10000 };
-					ofParameter<int> period{ "Period [us]", 500, 10, 10000 };
+					ofParameter<int> period{ "Period [us]", 1000, 10, 10000 };
+					ofParameter<int> count{ "Count", 1000, 10, 10000 };
 					ofParameter<bool> normaliseParameters{ "Normalise parameters", true };
-					PARAM_DECLARE("testTimer", count, period, normaliseParameters);
+					PARAM_DECLARE("testTimer", period, count, normaliseParameters);
 				} testTimer;
 
 				PARAM_DECLARE("Debug", targetID, motorDriverSettings, testTimer);

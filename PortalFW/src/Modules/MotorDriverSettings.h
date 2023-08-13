@@ -49,7 +49,7 @@ namespace Modules {
 		bool processIncomingByKey(const char * key, Stream &) override;
 
 		struct {
-			MicrostepResolution microStepResolution = MicrostepResolution::_256;
+			MicrostepResolution microStepResolution = MicrostepResolution::_128;
 			bool sleep = false;
 			Amps current = 0.1f;
 		} state;

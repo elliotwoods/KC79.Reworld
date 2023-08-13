@@ -57,6 +57,10 @@ namespace Modules {
 #ifndef GUI_DISABLED
 		this->gui->update();
 #endif
+		// this->motorDriverSettings->setCurrent(0.15f);
+		// this->motorDriverA->testRoutine();
+		// this->motorDriverB->testRoutine();
+		// this->motorDriverSettings->setCurrent(0.05f);
 	}
 
 	//----------
