@@ -10,7 +10,7 @@
 #include "HomeSwitch.h"
 
 // Above this the device locks up because interrupts are too rapid
-#define MOTION_MAX_VELOCITY 80000
+#define MOTION_MAX_SPEED 80000
 
 namespace Modules {
 	class MotionControl : public Base {
@@ -18,6 +18,12 @@ namespace Modules {
 		typedef int32_t Steps;
 		typedef int32_t StepsPerSecond;
 		typedef int32_t StepsPerSecondPerSecond;
+
+		struct MotionState {
+			bool motorRunning = false;
+			StepsPerSecond speed = 0;
+			bool direction = true;
+		};
 
 		MotionControl(MotorDriver&, HomeSwitch&);
 
@@ -27,9 +33,12 @@ namespace Modules {
 		void setTargetPosition(Steps steps);
 		void setMaximumVelocty(StepsPerSecond stepsPerSecond);
 		void setMaximumAcceleration(StepsPerSecondPerSecond stepsPerSecondPerSecond);
+
+		void stop();
 	protected:
 		bool processIncomingByKey(const char * key, Stream &) override;
 		void updateMotion();
+		MotionState calculateMotionState(unsigned long dt_us) const;
 
 		MotorDriver& motorDriver;
 		HomeSwitch& homeSwitch;
@@ -41,17 +50,17 @@ namespace Modules {
 		} timer;
 
 		struct {
-			StepsPerSecond maximumVelocity = 100000;
+			StepsPerSecond maximumSpeed = 100000;
 			StepsPerSecondPerSecond acceleration = 500;
-			StepsPerSecond minimumVelocity = 1000;
+			StepsPerSecond minimumSpeed = 1000;
+
+			int64_t positionEpsilon = 1;
 		} motionProfile;
 
 		uint32_t lastTime = 0;
 		Steps targetPosition = 0;
 
-		struct {
-			Steps position = 0;
-			StepsPerSecond velocity = 0;
-		} currentState;
+		Steps position = 0;
+		MotionState currentMotionState;
 	};
 }

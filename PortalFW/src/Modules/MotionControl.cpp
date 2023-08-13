@@ -15,19 +15,33 @@ namespace Modules {
 		this->timer.channel = STM_PIN_CHANNEL(pinmap_function(stepPin, PinMap_TIM));
 		
 		this->timer.hardwareTimer->setMode(this->timer.channel
-			, TIMER_OUTPUT_COMPARE_PWM1, stepPin);
+			, TIMER_OUTPUT_COMPARE_PWM1
+			, stepPin);
 		
-		this->timer.hardwareTimer->setOverflow(10000, MICROSEC_FORMAT);
+		this->timer.hardwareTimer->setOverflow(10000000, MICROSEC_FORMAT);
 		this->timer.hardwareTimer->setCaptureCompare(this->timer.channel
 			, 127
 			, TimerCompareFormat_t::RESOLUTION_8B_COMPARE_FORMAT);
-
+		this->timer.hardwareTimer->pause();
 
 		// Setup the interrupt
 		this->timer.hardwareTimer->attachInterrupt([this]() {
-			this->currentState.position++;
+			if(!this->currentMotionState.motorRunning) {
+				// Interrupt is coming from elsewhere
+				return;
+			}
+
+			if(this->currentMotionState.direction) {
+				this->position++;
+			}
+			else {
+				this->position--;
+			}
+
+			if(this->position == this->targetPosition) {
+				this->stop();
+			}
 		});
-		this->timer.hardwareTimer->resume();
 	}
 
 	//----------
@@ -41,11 +55,26 @@ namespace Modules {
 	void
 	MotionControl::update()
 	{
-		if(this->motionProfile.maximumVelocity > MOTION_MAX_VELOCITY) {
-			this->motionProfile.maximumVelocity = MOTION_MAX_VELOCITY;
+		if(this->motionProfile.maximumSpeed > MOTION_MAX_SPEED) {
+			this->motionProfile.maximumSpeed = MOTION_MAX_SPEED;
 		}
 
 		this->updateMotion();
+	}
+
+	//----------
+	void
+	MotionControl::stop()
+	{
+		this->motorDriver.setEnabled(false);
+		this->currentMotionState.motorRunning = false;
+
+		if(this->timer.running) {
+			this->timer.hardwareTimer->pause();
+			this->timer.running = false;
+		}
+
+		this->currentMotionState.speed = 0;
 	}
 
 	//----------
@@ -77,9 +106,9 @@ namespace Modules {
 					}
 				}
 
-				// VELOCITY
+				// SPEED
 				if(arraySize >= 2) {
-					if(!msgpack::readInt<int32_t>(stream, this->motionProfile.maximumVelocity)) {
+					if(!msgpack::readInt<int32_t>(stream, this->motionProfile.maximumSpeed)) {
 						return false;
 					}
 				}
@@ -91,9 +120,9 @@ namespace Modules {
 					}
 				}
 
-				// MIN VELOCITY
+				// MIN SPEED
 				if(arraySize >= 4) {
-					if(!msgpack::readInt<int32_t>(stream, this->motionProfile.minimumVelocity)) {
+					if(!msgpack::readInt<int32_t>(stream, this->motionProfile.minimumSpeed)) {
 						return false;
 					}
 				}
@@ -109,89 +138,167 @@ namespace Modules {
 	void
 	MotionControl::updateMotion()
 	{
-		// Firstly let's try a version where always moving in one direction
-
 		// Calculate a dt value in microseconds
 		auto now = micros();
 		auto dt = now - this->lastTime;
 		this->lastTime = now;
 
-		// Check if we need to move or not
-		if(this->targetPosition <= this->currentState.position) {
-			this->motorDriver.setEnabled(false);
-			this->timer.hardwareTimer->pause();
-			this->timer.running = false;
-			this->currentState.velocity = 0; // reset velocity for next movement
-			return;
+		auto motionState = this->calculateMotionState(dt);
+
+		if(!motionState.motorRunning && this->currentMotionState.motorRunning) {
+			// Stop all motion
+			this->stop();
+		}
+
+		if(motionState.motorRunning) {
+			// Run with motionState
+
+			// Run the motor
+			this->motorDriver.setEnabled(true);
+			this->currentMotionState.motorRunning = true;
+
+			// Set the speed
+			this->timer.hardwareTimer->setOverflow(motionState.speed
+				, TimerFormat_t::HERTZ_FORMAT);
+			this->currentMotionState.speed = motionState.speed;
+
+			// Set 50% duty (always call this after setting speed)
+			this->timer.hardwareTimer->setCaptureCompare(this->timer.channel
+				, 127
+				, TimerCompareFormat_t::RESOLUTION_8B_COMPARE_FORMAT);
+
+			// Set the direction
+			this->motorDriver.setDirection(motionState.direction);
+			this->currentMotionState.direction = motionState.direction;
+
+			// Start the timer (if paused)
+			if(!this->timer.running) {
+				this->timer.hardwareTimer->resume();
+				this->timer.running = true;
+			}
+		}
+
+		// Print a debug message whilst moving
+		if(this->currentMotionState.motorRunning) {
+			char message[64];
+			auto velocity = this->currentMotionState.direction
+				? this->currentMotionState.speed
+				: -this->currentMotionState.speed;
+			sprintf(message, "%d -> %d (%d)"
+				, this->position
+				, this->targetPosition
+				, velocity);
+			log(LogLevel::Status, message);
+		}
+	}
+
+	//----------
+	MotionControl::MotionState
+	MotionControl::calculateMotionState(unsigned long dt_us) const
+	{
+		Steps deltaToTarget = this->targetPosition - this->position;
+		Steps distanceToTarget = abs(deltaToTarget);
+
+		// Check if we don't need to move
+		// Warning : if we changed the targetPosition in the middle of a move then there's a risk that
+		// we hit the targetPosition at a high velocity. The only solution to that is to re-home
+		// We could also consider to hold the motor enabled high for Xms after.
+		if(distanceToTarget <= this->motionProfile.positionEpsilon) {
+			return MotionState {
+				false
+				, 0
+				, true
+			};
 		}
 
 		// We need to move
 
+		bool directionToTarget = this->targetPosition - position > 0;
+		StepsPerSecond maxDeltaV = this->motionProfile.acceleration * dt_us / 1000000;
+
+		auto speed = this->currentMotionState.speed;
+
+		// Do we need to change direction?
+		if(this->currentMotionState.direction != directionToTarget) {
+			if(this->currentMotionState.speed > 0) {
+				// We're moving away from target, needs to accelerate towards target first
+				
+				speed -= maxDeltaV;
+
+				if(speed < 0) {
+					// decceleration resulted in direction change
+					return MotionState {
+						true
+						, -speed
+						, directionToTarget
+					};
+				}
+				else {
+					// still moving in same direction, but deccelerating to change direction
+					return MotionState {
+						true
+						, speed
+						, this->currentMotionState.direction
+					};
+				}
+			}
+			// else we're not really moving at all, so just presume we're stationary and need to accelerate
+			// therefore continue...
+		}
+
+		// We are moving towards target
 		// Are we accelerating or deccelerating?
 		bool needsDeccelerate = false;
-		if(this->currentState.velocity > this->motionProfile.minimumVelocity) {
-			auto remainingSteps = this->targetPosition - this->currentState.position;
+		{
+			// We're travelling towards target and may be close to the target and need to deccelerate, let's check
 
 			// Calculate the time available in rest of motion profile if it's all in decceleration
-			auto timeLeftInMotionProfile = (float) remainingSteps * 2.0f / (float) this->currentState.velocity;
+			auto timeLeftInMotionProfile = (float) distanceToTarget * 2.0f / (float) speed;
 
 			// Calculate time it would take to deccelerate to v=0
-			auto timeItWouldTakeToDeccelerate = (float) this->currentState.velocity / (float) this->motionProfile.acceleration;
+			auto timeItWouldTakeToDeccelerate = (float) speed / (float) this->motionProfile.acceleration;
 
 			// Decide if we should be deccelerating
 			if(timeLeftInMotionProfile <= timeItWouldTakeToDeccelerate) {
 				needsDeccelerate = true;
 			}
 		}
-		micros();
+
 		if(!needsDeccelerate) {
 			// (1) - Accelerating or top speed
 
-			if(this->currentState.velocity < this->motionProfile.maximumVelocity) {
+			if(speed < this->motionProfile.maximumSpeed) {
 				// Accelerate
-				this->currentState.velocity += this->motionProfile.acceleration * dt / 1000000;
+				speed += maxDeltaV;
 			}
 
 			// Cap speed
-			if(this->currentState.velocity >= this->motionProfile.maximumVelocity) {
-				this->currentState.velocity = this->motionProfile.maximumVelocity;
+			if(speed > this->motionProfile.maximumSpeed) {
+				speed = this->motionProfile.maximumSpeed;
 			}
 			
+			return MotionState {
+				true
+				, speed
+				, directionToTarget
+			};
 		}
 		else {
 			// (2) - Deccelerating
 
-			if(this->currentState.velocity > this->motionProfile.minimumVelocity) {
-				// Deccelerate
-				this->currentState.velocity -= this->motionProfile.acceleration * dt / 1000000;
+			// Deccelerate
+			speed -= maxDeltaV;
+
+			// Cap lowest speed
+			if(speed < this->motionProfile.minimumSpeed) {
+				speed = this->motionProfile.minimumSpeed;
 			}
-		}
 
-		// Set the velocity
-		this->timer.hardwareTimer->setOverflow(this->currentState.velocity, TimerFormat_t::HERTZ_FORMAT);
-
-		// Set 50% duty
-		this->timer.hardwareTimer->setCaptureCompare(this->timer.channel
-			, 127
-			, TimerCompareFormat_t::RESOLUTION_8B_COMPARE_FORMAT);
-
-		// Enable the motor driver for the movements to happen
-		this->motorDriver.setEnabled(true);
-
-		// Start the timer (if paused)
-		if(!this->timer.running) {
-			this->timer.hardwareTimer->resume();
-			this->timer.running = true;
-		}
-
-		// Print a debug message whilst moving
-		{
-			char message[64];
-			sprintf(message, "%d -> %d (%d)"
-				, this->currentState.position
-				, this->targetPosition
-				, this->currentState.velocity);
-			log(LogLevel::Status, message);
+			return MotionState {
+				true
+				, speed
+				, directionToTarget
+			};
 		}
 	}
 }

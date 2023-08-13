@@ -44,8 +44,8 @@ namespace Modules {
 		this->motionControlA = new MotionControl(*this->motorDriverA, *this->homeSwitchA);
 		this->motionControlA->setup();
 
-		this->motionControlB = new MotionControl(*this->motorDriverB, *this->homeSwitchB);
-		this->motionControlB->setup();
+		//this->motionControlB = new MotionControl(*this->motorDriverB, *this->homeSwitchB);
+		//this->motionControlB->setup();
 	}
 
 	//----------
@@ -60,7 +60,7 @@ namespace Modules {
 		this->homeSwitchA->update();
 		this->homeSwitchB->update();
 		this->motionControlA->update();
-		this->motionControlB->update();
+		//this->motionControlB->update();
 
 #ifndef GUI_DISABLED
 		this->gui->update();
