@@ -82,6 +82,12 @@ namespace Modules {
 					float current = -1;
 					int microstepResolution = -1;
 				} motorDriverSettings;
+
+				struct {
+					struct {
+						int position;
+					} continuousMove;
+				} motionControl;
 			} cachedValues;
 		} debug;
 	};

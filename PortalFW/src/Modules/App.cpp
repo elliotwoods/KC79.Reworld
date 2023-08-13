@@ -72,7 +72,7 @@ namespace Modules {
 
 		// Indicate if either driver is enabled
 		digitalWrite(PB4
-		, this->motorDriverA->getEnabled() || this->motorDriverB->getEnabled())
+			, this->motorDriverA->getEnabled() || this->motorDriverB->getEnabled());
 	}
 
 	//----------

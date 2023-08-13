@@ -61,12 +61,16 @@ namespace Modules {
 				this->parameters.debug.motionControl.continuousMotion.position =
 					floor(this->parameters.debug.motionControl.continuousMotion.position);
 
-				this->move(this->parameters.debug.targetID
-					, Axis::A
-					, this->parameters.debug.motionControl.continuousMotion.position
-					, this->parameters.debug.motionControl.maxVelocity
-					, this->parameters.debug.motionControl.acceleration
-					, this->parameters.debug.motionControl.minVelocity);
+				if (this->debug.cachedValues.motionControl.continuousMove.position != this->parameters.debug.motionControl.continuousMotion.position) {
+					this->move(this->parameters.debug.targetID
+						, Axis::A
+						, this->parameters.debug.motionControl.continuousMotion.position
+						, this->parameters.debug.motionControl.maxVelocity
+						, this->parameters.debug.motionControl.acceleration
+						, this->parameters.debug.motionControl.minVelocity);
+
+					this->debug.cachedValues.motionControl.continuousMove.position = this->parameters.debug.motionControl.continuousMotion.position;
+				}
 			}
 		}
 		
