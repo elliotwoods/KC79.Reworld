@@ -10,6 +10,7 @@
 #include "ID.h"
 #include "RS485.h"
 #include "HomeSwitch.h"
+#include "MotionControl.h"
 
 #include <memory>
 #include <vector>
@@ -33,6 +34,9 @@ namespace Modules {
 
 		HomeSwitch * homeSwitchA;
 		HomeSwitch * homeSwitchB;
+
+		MotionControl * motionControlA;
+		MotionControl * motionControlB;
 	protected:
 		bool processIncomingByKey(const char * key, Stream &) override;
 	};

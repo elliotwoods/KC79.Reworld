@@ -16,4 +16,7 @@ void loop() {
 	analogWrite(PB3, (millis() % 1000) / 64);
 	
 	app.update();
+
+	// We need some delay to allow for bigger numbers in MotionControl (otherwise can't accelerate)
+	HAL_Delay(1);
 }

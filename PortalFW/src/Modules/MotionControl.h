@@ -9,6 +9,9 @@
 #include "MotorDriver.h"
 #include "HomeSwitch.h"
 
+// Above this the device locks up because interrupts are too rapid
+#define MOTION_MAX_VELOCITY 80000
+
 namespace Modules {
 	class MotionControl : public Base {
 	public:
@@ -26,19 +29,29 @@ namespace Modules {
 		void setMaximumAcceleration(StepsPerSecondPerSecond stepsPerSecondPerSecond);
 	protected:
 		bool processIncomingByKey(const char * key, Stream &) override;
-		
+		void updateMotion();
+
 		MotorDriver& motorDriver;
 		HomeSwitch& homeSwitch;
 
 		struct {
-			StepsPerSecond minimumVelocity = 1000;
-			StepsPerSecond maximumVelocity = 100000;
-			StepsPerSecondPerSecond maximumAcceleration = 1000;
-		} motionProfile;
+			HardwareTimer* hardwareTimer;
+			uint32_t channel;
+			bool running = false;
+		} timer;
 
 		struct {
-			StepsPerSecond position;
-			
-		} motionState;
+			StepsPerSecond maximumVelocity = 100000;
+			StepsPerSecondPerSecond acceleration = 500;
+			StepsPerSecond minimumVelocity = 1000;
+		} motionProfile;
+
+		uint32_t lastTime = 0;
+		Steps targetPosition = 0;
+
+		struct {
+			Steps position = 0;
+			StepsPerSecond velocity = 0;
+		} currentState;
 	};
 }

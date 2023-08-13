@@ -54,6 +54,13 @@ namespace Modules {
 	}
 
 	//----------
+	const MotorDriver::Config&
+	MotorDriver::getConfig() const
+	{
+		return this->config;
+	}
+
+	//----------
 	void
 	MotorDriver::setEnabled(bool value)
 	{

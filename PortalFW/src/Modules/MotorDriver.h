@@ -23,6 +23,8 @@ namespace Modules {
 
 		const char * getTypeName() const;
 
+		const Config& getConfig() const;
+
 		void setEnabled(bool);
 		bool getEnabled() const;
 

@@ -40,6 +40,12 @@ namespace Modules {
 
 		this->homeSwitchB = new HomeSwitch(HomeSwitch::Config::B());
 		this->homeSwitchB->setup();
+
+		this->motionControlA = new MotionControl(*this->motorDriverA, *this->homeSwitchA);
+		this->motionControlA->setup();
+
+		this->motionControlB = new MotionControl(*this->motorDriverB, *this->homeSwitchB);
+		this->motionControlB->setup();
 	}
 
 	//----------
@@ -53,6 +59,8 @@ namespace Modules {
 		this->motorDriverB->update();
 		this->homeSwitchA->update();
 		this->homeSwitchB->update();
+		this->motionControlA->update();
+		this->motionControlB->update();
 
 #ifndef GUI_DISABLED
 		this->gui->update();
@@ -80,6 +88,13 @@ namespace Modules {
 		}
 		if(strcmp(key, "motorDriverB") == 0) {
 			return this->motorDriverB->processIncoming(stream);
+		}
+
+		if(strcmp(key, "motionControlA") == 0) {
+			return this->motionControlA->processIncoming(stream);
+		}
+		if(strcmp(key, "motionControlB") == 0) {
+			return this->motionControlB->processIncoming(stream);
 		}
 
 		return false;

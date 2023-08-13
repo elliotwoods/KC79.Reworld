@@ -68,6 +68,36 @@ namespace Modules {
 		inspector->addButton("testTimer B", [this]() {
 			this->runTestTimer(this->parameters.debug.targetID.get(), Axis::B);
 			});
+
+		inspector->addButton("move A", [this]() {
+			auto targetPosition = this->parameters.debug.motionControl.targetPosition;
+			if (this->parameters.debug.motionControl.relativeMove) {
+				targetPosition += this->parameters.debug.motionControl.movement;
+				this->parameters.debug.motionControl.targetPosition.set(targetPosition);
+			}
+
+			this->move(this->parameters.debug.targetID.get()
+				, Axis::A
+				, this->parameters.debug.motionControl.targetPosition
+				, this->parameters.debug.motionControl.maxVelocity
+				, this->parameters.debug.motionControl.acceleration
+				, this->parameters.debug.motionControl.minVelocity);
+			});
+
+		inspector->addButton("move B", [this]() {
+			auto targetPosition = this->parameters.debug.motionControl.targetPosition;
+			if (this->parameters.debug.motionControl.relativeMove) {
+				targetPosition += this->parameters.debug.motionControl.movement;
+				this->parameters.debug.motionControl.targetPosition.set(targetPosition);
+			}
+
+			this->move(this->parameters.debug.targetID.get()
+				, Axis::B
+				, this->parameters.debug.motionControl.targetPosition
+				, this->parameters.debug.motionControl.maxVelocity
+				, this->parameters.debug.motionControl.acceleration
+				, this->parameters.debug.motionControl.minVelocity);
+			});
 	}
 
 	//---------
@@ -316,6 +346,92 @@ namespace Modules {
 					msgpack_pack_array(&packer, 2);
 					msgpack_pack_uint32(&packer, period);
 					msgpack_pack_uint32(&packer, count);
+				}
+			}
+		}
+
+		auto header = rs485->makeHeader(target);
+
+		vector<uint8_t> body;
+		body.assign((uint8_t*)(messageBuffer.data)
+			, (uint8_t*)(messageBuffer.data + messageBuffer.size));
+
+		rs485->transmitHeaderAndBody(header, body);
+		msgpack_sbuffer_destroy(&messageBuffer);
+	}
+
+	//---------
+	void
+		ModuleControl::move(RS485::Target target
+			, Axis axis
+			, int32_t targetPosition
+			, int32_t maxVelocity
+			, int32_t acceleration
+			, int32_t minVelocity)
+	{
+		auto rs485 = this->rs485.lock();
+		if (!rs485) {
+			ofLogError("No RS485");
+			return;
+		}
+
+		auto period = this->parameters.debug.testTimer.period.get();
+		auto count = this->parameters.debug.testTimer.count.get();
+
+		if (this->parameters.debug.testTimer.normaliseParameters.get()) {
+			auto microstepResolution = this->parameters.debug.motorDriverSettings.microstepResolution.get();
+			period /= microstepResolution;
+			count *= microstepResolution;
+		}
+
+		msgpack_sbuffer messageBuffer;
+		msgpack_packer packer;
+		msgpack_sbuffer_init(&messageBuffer);
+		msgpack_packer_init(&packer
+			, &messageBuffer
+			, msgpack_sbuffer_write);
+
+		{
+			msgpack_pack_map(&packer, 1);
+
+			// (0) - Key
+			{
+				string key;
+				switch (axis) {
+				case Axis::A:
+					key = "motionControlA";
+					break;
+				case Axis::B:
+					key = "motionControlB";
+					break;
+				default:
+					break;
+				}
+
+				msgpack_pack_str(&packer, key.size());
+				msgpack_pack_str_body(&packer, key.c_str(), key.size());
+			}
+
+			// (0) - Value
+			{
+				msgpack_pack_map(&packer, 1);
+
+				// (1) - Key
+				{
+					string key = "move";
+
+					msgpack_pack_str(&packer, key.size());
+					msgpack_pack_str_body(&packer, key.c_str(), key.size());
+				}
+
+				// (1) - Value
+				{
+					// Expecting an array [targetPosition, maxVelocity, acceleration, minVelocity]
+					msgpack_pack_array(&packer, 4);
+					msgpack_pack_int32(&packer, targetPosition);
+					msgpack_pack_int32(&packer, maxVelocity);
+					msgpack_pack_int32(&packer, acceleration);
+					msgpack_pack_int32(&packer, minVelocity);
 				}
 			}
 		}

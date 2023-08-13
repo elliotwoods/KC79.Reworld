@@ -25,6 +25,14 @@ namespace Modules {
 
 		void runTestRoutine(RS485::Target target, Axis);
 		void runTestTimer(RS485::Target target, Axis);
+
+		void move(RS485::Target target
+			, Axis
+			, int32_t targetPosition
+			, int32_t maxVelocity
+			, int32_t acceleration
+			, int32_t minVelocity);
+
 	protected:
 		weak_ptr<RS485> rs485;
 
@@ -37,14 +45,26 @@ namespace Modules {
 					PARAM_DECLARE("motorDriverSettings", current, microstepResolution);
 				} motorDriverSettings;
 
-				struct timerTest : ofParameterGroup {
+				struct : ofParameterGroup {
 					ofParameter<int> count{ "Count", 4000, 1, 10000 };
 					ofParameter<int> period{ "Period [us]", 500, 10, 10000 };
 					ofParameter<bool> normaliseParameters{ "Normalise parameters", true };
 					PARAM_DECLARE("testTimer", count, period, normaliseParameters);
 				} testTimer;
 
-				PARAM_DECLARE("Debug", targetID, motorDriverSettings, testTimer);
+				struct : ofParameterGroup {
+					ofParameter<int> targetPosition{ "Target position", 10000 };
+					
+					ofParameter<int> maxVelocity{ "Max velocity", 100000 };
+					ofParameter<int> acceleration{ "Acceleration", 500 };
+					ofParameter<int> minVelocity{ "Min velocity", 1000 };
+
+					ofParameter<bool> relativeMove{ "Relative move", true };
+					ofParameter<int> movement{ "Movement", 10000 };
+					PARAM_DECLARE("Motion Control", targetPosition, maxVelocity, acceleration, minVelocity, relativeMove, movement);
+				} motionControl;
+
+				PARAM_DECLARE("Debug", targetID, motorDriverSettings, testTimer, motionControl);
 			} debug;
 			PARAM_DECLARE("ModuleControl", debug)
 		} parameters;
