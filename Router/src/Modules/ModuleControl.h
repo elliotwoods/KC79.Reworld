@@ -40,7 +40,7 @@ namespace Modules {
 			struct : ofParameterGroup {
 				ofParameter<int> targetID{ "Target ID", 1 };
 				struct : ofParameterGroup {
-					ofParameter<float> current{ "Current", 0.1f, 0.0f, 0.3f };
+					ofParameter<float> current{ "Current", 0.15f, 0.0f, 0.3f };
 					ofParameter<int> microstepResolution{ "Microstep resolution", 128, 1, 256 };
 					PARAM_DECLARE("motorDriverSettings", current, microstepResolution);
 				} motorDriverSettings;
@@ -55,13 +55,20 @@ namespace Modules {
 				struct : ofParameterGroup {
 					ofParameter<int> targetPosition{ "Target position", 10000 };
 					
-					ofParameter<int> maxVelocity{ "Max velocity", 100000 };
-					ofParameter<int> acceleration{ "Acceleration", 500 };
+					ofParameter<int> maxVelocity{ "Max velocity", 60000 };
+					ofParameter<int> acceleration{ "Acceleration", 10000 };
 					ofParameter<int> minVelocity{ "Min velocity", 1000 };
 
 					ofParameter<bool> relativeMove{ "Relative move", true };
 					ofParameter<int> movement{ "Movement", 10000 };
-					PARAM_DECLARE("Motion Control", targetPosition, maxVelocity, acceleration, minVelocity, relativeMove, movement);
+
+					struct : ofParameterGroup {
+						ofParameter<bool> enabled{ "Enabled", false };
+						ofParameter<float> position{ "Position", 0, 0, 10000};
+						ofParameter<int> range{ "Range", 600000 };
+						PARAM_DECLARE("Continuous motion", enabled, position, range);
+					} continuousMotion;
+					PARAM_DECLARE("Motion Control", targetPosition, maxVelocity, acceleration, minVelocity, relativeMove, movement, continuousMotion);
 				} motionControl;
 
 				PARAM_DECLARE("Debug", targetID, motorDriverSettings, testTimer, motionControl);

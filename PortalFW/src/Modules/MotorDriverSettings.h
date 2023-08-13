@@ -51,7 +51,7 @@ namespace Modules {
 		struct {
 			MicrostepResolution microStepResolution = MicrostepResolution::_128;
 			bool sleep = false;
-			Amps current = 0.1f;
+			Amps current = 0.15f;
 		} state;
 	};
 }

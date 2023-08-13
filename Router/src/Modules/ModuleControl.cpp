@@ -43,6 +43,33 @@ namespace Modules {
 					, this->parameters.debug.motorDriverSettings.microstepResolution.get());
 			}
 		}
+
+		// Continuous motion
+		{
+			// Update range for continuous motion
+			{
+				if (this->parameters.debug.motionControl.continuousMotion.range.get()
+					!= this->parameters.debug.motionControl.continuousMotion.position.getMax()) {
+					this->parameters.debug.motionControl.continuousMotion.position.setMax(
+						this->parameters.debug.motionControl.continuousMotion.range.get()
+					);
+				}
+			}
+
+			if (this->parameters.debug.motionControl.continuousMotion.enabled) {
+				// Make it an int
+				this->parameters.debug.motionControl.continuousMotion.position =
+					floor(this->parameters.debug.motionControl.continuousMotion.position);
+
+				this->move(this->parameters.debug.targetID
+					, Axis::A
+					, this->parameters.debug.motionControl.continuousMotion.position
+					, this->parameters.debug.motionControl.maxVelocity
+					, this->parameters.debug.motionControl.acceleration
+					, this->parameters.debug.motionControl.minVelocity);
+			}
+		}
+		
 	}
 
 	//---------

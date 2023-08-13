@@ -69,6 +69,10 @@ namespace Modules {
 		// this->motorDriverA->testRoutine();
 		// this->motorDriverB->testRoutine();
 		// this->motorDriverSettings->setCurrent(0.05f);
+
+		// Indicate if either driver is enabled
+		digitalWrite(PB4
+		, this->motorDriverA->getEnabled() || this->motorDriverB->getEnabled())
 	}
 
 	//----------
