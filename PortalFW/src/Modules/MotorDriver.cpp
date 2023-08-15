@@ -92,6 +92,15 @@ namespace Modules {
 
 	//----------
 	void
+	MotorDriver::step(uint16_t stepHalfCycleTime_us) const
+	{
+		digitalWrite(this->config.Step, HIGH);
+		digitalWrite(this->config.Step, LOW);
+		delayMicroseconds(stepHalfCycleTime_us);
+	}
+
+	//----------
+	void
 	MotorDriver::testSteps(size_t stepCount, uint32_t delayBetweenSteps)
 	{
 		for(size_t i=0; i<stepCount; i++) {

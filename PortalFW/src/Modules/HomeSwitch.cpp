@@ -71,4 +71,18 @@ namespace Modules {
 			digitalWrite(PB4, HIGH);
 		}
 	}
+
+	//-----------
+	bool
+	HomeSwitch::getRightActive() const
+	{
+		return digitalRead(this->config.pinRightSwitch) == LOW;
+	}
+
+	//-----------
+	bool
+	HomeSwitch::getLeftActive() const
+	{
+		return digitalRead(this->config.pinLeftSwitch) == LOW;
+	}
 }

@@ -41,7 +41,7 @@ namespace Modules {
 		this->homeSwitchB = new HomeSwitch(HomeSwitch::Config::B());
 		this->homeSwitchB->setup();
 
-		this->motionControlA = new MotionControl(*this->motorDriverA, *this->homeSwitchA);
+		this->motionControlA = new MotionControl(*this->motorDriverSettings, *this->motorDriverA, *this->homeSwitchA);
 		this->motionControlA->setup();
 
 		//this->motionControlB = new MotionControl(*this->motorDriverB, *this->homeSwitchB);

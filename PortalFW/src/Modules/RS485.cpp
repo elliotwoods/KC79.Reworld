@@ -77,16 +77,14 @@ namespace Modules {
 		// Check it's a message for us
 		bool weShouldProcess = false;
 		{
-			static const char * formatError = "Message format invalid";
-
 			// We're expecting a 3-element array
 			{
 				size_t arraySize;
 				if(!msgpack::readArraySize(cobsStream, arraySize)) {
-					return Exception(formatError);
+					return Exception::MessageFormatError();
 				};
 				if(arraySize < 3) {
-					return Exception(formatError);
+					return Exception::MessageFormatError();
 				}
 			}
 
@@ -94,7 +92,7 @@ namespace Modules {
 			int8_t targetAddress;
 			{
 				if(!msgpack::readInt<int8_t>(cobsStream, targetAddress)) {
-					return Exception(formatError);
+					return Exception::MessageFormatError();
 				}
 
 				// An address of -1 means it's addressed to all devices
@@ -107,7 +105,7 @@ namespace Modules {
 			{
 				int8_t _;
 				if(!msgpack::readInt<int8_t>(cobsStream, _)) {
-					return Exception(formatError);
+					return Exception::MessageFormatError();
 				}
 			}
 

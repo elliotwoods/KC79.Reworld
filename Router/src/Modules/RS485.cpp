@@ -97,10 +97,6 @@ namespace Modules {
 			inspector->addButton("Send poll", [this]() {
 				this->transmitPoll((Target) this->parameters.debug.targetID.get());
 				}, ' ');
-
-			inspector->addButton("Send test message", [this]() {
-				this->sendTestMessage();
-				}, 'm');
 		}
 
 		{
@@ -381,14 +377,5 @@ namespace Modules {
 		RS485::processIncoming(const nlohmann::json& json)
 	{
 		cout << "Rx : " << json.dump(4) << endl;
-	}
-	
-	//----------
-	void
-		RS485::sendTestMessage()
-	{
-		// Send a Nil to Module ID 1
-		nlohmann::json testPacket;
-		this->transmitMessage(1, testPacket);
 	}
 }

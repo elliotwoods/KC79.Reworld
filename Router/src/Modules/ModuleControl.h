@@ -23,6 +23,7 @@ namespace Modules {
 		void setCurrent(RS485::Target target, float);
 		void setMicrostepResolution(RS485::Target target, int);
 
+		void zeroCurrentPosition(RS485::Target, Axis);
 		void runTestRoutine(RS485::Target target, Axis);
 		void runTestTimer(RS485::Target target, Axis);
 
@@ -32,6 +33,9 @@ namespace Modules {
 			, int32_t maxVelocity
 			, int32_t acceleration
 			, int32_t minVelocity);
+
+		void measureBacklash(RS485::Target
+			, Axis);
 
 	protected:
 		weak_ptr<RS485> rs485;
@@ -68,7 +72,25 @@ namespace Modules {
 						ofParameter<int> range{ "Range", 600000 };
 						PARAM_DECLARE("Continuous motion", enabled, position, range);
 					} continuousMotion;
-					PARAM_DECLARE("Motion Control", targetPosition, maxVelocity, acceleration, minVelocity, relativeMove, movement, continuousMotion);
+
+					struct : ofParameterGroup {
+						ofParameter<int> timeout_s{ "Timeout [s]", 30, 1, 120 };
+						ofParameter<int> fastSpeed{ "Fast Speed [Hz]", 80000, 100, 1000000 };
+						ofParameter<int> slowSpeed{ "Slow Speed [Hz]", 1000, 100, 1000000 };
+						ofParameter<int> backOffDistance{ "Back off distance [steps]", 1000, 1, 1000000 };
+						ofParameter<int> debounceDistance{ "Debounce distance [steps]", 2, 1, 1000000 };
+						PARAM_DECLARE("Backlash measure", timeout_s, fastSpeed, slowSpeed, backOffDistance, debounceDistance);
+					} measureBacklash;
+
+					PARAM_DECLARE("Motion Control"
+						, targetPosition
+						, maxVelocity
+						, acceleration
+						, minVelocity
+						, relativeMove
+						, movement
+						, continuousMotion
+						, measureBacklash);
 				} motionControl;
 
 				PARAM_DECLARE("Debug", targetID, motorDriverSettings, testTimer, motionControl);

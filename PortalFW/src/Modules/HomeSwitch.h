@@ -23,6 +23,9 @@ namespace Modules {
 
 		static std::set<HomeSwitch*> allHomeSwitches;
 		void handleInterrupt();
+
+		bool getRightActive() const;
+		bool getLeftActive() const;
 	protected:
 		const Config config;
 	};

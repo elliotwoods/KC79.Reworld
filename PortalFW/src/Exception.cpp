@@ -16,6 +16,20 @@ Exception::None()
 }
 
 //-----------
+Exception
+Exception::MessageFormatError()
+{
+	return Exception("MessageFormatError");
+}
+
+//-----------
+Exception
+Exception::Timeout()
+{
+	return Exception("Timeout");
+}
+
+//-----------
 const char *
 Exception::what() const
 {

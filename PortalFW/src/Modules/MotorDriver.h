@@ -30,6 +30,9 @@ namespace Modules {
 
 		void setDirection(bool);
 		bool getDirection() const;
+		
+		// This is used in test and measurement routines only
+		void step(uint16_t stepHalfCycleTime_us = 1) const;
 
 		void testSteps(size_t stepCount, uint32_t delayBetweenSteps);
 		void testRoutine();

@@ -4,7 +4,12 @@
 
 struct Exception {
 	Exception(const char *);
+
 	static Exception None();
+
+	static Exception MessageFormatError();
+	static Exception Timeout();
+
 	const char * what() const;
 	operator bool() const;
 private:

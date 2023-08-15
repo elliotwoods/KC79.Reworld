@@ -84,6 +84,14 @@ namespace Modules {
 
 		inspector->addParameterGroup(this->parameters);
 
+		inspector->addButton("zeroCurrentPosition A", [this]() {
+			this->zeroCurrentPosition(this->parameters.debug.targetID.get(), Axis::A);
+			});
+
+		inspector->addButton("zeroCurrentPosition B", [this]() {
+			this->zeroCurrentPosition(this->parameters.debug.targetID.get(), Axis::B);
+			});
+
 		inspector->addButton("testRoutine A", [this]() {
 			this->runTestRoutine(this->parameters.debug.targetID.get(), Axis::A);
 			});
@@ -128,6 +136,16 @@ namespace Modules {
 				, this->parameters.debug.motionControl.maxVelocity
 				, this->parameters.debug.motionControl.acceleration
 				, this->parameters.debug.motionControl.minVelocity);
+			});
+
+		inspector->addButton("Measure backlash A", [this]() {
+			this->measureBacklash(this->parameters.debug.targetID.get()
+				, Axis::A);
+			});
+
+		inspector->addButton("Measure backlash B", [this]() {
+			this->measureBacklash(this->parameters.debug.targetID.get()
+				, Axis::B);
 			});
 	}
 
@@ -243,6 +261,72 @@ namespace Modules {
 		msgpack_sbuffer_destroy(&messageBuffer);
 
 		this->debug.cachedValues.motorDriverSettings.microstepResolution = value;
+	}
+
+	//---------
+	void
+		ModuleControl::zeroCurrentPosition(RS485::Target target, Axis axis)
+	{
+		auto rs485 = this->rs485.lock();
+		if (!rs485) {
+			ofLogError("No RS485");
+			return;
+		}
+
+		msgpack_sbuffer messageBuffer;
+		msgpack_packer packer;
+		msgpack_sbuffer_init(&messageBuffer);
+		msgpack_packer_init(&packer
+			, &messageBuffer
+			, msgpack_sbuffer_write);
+
+		{
+			msgpack_pack_map(&packer, 1);
+
+			// (0) - Key
+			{
+				string key;
+				switch (axis) {
+				case Axis::A:
+					key = "motionControlA";
+					break;
+				case Axis::B:
+					key = "motionControlB";
+					break;
+				default:
+					break;
+				}
+
+				msgpack_pack_str(&packer, key.size());
+				msgpack_pack_str_body(&packer, key.c_str(), key.size());
+			}
+
+			// (0) - Value
+			{
+				msgpack_pack_map(&packer, 1);
+
+				// (1) - Key
+				{
+					string key = "zeroCurrentPosition";
+					msgpack_pack_str(&packer, key.size());
+					msgpack_pack_str_body(&packer, key.c_str(), key.size());
+				}
+
+				// (1) - Value
+				{
+					msgpack_pack_nil(&packer);
+				}
+			}
+		}
+
+		auto header = rs485->makeHeader(target);
+
+		vector<uint8_t> body;
+		body.assign((uint8_t*)(messageBuffer.data)
+			, (uint8_t*)(messageBuffer.data + messageBuffer.size));
+
+		rs485->transmitHeaderAndBody(header, body);
+		msgpack_sbuffer_destroy(&messageBuffer);
 	}
 
 	//---------
@@ -463,6 +547,86 @@ namespace Modules {
 					msgpack_pack_int32(&packer, maxVelocity);
 					msgpack_pack_int32(&packer, acceleration);
 					msgpack_pack_int32(&packer, minVelocity);
+				}
+			}
+		}
+
+		auto header = rs485->makeHeader(target);
+
+		vector<uint8_t> body;
+		body.assign((uint8_t*)(messageBuffer.data)
+			, (uint8_t*)(messageBuffer.data + messageBuffer.size));
+
+		rs485->transmitHeaderAndBody(header, body);
+		msgpack_sbuffer_destroy(&messageBuffer);
+	}
+
+	//---------
+	void
+		ModuleControl::measureBacklash(RS485::Target target
+			, Axis axis)
+	{
+		auto rs485 = this->rs485.lock();
+		if (!rs485) {
+			ofLogError("No RS485");
+			return;
+		}
+
+		auto timeout_s = this->parameters.debug.motionControl.measureBacklash.timeout_s.get();
+		auto fastSpeed = this->parameters.debug.motionControl.measureBacklash.fastSpeed.get();
+		auto slowSpeed = this->parameters.debug.motionControl.measureBacklash.slowSpeed.get();
+		auto backOffDistance = this->parameters.debug.motionControl.measureBacklash.backOffDistance.get();
+		auto debounceDistance = this->parameters.debug.motionControl.measureBacklash.debounceDistance.get();
+
+		msgpack_sbuffer messageBuffer;
+		msgpack_packer packer;
+		msgpack_sbuffer_init(&messageBuffer);
+		msgpack_packer_init(&packer
+			, &messageBuffer
+			, msgpack_sbuffer_write);
+
+		{
+			msgpack_pack_map(&packer, 1);
+
+			// (0) - Key
+			{
+				string key;
+				switch (axis) {
+				case Axis::A:
+					key = "motionControlA";
+					break;
+				case Axis::B:
+					key = "motionControlB";
+					break;
+				default:
+					break;
+				}
+
+				msgpack_pack_str(&packer, key.size());
+				msgpack_pack_str_body(&packer, key.c_str(), key.size());
+			}
+
+			// (0) - Value
+			{
+				msgpack_pack_map(&packer, 1);
+
+				// (1) - Key
+				{
+					string key = "measureBacklash";
+
+					msgpack_pack_str(&packer, key.size());
+					msgpack_pack_str_body(&packer, key.c_str(), key.size());
+				}
+
+				// (1) - Value
+				{
+					// Expecting an array [timeout_s, stepHalfCycleTime_us]
+					msgpack_pack_array(&packer, 5);
+					msgpack_pack_uint8(&packer, timeout_s);
+					msgpack_pack_int32(&packer, fastSpeed);
+					msgpack_pack_int32(&packer, slowSpeed);
+					msgpack_pack_int32(&packer, backOffDistance);
+					msgpack_pack_int32(&packer, debounceDistance);
 				}
 			}
 		}

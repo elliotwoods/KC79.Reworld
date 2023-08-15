@@ -47,8 +47,6 @@ namespace Modules {
 		void receive();
 
 		void processIncoming(const nlohmann::json&);
-
-		void sendTestMessage();
 	protected:
 		ofSerial serial;
 		std::string connectedPortName; // only valid whilst initialised
