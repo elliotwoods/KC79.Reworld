@@ -52,6 +52,10 @@ namespace Modules {
 	void
 	MotionControl::enableInterrupt()
 	{
+		if(this->interruptEnabed) {
+			return;
+		}
+
 		// Setup the interrupt
 		this->timer.hardwareTimer->attachInterrupt([this]() {
 			if(this->currentMotionState.direction) {
@@ -71,26 +75,30 @@ namespace Modules {
 
 				if(this->backlashControl.positionWithinBacklash <= 0) {
 					// Not inside backlash region
-					this->position++;
+					this->position--;
 				}
 				else {
 					// Inside backlash region
-					this->backlashControl.positionWithinBacklash++;
+					this->backlashControl.positionWithinBacklash--;
 				}
-				this->position--;
 			}
 
 			if(this->position == this->targetPosition) {
 				this->stop();
 			}
 		});
+
+		this->interruptEnabed = true;
 	}
 
 	//----------
 	void
 	MotionControl::disableInterrupt()
 	{
-		this->timer.hardwareTimer->detachInterrupt();
+		if(this->interruptEnabed) {
+			this->timer.hardwareTimer->detachInterrupt();
+		}
+		this->interruptEnabed = false;
 	}
 
 	//----------
@@ -490,6 +498,12 @@ namespace Modules {
 
 		log(LogLevel::Status, "BLC : begin");
 
+		auto endRoutine = [this]() {
+			this->stop();
+			this->timer.hardwareTimer->detachInterrupt();
+			this->enableInterrupt();
+		};
+
 		// https://paper.dropbox.com/doc/KC79-Firmware-development-log--B9ww1dZ58Y0lrKt6fzBa9O8yAg-NaTWt2IkZT4ykJZeMERKP#:h2=Backlash-measure-algorithm
 		Steps backlashSize;
 		{
@@ -503,7 +517,7 @@ namespace Modules {
 			if(!homeSwitch.getForwardsActive()) {
 				this->run(true, settings.fastMoveSpeed);
 				while(!switchSeen.seenPressed) {
-					if (millis() > timeoutTime) { this->stop(); return Exception::Timeout(); }
+					if (millis() > timeoutTime) { endRoutine(); return Exception::Timeout(); }
 				}
 				this->stop();
 			}
@@ -515,7 +529,7 @@ namespace Modules {
 			{
 				this->run(false, settings.fastMoveSpeed);
 				while(this->position > positionSwitchRough - settings.backOffDistance * microStepsPerStep) {
-					if (millis() > timeoutTime) { this->stop(); return Exception::Timeout(); }
+					if (millis() > timeoutTime) { endRoutine(); return Exception::Timeout(); }
 				}
 				this->stop();
 			}
@@ -530,7 +544,7 @@ namespace Modules {
 			{
 				this->run(true, settings.slowMoveSpeed);
 				while(!switchSeen.seenPressed) {
-					if (millis() > timeoutTime) { this->stop(); return Exception::Timeout(); }
+					if (millis() > timeoutTime) { endRoutine(); return Exception::Timeout(); }
 				}
 				this->stop();
 			}
@@ -543,7 +557,7 @@ namespace Modules {
 				this->targetPosition = postitionSwitchAccurate + settings.debounceDistance * microStepsPerStep;
 				
 				while(this->position != this->targetPosition) {
-					if (millis() > timeoutTime) { this->stop(); return Exception::Timeout(); }
+					if (millis() > timeoutTime) { endRoutine(); return Exception::Timeout(); }
 					this->updateMotion();
 					HAL_Delay(1);
 				}
@@ -562,7 +576,7 @@ namespace Modules {
 			{
 				this->run(false, settings.slowMoveSpeed);
 				while(!switchSeen.seenNotPressed) {
-					if (millis() > timeoutTime) { this->stop(); return Exception::Timeout(); }
+					if (millis() > timeoutTime) { endRoutine(); return Exception::Timeout(); }
 				}
 				this->stop();
 			}
@@ -584,6 +598,9 @@ namespace Modules {
 			log(LogLevel::Status, message);
 		}
 		
+		this->backlashControl.systemBacklash = backlashSize;
+		
+		endRoutine();
 		return Exception::None();
 	}
 }

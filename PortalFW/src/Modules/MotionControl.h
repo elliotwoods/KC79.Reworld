@@ -95,6 +95,7 @@ namespace Modules {
 		uint32_t lastTime = 0;
 		Steps targetPosition = 0;
 
+		bool interruptEnabed = false;
 		Steps position = 0;
 		MotionState currentMotionState;
 	};
