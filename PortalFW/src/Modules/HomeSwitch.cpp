@@ -1,14 +1,6 @@
 #include "HomeSwitch.h"
 #include "Arduino.h"
 
-void
-interruptCallback()
-{
-	for(auto homeSwitch : Modules::HomeSwitch::allHomeSwitches) {
-		homeSwitch->handleInterrupt();
-	}
-}
-
 namespace Modules {
 #pragma mark HomeSwitch
 	//----------
@@ -20,8 +12,8 @@ namespace Modules {
 	{
 		Config config;
 		{
-			config.pinLeftSwitch = PC7;
-			config.pinRightSwitch = PC13;
+			config.pinBackwardsSwitch = PC7;
+			config.pinForwardsSwitch = PC13;
 		}
 
 		return config;
@@ -33,8 +25,8 @@ namespace Modules {
 	{
 		Config config;
 		{
-			config.pinLeftSwitch = PC14;
-			config.pinRightSwitch = PC15;
+			config.pinBackwardsSwitch = PC14;
+			config.pinForwardsSwitch = PC15;
 		}
 
 		return config;
@@ -45,10 +37,8 @@ namespace Modules {
 	HomeSwitch::HomeSwitch(const Config& config)
 	: config(config)
 	{
-		pinMode(this->config.pinLeftSwitch, INPUT);
-		pinMode(this->config.pinRightSwitch, INPUT);
-		attachInterrupt(digitalPinToInterrupt(this->config.pinLeftSwitch), interruptCallback, FALLING);
-		attachInterrupt(digitalPinToInterrupt(this->config.pinRightSwitch), interruptCallback, FALLING);
+		pinMode(this->config.pinBackwardsSwitch, INPUT);
+		pinMode(this->config.pinForwardsSwitch, INPUT);
 
 		HomeSwitch::allHomeSwitches.insert(this);
 	}
@@ -61,28 +51,16 @@ namespace Modules {
 	}
 
 	//-----------
-	void
-	HomeSwitch::handleInterrupt()
+	bool
+	HomeSwitch::getForwardsActive() const
 	{
-		if(digitalRead(this->config.pinLeftSwitch) == LOW) {
-			digitalWrite(PB3, HIGH);
-		}
-		if(digitalRead(this->config.pinRightSwitch) == LOW) {
-			digitalWrite(PB4, HIGH);
-		}
+		return digitalRead(this->config.pinForwardsSwitch) == LOW;
 	}
 
 	//-----------
 	bool
-	HomeSwitch::getRightActive() const
+	HomeSwitch::getBackwardsActive() const
 	{
-		return digitalRead(this->config.pinRightSwitch) == LOW;
-	}
-
-	//-----------
-	bool
-	HomeSwitch::getLeftActive() const
-	{
-		return digitalRead(this->config.pinLeftSwitch) == LOW;
+		return digitalRead(this->config.pinBackwardsSwitch) == LOW;
 	}
 }

@@ -87,6 +87,11 @@ namespace Modules {
 			StepsPerSecond minimumSpeed = 1000;
 		} motionProfile;
 
+		struct {
+			Steps systemBacklash = 1612;
+			Steps positionWithinBacklash = 0; // negative when going forwards
+		} backlashControl;
+
 		uint32_t lastTime = 0;
 		Steps targetPosition = 0;
 

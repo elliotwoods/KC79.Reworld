@@ -55,9 +55,28 @@ namespace Modules {
 		// Setup the interrupt
 		this->timer.hardwareTimer->attachInterrupt([this]() {
 			if(this->currentMotionState.direction) {
-				this->position++;
+				// Forwards
+
+				if(this->backlashControl.positionWithinBacklash >= 0) {
+					// Not inside backlash region
+					this->position++;
+				}
+				else {
+					// Inside backlash region
+					this->backlashControl.positionWithinBacklash++;
+				}
 			}
 			else {
+				// Backwards
+
+				if(this->backlashControl.positionWithinBacklash <= 0) {
+					// Not inside backlash region
+					this->position++;
+				}
+				else {
+					// Inside backlash region
+					this->backlashControl.positionWithinBacklash++;
+				}
 				this->position--;
 			}
 
@@ -122,6 +141,18 @@ namespace Modules {
 		this->timer.hardwareTimer->setCaptureCompare(this->timer.channel
 			, 127
 			, TimerCompareFormat_t::RESOLUTION_8B_COMPARE_FORMAT);
+
+		// Backlash control
+		{
+			if(direction && !this->currentMotionState.direction) {
+				// Now going forwards, was going backwards before
+				this->backlashControl.positionWithinBacklash -= this->backlashControl.systemBacklash;
+			}
+			else if(!direction && this->currentMotionState.direction) {
+				// Now going backwards, was going forwards before
+				this->backlashControl.positionWithinBacklash += this->backlashControl.systemBacklash;
+			}
+		}
 
 		// Set the direction
 		this->motorDriver.setDirection(direction);
@@ -437,14 +468,14 @@ namespace Modules {
 			}
 
 			if(!switchSeen.seenNotPressed) {
-				if(!homeSwitch.getRightActive()) {
+				if(!homeSwitch.getForwardsActive()) {
 					switchSeen.seenNotPressed = true;
 					switchSeen.positionFirstNotPressed = this->position;
 				}
 			}
 
 			if(!switchSeen.seenPressed) {
-				if(homeSwitch.getRightActive()) {
+				if(homeSwitch.getForwardsActive()) {
 					switchSeen.seenPressed = true;
 					switchSeen.positionFirstPressed = this->position;
 				}
@@ -469,7 +500,7 @@ namespace Modules {
 
 			// (1) Fast step until we're on the switch is active (ok if it's already active)
 			log(LogLevel::Status, "BLC 1: fast find switch");
-			if(!homeSwitch.getRightActive()) {
+			if(!homeSwitch.getForwardsActive()) {
 				this->run(true, settings.fastMoveSpeed);
 				while(!switchSeen.seenPressed) {
 					if (millis() > timeoutTime) { this->stop(); return Exception::Timeout(); }
@@ -517,7 +548,7 @@ namespace Modules {
 					HAL_Delay(1);
 				}
 			}
-			if(!this->homeSwitch.getRightActive()) {
+			if(!this->homeSwitch.getForwardsActive()) {
 				return Exception("BLC Debounce error");
 			}
 

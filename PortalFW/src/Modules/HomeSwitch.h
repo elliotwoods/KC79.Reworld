@@ -11,8 +11,8 @@ namespace Modules {
 	public:
 		struct Config
 		{
-			uint32_t pinLeftSwitch;
-			uint32_t pinRightSwitch;
+			uint32_t pinBackwardsSwitch;
+			uint32_t pinForwardsSwitch;
 
 			static Config A();
 			static Config B();
@@ -22,10 +22,9 @@ namespace Modules {
 		const char * getTypeName() const;
 
 		static std::set<HomeSwitch*> allHomeSwitches;
-		void handleInterrupt();
 
-		bool getRightActive() const;
-		bool getLeftActive() const;
+		bool getForwardsActive() const;
+		bool getBackwardsActive() const;
 	protected:
 		const Config config;
 	};
