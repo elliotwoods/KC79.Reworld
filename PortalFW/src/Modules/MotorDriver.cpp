@@ -14,6 +14,7 @@ namespace Modules {
 			config.Fault = PA4;
 			config.Enable = PA5;
 			config.Step = PA6;
+			config.StepTimerPin = PA_6_ALT1; // Timer 16
 			config.Direction = PA7;
 		}
 		return config;
@@ -28,6 +29,7 @@ namespace Modules {
 			config.Fault = PA8;
 			config.Enable = PA9;
 			config.Step = PA10;
+			config.StepTimerPin = PA_10; // Timer 1
 			config.Direction = PA11;
 		}
 		return config;
@@ -165,7 +167,7 @@ namespace Modules {
 
 		// note the library accepts all different formats (ticks, us, hz)
 
-		auto stepPin = digitalPinToPinName(this->config.Step);
+		auto stepPin = this->config.StepTimerPin; //(this->config.Step);
 		this->timer.timer = (TIM_TypeDef *) pinmap_peripheral(stepPin, PinMap_TIM);
 		this->timer.hardwareTimer = new HardwareTimer(this->timer.timer);
 		auto channel = STM_PIN_CHANNEL(pinmap_function(stepPin, PinMap_TIM));

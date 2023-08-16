@@ -13,6 +13,7 @@ namespace Modules {
 			uint32_t Fault;
 			uint32_t Enable;
 			uint32_t Step;
+			PinName StepTimerPin;
 			uint32_t Direction;
 
 			static Config MotorA();

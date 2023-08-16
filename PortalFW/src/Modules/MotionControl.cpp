@@ -12,7 +12,7 @@ namespace Modules {
 	{
 		// note the library accepts all different formats (ticks, us, hz)
 
-		auto stepPin = digitalPinToPinName(motorDriver.getConfig().Step);
+		auto stepPin = motorDriver.getConfig().StepTimerPin;
 		auto timer = (TIM_TypeDef *) pinmap_peripheral(stepPin, PinMap_TIM);
 		this->timer.hardwareTimer = new HardwareTimer(timer);
 		this->timer.channel = STM_PIN_CHANNEL(pinmap_function(stepPin, PinMap_TIM));
