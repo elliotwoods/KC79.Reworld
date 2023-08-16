@@ -2,6 +2,8 @@
 #include "pins_arduino.h"
 #include "Base.h"
 
+#include "Types.h"
+
 namespace Modules {
 	class MotorDriverSettings : public Base {
 	public:
@@ -32,6 +34,7 @@ namespace Modules {
 
 		void setMicrostepResolution(MicrostepResolution);
 		MicrostepResolution getMicrostepResolution() const;
+		Steps getMicrostepsPerStep() const;
 
 		void setSleep(bool);
 		bool getSleep() const;

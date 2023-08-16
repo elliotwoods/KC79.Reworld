@@ -92,6 +92,13 @@ namespace Modules {
 	}
 
 	//----------
+	Steps
+	MotionControl::getMicrostepsPerPrismRotation() const
+	{
+		return (MOTION_STEPS_PER_PRISM_ROTATION) * this->motorDriverSettings.getMicrostepsPerStep();
+	}
+
+	//----------
 	void
 	MotionControl::disableInterrupt()
 	{
@@ -175,6 +182,55 @@ namespace Modules {
 
 	//----------
 	bool
+	readMeasureRoutineSettings(Stream& stream, MotionControl::MeasureRoutineSettings& settings)
+	{
+		// Expecting Nil or array of arguments
+		msgpack::DataType dataType;
+		if(!msgpack::getNextDataType(stream, dataType)) {
+			return false;
+		}
+
+		if(dataType == msgpack::DataType::Nil) {
+			msgpack::readNil(stream);
+		}
+		else if(dataType == msgpack::DataType::Array) {
+			size_t arraySize;
+			msgpack::readArraySize(stream, arraySize);
+
+			if(arraySize >= 1) {
+				int32_t value;
+				if(!msgpack::readInt<int32_t>(stream, value)) {
+					return false;
+				}
+				settings.timeout_s = (uint8_t) value;
+			}
+			if(arraySize >= 2) {
+				if(!msgpack::readInt<int32_t>(stream, settings.fastMoveSpeed)) {
+					return false;
+				}
+			}
+			if(arraySize >= 3) {
+				if(!msgpack::readInt<int32_t>(stream, settings.slowMoveSpeed)) {
+					return false;
+				}
+			}
+			if(arraySize >= 4) {
+				if(!msgpack::readInt<int32_t>(stream, settings.backOffDistance)) {
+					return false;
+				}
+			}
+			if(arraySize >= 5) {
+				if(!msgpack::readInt<int32_t>(stream, settings.debounceDistance)) {
+					return false;
+				}
+			}
+		}
+
+		return true;
+	}
+
+	//----------
+	bool
 	MotionControl::processIncomingByKey(const char * key, Stream& stream)
 	{
 		if(strcmp("zeroCurrentPosition", key) == 0) {
@@ -184,7 +240,7 @@ namespace Modules {
 			this->zeroCurrentPosition();
 			return true;
 		}
-		if(strcmp("move", key) == 0) {
+		else if(strcmp("move", key) == 0) {
 			msgpack::DataType dataType;
 			if(!msgpack::getNextDataType(stream, dataType)) {
 				return false;
@@ -235,59 +291,37 @@ namespace Modules {
 		}
 		else if(strcmp(key, "measureBacklash") == 0) {
 			// MEASURE BACKLASH
-
-			// Expecting Nil or array of arguments
-			msgpack::DataType dataType;
-			if(!msgpack::getNextDataType(stream, dataType)) {
+			MeasureRoutineSettings settings;
+			if(!readMeasureRoutineSettings(stream, settings)) {
 				return false;
 			}
-
-			uint8_t timeout_s = 30;
-			BacklashMeasureSettings settings;
-
-			if(dataType == msgpack::DataType::Nil) {
-				msgpack::readNil(stream);
-			}
-			else if(dataType == msgpack::DataType::Array) {
-				size_t arraySize;
-				msgpack::readArraySize(stream, arraySize);
-
-				if(arraySize >= 1) {
-					int32_t value;
-					if(!msgpack::readInt<int32_t>(stream, value)) {
-						return false;
-					}
-					timeout_s = (uint8_t) value;
+			for(uint8_t i=0; i<settings.tries; i++) {
+				auto exception = this->measureBacklashRoutine(settings);
+				if(exception) {
+					log(LogLevel::Error, exception.what());
 				}
-				if(arraySize >= 2) {
-					if(!msgpack::readInt<int32_t>(stream, settings.fastMoveSpeed)) {
-						return false;
-					}
-				}
-				if(arraySize >= 3) {
-					if(!msgpack::readInt<int32_t>(stream, settings.slowMoveSpeed)) {
-						return false;
-					}
-				}
-				if(arraySize >= 4) {
-					if(!msgpack::readInt<int32_t>(stream, settings.backOffDistance)) {
-						return false;
-					}
-				}
-				if(arraySize >= 5) {
-					if(!msgpack::readInt<int32_t>(stream, settings.debounceDistance)) {
-						return false;
-					}
+				else {
+					return true;
 				}
 			}
-
-			auto exception = this->measureBacklashRoutine(timeout_s, settings);
-			if(exception) {
-				log(LogLevel::Error, exception.what());
+			return false;
+		}
+		else if(strcmp(key, "home") == 0) {
+			// HOMING ROUTINE
+			MeasureRoutineSettings settings;
+			if(!readMeasureRoutineSettings(stream, settings)) {
 				return false;
 			}
-			
-			return true;
+			for(uint8_t i=0; i<settings.tries; i++) {
+				auto exception = this->homeRoutine(settings);
+				if(exception) {
+					log(LogLevel::Error, exception.what());
+				}
+				else {
+					return true;
+				}
+			}
+			return false;
 		}
 		return false;
 	}
@@ -441,8 +475,7 @@ namespace Modules {
 	//----------
 	// ReMarkable August 2023 page 2
 	Exception
-	MotionControl::measureBacklashRoutine(uint8_t timeout_s
-			, const BacklashMeasureSettings& settings)
+	MotionControl::measureBacklashRoutine(const MeasureRoutineSettings& settings)
 	{
 		// Stop any existing motion profile
 		this->stop();
@@ -456,14 +489,16 @@ namespace Modules {
 		SwitchSeen switchSeen;
 		auto & homeSwitch = this->homeSwitch;
 
-		// TODO : move to seperate function
-		auto microStepsPerStep = Steps(1 << (uint32_t) (uint8_t) this->motorDriverSettings.getMicrostepResolution());
-		auto microstepsPerPrismRotation = Steps(MOTION_STEPS_PER_PRISM_ROTATION)
-		 	* microStepsPerStep;
+		/// Note that we need to switch this on/off depending on if we're using run or updateMotion.
+		// e.g. if we just use 'run' and aren't interested in the targetPosition, then this might cause a premature stop
+		bool motionControlInterruptStopEnabled = false;
+
+		auto microStepsPerStep = this->motorDriverSettings.getMicrostepsPerStep();
+		const auto microstepsPerPrismRotation = this->getMicrostepsPerPrismRotation();
 
 		// Remove main interrupt and add our own
 		this->disableInterrupt();
-		this->timer.hardwareTimer->attachInterrupt([this, &homeSwitch, &switchSeen]() {
+		this->timer.hardwareTimer->attachInterrupt([&]() {
 			if(this->currentMotionState.direction) {
 				this->position++;
 			}
@@ -471,7 +506,7 @@ namespace Modules {
 				this->position--;
 			}
 
-			if(this->position == this->targetPosition) {
+			if(motionControlInterruptStopEnabled && this->position == this->targetPosition) {
 				this->stop();
 			}
 
@@ -494,7 +529,7 @@ namespace Modules {
 
 		// Start measuring time for timeout
 		uint32_t startTime = millis();
-		uint32_t timeoutTime = startTime + (uint32_t) timeout_s * 1000U;
+		uint32_t timeoutTime = startTime + (uint32_t) settings.timeout_s * 1000U;
 
 		log(LogLevel::Status, "BLC : begin");
 
@@ -507,13 +542,33 @@ namespace Modules {
 		// https://paper.dropbox.com/doc/KC79-Firmware-development-log--B9ww1dZ58Y0lrKt6fzBa9O8yAg-NaTWt2IkZT4ykJZeMERKP#:h2=Backlash-measure-algorithm
 		Steps backlashSize;
 		{
+			motionControlInterruptStopEnabled = true;
+
+			// (1) Walk off the back switch
+			log(LogLevel::Status, "BLC 1: walk back off the back switch");
+			{
+				if(homeSwitch.getBackwardsActive()) {
+					//Move backwards by clearance distance
+					this->targetPosition = this->position - 50000 / 128 * microStepsPerStep;
+					while(this->targetPosition != this->position) {
+						if (millis() > timeoutTime) { endRoutine(); return Exception::Timeout(); }
+						this->updateMotion();
+						HAL_Delay(1);
+					}
+
+					this->stop();
+				}
+			}
+
+			motionControlInterruptStopEnabled = true;
+
 			// Prime the switches
 			{
 				switchSeen = {0};
 			}
 
-			// (1) Fast step until we're on the switch is active (ok if it's already active)
-			log(LogLevel::Status, "BLC 1: fast find switch");
+			// (2) Fast step until we're on the switch is active (ok if it's already active)
+			log(LogLevel::Status, "BLC 2: fast find switch");
 			if(!homeSwitch.getForwardsActive()) {
 				this->run(true, settings.fastMoveSpeed);
 				while(!switchSeen.seenPressed) {
@@ -524,23 +579,42 @@ namespace Modules {
 
 			auto positionSwitchRough = switchSeen.positionFirstPressed;
 
-			// (2) Back off the switch completely so we can approach again slowly
-			log(LogLevel::Status, "BLC 2: back off switch");
+			// (3) Back off the switch completely so we can approach again slowly
 			{
-				this->run(false, settings.fastMoveSpeed);
-				while(this->position > positionSwitchRough - settings.backOffDistance * microStepsPerStep) {
-					if (millis() > timeoutTime) { endRoutine(); return Exception::Timeout(); }
+				log(LogLevel::Status, "BLC 3: back off switch and push past backlash size");
+
+				auto backOffPosition = positionSwitchRough - settings.backOffDistance * microStepsPerStep;
+				auto backOffPlusClearBacklashPosition = backOffPosition - 30000 * microStepsPerStep / 128;
+
+				// back way off
+				{
+					this->targetPosition = backOffPlusClearBacklashPosition;
+					while(this->targetPosition != this->position) {
+						if (millis() > timeoutTime) { endRoutine(); return Exception::Timeout(); }
+						this->updateMotion();
+						HAL_Delay(1);
+					}
 				}
-				this->stop();
+
+				// back off close
+				{
+					this->targetPosition = backOffPosition;
+					while(this->targetPosition != this->position) {
+						if (millis() > timeoutTime) { endRoutine(); return Exception::Timeout(); }
+						this->updateMotion();
+						HAL_Delay(1);
+					}
+				}
 			}
+			
 
 			// Prime the switches
 			{
 				switchSeen = {0};
 			}
 
-			// (3) Walk up slowly to find exact button start
-			log(LogLevel::Status, "BLC 3: find switch again");
+			// (4) Walk up slowly to find exact button start
+			log(LogLevel::Status, "BLC 4: find switch again");
 			{
 				this->run(true, settings.slowMoveSpeed);
 				while(!switchSeen.seenPressed) {
@@ -549,10 +623,14 @@ namespace Modules {
 				this->stop();
 			}
 
+			motionControlInterruptStopEnabled = true;
+
 			auto postitionSwitchAccurate = switchSeen.positionFirstPressed;
 
-			// (4) Walk forward N steps for debouncing
-			log(LogLevel::Status, "BLC 4: walk into switch (debounce)");
+			HAL_Delay(500);
+
+			// (5) Walk forward N steps for debouncing
+			log(LogLevel::Status, "BLC 5: walk into switch (debounce)");
 			{
 				this->targetPosition = postitionSwitchAccurate + settings.debounceDistance * microStepsPerStep;
 				
@@ -563,6 +641,7 @@ namespace Modules {
 				}
 			}
 			if(!this->homeSwitch.getForwardsActive()) {
+				endRoutine();
 				return Exception("BLC Debounce error");
 			}
 
@@ -571,8 +650,10 @@ namespace Modules {
 				switchSeen = {0};
 			}
 
-			// (5) Walk backwards slowly until button de-presses
-			log(LogLevel::Status, "BLC 5: back off to find backlash");
+			motionControlInterruptStopEnabled = false;
+
+			// (6) Walk backwards slowly until button de-presses
+			log(LogLevel::Status, "BLC 6: back off to find backlash");
 			{
 				this->run(false, settings.slowMoveSpeed);
 				while(!switchSeen.seenNotPressed) {
@@ -592,14 +673,234 @@ namespace Modules {
 			auto backlashInDegrees = 360.0f * (float) backlashSize / (float) microstepsPerPrismRotation;
 			char message[100];
 			sprintf(message
-				, "Backlash = %d (%d/10 degrees )"
+				, "Backlash = %d (%d/10 degrees)"
 				, backlashSize
 				, (int) (backlashInDegrees * 10));
 			log(LogLevel::Status, message);
 		}
 		
 		this->backlashControl.systemBacklash = backlashSize;
+
+		endRoutine();
+		return Exception::None();
+	}
+
+	//----------
+	Exception
+	MotionControl::homeRoutine(const MeasureRoutineSettings& settings)
+	{
+		// Stop any existing motion profile
+		this->stop();
+
+		struct SwitchSeen {
+			bool seenPressed;
+			Steps positionFirstPressed;
+		};
+		SwitchSeen switchesSeen[2];
+
+		/// Note that we need to switch this on/off depending on if we're using run or updateMotion.
+		// e.g. if we just use 'run' and aren't interested in the targetPosition, then this might cause a premature stop
+		bool motionControlInterruptStopEnabled = false;
+
+		auto & homeSwitch = this->homeSwitch;
+
+		auto microStepsPerStep = this->motorDriverSettings.getMicrostepsPerStep();
+		const auto microstepsPerPrismRotation = this->getMicrostepsPerPrismRotation();
+
+		// Remove main interrupt and add our own
+		this->disableInterrupt();
+		this->timer.hardwareTimer->attachInterrupt([&]() {
+			if(this->currentMotionState.direction) {
+				// Forwards
+
+				if(this->backlashControl.positionWithinBacklash >= 0) {
+					// Not inside backlash region
+					this->position++;
+				}
+				else {
+					// Inside backlash region
+					this->backlashControl.positionWithinBacklash++;
+				}
+			}
+			else {
+				// Backwards
+
+				if(this->backlashControl.positionWithinBacklash <= 0) {
+					// Not inside backlash region
+					this->position--;
+				}
+				else {
+					// Inside backlash region
+					this->backlashControl.positionWithinBacklash--;
+				}
+			}
+
+			if(motionControlInterruptStopEnabled && this->position == this->targetPosition) {
+				this->stop();
+			}
+
+			if(!switchesSeen[0].seenPressed) {
+				if(homeSwitch.getForwardsActive()) {
+					switchesSeen[0].seenPressed = true;
+					switchesSeen[0].positionFirstPressed = this->position;
+				}
+			}
+
+			if(!switchesSeen[1].seenPressed) {
+				if(homeSwitch.getBackwardsActive()) {
+					switchesSeen[1].seenPressed = true;
+					switchesSeen[1].positionFirstPressed = this->position;
+				}
+			}
+		});
+
+		HAL_Delay(10);
+
+		// Start measuring time for timeout
+		uint32_t startTime = millis();
+		uint32_t timeoutTime = startTime + (uint32_t) settings.timeout_s * 1000U;
+
+		log(LogLevel::Status, "Home : begin");
+
+		auto endRoutine = [this]() {
+			this->stop();
+			this->timer.hardwareTimer->detachInterrupt();
+			this->enableInterrupt();
+		};
+
+		const Steps buttonClearDistance = 20000 / 128 * microStepsPerStep; // here we have a value by trial and error (at 128 microsteps)
+
+		// https://paper.dropbox.com/doc/KC79-Firmware-development-log--B9ww1dZ58Y0lrKt6fzBa9O8yAg-NaTWt2IkZT4ykJZeMERKP#:uid=201211977543731617580121&h2=Home-sequence
+		Steps homePosition;
+		{
+			motionControlInterruptStopEnabled = true;
+
+			// (1) Walk off the back switch
+			log(LogLevel::Status, "Home 1: walk back off the back switch");
+			{
+				if(homeSwitch.getBackwardsActive()) {
+					//Move backwards by clearance distance
+					this->targetPosition = this->position - buttonClearDistance;
+					while(this->targetPosition != this->position) {
+						if (millis() > timeoutTime) { endRoutine(); return Exception::Timeout(); }
+						this->updateMotion();
+						HAL_Delay(1);
+					}
+
+					this->stop();
+				}
+			}
+
+			// Prime the switches
+			{
+				switchesSeen[0] = {0};
+				switchesSeen[1] = {0};
+			}
+
+			// (2) Fast step until we're on the forward switch is active (ok if it's already active)
+			log(LogLevel::Status, "Home 2: fast find switch");
+			if(!homeSwitch.getForwardsActive()) {
+				//Move forward by one prism rotation
+				this->targetPosition = this->position + microstepsPerPrismRotation;
+				while(!switchesSeen[0].seenPressed) {
+					if (millis() > timeoutTime) { endRoutine(); return Exception::Timeout(); }
+					this->updateMotion();
+					HAL_Delay(1);
+				}
+
+				this->stop();
+			}
+
+			auto positionForwardSwitchRough = switchesSeen[0].positionFirstPressed;
+
+			// (3) Back off the switch completely so we can approach again slowly
+			log(LogLevel::Status, "Home 3: back off switch");
+			{
+				this->targetPosition = positionForwardSwitchRough
+					- settings.backOffDistance * microStepsPerStep;
+				
+				while(this->position != this->targetPosition) {
+					if (millis() > timeoutTime) { endRoutine(); return Exception::Timeout(); }
+					this->updateMotion();
+					HAL_Delay(1);
+				}
+			}
+
+			motionControlInterruptStopEnabled = false;
+
+			// Prime the switches
+			{
+				switchesSeen[0] = {0};
+				switchesSeen[1] = {0};
+			}
+
+			// (4) Walk up slowly to find exact button start
+			log(LogLevel::Status, "Home 4: find switch slowly");
+			{
+				this->run(true, settings.slowMoveSpeed);
+				while(!switchesSeen[0].seenPressed) {
+					if (millis() > timeoutTime) { endRoutine(); return Exception::Timeout(); }
+				}
+				this->stop();
+			}
+
+			auto positionForwardSwitchAccurate = switchesSeen[0].positionFirstPressed;
+
+			motionControlInterruptStopEnabled = true;
+
+			// (5) Walk forward enough to clear switch
+			log(LogLevel::Status, "Home 5: walk more beyond switch to clear backlash");
+			{
+				this->targetPosition = positionForwardSwitchAccurate + buttonClearDistance;
+				
+				while(this->position != this->targetPosition) {
+					if (millis() > timeoutTime) { endRoutine(); return Exception::Timeout(); }
+					this->updateMotion();
+					HAL_Delay(1);
+				}
+			}
+
+			motionControlInterruptStopEnabled = false;
+
+			// Prime the switches
+			{
+				switchesSeen[0] = {0};
+				switchesSeen[1] = {0};
+			}
+
+			// (6) Slow move back onto switch to find reverse switch position
+			log(LogLevel::Status, "Home 6: slow move onto reverse switch");
+			{
+				this->run(false, settings.slowMoveSpeed);
+				while(!switchesSeen[1].seenPressed) {
+					if (millis() > timeoutTime) { endRoutine(); return Exception::Timeout(); }
+				}
+				this->stop();
+			}
+
+			auto positionReverseSwitchAccurate = switchesSeen[1].positionFirstPressed;
+
+			// Now:
+			// * We're moving backward
+			// * We are outisde of backlash region (since we did actually move)
+			// * We had backlash control on in the interrupt, so should be already backlash corrected
+			homePosition = (positionForwardSwitchAccurate + positionForwardSwitchAccurate) / 2;
+		}
+			
+		// Measure the current position at end of sequence
+		{
+			auto homePositionInDegrees = 360.0f * (float) homePosition / (float) microstepsPerPrismRotation;
+			char message[100];
+			sprintf(message
+				, "Home = %d (%d/10 degrees )"
+				, homePosition
+				, (int) (homePositionInDegrees * 10));
+			log(LogLevel::Status, message);
+		}
 		
+		this->position -= homePosition;
+		this->targetPosition = 0;
+
 		endRoutine();
 		return Exception::None();
 	}

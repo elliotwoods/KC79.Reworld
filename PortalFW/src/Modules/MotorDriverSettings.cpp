@@ -66,6 +66,13 @@ namespace Modules {
 	}
 
 	//----------
+	Steps
+	MotorDriverSettings::getMicrostepsPerStep() const
+	{
+		return Steps(1 << (uint32_t) (uint8_t) this->getMicrostepResolution());
+	}
+
+	//----------
 	void
 	MotorDriverSettings::setSleep(bool value)
 	{

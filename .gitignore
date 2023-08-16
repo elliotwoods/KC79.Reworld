@@ -41,3 +41,4 @@ Release/
 
 .visualgdb
 *.vgdbsettings.*.user
+Router/enc_temp_folder/

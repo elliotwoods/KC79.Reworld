@@ -34,8 +34,9 @@ namespace Modules {
 			, int32_t acceleration
 			, int32_t minVelocity);
 
-		void measureBacklash(RS485::Target
-			, Axis);
+		void serialiseMeasureSettings(msgpack_packer&);
+		void measureBacklash(RS485::Target, Axis);
+		void home(RS485::Target, Axis);
 
 	protected:
 		weak_ptr<RS485> rs485;
@@ -74,13 +75,13 @@ namespace Modules {
 					} continuousMotion;
 
 					struct : ofParameterGroup {
-						ofParameter<int> timeout_s{ "Timeout [s]", 30, 1, 120 };
+						ofParameter<int> timeout_s{ "Timeout [s]", 60, 1, 120 };
 						ofParameter<int> fastSpeed{ "Fast Speed [Hz]", 80000, 100, 1000000 };
 						ofParameter<int> slowSpeed{ "Slow Speed [Hz]", 1000, 100, 1000000 };
 						ofParameter<int> backOffDistance{ "Back off distance [steps]", 1000, 1, 1000000 };
-						ofParameter<int> debounceDistance{ "Debounce distance [steps]", 2, 1, 1000000 };
-						PARAM_DECLARE("Backlash measure", timeout_s, fastSpeed, slowSpeed, backOffDistance, debounceDistance);
-					} measureBacklash;
+						ofParameter<int> debounceDistance{ "Debounce distance [steps]", 10, 1, 1000000 };
+						PARAM_DECLARE("Measure settings", timeout_s, fastSpeed, slowSpeed, backOffDistance, debounceDistance);
+					} measureSettings;
 
 					PARAM_DECLARE("Motion Control"
 						, targetPosition
@@ -90,7 +91,7 @@ namespace Modules {
 						, relativeMove
 						, movement
 						, continuousMotion
-						, measureBacklash);
+						, measureSettings);
 				} motionControl;
 
 				PARAM_DECLARE("Debug", targetID, motorDriverSettings, testTimer, motionControl);

@@ -11,6 +11,7 @@
 #include "HomeSwitch.h"
 
 #include "Exception.h"
+#include "Types.h"
 
 // Above this the device locks up because interrupts are too rapid
 #define MOTION_MAX_SPEED 80000
@@ -28,21 +29,19 @@
 namespace Modules {
 	class MotionControl : public Base {
 	public:
-		typedef int32_t Steps;
-		typedef int32_t StepsPerSecond;
-		typedef int32_t StepsPerSecondPerSecond;
-
 		struct MotionState {
 			bool motorRunning = false;
 			StepsPerSecond speed = 0;
 			bool direction = true;
 		};
 
-		struct BacklashMeasureSettings {
-			StepsPerSecond fastMoveSpeed = 80000;
-			StepsPerSecond slowMoveSpeed = 1000;
+		struct MeasureRoutineSettings {
+			uint8_t tries = 2;
+			uint8_t timeout_s = 60;
+			StepsPerSecond fastMoveSpeed = 40000;
+			StepsPerSecond slowMoveSpeed = 2000;
 			Steps backOffDistance = MOTION_STEPS_PER_PRISM_ROTATION / 100; // Full steps
-			Steps debounceDistance = 2; // Full steps
+			Steps debounceDistance = 10; // Full steps
 		};
 
 		MotionControl(MotorDriverSettings&
@@ -63,13 +62,16 @@ namespace Modules {
 
 		void disableInterrupt();
 		void enableInterrupt();
+
+		Steps getMicrostepsPerPrismRotation() const;
 	protected:
 		bool processIncomingByKey(const char * key, Stream &) override;
 		void updateMotion();
 		MotionState calculateMotionState(unsigned long dt_us) const;
 		
-		// Warning : This routine ignores the step counting, therefore loses homing
-		Exception measureBacklashRoutine(uint8_t timeout_s, const BacklashMeasureSettings&);
+		// Warning : This routine loses homing
+		Exception measureBacklashRoutine(const MeasureRoutineSettings&);
+		Exception homeRoutine(const MeasureRoutineSettings&);
 
 		MotorDriverSettings& motorDriverSettings;
 		MotorDriver& motorDriver;
@@ -88,7 +90,7 @@ namespace Modules {
 		} motionProfile;
 
 		struct {
-			Steps systemBacklash = 1612;
+			Steps systemBacklash = 1499;
 			Steps positionWithinBacklash = 0; // negative when going forwards
 		} backlashControl;
 

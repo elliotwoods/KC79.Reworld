@@ -147,6 +147,16 @@ namespace Modules {
 			this->measureBacklash(this->parameters.debug.targetID.get()
 				, Axis::B);
 			});
+
+		inspector->addButton("Home A", [this]() {
+			this->home(this->parameters.debug.targetID.get()
+				, Axis::A);
+			});
+
+		inspector->addButton("Hoem B", [this]() {
+			this->home(this->parameters.debug.targetID.get()
+				, Axis::B);
+			});
 	}
 
 	//---------
@@ -563,6 +573,25 @@ namespace Modules {
 
 	//---------
 	void
+		ModuleControl::serialiseMeasureSettings(msgpack_packer& packer)
+	{
+		auto timeout_s = this->parameters.debug.motionControl.measureSettings.timeout_s.get();
+		auto fastSpeed = this->parameters.debug.motionControl.measureSettings.fastSpeed.get();
+		auto slowSpeed = this->parameters.debug.motionControl.measureSettings.slowSpeed.get();
+		auto backOffDistance = this->parameters.debug.motionControl.measureSettings.backOffDistance.get();
+		auto debounceDistance = this->parameters.debug.motionControl.measureSettings.debounceDistance.get();
+
+		// Expecting an array [timeout_s, etc]
+		msgpack_pack_array(&packer, 5);
+		msgpack_pack_uint8(&packer, timeout_s);
+		msgpack_pack_int32(&packer, fastSpeed);
+		msgpack_pack_int32(&packer, slowSpeed);
+		msgpack_pack_int32(&packer, backOffDistance);
+		msgpack_pack_int32(&packer, debounceDistance);
+	}
+
+	//---------
+	void
 		ModuleControl::measureBacklash(RS485::Target target
 			, Axis axis)
 	{
@@ -571,12 +600,6 @@ namespace Modules {
 			ofLogError("No RS485");
 			return;
 		}
-
-		auto timeout_s = this->parameters.debug.motionControl.measureBacklash.timeout_s.get();
-		auto fastSpeed = this->parameters.debug.motionControl.measureBacklash.fastSpeed.get();
-		auto slowSpeed = this->parameters.debug.motionControl.measureBacklash.slowSpeed.get();
-		auto backOffDistance = this->parameters.debug.motionControl.measureBacklash.backOffDistance.get();
-		auto debounceDistance = this->parameters.debug.motionControl.measureBacklash.debounceDistance.get();
 
 		msgpack_sbuffer messageBuffer;
 		msgpack_packer packer;
@@ -620,13 +643,7 @@ namespace Modules {
 
 				// (1) - Value
 				{
-					// Expecting an array [timeout_s, stepHalfCycleTime_us]
-					msgpack_pack_array(&packer, 5);
-					msgpack_pack_uint8(&packer, timeout_s);
-					msgpack_pack_int32(&packer, fastSpeed);
-					msgpack_pack_int32(&packer, slowSpeed);
-					msgpack_pack_int32(&packer, backOffDistance);
-					msgpack_pack_int32(&packer, debounceDistance);
+					this->serialiseMeasureSettings(packer);
 				}
 			}
 		}
@@ -640,4 +657,72 @@ namespace Modules {
 		rs485->transmitHeaderAndBody(header, body);
 		msgpack_sbuffer_destroy(&messageBuffer);
 	}
+
+	//---------
+	void
+		ModuleControl::home(RS485::Target target, Axis axis)
+	{
+		auto rs485 = this->rs485.lock();
+		if (!rs485) {
+			ofLogError("No RS485");
+			return;
+		}
+
+		msgpack_sbuffer messageBuffer;
+		msgpack_packer packer;
+		msgpack_sbuffer_init(&messageBuffer);
+		msgpack_packer_init(&packer
+			, &messageBuffer
+			, msgpack_sbuffer_write);
+
+		{
+			msgpack_pack_map(&packer, 1);
+
+			// (0) - Key
+			{
+				string key;
+				switch (axis) {
+				case Axis::A:
+					key = "motionControlA";
+					break;
+				case Axis::B:
+					key = "motionControlB";
+					break;
+				default:
+					break;
+				}
+
+				msgpack_pack_str(&packer, key.size());
+				msgpack_pack_str_body(&packer, key.c_str(), key.size());
+			}
+
+			// (0) - Value
+			{
+				msgpack_pack_map(&packer, 1);
+
+				// (1) - Key
+				{
+					string key = "home";
+
+					msgpack_pack_str(&packer, key.size());
+					msgpack_pack_str_body(&packer, key.c_str(), key.size());
+				}
+
+				// (1) - Value
+				{
+					this->serialiseMeasureSettings(packer);
+				}
+			}
+		}
+
+		auto header = rs485->makeHeader(target);
+
+		vector<uint8_t> body;
+		body.assign((uint8_t*)(messageBuffer.data)
+			, (uint8_t*)(messageBuffer.data + messageBuffer.size));
+
+		rs485->transmitHeaderAndBody(header, body);
+		msgpack_sbuffer_destroy(&messageBuffer);
+	}
+
 }
