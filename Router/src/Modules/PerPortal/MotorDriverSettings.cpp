@@ -94,7 +94,7 @@ namespace Modules {
 			auto message = MsgPack::object{
 				{
 					"motorDriverSettings", MsgPack::object {
-						{"setCurrent", (uint8_t)valueFormatted }
+						{"setMicrostepResolution", (uint8_t)valueFormatted }
 					}
 				}
 			};

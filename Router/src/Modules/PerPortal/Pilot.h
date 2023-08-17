@@ -40,11 +40,12 @@ namespace Modules {
 				} polar;
 
 				struct : ofParameterGroup {
-					ofParameter<int> microstepsPerPrismRotation{ "Microsteps per prism rotation", MOTION_STEPS_PER_PRISM_ROTATION * 128 };
 					ofParameter<float> a{ "A", 0, 0, 1 };
 					ofParameter<float> b{ "B", 0, 0, 1 };
 					ofParameter<float> offset{ "Offset", 0, -0.25, 0.25 };
-					PARAM_DECLARE("Axes", microstepsPerPrismRotation, a, b, offset);
+					ofParameter<int> microstepsPerPrismRotation{ "Microsteps per prism rotation", MOTION_STEPS_PER_PRISM_ROTATION * 128 };
+					ofParameter<bool> sendPeriodically{ "Send periodically", true };
+					PARAM_DECLARE("Axes", a, b, offset, microstepsPerPrismRotation, sendPeriodically);
 				} axes;
 				PARAM_DECLARE("PortalPilot", position, polar, axes);
 			} parameters;

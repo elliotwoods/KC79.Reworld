@@ -55,7 +55,7 @@ namespace Modules {
 
 		void zeroCurrentPosition();
 		void setCurrentPosition(Steps steps);
-		
+
 		void setTargetPosition(Steps steps);
 		void setMaximumVelocty(StepsPerSecond stepsPerSecond);
 		void setMaximumAcceleration(StepsPerSecondPerSecond stepsPerSecondPerSecond);
@@ -91,9 +91,9 @@ namespace Modules {
 		} timer;
 
 		struct {
-			StepsPerSecond maximumSpeed = 40000;
+			StepsPerSecond maximumSpeed = 30000;
 			StepsPerSecondPerSecond acceleration = 10000;
-			StepsPerSecond minimumSpeed = 1000;
+			StepsPerSecond minimumSpeed = 100;
 		} motionProfile;
 
 		struct {

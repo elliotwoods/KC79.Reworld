@@ -67,10 +67,19 @@ namespace Modules {
 
 			// Check if needs push
 			{
-				auto now = chrono::system_clock::now();
-				if (now - this->cachedSentValues.lastUpdate > this->cachedSentValues.updatePeriod
-					|| this->parameters.axes.a != this->cachedSentValues.a
-					|| this->parameters.axes.b != this->cachedSentValues.b)
+				bool needsSend = false;
+				{
+					if (this->parameters.axes.sendPeriodically) {
+						auto now = chrono::system_clock::now();
+						if (now - this->cachedSentValues.lastUpdate > this->cachedSentValues.updatePeriod) {
+							needsSend = true;
+						}
+					}
+				}
+				needsSend |= this->parameters.axes.a != this->cachedSentValues.a;
+				needsSend |= this->parameters.axes.b != this->cachedSentValues.b;
+
+				if (needsSend)
 				{
 					this->pushValues();
 				}
@@ -193,36 +202,7 @@ namespace Modules {
 				{
 					auto makeAxisControlPanel = [this](ofParameter<float>& axis) {
 						auto horizontalStrip = ofxCvGui::Panels::Groups::makeStrip(ofxCvGui::Panels::Groups::Strip::Direction::Horizontal);
-						horizontalStrip->setCellSizes({ 100, -1 });
-						{
-							auto buttonStrip = ofxCvGui::Panels::makeWidgets();
-							auto go = [&axis, this](float position) {
-								this->parameters.polar.enabled.set(false);
-								axis.set(position);
-							};
-							map<float, string> positions;
-							{
-								positions[0] = "Left";
-								positions[0.25] = "Up";
-								positions[0.5] = "Right";
-								positions[0.75] = "Down";
-							}
-							map<string, string> icons;
-							{
-								icons["Left"] = u8"\uf137";
-								icons["Up"] = u8"\uf139";
-								icons["Right"] = u8"\uf138";
-								icons["Down"] = u8"\uf13a";
-							}
-							for (auto it : positions) {
-								auto value = it.first;
-								buttonStrip->addButton(ofToString(value), [go, value]() {
-									go(value);
-									})->setDrawGlyph(icons[it.second]);
-							}
-
-							horizontalStrip->add(buttonStrip);
-						}
+						horizontalStrip->setCellSizes({ -1, 80});
 						{
 							auto panel = ofxCvGui::Panels::makeBlank();
 							panel->setWidth(100.0f);
@@ -302,6 +282,36 @@ namespace Modules {
 								}
 							};
 							horizontalStrip->add(panel);
+						}
+
+						{
+							auto buttonStrip = ofxCvGui::Panels::makeWidgets();
+							auto go = [&axis, this](float position) {
+								this->parameters.polar.enabled.set(false);
+								axis.set(position);
+							};
+							map<float, string> positions;
+							{
+								positions[0] = "Left";
+								positions[0.25] = "Up";
+								positions[0.5] = "Right";
+								positions[0.75] = "Down";
+							}
+							map<string, string> icons;
+							{
+								icons["Left"] = u8"\uf137";
+								icons["Up"] = u8"\uf139";
+								icons["Right"] = u8"\uf138";
+								icons["Down"] = u8"\uf13a";
+							}
+							for (auto it : positions) {
+								auto value = it.first;
+								buttonStrip->addButton(ofToString(value), [go, value]() {
+									go(value);
+									})->setDrawGlyph(icons[it.second]);
+							}
+
+							horizontalStrip->add(buttonStrip);
 						}
 
 						return horizontalStrip;

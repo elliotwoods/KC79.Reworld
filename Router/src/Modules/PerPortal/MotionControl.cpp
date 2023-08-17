@@ -66,6 +66,9 @@ namespace Modules {
 			MotionControl::populateInspector(ofxCvGui::InspectArguments& args)
 		{
 			auto inspector = args.inspector;
+			inspector->addButton("Push motion profile", [this]() {
+				this->pushMotionProfile();
+				});
 			inspector->addParameterGroup(this->parameters);
 		}
 

@@ -107,6 +107,7 @@
                 "U8X8_NO_HW_SPI",
                 "U8X8_NO_HW_I2C",
                 "GUI_DISABLED",
+                "MSGPACK_DISABLE_ERROR_REPORT",
                 "STM32G0xx",
                 "ARDUINO=10808",
                 "ARDUINO_ARCH_STM32",

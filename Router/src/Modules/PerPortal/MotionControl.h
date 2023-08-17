@@ -33,7 +33,7 @@ namespace Modules {
 			struct : ofParameterGroup {
 				ofParameter<int> maxVelocity{ "Max velocity", 30000 };
 				ofParameter<int> acceleration{ "Acceleration", 10000 };
-				ofParameter<int> minVelocity{ "Min velocity", 1000 };
+				ofParameter<int> minVelocity{ "Min velocity", 100 };
 				PARAM_DECLARE("MotionControl", maxVelocity, acceleration, minVelocity);
 			} parameters;
 
