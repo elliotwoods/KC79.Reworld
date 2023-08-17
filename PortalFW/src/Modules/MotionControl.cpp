@@ -10,7 +10,35 @@ namespace Modules {
 	, motorDriver(motorDriver)
 	, homeSwitch(homeSwitch)
 	{
-		// note the library accepts all different formats (ticks, us, hz)
+		this->initTimer();
+	}
+
+	//----------
+	const char *
+	MotionControl::getTypeName() const
+	{
+		return "MotionControl";
+	}
+
+	//----------
+	void
+	MotionControl::update()
+	{
+		this->updateStepCount();
+
+		if(this->motionProfile.maximumSpeed > MOTION_MAX_SPEED) {
+			this->motionProfile.maximumSpeed = MOTION_MAX_SPEED;
+		}
+		this->updateMotion();
+	}
+
+	//----------
+	void
+	MotionControl::initTimer()
+	{
+		if(this->timer.hardwareTimer) {
+			this->deinitTimer();
+		}
 
 		auto stepPin = motorDriver.getConfig().StepTimerPin;
 		auto timer = (TIM_TypeDef *) pinmap_peripheral(stepPin, PinMap_TIM);
@@ -31,21 +59,13 @@ namespace Modules {
 	}
 
 	//----------
-	const char *
-	MotionControl::getTypeName() const
-	{
-		return "MotionControl";
-	}
-
-	//----------
 	void
-	MotionControl::update()
+	MotionControl::deinitTimer()
 	{
-		if(this->motionProfile.maximumSpeed > MOTION_MAX_SPEED) {
-			this->motionProfile.maximumSpeed = MOTION_MAX_SPEED;
-		}
-
-		this->updateMotion();
+		this->disableInterrupt();
+		this->timer.hardwareTimer->pause();
+		delete this->timer.hardwareTimer;
+		this->timer.hardwareTimer = nullptr;
 	}
 
 	//----------
@@ -58,34 +78,7 @@ namespace Modules {
 
 		// Setup the interrupt
 		this->timer.hardwareTimer->attachInterrupt([this]() {
-			if(this->currentMotionState.direction) {
-				// Forwards
-
-				if(this->backlashControl.positionWithinBacklash >= 0) {
-					// Not inside backlash region
-					this->position++;
-				}
-				else {
-					// Inside backlash region
-					this->backlashControl.positionWithinBacklash++;
-				}
-			}
-			else {
-				// Backwards
-
-				if(this->backlashControl.positionWithinBacklash <= 0) {
-					// Not inside backlash region
-					this->position--;
-				}
-				else {
-					// Inside backlash region
-					this->backlashControl.positionWithinBacklash--;
-				}
-			}
-
-			if(this->position == this->targetPosition) {
-				this->stop();
-			}
+			this->stepsInInterrupt++;
 		});
 
 		this->interruptEnabed = true;
@@ -205,21 +198,16 @@ namespace Modules {
 				settings.timeout_s = (uint8_t) value;
 			}
 			if(arraySize >= 2) {
-				if(!msgpack::readInt<int32_t>(stream, settings.fastMoveSpeed)) {
-					return false;
-				}
-			}
-			if(arraySize >= 3) {
 				if(!msgpack::readInt<int32_t>(stream, settings.slowMoveSpeed)) {
 					return false;
 				}
 			}
-			if(arraySize >= 4) {
+			if(arraySize >= 3) {
 				if(!msgpack::readInt<int32_t>(stream, settings.backOffDistance)) {
 					return false;
 				}
 			}
-			if(arraySize >= 5) {
+			if(arraySize >= 4) {
 				if(!msgpack::readInt<int32_t>(stream, settings.debounceDistance)) {
 					return false;
 				}
@@ -247,7 +235,13 @@ namespace Modules {
 			}
 
 			// If it's just an int, then we take it as targetPosition
-			if(dataType == msgpack::Int32) {
+			if(dataType == msgpack::Int32
+			|| dataType == msgpack::Int16
+			|| dataType == msgpack::Int5
+			|| dataType == msgpack::UInt32
+			|| dataType == msgpack::UInt16
+			|| dataType == msgpack::UInt8
+			|| dataType == msgpack::UInt7) {
 				return msgpack::readInt<int32_t>(stream, this->targetPosition);
 			}
 			else if(dataType == msgpack::Array) {
@@ -323,7 +317,54 @@ namespace Modules {
 			}
 			return false;
 		}
+		else if(strcmp(key, "initTimer") == 0) {
+			if(!msgpack::readNil(stream)) {
+				return false;
+			}
+			this->initTimer();
+			return true;
+		}
+		else if(strcmp(key, "deinitTimer") == 0) {
+			if(!msgpack::readNil(stream)) {
+				return false;
+			}
+			this->deinitTimer();
+			return true;
+		}
 		return false;
+	}
+
+	//----------
+	void
+	MotionControl::updateStepCount()
+	{
+		if(this->currentMotionState.direction) {
+			// Forwards
+
+			if(this->backlashControl.positionWithinBacklash < 0) {
+				// Within backlash region
+				auto stepsMovedInBacklash = min(this->stepsInInterrupt, -this->backlashControl.positionWithinBacklash);
+				this->backlashControl.positionWithinBacklash += stepsMovedInBacklash;
+				this->stepsInInterrupt -= stepsMovedInBacklash;
+			}
+			
+			this->position += this->stepsInInterrupt;
+			this->stepsInInterrupt = 0;
+		}
+		else {
+			// Backwards
+
+			if(this->backlashControl.positionWithinBacklash > 0) {
+				// Within backlash region
+				auto stepsMovedInBacklash = min(this->stepsInInterrupt, this->backlashControl.positionWithinBacklash);
+				this->backlashControl.positionWithinBacklash -= stepsMovedInBacklash;
+				this->stepsInInterrupt -= stepsMovedInBacklash;
+			}
+
+			this->position -= this->stepsInInterrupt;
+			this->stepsInInterrupt = 0;
+		}
+		
 	}
 
 	//----------
@@ -570,11 +611,17 @@ namespace Modules {
 			// (2) Fast step until we're on the switch is active (ok if it's already active)
 			log(LogLevel::Status, "BLC 2: fast find switch");
 			if(!homeSwitch.getForwardsActive()) {
-				this->run(true, settings.fastMoveSpeed);
-				while(!switchSeen.seenPressed) {
+				this->targetPosition = this->position + microstepsPerPrismRotation;
+				while(!switchSeen.seenPressed && this->targetPosition != this->position) {
 					if (millis() > timeoutTime) { endRoutine(); return Exception::Timeout(); }
+					this->updateMotion();
+					HAL_Delay(1);
 				}
 				this->stop();
+
+				if(this->position == this->targetPosition && !switchSeen.seenPressed) {
+					return Exception("Couldn't find switch");
+				}
 			}
 
 			auto positionSwitchRough = switchSeen.positionFirstPressed;
@@ -774,6 +821,21 @@ namespace Modules {
 		Steps homePosition;
 		{
 			motionControlInterruptStopEnabled = true;
+
+			// (0) Walk to where we last saw home
+			log(LogLevel::Status, "Home 0: walk to last home");
+			{
+				if(this->position != 0) {
+					this->targetPosition = 0;
+					while(this->targetPosition != this->position) {
+						if (millis() > timeoutTime) { endRoutine(); return Exception::Timeout(); }
+						this->updateMotion();
+						HAL_Delay(1);
+					}
+
+					this->stop();
+				}
+			}
 
 			// (1) Walk off the back switch
 			log(LogLevel::Status, "Home 1: walk back off the back switch");

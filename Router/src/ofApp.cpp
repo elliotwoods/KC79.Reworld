@@ -3,6 +3,8 @@
 
 //--------------------------------------------------------------
 void ofApp::setup(){
+	ofSetFrameRate(60.0f);
+
 	gui.init();
 	gui.addInspector();
 	

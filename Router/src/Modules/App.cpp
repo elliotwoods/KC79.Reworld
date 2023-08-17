@@ -20,6 +20,11 @@ namespace Modules {
 			this->moduleControl = make_shared<ModuleControl>(this->rs485);
 			this->modules.push_back(this->moduleControl);
 		}
+
+		{
+			this->portalPilot = make_shared<PortalPilot>(this->moduleControl);
+			this->modules.push_back(this->portalPilot);
+		}
 	}
 
 	//----------
@@ -56,6 +61,8 @@ namespace Modules {
 		App::populateInspector(ofxCvGui::InspectArguments& args)
 	{
 		auto inspector = args.inspector;
+
+		inspector->addFps();
 
 		for (auto module : this->modules) {
 			inspector->addSubMenu(module->getTypeName(), module);

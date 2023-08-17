@@ -25,6 +25,12 @@
     <ClCompile Include="src\Modules\ModuleControl.cpp">
       <Filter>src\Modules</Filter>
     </ClCompile>
+    <ClCompile Include="src\Modules\PortalPilot.cpp">
+      <Filter>src\Modules</Filter>
+    </ClCompile>
+    <ClCompile Include="src\Modules\Portal.cpp">
+      <Filter>src\Modules</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <Filter Include="src">
@@ -35,6 +41,9 @@
     </Filter>
     <Filter Include="src\cobs-c">
       <UniqueIdentifier>{09bf3e6b-0abe-40d4-b353-91c932d806bb}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\Modules\Portal">
+      <UniqueIdentifier>{6b53db63-84df-42a2-b0dd-460aa6c320f2}</UniqueIdentifier>
     </Filter>
   </ItemGroup>
   <ItemGroup>
@@ -60,6 +69,12 @@
       <Filter>src\Modules</Filter>
     </ClInclude>
     <ClInclude Include="src\Modules\ModuleControl.h">
+      <Filter>src\Modules</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Modules\PortalPilot.h">
+      <Filter>src\Modules</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Modules\Portal.h">
       <Filter>src\Modules</Filter>
     </ClInclude>
   </ItemGroup>

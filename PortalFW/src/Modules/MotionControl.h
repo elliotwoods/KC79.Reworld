@@ -38,7 +38,6 @@ namespace Modules {
 		struct MeasureRoutineSettings {
 			uint8_t tries = 2;
 			uint8_t timeout_s = 60;
-			StepsPerSecond fastMoveSpeed = 40000;
 			StepsPerSecond slowMoveSpeed = 2000;
 			Steps backOffDistance = MOTION_STEPS_PER_PRISM_ROTATION / 100; // Full steps
 			Steps debounceDistance = 10; // Full steps
@@ -50,6 +49,9 @@ namespace Modules {
 
 		const char * getTypeName() const;
 		void update();
+
+		void initTimer();
+		void deinitTimer();
 
 		void zeroCurrentPosition();
 		void setCurrentPosition(Steps steps);
@@ -64,27 +66,31 @@ namespace Modules {
 		void enableInterrupt();
 
 		Steps getMicrostepsPerPrismRotation() const;
-	protected:
-		bool processIncomingByKey(const char * key, Stream &) override;
-		void updateMotion();
-		MotionState calculateMotionState(unsigned long dt_us) const;
-		
+
 		// Warning : This routine loses homing
 		Exception measureBacklashRoutine(const MeasureRoutineSettings&);
 		Exception homeRoutine(const MeasureRoutineSettings&);
+
+	protected:
+		bool processIncomingByKey(const char * key, Stream &) override;
+
+		void updateStepCount();
+		void updateMotion();
+		
+		MotionState calculateMotionState(unsigned long dt_us) const;
 
 		MotorDriverSettings& motorDriverSettings;
 		MotorDriver& motorDriver;
 		HomeSwitch& homeSwitch;
 
 		struct {
-			HardwareTimer* hardwareTimer;
+			HardwareTimer* hardwareTimer = nullptr;
 			uint32_t channel;
 			bool running = false;
 		} timer;
 
 		struct {
-			StepsPerSecond maximumSpeed = 60000;
+			StepsPerSecond maximumSpeed = 40000;
 			StepsPerSecondPerSecond acceleration = 10000;
 			StepsPerSecond minimumSpeed = 1000;
 		} motionProfile;
@@ -96,6 +102,9 @@ namespace Modules {
 
 		uint32_t lastTime = 0;
 		Steps targetPosition = 0;
+
+		// Count steps happening in interrupt
+		Steps stepsInInterrupt = 0;
 
 		bool interruptEnabed = false;
 		Steps position = 0;

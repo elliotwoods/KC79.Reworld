@@ -46,6 +46,46 @@ namespace Modules {
 
 		this->motionControlB = new MotionControl(*this->motorDriverSettings, *this->motorDriverB, *this->homeSwitchB);
 		this->motionControlB->setup();
+
+		// Calibrate self on startup
+		{
+			const uint8_t tryCount = 3;
+			MotionControl::MeasureRoutineSettings settings;
+
+			auto tryNTimes = [this, &tryCount](const std::function<Exception()> & action) {
+				for(uint8_t tries = 0; tries < tryCount; tries++) {
+					auto result = action();
+					if(result) {
+						log(LogLevel::Error, result.what());
+					}
+					else {
+						return true;
+					}
+				}
+				return false;
+			};
+			
+			bool success = true;
+			success &= tryNTimes([this, &settings]() {
+				return this->motionControlA->measureBacklashRoutine(settings);
+			});
+			success &= tryNTimes([this, &settings]() {
+				return this->motionControlA->homeRoutine(settings);
+			});
+
+			success &= tryNTimes([this, &settings]() {
+				return this->motionControlB->measureBacklashRoutine(settings);
+			});
+			success &= tryNTimes([this, &settings]() {
+				return this->motionControlB->homeRoutine(settings);
+			});
+			if(success) {
+				log(LogLevel::Status, "Init OK");
+			}
+			else {
+				log(LogLevel::Error, "Init fail");
+			}
+		}
 	}
 
 	//----------
@@ -71,7 +111,7 @@ namespace Modules {
 		// this->motorDriverSettings->setCurrent(0.05f);
 
 		// Indicate if either driver is enabled
-		digitalWrite(PB4
+		digitalWrite(PB3
 			, this->motorDriverA->getEnabled() || this->motorDriverB->getEnabled());
 	}
 
@@ -99,6 +139,14 @@ namespace Modules {
 		}
 		if(strcmp(key, "motionControlB") == 0) {
 			return this->motionControlB->processIncoming(stream);
+		}
+
+		if(strcmp(key, "reset") == 0) {
+			NVIC_SystemReset();
+		}
+		if(strcmp(key, "FW") == 0) {
+			// Firmware announce packet - go to bootloader
+			NVIC_SystemReset();
 		}
 
 		return false;

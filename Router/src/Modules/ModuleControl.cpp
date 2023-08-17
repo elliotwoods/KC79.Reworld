@@ -31,16 +31,14 @@ namespace Modules {
 	{
 		// Update values if local cache of what has been sent is different from parameters
 		{
-			if (this->debug.cachedValues.motorDriverSettings.current
-				!= this->parameters.debug.motorDriverSettings.current) {
-				this->setCurrent(this->parameters.debug.targetID.get()
-					, this->parameters.debug.motorDriverSettings.current.get());
+			if (this->cachedValues.motorDriverSettings.current
+				!= this->parameters.motorDriverSettings.current) {
+				this->setCurrent(this->parameters.motorDriverSettings.current.get());
 			}
 
-			if (this->debug.cachedValues.motorDriverSettings.microstepResolution
-				!= this->parameters.debug.motorDriverSettings.microstepResolution) {
-				this->setMicrostepResolution(this->parameters.debug.targetID.get()
-					, this->parameters.debug.motorDriverSettings.microstepResolution.get());
+			if (this->cachedValues.motorDriverSettings.microstepResolution
+				!= this->parameters.motorDriverSettings.microstepResolution) {
+				this->setMicrostepResolution(this->parameters.motorDriverSettings.microstepResolution.get());
 			}
 		}
 
@@ -48,28 +46,27 @@ namespace Modules {
 		{
 			// Update range for continuous motion
 			{
-				if (this->parameters.debug.motionControl.continuousMotion.range.get()
-					!= this->parameters.debug.motionControl.continuousMotion.position.getMax()) {
-					this->parameters.debug.motionControl.continuousMotion.position.setMax(
-						this->parameters.debug.motionControl.continuousMotion.range.get()
+				if (this->parameters.motionControl.continuousMotion.range.get()
+					!= this->parameters.motionControl.continuousMotion.position.getMax()) {
+					this->parameters.motionControl.continuousMotion.position.setMax(
+						this->parameters.motionControl.continuousMotion.range.get()
 					);
 				}
 			}
 
-			if (this->parameters.debug.motionControl.continuousMotion.enabled) {
+			if (this->parameters.motionControl.continuousMotion.enabled) {
 				// Make it an int
-				this->parameters.debug.motionControl.continuousMotion.position =
-					floor(this->parameters.debug.motionControl.continuousMotion.position);
+				this->parameters.motionControl.continuousMotion.position =
+					floor(this->parameters.motionControl.continuousMotion.position);
 
-				if (this->debug.cachedValues.motionControl.continuousMove.position != this->parameters.debug.motionControl.continuousMotion.position) {
-					this->move(this->parameters.debug.targetID
-						, Axis::A
-						, this->parameters.debug.motionControl.continuousMotion.position
-						, this->parameters.debug.motionControl.maxVelocity
-						, this->parameters.debug.motionControl.acceleration
-						, this->parameters.debug.motionControl.minVelocity);
+				if (this->cachedValues.motionControl.continuousMove.position != this->parameters.motionControl.continuousMotion.position) {
+					this->move(Axis::A
+						, this->parameters.motionControl.continuousMotion.position
+						, this->parameters.motionControl.maxVelocity
+						, this->parameters.motionControl.acceleration
+						, this->parameters.motionControl.minVelocity);
 
-					this->debug.cachedValues.motionControl.continuousMove.position = this->parameters.debug.motionControl.continuousMotion.position;
+					this->cachedValues.motionControl.continuousMove.position = this->parameters.motionControl.continuousMotion.position;
 				}
 			}
 		}
@@ -85,83 +82,77 @@ namespace Modules {
 		inspector->addParameterGroup(this->parameters);
 
 		inspector->addButton("zeroCurrentPosition A", [this]() {
-			this->zeroCurrentPosition(this->parameters.debug.targetID.get(), Axis::A);
+			this->zeroCurrentPosition(Axis::A);
 			});
 
 		inspector->addButton("zeroCurrentPosition B", [this]() {
-			this->zeroCurrentPosition(this->parameters.debug.targetID.get(), Axis::B);
+			this->zeroCurrentPosition(Axis::B);
 			});
 
 		inspector->addButton("testRoutine A", [this]() {
-			this->runTestRoutine(this->parameters.debug.targetID.get(), Axis::A);
+			this->runTestRoutine(Axis::A);
 			});
 
 		inspector->addButton("testRoutine B", [this]() {
-			this->runTestRoutine(this->parameters.debug.targetID.get(), Axis::B);
+			this->runTestRoutine(Axis::B);
 			});
 
 		inspector->addButton("testTimer A", [this]() {
-			this->runTestTimer(this->parameters.debug.targetID.get(), Axis::A);
+			this->runTestTimer(Axis::A);
 			});
 
 		inspector->addButton("testTimer B", [this]() {
-			this->runTestTimer(this->parameters.debug.targetID.get(), Axis::B);
+			this->runTestTimer(Axis::B);
 			});
 
 		inspector->addButton("move A", [this]() {
-			auto targetPosition = this->parameters.debug.motionControl.targetPosition;
-			if (this->parameters.debug.motionControl.relativeMove) {
-				targetPosition += this->parameters.debug.motionControl.movement;
-				this->parameters.debug.motionControl.targetPosition.set(targetPosition);
+			auto targetPosition = this->parameters.motionControl.targetPosition;
+			if (this->parameters.motionControl.relativeMove) {
+				targetPosition += this->parameters.motionControl.movement;
+				this->parameters.motionControl.targetPosition.set(targetPosition);
 			}
 
-			this->move(this->parameters.debug.targetID.get()
-				, Axis::A
-				, this->parameters.debug.motionControl.targetPosition
-				, this->parameters.debug.motionControl.maxVelocity
-				, this->parameters.debug.motionControl.acceleration
-				, this->parameters.debug.motionControl.minVelocity);
+			this->move(Axis::A
+				, this->parameters.motionControl.targetPosition
+				, this->parameters.motionControl.maxVelocity
+				, this->parameters.motionControl.acceleration
+				, this->parameters.motionControl.minVelocity);
 			});
 
 		inspector->addButton("move B", [this]() {
-			auto targetPosition = this->parameters.debug.motionControl.targetPosition;
-			if (this->parameters.debug.motionControl.relativeMove) {
-				targetPosition += this->parameters.debug.motionControl.movement;
-				this->parameters.debug.motionControl.targetPosition.set(targetPosition);
+			auto targetPosition = this->parameters.motionControl.targetPosition;
+			if (this->parameters.motionControl.relativeMove) {
+				targetPosition += this->parameters.motionControl.movement;
+				this->parameters.motionControl.targetPosition.set(targetPosition);
 			}
 
-			this->move(this->parameters.debug.targetID.get()
-				, Axis::B
-				, this->parameters.debug.motionControl.targetPosition
-				, this->parameters.debug.motionControl.maxVelocity
-				, this->parameters.debug.motionControl.acceleration
-				, this->parameters.debug.motionControl.minVelocity);
+			this->move(Axis::B
+				, this->parameters.motionControl.targetPosition
+				, this->parameters.motionControl.maxVelocity
+				, this->parameters.motionControl.acceleration
+				, this->parameters.motionControl.minVelocity);
 			});
 
 		inspector->addButton("Measure backlash A", [this]() {
-			this->measureBacklash(this->parameters.debug.targetID.get()
-				, Axis::A);
+			this->measureBacklash(Axis::A);
 			});
 
 		inspector->addButton("Measure backlash B", [this]() {
-			this->measureBacklash(this->parameters.debug.targetID.get()
-				, Axis::B);
+			this->measureBacklash(Axis::B);
 			});
 
 		inspector->addButton("Home A", [this]() {
-			this->home(this->parameters.debug.targetID.get()
-				, Axis::A);
+			this->home(Axis::A);
 			});
 
-		inspector->addButton("Hoem B", [this]() {
-			this->home(this->parameters.debug.targetID.get()
-				, Axis::B);
+		inspector->addButton("Home B", [this]() {
+			this->home(Axis::B);
 			});
 	}
 
 	//---------
 	void
-		ModuleControl::setCurrent(RS485::Target target, float value)
+		ModuleControl::setCurrent(float value)
 	{
 		auto rs485 = this->rs485.lock();
 		if (!rs485) {
@@ -204,7 +195,7 @@ namespace Modules {
 			}
 		}
 
-		auto header = rs485->makeHeader(target);
+		auto header = rs485->makeHeader(this->parameters.targetID.get());
 
 		vector<uint8_t> body;
 		body.assign((uint8_t*)(messageBuffer.data)
@@ -213,12 +204,12 @@ namespace Modules {
 		rs485->transmitHeaderAndBody(header, body);
 		msgpack_sbuffer_destroy(&messageBuffer);
 
-		this->debug.cachedValues.motorDriverSettings.current = value;
+		this->cachedValues.motorDriverSettings.current = value;
 	}
 
 	//---------
 	void
-		ModuleControl::setMicrostepResolution(RS485::Target target, int value)
+		ModuleControl::setMicrostepResolution(int value)
 	{
 		auto rs485 = this->rs485.lock();
 		if (!rs485) {
@@ -261,7 +252,7 @@ namespace Modules {
 			}
 		}
 
-		auto header = rs485->makeHeader(target);
+		auto header = rs485->makeHeader(this->parameters.targetID.get());
 
 		vector<uint8_t> body;
 		body.assign((uint8_t*)(messageBuffer.data)
@@ -270,12 +261,12 @@ namespace Modules {
 		rs485->transmitHeaderAndBody(header, body);
 		msgpack_sbuffer_destroy(&messageBuffer);
 
-		this->debug.cachedValues.motorDriverSettings.microstepResolution = value;
+		this->cachedValues.motorDriverSettings.microstepResolution = value;
 	}
 
 	//---------
 	void
-		ModuleControl::zeroCurrentPosition(RS485::Target target, Axis axis)
+		ModuleControl::zeroCurrentPosition(Axis axis)
 	{
 		auto rs485 = this->rs485.lock();
 		if (!rs485) {
@@ -329,7 +320,7 @@ namespace Modules {
 			}
 		}
 
-		auto header = rs485->makeHeader(target);
+		auto header = rs485->makeHeader(this->parameters.targetID.get());
 
 		vector<uint8_t> body;
 		body.assign((uint8_t*)(messageBuffer.data)
@@ -341,7 +332,7 @@ namespace Modules {
 
 	//---------
 	void
-		ModuleControl::runTestRoutine(RS485::Target target, Axis axis)
+		ModuleControl::runTestRoutine(Axis axis)
 	{
 		auto rs485 = this->rs485.lock();
 		if (!rs485) {
@@ -396,7 +387,7 @@ namespace Modules {
 			}
 		}
 
-		auto header = rs485->makeHeader(target);
+		auto header = rs485->makeHeader(this->parameters.targetID.get());
 
 		vector<uint8_t> body;
 		body.assign((uint8_t*)(messageBuffer.data)
@@ -408,7 +399,7 @@ namespace Modules {
 
 	//---------
 	void
-		ModuleControl::runTestTimer(RS485::Target target, Axis axis)
+		ModuleControl::runTestTimer(Axis axis)
 	{
 		auto rs485 = this->rs485.lock();
 		if (!rs485) {
@@ -416,11 +407,11 @@ namespace Modules {
 			return;
 		}
 
-		auto period = this->parameters.debug.testTimer.period.get();
-		auto count = this->parameters.debug.testTimer.count.get();
+		auto period = this->parameters.testTimer.period.get();
+		auto count = this->parameters.testTimer.count.get();
 
-		if (this->parameters.debug.testTimer.normaliseParameters.get()) {
-			auto microstepResolution = this->parameters.debug.motorDriverSettings.microstepResolution.get();
+		if (this->parameters.testTimer.normaliseParameters.get()) {
+			auto microstepResolution = this->parameters.motorDriverSettings.microstepResolution.get();
 			period /= microstepResolution;
 			count *= microstepResolution;
 		}
@@ -475,7 +466,7 @@ namespace Modules {
 			}
 		}
 
-		auto header = rs485->makeHeader(target);
+		auto header = rs485->makeHeader(this->parameters.targetID.get());
 
 		vector<uint8_t> body;
 		body.assign((uint8_t*)(messageBuffer.data)
@@ -487,8 +478,7 @@ namespace Modules {
 
 	//---------
 	void
-		ModuleControl::move(RS485::Target target
-			, Axis axis
+		ModuleControl::move(Axis axis
 			, int32_t targetPosition
 			, int32_t maxVelocity
 			, int32_t acceleration
@@ -500,11 +490,11 @@ namespace Modules {
 			return;
 		}
 
-		auto period = this->parameters.debug.testTimer.period.get();
-		auto count = this->parameters.debug.testTimer.count.get();
+		auto period = this->parameters.testTimer.period.get();
+		auto count = this->parameters.testTimer.count.get();
 
-		if (this->parameters.debug.testTimer.normaliseParameters.get()) {
-			auto microstepResolution = this->parameters.debug.motorDriverSettings.microstepResolution.get();
+		if (this->parameters.testTimer.normaliseParameters.get()) {
+			auto microstepResolution = this->parameters.motorDriverSettings.microstepResolution.get();
 			period /= microstepResolution;
 			count *= microstepResolution;
 		}
@@ -561,7 +551,85 @@ namespace Modules {
 			}
 		}
 
-		auto header = rs485->makeHeader(target);
+		auto header = rs485->makeHeader(this->parameters.targetID.get());
+
+		vector<uint8_t> body;
+		body.assign((uint8_t*)(messageBuffer.data)
+			, (uint8_t*)(messageBuffer.data + messageBuffer.size));
+
+		rs485->transmitHeaderAndBody(header, body);
+		msgpack_sbuffer_destroy(&messageBuffer);
+	}
+
+	//---------
+	void
+		ModuleControl::move(Axis axis
+			, int32_t targetPosition)		
+	{
+		auto rs485 = this->rs485.lock();
+		if (!rs485) {
+			ofLogError("No RS485");
+			return;
+		}
+
+		auto period = this->parameters.testTimer.period.get();
+		auto count = this->parameters.testTimer.count.get();
+
+		if (this->parameters.testTimer.normaliseParameters.get()) {
+			auto microstepResolution = this->parameters.motorDriverSettings.microstepResolution.get();
+			period /= microstepResolution;
+			count *= microstepResolution;
+		}
+
+		msgpack_sbuffer messageBuffer;
+		msgpack_packer packer;
+		msgpack_sbuffer_init(&messageBuffer);
+		msgpack_packer_init(&packer
+			, &messageBuffer
+			, msgpack_sbuffer_write);
+
+		{
+			msgpack_pack_map(&packer, 1);
+
+			// (0) - Key
+			{
+				string key;
+				switch (axis) {
+				case Axis::A:
+					key = "motionControlA";
+					break;
+				case Axis::B:
+					key = "motionControlB";
+					break;
+				default:
+					break;
+				}
+
+				msgpack_pack_str(&packer, key.size());
+				msgpack_pack_str_body(&packer, key.c_str(), key.size());
+			}
+
+			// (0) - Value
+			{
+				msgpack_pack_map(&packer, 1);
+
+				// (1) - Key
+				{
+					string key = "move";
+
+					msgpack_pack_str(&packer, key.size());
+					msgpack_pack_str_body(&packer, key.c_str(), key.size());
+				}
+
+				// (1) - Value
+				{
+					// Int only means no motion profile is sent
+					msgpack_pack_int32(&packer, targetPosition);
+				}
+			}
+		}
+
+		auto header = rs485->makeHeader(this->parameters.targetID.get());
 
 		vector<uint8_t> body;
 		body.assign((uint8_t*)(messageBuffer.data)
@@ -575,16 +643,14 @@ namespace Modules {
 	void
 		ModuleControl::serialiseMeasureSettings(msgpack_packer& packer)
 	{
-		auto timeout_s = this->parameters.debug.motionControl.measureSettings.timeout_s.get();
-		auto fastSpeed = this->parameters.debug.motionControl.measureSettings.fastSpeed.get();
-		auto slowSpeed = this->parameters.debug.motionControl.measureSettings.slowSpeed.get();
-		auto backOffDistance = this->parameters.debug.motionControl.measureSettings.backOffDistance.get();
-		auto debounceDistance = this->parameters.debug.motionControl.measureSettings.debounceDistance.get();
+		auto timeout_s = this->parameters.motionControl.measureSettings.timeout_s.get();
+		auto slowSpeed = this->parameters.motionControl.measureSettings.slowSpeed.get();
+		auto backOffDistance = this->parameters.motionControl.measureSettings.backOffDistance.get();
+		auto debounceDistance = this->parameters.motionControl.measureSettings.debounceDistance.get();
 
 		// Expecting an array [timeout_s, etc]
-		msgpack_pack_array(&packer, 5);
+		msgpack_pack_array(&packer, 4);
 		msgpack_pack_uint8(&packer, timeout_s);
-		msgpack_pack_int32(&packer, fastSpeed);
 		msgpack_pack_int32(&packer, slowSpeed);
 		msgpack_pack_int32(&packer, backOffDistance);
 		msgpack_pack_int32(&packer, debounceDistance);
@@ -592,8 +658,7 @@ namespace Modules {
 
 	//---------
 	void
-		ModuleControl::measureBacklash(RS485::Target target
-			, Axis axis)
+		ModuleControl::measureBacklash(Axis axis)
 	{
 		auto rs485 = this->rs485.lock();
 		if (!rs485) {
@@ -648,7 +713,7 @@ namespace Modules {
 			}
 		}
 
-		auto header = rs485->makeHeader(target);
+		auto header = rs485->makeHeader(this->parameters.targetID.get());
 
 		vector<uint8_t> body;
 		body.assign((uint8_t*)(messageBuffer.data)
@@ -660,7 +725,7 @@ namespace Modules {
 
 	//---------
 	void
-		ModuleControl::home(RS485::Target target, Axis axis)
+		ModuleControl::home(Axis axis)
 	{
 		auto rs485 = this->rs485.lock();
 		if (!rs485) {
@@ -715,7 +780,141 @@ namespace Modules {
 			}
 		}
 
-		auto header = rs485->makeHeader(target);
+		auto header = rs485->makeHeader(this->parameters.targetID.get());
+
+		vector<uint8_t> body;
+		body.assign((uint8_t*)(messageBuffer.data)
+			, (uint8_t*)(messageBuffer.data + messageBuffer.size));
+
+		rs485->transmitHeaderAndBody(header, body);
+		msgpack_sbuffer_destroy(&messageBuffer);
+	}
+
+	//---------
+	void
+		ModuleControl::deinitTimer(Axis axis)
+	{
+		auto rs485 = this->rs485.lock();
+		if (!rs485) {
+			ofLogError("No RS485");
+			return;
+		}
+
+		msgpack_sbuffer messageBuffer;
+		msgpack_packer packer;
+		msgpack_sbuffer_init(&messageBuffer);
+		msgpack_packer_init(&packer
+			, &messageBuffer
+			, msgpack_sbuffer_write);
+
+		{
+			msgpack_pack_map(&packer, 1);
+
+			// (0) - Key
+			{
+				string key;
+				switch (axis) {
+				case Axis::A:
+					key = "motionControlA";
+					break;
+				case Axis::B:
+					key = "motionControlB";
+					break;
+				default:
+					break;
+				}
+
+				msgpack_pack_str(&packer, key.size());
+				msgpack_pack_str_body(&packer, key.c_str(), key.size());
+			}
+
+			// (0) - Value
+			{
+				msgpack_pack_map(&packer, 1);
+
+				// (1) - Key
+				{
+					string key = "deinitTimer";
+
+					msgpack_pack_str(&packer, key.size());
+					msgpack_pack_str_body(&packer, key.c_str(), key.size());
+				}
+
+				// (1) - Value
+				{
+					msgpack_pack_nil(&packer);
+				}
+			}
+		}
+
+		auto header = rs485->makeHeader(this->parameters.targetID.get());
+
+		vector<uint8_t> body;
+		body.assign((uint8_t*)(messageBuffer.data)
+			, (uint8_t*)(messageBuffer.data + messageBuffer.size));
+
+		rs485->transmitHeaderAndBody(header, body);
+		msgpack_sbuffer_destroy(&messageBuffer);
+	}
+
+	//---------
+	void
+		ModuleControl::initTimer(Axis axis)
+	{
+		auto rs485 = this->rs485.lock();
+		if (!rs485) {
+			ofLogError("No RS485");
+			return;
+		}
+
+		msgpack_sbuffer messageBuffer;
+		msgpack_packer packer;
+		msgpack_sbuffer_init(&messageBuffer);
+		msgpack_packer_init(&packer
+			, &messageBuffer
+			, msgpack_sbuffer_write);
+
+		{
+			msgpack_pack_map(&packer, 1);
+
+			// (0) - Key
+			{
+				string key;
+				switch (axis) {
+				case Axis::A:
+					key = "motionControlA";
+					break;
+				case Axis::B:
+					key = "motionControlB";
+					break;
+				default:
+					break;
+				}
+
+				msgpack_pack_str(&packer, key.size());
+				msgpack_pack_str_body(&packer, key.c_str(), key.size());
+			}
+
+			// (0) - Value
+			{
+				msgpack_pack_map(&packer, 1);
+
+				// (1) - Key
+				{
+					string key = "initTimer";
+
+					msgpack_pack_str(&packer, key.size());
+					msgpack_pack_str_body(&packer, key.c_str(), key.size());
+				}
+
+				// (1) - Value
+				{
+					msgpack_pack_nil(&packer);
+				}
+			}
+		}
+
+		auto header = rs485->makeHeader(this->parameters.targetID.get());
 
 		vector<uint8_t> body;
 		body.assign((uint8_t*)(messageBuffer.data)

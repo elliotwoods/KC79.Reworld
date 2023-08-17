@@ -114,6 +114,8 @@
     <ClCompile Include="src\Modules\App.cpp" />
     <ClCompile Include="src\Modules\FWUpdate.cpp" />
     <ClCompile Include="src\Modules\ModuleControl.cpp" />
+    <ClCompile Include="src\Modules\Portal.cpp" />
+    <ClCompile Include="src\Modules\PortalPilot.cpp" />
     <ClCompile Include="src\Modules\RS485.cpp" />
     <ClCompile Include="src\ofApp.cpp" />
     <ClCompile Include="src\pch_App.cpp">
@@ -127,6 +129,8 @@
     <ClInclude Include="src\Modules\Base.h" />
     <ClInclude Include="src\Modules\FWUpdate.h" />
     <ClInclude Include="src\Modules\ModuleControl.h" />
+    <ClInclude Include="src\Modules\Portal.h" />
+    <ClInclude Include="src\Modules\PortalPilot.h" />
     <ClInclude Include="src\Modules\RS485.h" />
     <ClInclude Include="src\ofApp.h" />
     <ClInclude Include="src\pch_App.h" />
