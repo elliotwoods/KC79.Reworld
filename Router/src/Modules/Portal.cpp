@@ -41,6 +41,10 @@ namespace Modules {
 			, this->axis[1]
 			, this->pilot
 		};
+
+		for (auto submodule : submodules) {
+			submodule->init();
+		}
 	}
 
 	//----------

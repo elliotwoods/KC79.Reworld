@@ -283,6 +283,38 @@ namespace Modules {
 				return true;
 			}
 		}
+		else if(strcmp(key, "motionProfile") == 0) {
+			// MOTION PROFILE
+			size_t arraySize;
+			if(!msgpack::readArraySize(stream, arraySize)) {
+				return false;
+			}
+
+			// ARRAY FORMAT
+
+			// MAX SPEED
+			if(arraySize >= 1) {
+				if(!msgpack::readInt<int32_t>(stream, this->motionProfile.maximumSpeed)) {
+					return false;
+				}
+			}
+
+			// ACCELERATION
+			if(arraySize >= 2) {
+				if(!msgpack::readInt<int32_t>(stream, this->motionProfile.acceleration)) {
+					return false;
+				}
+			}
+
+			// MIN SPEED
+			if(arraySize >= 3) {
+				if(!msgpack::readInt<int32_t>(stream, this->motionProfile.minimumSpeed)) {
+					return false;
+				}
+			}
+
+			return true;
+		}
 		else if(strcmp(key, "measureBacklash") == 0) {
 			// MEASURE BACKLASH
 			MeasureRoutineSettings settings;

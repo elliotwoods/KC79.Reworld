@@ -24,9 +24,25 @@ namespace Modules {
 
 			void move(Steps position);
 
+			void pushMotionProfile();
+
 		protected:
 			Portal* portal;
 			const int axisIndex;
+
+			struct : ofParameterGroup {
+				ofParameter<int> maxVelocity{ "Max velocity", 30000 };
+				ofParameter<int> acceleration{ "Acceleration", 10000 };
+				ofParameter<int> minVelocity{ "Min velocity", 1000 };
+				PARAM_DECLARE("MotionControl", maxVelocity, acceleration, minVelocity);
+			} parameters;
+
+			struct {
+				int maxVelocity = -1;
+				int acceleration = -1;
+				int minVelocity = -1;
+
+			} cachedSentParameters;
 		};
 	}
 }

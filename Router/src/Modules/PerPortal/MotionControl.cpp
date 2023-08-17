@@ -54,7 +54,11 @@ namespace Modules {
 		void
 			MotionControl::update()
 		{
-
+			if (this->cachedSentParameters.maxVelocity != this->parameters.maxVelocity.get()
+				|| this->cachedSentParameters.acceleration != this->parameters.acceleration.get()
+				|| this->cachedSentParameters.minVelocity != this->parameters.minVelocity.get()) {
+				this->pushMotionProfile();
+			}
 		}
 
 		//----------
@@ -62,6 +66,7 @@ namespace Modules {
 			MotionControl::populateInspector(ofxCvGui::InspectArguments& args)
 		{
 			auto inspector = args.inspector;
+			inspector->addParameterGroup(this->parameters);
 		}
 
 		//----------
@@ -76,6 +81,31 @@ namespace Modules {
 				}
 			};
 			this->portal->sendToPortal(message);
+		}
+
+		//----------
+		void
+			MotionControl::pushMotionProfile()
+		{
+			auto message = msgpack11::MsgPack::object{
+				{
+					this->getFWModuleName() , msgpack11::MsgPack::object{
+						{
+							"motionProfile"
+							,  msgpack11::MsgPack::array{
+								(int32_t)this->parameters.maxVelocity.get()
+								, (int32_t)this->parameters.acceleration.get()
+								, (int32_t) this->parameters.minVelocity.get()
+							}
+						}
+					}
+				}
+			};
+			this->portal->sendToPortal(message);
+
+			this->cachedSentParameters.maxVelocity = this->parameters.maxVelocity.get();
+			this->cachedSentParameters.acceleration = this->parameters.acceleration.get();
+			this->cachedSentParameters.minVelocity = this->parameters.minVelocity.get();
 		}
 	}
 }

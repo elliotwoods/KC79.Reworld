@@ -16,6 +16,7 @@ namespace Modules {
 
 			string getTypeName() const override;
 			string getGlyph() const override;
+			string getName() const override;
 
 			void init() override;
 			void update() override;

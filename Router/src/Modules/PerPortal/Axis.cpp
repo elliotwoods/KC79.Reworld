@@ -1,5 +1,6 @@
 #include "pch_App.h"
 #include "../Portal.h"
+#include "../../Utils.h"
 
 using namespace msgpack11;
 
@@ -29,12 +30,22 @@ namespace Modules {
 		}
 
 		//----------
+		string
+			Axis::getName() const
+		{
+			return this->getTypeName() + " " + Utils::getAxisLetter(this->axisIndex);
+		}
+
+		//----------
 		void
 			Axis::init()
 		{
 			this->onPopulateInspector += [this](ofxCvGui::InspectArguments& args) {
 				this->populateInspector(args);
 			};
+
+			this->motorDriver->init();
+			this->motionControl->init();
 		}
 
 		//----------

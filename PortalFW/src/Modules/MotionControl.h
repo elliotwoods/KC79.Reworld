@@ -55,6 +55,7 @@ namespace Modules {
 
 		void zeroCurrentPosition();
 		void setCurrentPosition(Steps steps);
+		
 		void setTargetPosition(Steps steps);
 		void setMaximumVelocty(StepsPerSecond stepsPerSecond);
 		void setMaximumAcceleration(StepsPerSecondPerSecond stepsPerSecondPerSecond);
