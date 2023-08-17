@@ -1,5 +1,7 @@
 #include "Logger.h"
 #include <Arduino.h>
+#include <assert.h>
+#include <msgpack.hpp>
 
 #pragma mark Log
 
@@ -44,7 +46,9 @@ Logger::get()
 //---------
 Logger::Logger()
 {
-
+	assert(lwrb_init(&this->messageRingBuffer
+		, this->messageRingBufferData
+		, LOG_HISTORY_SIZE) == 1);
 }
 
 //----------
@@ -75,5 +79,27 @@ Logger::log(const LogMessage& logMessage)
 	serial.println(logMessage.message.c_str());
 	for(auto logListener : this->logListeners) {
 		logListener->onLogMessage(logMessage);
+	}
+	this->messageOutbox.push_back(logMessage);
+	while(this->messageOutbox.size() > LOG_HISTORY_SIZE) {
+		this->messageOutbox.pop_front();
+	}
+}
+
+//----------
+void
+Logger::reportStatus(msgpack::Serializer& serializer)
+{
+	auto count = this->messageOutbox.size();
+
+	serializer.beginArray(count);
+	for(size_t i=0; i<count; i++) {
+		auto & message = this->messageOutbox.front();
+		serializer.beginMap(2);
+		{
+			serializer << "level" << (uint8_t) message.level;
+			serializer << "message" << message.message.c_str();
+		}
+		this->messageOutbox.pop_front();
 	}
 }

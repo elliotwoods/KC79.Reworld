@@ -65,6 +65,23 @@ namespace Modules {
 		for (auto submodule : this->submodules) {
 			submodule->addSubMenuToInsecptor(inspector, submodule);
 		}
+
+		inspector->addSpacer();
+
+		inspector->addButton("Poll", [this]() {
+			this->poll();
+			});
+	}
+
+	//----------
+	void
+		Portal::poll()
+	{
+		this->sendToPortal(msgpack11::MsgPack::object{
+				{
+					"poll", msgpack11::MsgPack()
+				}
+			});
 	}
 
 	//----------

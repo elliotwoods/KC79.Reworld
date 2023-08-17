@@ -5,7 +5,11 @@
 #include <sstream>
 #include <memory>
 #include <vector>
+#include <deque>
 #include <functional>
+#include <msgpack.hpp>
+
+#define LOG_HISTORY_SIZE 32
 
 void initLoggerSerial();
 
@@ -37,7 +41,11 @@ public:
 
 	void log(const LogMessage&);
 
+	void reportStatus(msgpack::Serializer&);
+
 	std::vector<ILogListener*> logListeners;
 private:
 	Logger();
+
+	std::deque<LogMessage> messageOutbox;
 };

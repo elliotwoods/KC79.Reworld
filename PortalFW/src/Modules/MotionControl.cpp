@@ -998,4 +998,15 @@ namespace Modules {
 		endRoutine();
 		return Exception::None();
 	}
+
+	//----------
+	void
+	MotionControl::reportStatus(msgpack::Serializer& serializer)
+	{
+		serializer.beginMap(2);
+		{
+			serializer << "position" << this->position;
+			serializer << "targetPosition" << this->targetPosition;
+		}
+	}
 }

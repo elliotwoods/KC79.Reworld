@@ -15,6 +15,8 @@
 #include <memory>
 #include <vector>
 
+#define STARTUP_ENABLED false
+
 namespace Modules {
 	class App : public Base {
 	public:
@@ -22,6 +24,8 @@ namespace Modules {
 
 		void setup();
 		void update();
+		void reportStatus(msgpack::Serializer&);
+
 #ifndef GUI_DISABLED
 		GUI * gui;
 #endif

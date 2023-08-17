@@ -3,9 +3,9 @@
 namespace Modules {
 	//----------
 	void
-	Base::reportStatus(msgpack::Serializer&)
+	Base::reportStatus(msgpack::Serializer& serializer)
 	{
-
+		serializer << (uint8_t) 0;
 	}
 
 	//----------

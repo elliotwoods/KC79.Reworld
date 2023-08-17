@@ -22,6 +22,7 @@ namespace Modules {
 
 		void populateInspector(ofxCvGui::InspectArguments&);
 
+		void poll();
 		void sendToPortal(const msgpack11::MsgPack&);
 
 		shared_ptr<PerPortal::Axis> getAxis(int axis);

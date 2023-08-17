@@ -48,7 +48,7 @@ namespace Modules {
 		this->motionControlB->setup();
 
 		// Calibrate self on startup
-		{
+		if(STARTUP_ENABLED) {
 			const uint8_t tryCount = 3;
 			MotionControl::MeasureRoutineSettings settings;
 
@@ -105,6 +105,8 @@ namespace Modules {
 #ifndef GUI_DISABLED
 		this->gui->update();
 #endif
+
+		// OLD HACK TO JUST RUN MOTORS AND DO THINGS
 		// this->motorDriverSettings->setCurrent(0.15f);
 		// this->motorDriverA->testRoutine();
 		// this->motorDriverB->testRoutine();
@@ -113,6 +115,23 @@ namespace Modules {
 		// Indicate if either driver is enabled
 		digitalWrite(PB3
 			, this->motorDriverA->getEnabled() || this->motorDriverB->getEnabled());
+	}
+	
+	//----------
+	void
+	App::reportStatus(msgpack::Serializer& serializer)
+	{
+		serializer.beginMap(3);
+		{
+			serializer << "mca";
+			this->motionControlA->reportStatus(serializer);
+
+			serializer << "mcb";
+			this->motionControlB->reportStatus(serializer);
+
+			serializer << "logger";
+			Logger::X().reportStatus(serializer);
+		}
 	}
 
 	//----------
@@ -140,6 +159,13 @@ namespace Modules {
 		if(strcmp(key, "motionControlB") == 0) {
 			return this->motionControlB->processIncoming(stream);
 		}
+		if(strcmp(key, "poll") == 0) {
+			if(!msgpack::readNil(stream)) {
+				return false;
+			}
+			rs485->sendStatusReport();
+			return true;
+		}
 
 		if(strcmp(key, "reset") == 0) {
 			NVIC_SystemReset();
@@ -148,6 +174,7 @@ namespace Modules {
 			// Firmware announce packet - go to bootloader
 			NVIC_SystemReset();
 		}
+		
 
 		return false;
 	}

@@ -72,6 +72,7 @@ namespace Modules {
 		Exception measureBacklashRoutine(const MeasureRoutineSettings&);
 		Exception homeRoutine(const MeasureRoutineSettings&);
 
+		void reportStatus(msgpack::Serializer&) override;
 	protected:
 		bool processIncomingByKey(const char * key, Stream &) override;
 

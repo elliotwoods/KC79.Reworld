@@ -11,6 +11,8 @@ namespace Modules {
 		const char * getTypeName() const;
 		void setup() override;
 		void update() override;
+		
+		void sendStatusReport();
 	protected:
 		App * app;
 		void processIncoming();

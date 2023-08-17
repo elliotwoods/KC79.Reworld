@@ -46,6 +46,28 @@ namespace Modules {
 
 	//---------
 	void
+	RS485::sendStatusReport()
+	{
+		this->beginTransmission();
+
+		const auto ourID = this->app->id->get();
+		
+		// Packer [target, sender, message]
+		msgpack::writeArraySize4(cobsStream, 3);
+		{
+			msgpack::writeInt8(cobsStream, 0);
+			msgpack::writeInt8(cobsStream, ourID);
+
+			// From here we use Serializer
+			msgpack::Serializer serializer(cobsStream);
+			this->app->reportStatus(serializer);
+		}
+
+		this->endTransmission();
+	}
+
+	//---------
+	void
 	RS485::processIncoming()
 	{
 		const auto ourID = this->app->id->get();
