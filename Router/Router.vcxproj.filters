@@ -31,6 +31,30 @@
     <ClCompile Include="src\Modules\Portal.cpp">
       <Filter>src\Modules</Filter>
     </ClCompile>
+    <ClCompile Include="src\Modules\PerPortal\Pilot.cpp">
+      <Filter>src\Modules\PerPortal</Filter>
+    </ClCompile>
+    <ClCompile Include="src\Modules\PerPortal\MotorDriverSettings.cpp">
+      <Filter>src\Modules\PerPortal</Filter>
+    </ClCompile>
+    <ClCompile Include="src\Modules\PerPortal\MotionControl.cpp">
+      <Filter>src\Modules\PerPortal</Filter>
+    </ClCompile>
+    <ClCompile Include="src\Modules\PerPortal\Axis.cpp">
+      <Filter>src\Modules\PerPortal</Filter>
+    </ClCompile>
+    <ClCompile Include="src\Modules\Base.cpp">
+      <Filter>src\Modules</Filter>
+    </ClCompile>
+    <ClCompile Include="src\Modules\PerPortal\MotorDriver.cpp">
+      <Filter>src\Modules\PerPortal</Filter>
+    </ClCompile>
+    <ClCompile Include="src\msgpack11\msgpack11.cpp">
+      <Filter>src\msgpack</Filter>
+    </ClCompile>
+    <ClCompile Include="src\Utils.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <Filter Include="src">
@@ -42,8 +66,11 @@
     <Filter Include="src\cobs-c">
       <UniqueIdentifier>{09bf3e6b-0abe-40d4-b353-91c932d806bb}</UniqueIdentifier>
     </Filter>
-    <Filter Include="src\Modules\Portal">
-      <UniqueIdentifier>{6b53db63-84df-42a2-b0dd-460aa6c320f2}</UniqueIdentifier>
+    <Filter Include="src\Modules\PerPortal">
+      <UniqueIdentifier>{a25e72f7-c39b-408d-8e44-e5dab68fdc4e}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\msgpack">
+      <UniqueIdentifier>{8c3a6ede-fec9-4e0f-bc4e-4c237af4c97e}</UniqueIdentifier>
     </Filter>
   </ItemGroup>
   <ItemGroup>
@@ -76,6 +103,30 @@
     </ClInclude>
     <ClInclude Include="src\Modules\Portal.h">
       <Filter>src\Modules</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Modules\PerPortal\MotionControl.h">
+      <Filter>src\Modules\PerPortal</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Modules\PerPortal\Pilot.h">
+      <Filter>src\Modules\PerPortal</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Modules\PerPortal\Contants.h">
+      <Filter>src\Modules\PerPortal</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Modules\PerPortal\MotorDriver.h">
+      <Filter>src\Modules\PerPortal</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Modules\PerPortal\Axis.h">
+      <Filter>src\Modules\PerPortal</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Modules\PerPortal\MotorDriverSettings.h">
+      <Filter>src\Modules\PerPortal</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Utils.h">
+      <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="src\msgpack11\msgpack11.hpp">
+      <Filter>src\msgpack</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>

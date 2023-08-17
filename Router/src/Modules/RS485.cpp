@@ -186,7 +186,25 @@ namespace Modules {
 
 	//----------
 	void
-		RS485::transmitRawPacket(const uint8_t* data, size_t size)
+		RS485::transmit(const msgpack11::MsgPack& message)
+	{
+		auto dataString = message.dump();
+		auto dataBegin = (uint8_t*)dataString.data();
+		auto dataEnd = dataBegin + dataString.size();
+		auto data = vector<uint8_t>(dataBegin, dataEnd);
+		this->transmit(data);
+	}
+
+	//----------
+	void
+		RS485::transmit(const vector<uint8_t>& packetContent)
+	{
+		this->transmit(packetContent.data(), packetContent.size());
+	}
+
+	//----------
+	void
+		RS485::transmit(const uint8_t* data, size_t size)
 	{
 		// allocate buffer of max size for cobs
 		vector<uint8_t> binaryCOBS(size * 255 / 254 + 2);
@@ -199,7 +217,7 @@ namespace Modules {
 
 		// Check we encoded OK
 		if (encodeResult.status != COBS_ENCODE_OK) {
-			ofLogError("LaserSystem") << "Failed to encode COBS : " << encodeResult.status;
+			ofLogError("RS485") << "Failed to encode COBS : " << encodeResult.status;
 			return;
 		}
 
@@ -211,7 +229,7 @@ namespace Modules {
 
 		// Check that all bytes were sent
 		if (bytesWritten != binaryCOBS.size()) {
-			ofLogError("LaserSystem") << "Failed to write all " << binaryCOBS.size() << " bytes to stream";
+			ofLogError("RS485") << "Failed to write all " << binaryCOBS.size() << " bytes to stream";
 		}
 
 		// Send the EOP (this doesn't come with cobs-c
@@ -228,29 +246,11 @@ namespace Modules {
 	void
 		RS485::transmitPoll(const Target& target)
 	{
-		// Create header
-		auto header = RS485::makeHeader(target);
-
-		// Create body
-		vector<uint8_t> body;
-		{
-			msgpack_sbuffer buffer;
-			msgpack_packer packer;
-			msgpack_sbuffer_init(&buffer);
-			msgpack_packer_init(&packer
-				, &buffer
-				, msgpack_sbuffer_write);
-
-			msgpack_pack_nil(&packer);
-
-			body.assign((uint8_t*) buffer.data
-				, (uint8_t*) (buffer.data + buffer.size));
-
-			msgpack_sbuffer_destroy(&buffer);
-		}
-
-		// Transmit
-		this->transmitHeaderAndBody(header, body);
+		this->transmit(msgpack11::MsgPack::array{
+			(int8_t)target
+			, (int8_t)0
+			, msgpack11::MsgPack()
+			});
 	}
 
 	//----------
@@ -281,7 +281,7 @@ namespace Modules {
 			, body.begin()
 			, body.end());
 
-		this->transmitRawPacket(headerAndBody.data()
+		this->transmit(headerAndBody.data()
 			, headerAndBody.size());
 	}
 

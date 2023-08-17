@@ -3,6 +3,7 @@
 #include "ofSerial.h"
 #include "ofxCvGui.h"
 #include "Base.h"
+#include "../msgpack11/msgpack11.hpp"
 
 struct IsFrameNew {
 	void notify() {
@@ -38,7 +39,10 @@ namespace Modules {
 
 		static vector<uint8_t> makeHeader(const Target&);
 
-		void transmitRawPacket(const uint8_t* data, size_t);
+		void transmit(const msgpack11::MsgPack&);
+		void transmit(const vector<uint8_t>& packetContent);
+		void transmit(const uint8_t* data, size_t);
+
 		void transmitPoll(const Target&);
 		void transmitMessage(const Target&, const nlohmann::json&);
 		void transmitHeaderAndBody(const vector<uint8_t>& header

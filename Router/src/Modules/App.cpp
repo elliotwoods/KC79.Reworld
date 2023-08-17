@@ -17,13 +17,8 @@ namespace Modules {
 		}
 
 		{
-			this->moduleControl = make_shared<ModuleControl>(this->rs485);
-			this->modules.push_back(this->moduleControl);
-		}
-
-		{
-			this->portalPilot = make_shared<PortalPilot>(this->moduleControl);
-			this->modules.push_back(this->portalPilot);
+			this->portal = make_shared<Portal>(this->rs485, 1);
+			this->modules.push_back(this->portal);
 		}
 	}
 
@@ -31,7 +26,7 @@ namespace Modules {
 	string
 		App::getTypeName() const
 	{
-		return "App";
+		return "App"; 
 	}
 
 	//----------
@@ -65,7 +60,7 @@ namespace Modules {
 		inspector->addFps();
 
 		for (auto module : this->modules) {
-			inspector->addSubMenu(module->getTypeName(), module);
+			module->addSubMenuToInsecptor(inspector, module);
 		}
 	}
 

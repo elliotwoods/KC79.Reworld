@@ -112,16 +112,27 @@
     </ClCompile>
     <ClCompile Include="src\main.cpp" />
     <ClCompile Include="src\Modules\App.cpp" />
+    <ClCompile Include="src\Modules\Base.cpp" />
     <ClCompile Include="src\Modules\FWUpdate.cpp" />
     <ClCompile Include="src\Modules\ModuleControl.cpp" />
+    <ClCompile Include="src\Modules\PerPortal\Axis.cpp" />
+    <ClCompile Include="src\Modules\PerPortal\MotionControl.cpp" />
+    <ClCompile Include="src\Modules\PerPortal\MotorDriver.cpp" />
+    <ClCompile Include="src\Modules\PerPortal\MotorDriverSettings.cpp" />
+    <ClCompile Include="src\Modules\PerPortal\Pilot.cpp" />
     <ClCompile Include="src\Modules\Portal.cpp" />
     <ClCompile Include="src\Modules\PortalPilot.cpp" />
     <ClCompile Include="src\Modules\RS485.cpp" />
+    <ClCompile Include="src\msgpack11\msgpack11.cpp">
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">NotUsing</PrecompiledHeader>
+    </ClCompile>
     <ClCompile Include="src\ofApp.cpp" />
     <ClCompile Include="src\pch_App.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Create</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Create</PrecompiledHeader>
     </ClCompile>
+    <ClCompile Include="src\Utils.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\cobs-c\cobs.h" />
@@ -129,11 +140,19 @@
     <ClInclude Include="src\Modules\Base.h" />
     <ClInclude Include="src\Modules\FWUpdate.h" />
     <ClInclude Include="src\Modules\ModuleControl.h" />
+    <ClInclude Include="src\Modules\PerPortal\Axis.h" />
+    <ClInclude Include="src\Modules\PerPortal\Contants.h" />
+    <ClInclude Include="src\Modules\PerPortal\MotionControl.h" />
+    <ClInclude Include="src\Modules\PerPortal\MotorDriver.h" />
+    <ClInclude Include="src\Modules\PerPortal\MotorDriverSettings.h" />
+    <ClInclude Include="src\Modules\PerPortal\Pilot.h" />
     <ClInclude Include="src\Modules\Portal.h" />
     <ClInclude Include="src\Modules\PortalPilot.h" />
     <ClInclude Include="src\Modules\RS485.h" />
+    <ClInclude Include="src\msgpack11\msgpack11.hpp" />
     <ClInclude Include="src\ofApp.h" />
     <ClInclude Include="src\pch_App.h" />
+    <ClInclude Include="src\Utils.h" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="$(OF_ROOT)\libs\openFrameworksCompiled\project\vs\openframeworksLib.vcxproj">

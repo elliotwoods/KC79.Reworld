@@ -7,7 +7,15 @@ namespace Modules {
 	{
 	public:
 		virtual string getTypeName() const = 0;
+		virtual string getName() const {
+			return this->getTypeName();
+		}
+		virtual string getGlyph() const {
+			return "";
+		}
 		virtual void init() = 0;
 		virtual void update() = 0;
+
+		void addSubMenuToInsecptor(shared_ptr<ofxCvGui::Panels::Inspector>, shared_ptr<IInspectable>);
 	};
 }

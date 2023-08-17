@@ -4,8 +4,7 @@
 
 #include "RS485.h"
 #include "FWUpdate.h"
-#include "ModuleControl.h"
-#include "PortalPilot.h"
+#include "Portal.h"
 
 namespace Modules {
 	class App : public Base
@@ -22,8 +21,8 @@ namespace Modules {
 	protected:
 		shared_ptr<RS485> rs485;
 		shared_ptr<FWUpdate> fwUpdate;
-		shared_ptr<ModuleControl> moduleControl;
-		shared_ptr<PortalPilot> portalPilot;
+
+		shared_ptr<Portal> portal;
 
 		vector<shared_ptr<Base>> modules;
 	};
