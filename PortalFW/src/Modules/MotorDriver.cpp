@@ -42,7 +42,6 @@ namespace Modules {
 	{
 		pinMode(this->config.Fault, INPUT);
 		pinMode(this->config.Enable, OUTPUT);
-		pinMode(this->config.Step, OUTPUT);
 		pinMode(this->config.Direction, OUTPUT);
 
 		this->pushState();
@@ -116,6 +115,9 @@ namespace Modules {
 	void
 	MotorDriver::testRoutine()
 	{
+		// Make the step output a standard GPIO
+		pinMode(this->config.Step, OUTPUT);
+
 		this->setEnabled(true);
 		
 		int slowest = 50;

@@ -3,6 +3,8 @@
 #include "ofxCvGui.h"
 
 namespace Modules {
+	typedef int32_t Steps;
+
 	class Base : public ofxCvGui::IInspectable
 	{
 	public:
@@ -15,6 +17,9 @@ namespace Modules {
 		}
 		virtual void init() = 0;
 		virtual void update() = 0;
+		
+		virtual void processIncoming(const nlohmann::json&) {
+		}
 
 		void addSubMenuToInsecptor(shared_ptr<ofxCvGui::Panels::Inspector>, shared_ptr<IInspectable>);
 	};

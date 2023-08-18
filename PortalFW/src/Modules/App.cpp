@@ -49,42 +49,7 @@ namespace Modules {
 
 		// Calibrate self on startup
 		if(STARTUP_ENABLED) {
-			const uint8_t tryCount = 3;
-			MotionControl::MeasureRoutineSettings settings;
-
-			auto tryNTimes = [this, &tryCount](const std::function<Exception()> & action) {
-				for(uint8_t tries = 0; tries < tryCount; tries++) {
-					auto result = action();
-					if(result) {
-						log(LogLevel::Error, result.what());
-					}
-					else {
-						return true;
-					}
-				}
-				return false;
-			};
-			
-			bool success = true;
-			success &= tryNTimes([this, &settings]() {
-				return this->motionControlA->measureBacklashRoutine(settings);
-			});
-			success &= tryNTimes([this, &settings]() {
-				return this->motionControlA->homeRoutine(settings);
-			});
-
-			success &= tryNTimes([this, &settings]() {
-				return this->motionControlB->measureBacklashRoutine(settings);
-			});
-			success &= tryNTimes([this, &settings]() {
-				return this->motionControlB->homeRoutine(settings);
-			});
-			if(success) {
-				log(LogLevel::Status, "Init OK");
-			}
-			else {
-				log(LogLevel::Error, "Init fail");
-			}
+			this->initRoutine(3);
 		}
 	}
 
@@ -135,6 +100,47 @@ namespace Modules {
 	}
 
 	//----------
+	void
+	App::initRoutine(uint8_t tryCount)
+	{
+		MotionControl::MeasureRoutineSettings settings;
+
+		auto tryNTimes = [this, &tryCount](const std::function<Exception()> & action) {
+			for(uint8_t tries = 0; tries < tryCount; tries++) {
+				auto result = action();
+				if(result) {
+					log(LogLevel::Error, result.what());
+				}
+				else {
+					return true;
+				}
+			}
+			return false;
+		};
+		
+		bool success = true;
+		success &= tryNTimes([this, &settings]() {
+			return this->motionControlA->measureBacklashRoutine(settings);
+		});
+		success &= tryNTimes([this, &settings]() {
+			return this->motionControlA->homeRoutine(settings);
+		});
+
+		success &= tryNTimes([this, &settings]() {
+			return this->motionControlB->measureBacklashRoutine(settings);
+		});
+		success &= tryNTimes([this, &settings]() {
+			return this->motionControlB->homeRoutine(settings);
+		});
+		if(success) {
+			log(LogLevel::Status, "Init OK");
+		}
+		else {
+			log(LogLevel::Error, "Init fail");
+		}
+	}
+
+	//----------
 	bool
 	App::processIncomingByKey(const char * key, Stream & stream)
 	{
@@ -166,7 +172,26 @@ namespace Modules {
 			rs485->sendStatusReport();
 			return true;
 		}
-
+		if(strcmp(key, "init") == 0) {
+			msgpack::DataType dataType;
+			if(!msgpack::getNextDataType(stream, dataType)) {
+				return false;
+			}
+			if(dataType == msgpack::DataType::Nil) {
+				this->initRoutine(1);
+				return true;
+			}
+			else if(msgpack::isInt(dataType)) {
+				uint8_t tryCount;
+				if(!msgpack::readInt<uint8_t>(stream, tryCount)) {
+					return false;
+				}
+				this->initRoutine(tryCount);
+				return true;
+			}
+			return false;
+		}
+		
 		if(strcmp(key, "reset") == 0) {
 			NVIC_SystemReset();
 		}

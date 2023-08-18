@@ -35,11 +35,14 @@ namespace Modules {
 		this->axis[0] = make_shared<PerPortal::Axis>(this, 0);
 		this->axis[1] = make_shared<PerPortal::Axis>(this, 1);
 		this->pilot = make_shared<PerPortal::Pilot>(this);
+		this->logger = make_shared<PerPortal::Logger>(this);
+
 		this->submodules = {
 			this->motorDriverSettings
 			, this->axis[0]
 			, this->axis[1]
 			, this->pilot
+			, logger
 		};
 
 		for (auto submodule : submodules) {
@@ -53,6 +56,12 @@ namespace Modules {
 	{
 		for (auto submodule : this->submodules) {
 			submodule->update();
+		}
+
+		if (this->parameters.poll.regularly) {
+			if (chrono::system_clock::now() - lastPoll > chrono::milliseconds((int) (this->parameters.poll.interval.get() * 1000.0f))) {
+				this->poll();
+			}
 		}
 	}
 
@@ -71,6 +80,28 @@ namespace Modules {
 		inspector->addButton("Poll", [this]() {
 			this->poll();
 			});
+
+
+		inspector->addButton("initRoutine", [this]() {
+			this->initRoutine();
+			});
+
+		inspector->addParameterGroup(this->parameters);
+	}
+
+	//----------
+	void
+		Portal::processIncoming(const nlohmann::json& json)
+	{
+		if (json.contains("mca")) {
+			this->axis[0]->getMotionControl()->processIncoming(json["mca"]);
+		}
+		if (json.contains("mcb")) {
+			this->axis[1]->getMotionControl()->processIncoming(json["mcb"]);
+		}
+		if (json.contains("logger")) {
+			this->logger->processIncoming(json["logger"]);
+		}
 	}
 
 	//----------
@@ -82,6 +113,19 @@ namespace Modules {
 					"poll", msgpack11::MsgPack()
 				}
 			});
+		this->lastPoll = chrono::system_clock::now();
+	}
+
+	//----------
+	void
+		Portal::initRoutine()
+	{
+		this->sendToPortal(msgpack11::MsgPack::object{
+				{
+					"init", msgpack11::MsgPack()
+				}
+			});
+		this->lastPoll = chrono::system_clock::now();
 	}
 
 	//----------
@@ -94,6 +138,13 @@ namespace Modules {
 			, (int8_t) 0
 			, message
 			});
+	}
+
+	//----------
+	shared_ptr<PerPortal::MotorDriverSettings>
+		Portal::getMotorDriverSettings()
+	{
+		return this->motorDriverSettings;
 	}
 
 	//----------

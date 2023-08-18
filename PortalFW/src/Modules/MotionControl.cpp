@@ -76,6 +76,10 @@ namespace Modules {
 			return;
 		}
 
+		if(!this->timer.hardwareTimer) {
+			return;
+		}
+
 		// Setup the interrupt
 		this->timer.hardwareTimer->attachInterrupt([this]() {
 			this->stepsInInterrupt++;
@@ -95,6 +99,10 @@ namespace Modules {
 	void
 	MotionControl::disableInterrupt()
 	{
+		if(!this->timer.hardwareTimer) {
+			return;
+		}
+
 		if(this->interruptEnabed) {
 			this->timer.hardwareTimer->detachInterrupt();
 		}
@@ -123,7 +131,7 @@ namespace Modules {
 		this->motorDriver.setEnabled(false);
 		this->currentMotionState.motorRunning = false;
 
-		if(this->timer.running) {
+		if(this->timer.running && this->timer.hardwareTimer) {
 			this->timer.hardwareTimer->pause();
 			this->timer.running = false;
 		}
@@ -136,6 +144,11 @@ namespace Modules {
 	void
 	MotionControl::run(bool direction, StepsPerSecond speed)
 	{
+		// If no hardware timer then nothing to do here
+		if(!this->timer.hardwareTimer) {
+			return;
+		}
+
 		// Run the motor
 		this->motorDriver.setEnabled(true);
 		this->currentMotionState.motorRunning = true;
@@ -371,6 +384,7 @@ namespace Modules {
 	MotionControl::updateStepCount()
 	{
 		if(this->currentMotionState.direction) {
+			
 			// Forwards
 
 			if(this->backlashControl.positionWithinBacklash < 0) {
@@ -550,6 +564,10 @@ namespace Modules {
 	Exception
 	MotionControl::measureBacklashRoutine(const MeasureRoutineSettings& settings)
 	{
+		if(!this->timer.hardwareTimer) {
+			return Exception("No hardware timer");
+		}
+
 		// Stop any existing motion profile
 		this->stop();
 
@@ -770,6 +788,10 @@ namespace Modules {
 	{
 		// Stop any existing motion profile
 		this->stop();
+
+		if(!this->timer.hardwareTimer) {
+			return Exception("No hardware timer");
+		}
 
 		struct SwitchSeen {
 			bool seenPressed;

@@ -258,8 +258,9 @@ namespace Modules {
 
 									{
 										ofRectangle textBounds(panelCenter - glm::vec2(20, 20), 40, 40);
-										auto text = axis.getName() + "\n" + ofToString(axis.get(), 3);
-										ofxCvGui::Utils::drawText(text, textBounds);
+										ofxCvGui::Utils::drawText(axis.getName(), textBounds);
+										
+										ofxCvGui::Utils::drawText(ofToString(axis.get(), 3), 20, 20);
 									}
 								}
 							};

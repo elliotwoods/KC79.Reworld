@@ -50,6 +50,58 @@ namespace Modules {
 			MotorDriver::populateInspector(ofxCvGui::InspectArguments& args)
 		{
 			auto inspector = args.inspector;
+
+			inspector->addButton("testRoutine", [this]() {
+				this->testRoutine();
+				});
+			inspector->addButton("testTimer", [this]() {
+				this->testTimer();
+				});
+			inspector->addParameterGroup(this->parameters);
+		}
+
+		//----------
+		void
+			MotorDriver::testRoutine()
+		{
+			auto message = MsgPack::object{
+				{
+					"motorDriver" + Utils::getAxisLetter(this->axisIndex) , MsgPack::object{
+						{
+							"testRoutine", MsgPack()
+						}
+					}
+				}
+			};
+			this->portal->sendToPortal(message);
+		}
+
+		//----------
+		void
+			MotorDriver::testTimer()
+		{
+			auto period = this->parameters.testTimer.period.get();
+			auto count = this->parameters.testTimer.count.get();
+
+			if (this->parameters.testTimer.normaliseParameters.get()) {
+				auto microstepResolution = this->portal->getMotorDriverSettings()->getMicrostep();
+				period /= microstepResolution;
+				count *= microstepResolution;
+			}
+			auto message = MsgPack::object{
+				{
+					"motorDriver" + Utils::getAxisLetter(this->axisIndex) , MsgPack::object{
+						{
+							"testTimer", MsgPack::array{
+								(uint32_t) this->parameters.testTimer.count.get()
+								, (uint32_t)this->parameters.testTimer.period.get()
+							}
+
+						}
+					}
+				}
+			};
+			this->portal->sendToPortal(message);
 		}
 	}
 }

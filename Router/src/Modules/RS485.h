@@ -18,6 +18,8 @@ struct IsFrameNew {
 };
 
 namespace Modules {
+	class App;
+
 	class RS485 : public Base {
 	public:
 		struct Config {
@@ -29,7 +31,7 @@ namespace Modules {
 		// 1-127 = Clients
 		typedef int8_t Target;
 
-		RS485();
+		RS485(App *);
 
 		string getTypeName() const override;
 		void init() override;
@@ -52,6 +54,8 @@ namespace Modules {
 
 		void processIncoming(const nlohmann::json&);
 	protected:
+		App * app;
+
 		ofSerial serial;
 		std::string connectedPortName; // only valid whilst initialised
 

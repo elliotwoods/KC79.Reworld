@@ -1,7 +1,8 @@
 #pragma once
 
 #include "../Base.h"
-#include "Contants.h"
+#include "Constants.h"
+#include "../Utils.h"
 
 namespace Modules {
 	class Portal;
@@ -22,7 +23,7 @@ namespace Modules {
 		protected:
 			void pushValues();
 
-			shared_ptr<Portal> portal;
+			Portal * portal;
 
 			struct : ofParameterGroup {
 				struct : ofParameterGroup {

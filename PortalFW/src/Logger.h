@@ -13,18 +13,20 @@
 
 void initLoggerSerial();
 
-enum LogLevel {
-	Status
-	, Warning
-	, Error
+enum LogLevel : uint8_t {
+	Status = 0
+	, Warning = 10
+	, Error = 20
 };
 
 struct LogMessage {
 	LogLevel level;
 	std::string message;
+	bool sendToServer;
+	uint32_t timestamp_ms;
 };
 
-void log(const LogLevel&, const char* message);
+void log(const LogLevel&, const char* message, bool sendToServer = true);
 void log(const LogMessage&);
 
 class ILogListener {

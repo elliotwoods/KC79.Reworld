@@ -17,12 +17,15 @@ namespace Modules {
 		void update() override;
 
 		void populateInspector(ofxCvGui::InspectArguments& args);
+		void processIncoming(const nlohmann::json&) override;
+
 		void dragEvent(const ofDragInfo&);
 	protected:
 		shared_ptr<RS485> rs485;
 		shared_ptr<FWUpdate> fwUpdate;
 
 		shared_ptr<Portal> portal;
+		map<uint8_t, shared_ptr<Portal>> portalByID;
 
 		vector<shared_ptr<Base>> modules;
 	};

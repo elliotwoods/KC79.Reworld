@@ -25,7 +25,8 @@ namespace Modules {
 		void setup();
 		void update();
 		void reportStatus(msgpack::Serializer&);
-
+		void initRoutine(uint8_t tryCount);
+		
 #ifndef GUI_DISABLED
 		GUI * gui;
 #endif

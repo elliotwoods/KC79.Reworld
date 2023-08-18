@@ -49,11 +49,14 @@
     <ClCompile Include="src\Modules\PerPortal\MotorDriver.cpp">
       <Filter>src\Modules\PerPortal</Filter>
     </ClCompile>
-    <ClCompile Include="src\msgpack11\msgpack11.cpp">
-      <Filter>src\msgpack</Filter>
-    </ClCompile>
     <ClCompile Include="src\Utils.cpp">
       <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="src\msgpack11\msgpack11.cpp">
+      <Filter>src\msgpack11</Filter>
+    </ClCompile>
+    <ClCompile Include="src\Modules\PerPortal\Logger.cpp">
+      <Filter>src\Modules\PerPortal</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -69,8 +72,8 @@
     <Filter Include="src\Modules\PerPortal">
       <UniqueIdentifier>{a25e72f7-c39b-408d-8e44-e5dab68fdc4e}</UniqueIdentifier>
     </Filter>
-    <Filter Include="src\msgpack">
-      <UniqueIdentifier>{8c3a6ede-fec9-4e0f-bc4e-4c237af4c97e}</UniqueIdentifier>
+    <Filter Include="src\msgpack11">
+      <UniqueIdentifier>{624f35ea-3d29-4999-96b9-224c86445965}</UniqueIdentifier>
     </Filter>
   </ItemGroup>
   <ItemGroup>
@@ -110,7 +113,7 @@
     <ClInclude Include="src\Modules\PerPortal\Pilot.h">
       <Filter>src\Modules\PerPortal</Filter>
     </ClInclude>
-    <ClInclude Include="src\Modules\PerPortal\Contants.h">
+    <ClInclude Include="src\Modules\PerPortal\Constants.h">
       <Filter>src\Modules\PerPortal</Filter>
     </ClInclude>
     <ClInclude Include="src\Modules\PerPortal\MotorDriver.h">
@@ -126,7 +129,10 @@
       <Filter>src</Filter>
     </ClInclude>
     <ClInclude Include="src\msgpack11\msgpack11.hpp">
-      <Filter>src\msgpack</Filter>
+      <Filter>src\msgpack11</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Modules\PerPortal\Logger.h">
+      <Filter>src\Modules\PerPortal</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>

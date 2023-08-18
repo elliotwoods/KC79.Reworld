@@ -1,12 +1,12 @@
 #pragma once
 
 #include "../Base.h"
+#include "msgpack11.hpp"
+#include "../Utils.h"
 
 namespace Modules {
 	class Portal;
 	
-	typedef int32_t Steps;
-
 	namespace PerPortal {
 		class MotionControl : public Base
 		{
@@ -21,8 +21,22 @@ namespace Modules {
 			void init();
 			void update();
 			void populateInspector(ofxCvGui::InspectArguments& args);
+			void processIncoming(const nlohmann::json&) override;
 
-			void move(Steps position);
+			void move(Steps targetPosition);
+			void move(int32_t targetPosition
+				, int32_t maxVelocity
+				, int32_t acceleration
+				, int32_t minVelocity);
+
+			void zeroCurrentPosition();
+
+			msgpack11::MsgPack getMeasureSettings() const;
+			void measureBacklash();
+			void homeRoutine();
+
+			void deinitTimer();
+			void initTimer();
 
 			void pushMotionProfile();
 
@@ -31,18 +45,35 @@ namespace Modules {
 			const int axisIndex;
 
 			struct : ofParameterGroup {
-				ofParameter<int> maxVelocity{ "Max velocity", 30000 };
-				ofParameter<int> acceleration{ "Acceleration", 10000 };
-				ofParameter<int> minVelocity{ "Min velocity", 100 };
-				PARAM_DECLARE("MotionControl", maxVelocity, acceleration, minVelocity);
+				struct : ofParameterGroup {
+					ofParameter<int> maxVelocity{ "Max velocity", 30000 };
+					ofParameter<int> acceleration{ "Acceleration", 10000 };
+					ofParameter<int> minVelocity{ "Min velocity", 100 };
+					PARAM_DECLARE("MotionControl", maxVelocity, acceleration, minVelocity);
+				} motionProfile;
+
+				struct : ofParameterGroup {
+					ofParameter<int> timeout_s{ "Timeout [s]", 60, 1, 120 };
+					ofParameter<int> slowSpeed{ "Slow Speed [Hz]", 1000, 100, 1000000 };
+					ofParameter<int> backOffDistance{ "Back off distance [steps]", 100, 1, 1000000 };
+					ofParameter<int> debounceDistance{ "Debounce distance [steps]", 10, 1, 1000000 };
+					PARAM_DECLARE("Measure settings", timeout_s, slowSpeed, backOffDistance, debounceDistance);
+				} measureSettings;
+
+				PARAM_DECLARE("MotionControl", motionProfile, measureSettings);
 			} parameters;
 
 			struct {
 				int maxVelocity = -1;
 				int acceleration = -1;
 				int minVelocity = -1;
-
 			} cachedSentParameters;
+
+			struct {
+				Utils::ReportedState<int32_t> position{ "position" };
+				Utils::ReportedState<int32_t> targetPosition{ "targetPosition" };
+				vector<Utils::IReportedState*> variables;
+			} reportedState;
 		};
 	}
 }

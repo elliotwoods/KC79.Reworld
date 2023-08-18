@@ -1,7 +1,8 @@
 #pragma once
 
 #include "../Base.h"
-#include "Contants.h"
+#include "Constants.h"
+#include "../Utils.h"
 
 namespace Modules {
 	class Portal;
@@ -19,6 +20,8 @@ namespace Modules {
 			void pushValues();
 			void pushCurrent();
 			void pushMicrostepResolution();
+
+			Steps getMicrostep() const;
 
 		protected:
 			Portal * portal;

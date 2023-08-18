@@ -11,11 +11,13 @@ HardwareSerial serial(PB7, PB6);
 
 //----------
 void
-log(const LogLevel& level, const char* message)
+log(const LogLevel& level, const char* message, bool sendToServer)
 {
 	log((LogMessage) {
 		level
 		, message
+		, sendToServer
+		, millis()
 		});
 }
 
@@ -80,9 +82,12 @@ Logger::log(const LogMessage& logMessage)
 	for(auto logListener : this->logListeners) {
 		logListener->onLogMessage(logMessage);
 	}
-	this->messageOutbox.push_back(logMessage);
-	while(this->messageOutbox.size() > LOG_HISTORY_SIZE) {
-		this->messageOutbox.pop_front();
+
+	if(logMessage.sendToServer) {
+		this->messageOutbox.push_back(logMessage);
+		while(this->messageOutbox.size() > LOG_HISTORY_SIZE) {
+			this->messageOutbox.pop_front();
+		}
 	}
 }
 
@@ -95,10 +100,11 @@ Logger::reportStatus(msgpack::Serializer& serializer)
 	serializer.beginArray(count);
 	for(size_t i=0; i<count; i++) {
 		auto & message = this->messageOutbox.front();
-		serializer.beginMap(2);
+		serializer.beginMap(3);
 		{
 			serializer << "level" << (uint8_t) message.level;
 			serializer << "message" << message.message.c_str();
+			serializer << "timestamp" << message.timestamp_ms;
 		}
 		this->messageOutbox.pop_front();
 	}

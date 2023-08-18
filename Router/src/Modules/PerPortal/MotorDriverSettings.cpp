@@ -101,5 +101,12 @@ namespace Modules {
 			this->portal->sendToPortal(message);
 			this->cachedSentValues.microstepResolution = this->parameters.microstepResolution.get();
 		}
+
+		//---------
+		Steps
+			MotorDriverSettings::getMicrostep() const
+		{
+			return this->parameters.microstepResolution.get();
+		}
 	}
 }

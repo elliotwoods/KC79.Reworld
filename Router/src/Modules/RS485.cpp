@@ -1,5 +1,7 @@
 #include "pch_App.h"
 #include "RS485.h"
+#include "App.h"
+
 #include "../cobs-c/cobs.h"
 #include "msgpack.h"
 
@@ -14,7 +16,8 @@ void printChar(int byte) {
 
 namespace Modules {
 	//----------
-	RS485::RS485()
+	RS485::RS485(App * app)
+		: app(app)
 	{
 
 	}
@@ -377,5 +380,6 @@ namespace Modules {
 		RS485::processIncoming(const nlohmann::json& json)
 	{
 		cout << "Rx : " << json.dump(4) << endl;
+		this->app->processIncoming(json);
 	}
 }

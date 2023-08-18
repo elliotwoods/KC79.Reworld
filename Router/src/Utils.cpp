@@ -1,5 +1,7 @@
 #include "pch_App.h"
 
+#include "Utils.h"
+
 namespace Utils{
 	//----------
 	std::string
@@ -14,5 +16,12 @@ namespace Utils{
 			ofLogError("Invalid axis index");
 			return "";
 		}
+	}
+
+	//----------
+	IReportedState::IReportedState(const string& name)
+		: name(name)
+	{
+
 	}
 }

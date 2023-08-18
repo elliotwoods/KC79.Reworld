@@ -65,7 +65,7 @@
       <PreprocessorDefinitions>%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
       <WarningLevel>Level3</WarningLevel>
-      <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>src\msgpack11;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
       <ObjectFileName>$(IntDir)\Build\%(RelativeDir)\$(Configuration)\</ObjectFileName>
       <PrecompiledHeader>Use</PrecompiledHeader>
@@ -87,7 +87,7 @@
       <PreprocessorDefinitions>%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
       <WarningLevel>Level3</WarningLevel>
-      <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>src\msgpack11;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <ObjectFileName>$(IntDir)\Build\%(RelativeDir)\$(Configuration)\</ObjectFileName>
       <PrecompiledHeader>Use</PrecompiledHeader>
       <PrecompiledHeaderFile>pch_App.h</PrecompiledHeaderFile>
@@ -116,6 +116,7 @@
     <ClCompile Include="src\Modules\FWUpdate.cpp" />
     <ClCompile Include="src\Modules\ModuleControl.cpp" />
     <ClCompile Include="src\Modules\PerPortal\Axis.cpp" />
+    <ClCompile Include="src\Modules\PerPortal\Logger.cpp" />
     <ClCompile Include="src\Modules\PerPortal\MotionControl.cpp" />
     <ClCompile Include="src\Modules\PerPortal\MotorDriver.cpp" />
     <ClCompile Include="src\Modules\PerPortal\MotorDriverSettings.cpp" />
@@ -141,7 +142,8 @@
     <ClInclude Include="src\Modules\FWUpdate.h" />
     <ClInclude Include="src\Modules\ModuleControl.h" />
     <ClInclude Include="src\Modules\PerPortal\Axis.h" />
-    <ClInclude Include="src\Modules\PerPortal\Contants.h" />
+    <ClInclude Include="src\Modules\PerPortal\Constants.h" />
+    <ClInclude Include="src\Modules\PerPortal\Logger.h" />
     <ClInclude Include="src\Modules\PerPortal\MotionControl.h" />
     <ClInclude Include="src\Modules\PerPortal\MotorDriver.h" />
     <ClInclude Include="src\Modules\PerPortal\MotorDriverSettings.h" />
