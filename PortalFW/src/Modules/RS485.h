@@ -24,7 +24,7 @@ namespace Modules {
 	protected:
 		App * app;
 		static RS485 * instance;
-		
+
 		void processIncoming();
 		Exception processCOBSPacket();
 
@@ -33,6 +33,7 @@ namespace Modules {
 		
 		void sendACK(bool success);
 
+		bool disableACK = false;
 		bool sentACKEarly = false;
 	};
 }

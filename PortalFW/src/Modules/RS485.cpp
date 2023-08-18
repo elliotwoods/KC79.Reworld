@@ -98,21 +98,18 @@ namespace Modules {
 		while(cobsStream.isStartOfIncomingPacket() && cobsStream.available()) {
 			bool needsReply = false;
 
-			// clear the flag (used inside processIncoming under processCOBSPacket)
+			// set the flags for ACKS (used inside processIncoming under processCOBSPacket)
 			this->sentACKEarly = false;
+			this->disableACK = false;
 
 			auto exception = this->processCOBSPacket();
 			if(exception) {
 				log(LogLevel::Error, exception.what());
-				if(!this->sentACKEarly) {
-					this->sendACK(false);
-				}
+				this->sendACK(false);
 			}
 			else {
 				log(LogLevel::Status, "RS485 Rx");
-				if(!this->sentACKEarly) {
-					this->sendACK(true);
-				}
+				this->sendACK(true);
 			}
 
 			cobsStream.nextIncomingPacket();
@@ -128,6 +125,9 @@ namespace Modules {
 		{
 			// We're expecting a 3-element array
 			{
+				// Note that these exceptions will result in neg ACKs
+				// and might conflict with ACKs coming from other modules
+				// at the same time.
 				size_t arraySize;
 				if(!msgpack::readArraySize(cobsStream, arraySize)) {
 					return Exception::MessageFormatError();
@@ -147,6 +147,7 @@ namespace Modules {
 				// An address of -1 means it's addressed to all devices
 				if(targetAddress == this->app->id->get() || targetAddress == -1) {
  					weShouldProcess = true;
+					this->disableACK = true;
 				}
 			}
 
@@ -200,6 +201,10 @@ namespace Modules {
 	void
 	RS485::sendACK(bool success)
 	{
+		if(this->disableACK || this->sendACKEarly) {
+			return;
+		}
+
 		this->beginTransmission();
 
 		msgpack::writeArraySize4(cobsStream, 3);
