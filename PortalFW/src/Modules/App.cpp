@@ -169,6 +169,9 @@ namespace Modules {
 			if(!msgpack::readNil(stream)) {
 				return false;
 			}
+			
+			// Now it's the end of the input stream and we're ready to write
+
 			rs485->sendStatusReport();
 			return true;
 		}

@@ -85,11 +85,13 @@ namespace Modules {
 
 		struct : ofParameterGroup {
 			ofParameter<int> baudRate{ "Baud rate", 115200 };
+			ofParameter<int> responseWindow_ms{ "Response window [ms]", 500 };
+
 			struct : ofParameterGroup {
 				ofParameter<int> targetID{ "Target ID", 1 };
 				PARAM_DECLARE("Debug", targetID);
 			} debug;
-			PARAM_DECLARE("RS485", baudRate, debug);
+			PARAM_DECLARE("RS485", baudRate, responseWindow_ms, debug);
 		} parameters;
 
 		struct {

@@ -420,6 +420,18 @@ namespace Modules {
 
 			this->debug.isFrameNewMessageTx.notify();
 			this->debug.txCount++;
+
+			// After we send, we try to receive for up to the duration of the response window
+			{
+				auto responseWindowDuration = chrono::milliseconds(this->parameters.responseWindow_ms.get());
+				auto responseWindowEnd = chrono::system_clock::now() + responseWindowDuration;
+				while (chrono::system_clock::now() < responseWindowEnd) {
+					if (this->serialThreadReceive()) {
+						// break on first response
+						break;
+					}
+				}
+			}
 		}
 
 		return true;

@@ -77,6 +77,10 @@ namespace Modules {
 
 		inspector->addSpacer();
 
+		inspector->addLiveValueHistory("Time since last message", [this]() {
+			return (float) chrono::duration_cast<chrono::milliseconds>(chrono::system_clock::now() - this->lastIncoming).count() / 1000.0f;
+			});
+
 		inspector->addButton("Poll", [this]() {
 			this->poll();
 			});
@@ -93,6 +97,8 @@ namespace Modules {
 	void
 		Portal::processIncoming(const nlohmann::json& json)
 	{
+		this->lastIncoming = chrono::system_clock::now();
+
 		if (json.contains("mca")) {
 			this->axis[0]->getMotionControl()->processIncoming(json["mca"]);
 		}

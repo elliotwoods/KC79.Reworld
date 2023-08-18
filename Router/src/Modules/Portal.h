@@ -46,7 +46,7 @@ namespace Modules {
 
 			struct : ofParameterGroup {
 				ofParameter<bool> regularly{ "Regularly", true };
-				ofParameter<float> interval{ "Interval [s]", 1.0f };
+				ofParameter<float> interval{ "Interval [s]", 1.0f, 0.01f, 60.0f };
 				PARAM_DECLARE("Poll", regularly, interval);
 			} poll;
 
@@ -54,5 +54,6 @@ namespace Modules {
 		} parameters;
 
 		chrono::system_clock::time_point lastPoll = chrono::system_clock::now();
+		chrono::system_clock::time_point lastIncoming = chrono::system_clock::now();
 	};
 }

@@ -13,10 +13,13 @@ msgpack::COBSRWStream cobsStream(serialRS485);
 #define PIN_DE PA1
 namespace Modules {
 	//---------
+	RS485 * RS485::instance = nullptr;
+
+	//---------
 	RS485::RS485(App * app)
 	: app(app)
 	{
-
+		RS485::instance = this;
 	}
 
 	//----------
@@ -68,6 +71,21 @@ namespace Modules {
 
 	//---------
 	void
+	RS485::sendACKEarly(bool success)
+	{
+		RS485::instance->sendACK(success);
+		RS485::instance->sentACKEarly = true;
+	}
+
+	//---------
+	void
+	RS485::noACKRequired()
+	{
+		RS485::instance->sentACKEarly = true;
+	}
+
+	//---------
+	void
 	RS485::processIncoming()
 	{
 		const auto ourID = this->app->id->get();
@@ -80,12 +98,21 @@ namespace Modules {
 		while(cobsStream.isStartOfIncomingPacket() && cobsStream.available()) {
 			bool needsReply = false;
 
+			// clear the flag (used inside processIncoming under processCOBSPacket)
+			this->sentACKEarly = false;
+
 			auto exception = this->processCOBSPacket();
 			if(exception) {
 				log(LogLevel::Error, exception.what());
+				if(!this->sentACKEarly) {
+					this->sendACK(false);
+				}
 			}
 			else {
 				log(LogLevel::Status, "RS485 Rx");
+				if(!this->sentACKEarly) {
+					this->sendACK(true);
+				}
 			}
 
 			cobsStream.nextIncomingPacket();
@@ -134,14 +161,17 @@ namespace Modules {
 			if(weShouldProcess) {
 				// We should process this packet, next is the value of the outer map
 
-				// If it's a Nil, then it's a poll
+				// If it's a Nil, then it's a ping
 				if(msgpack::nextDataTypeIs(cobsStream, msgpack::DataType::Nil)) {
-					this->transmitOutbox();
+					if(!msgpack::readNil(cobsStream)) {
+						return Exception::MessageFormatError();
+					}
+					// Will result in an ACK being sent (the ping reply)
 				}
 				else {
 					auto success = app->processIncoming(cobsStream);
 					if(!success) {
-						return Exception("Failed to process packet");
+						return Exception::MessageFormatError();
 					}
 				}
 			}
@@ -168,7 +198,7 @@ namespace Modules {
 
 	//---------
 	void
-	RS485::transmitOutbox()
+	RS485::sendACK(bool success)
 	{
 		this->beginTransmission();
 
@@ -183,7 +213,7 @@ namespace Modules {
 			// Third element is message to send
 			{
 				// Value is the data to transmit
-				msgpack::writeArraySize4(cobsStream, 0);
+				msgpack::writeBool(cobsStream, success);
 			}
 		}
 		this->endTransmission();
