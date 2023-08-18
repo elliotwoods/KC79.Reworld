@@ -162,7 +162,7 @@ namespace Modules {
 			msgpack_pack_str_body(&packer, magicWord.c_str(), magicWord.size());
 		}
 
-		rs485->transmit((uint8_t*)messageBuffer.data, messageBuffer.size);
+		rs485->transmit(messageBuffer);
 		msgpack_sbuffer_destroy(&messageBuffer);
 
 		this->announce.lastSend = chrono::system_clock::now();
@@ -222,7 +222,7 @@ namespace Modules {
 				
 			}
 
-			rs485->transmit((uint8_t*)messageBuffer.data, messageBuffer.size);
+			rs485->transmit(messageBuffer);
 			msgpack_sbuffer_destroy(&messageBuffer);
 		}
 	}

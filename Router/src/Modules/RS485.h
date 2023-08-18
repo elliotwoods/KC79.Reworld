@@ -26,6 +26,9 @@ namespace Modules {
 			std::string comPort = "COM15";
 		};
 
+		// A messagepack encoded message (not COBS yet)
+		typedef vector<uint8_t> MsgpackBinary;
+
 		// -1 = Everybody
 		// 0 = Host
 		// 1-127 = Clients
@@ -36,43 +39,57 @@ namespace Modules {
 		string getTypeName() const override;
 		void init() override;
 		void update() override;
-
 		void populateInspector(ofxCvGui::InspectArguments&);
 
-		static vector<uint8_t> makeHeader(const Target&);
+		static MsgpackBinary makeHeader(const Target&);
 
 		void transmit(const msgpack11::MsgPack&);
-		void transmit(const vector<uint8_t>& packetContent);
-		void transmit(const uint8_t* data, size_t);
+		void transmit(const msgpack_sbuffer&);
+		void transmit(const MsgpackBinary& packetContent);
 
-		void transmitPoll(const Target&);
+		void transmitPing(const Target&);
 		void transmitMessage(const Target&, const nlohmann::json&);
-		void transmitHeaderAndBody(const vector<uint8_t>& header
-			, const vector<uint8_t>& body);
-
-		void receive();
+		void transmitHeaderAndBody(const MsgpackBinary& header
+			, const MsgpackBinary& body);
 
 		void processIncoming(const nlohmann::json&);
 	protected:
 		App * app;
 
-		ofSerial serial;
-		std::string connectedPortName; // only valid whilst initialised
+		void openSerial(int deviceID);
+		void closeSerial();
 
-		vector<uint8_t> cobsIncoming;
-		bool isFirstIncoming = true;
+		void serialThreadedFunction();
+		bool serialThreadReceive();
+		bool serialThreadSend();
+
+		void updateInbox();
+
+		struct SerialThread {
+			std::thread thread;
+
+			bool joining = false;
+			ofSerial serial;
+			vector<uint8_t> cobsIncoming;
+			bool isFirstIncoming = true;
+			ofThreadChannel<MsgpackBinary> inbox;
+			ofThreadChannel<MsgpackBinary> outbox;
+		};
+		shared_ptr<SerialThread> serialThread;
+
+		std::string connectedPortName; // only valid whilst initialised
 
 		std::chrono::system_clock::time_point lastPoll;
 		std::chrono::system_clock::time_point lastKeepAlive;
 		std::chrono::system_clock::time_point lastIncomingMessageTime = std::chrono::system_clock::now();
 
 		struct : ofParameterGroup {
+			ofParameter<int> baudRate{ "Baud rate", 115200 };
 			struct : ofParameterGroup {
 				ofParameter<int> targetID{ "Target ID", 1 };
-				ofParameter<bool> flood{ "Flood", false };
-				PARAM_DECLARE("Debug", targetID, flood);
+				PARAM_DECLARE("Debug", targetID);
 			} debug;
-			PARAM_DECLARE("RS485", debug);
+			PARAM_DECLARE("RS485", baudRate, debug);
 		} parameters;
 
 		struct {

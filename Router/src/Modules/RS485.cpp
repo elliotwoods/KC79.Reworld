@@ -42,7 +42,7 @@ namespace Modules {
 	void
 		RS485::update()
 	{
-		this->receive();
+		this->updateInbox();
 
 		{
 			this->debug.isFrameNewMessageRx.update();
@@ -51,12 +51,6 @@ namespace Modules {
 			this->debug.isFrameNewDeviceRxSuccess.update();
 			this->debug.isFrameNewDeviceRxFail.update();
 			this->debug.isFrameNewDeviceError.update();
-		}
-
-		if (this->parameters.debug.flood) {
-			if (this->serial.isInitialized()) {
-				this->serial.writeByte((char) 100);
-			}
 		}
 	}
 
@@ -68,18 +62,19 @@ namespace Modules {
 
 		inspector->addTitle("Device");
 		inspector->addIndicatorBool("Connected", [this]() {
-			return this->serial.isInitialized();
+			return (bool) this->serialThread;
 			});
-		if (!this->serial.isInitialized()) {
+		if (!this->serialThread) {
 
 			inspector->addTitle("Connect to", ofxCvGui::Widgets::Title::Level::H2);
 
-			auto devices = this->serial.getDeviceList();
+			ofSerial serialEnumerator;
+			auto devices = serialEnumerator.getDeviceList();
 			for (auto device : devices) {
 				auto deviceName = device.getDeviceName();
 				auto deviceID = device.getDeviceID();
 				inspector->addButton(deviceName, [this, deviceID]() {
-					this->serial.setup(deviceID, 115200);
+					this->openSerial(deviceID);
 					ofxCvGui::refreshInspector(this);
 					});
 			}
@@ -89,16 +84,16 @@ namespace Modules {
 				return this->connectedPortName;
 				});
 			inspector->addButton("Disconnect", [this]() {
-				this->serial.close();
+				this->closeSerial();
 				ofxCvGui::refreshInspector(this);
 				});
 		}
 
 		inspector->addSpacer();
 
-		if (this->serial.isInitialized()) {
-			inspector->addButton("Send poll", [this]() {
-				this->transmitPoll((Target) this->parameters.debug.targetID.get());
+		if (this->serialThread) {
+			inspector->addButton("Ping", [this]() {
+				this->transmitPing((Target) this->parameters.debug.targetID.get());
 				}, ' ');
 		}
 
@@ -158,7 +153,7 @@ namespace Modules {
 	}
 
 	//----------
-	vector<uint8_t>
+	RS485::MsgpackBinary
 		RS485::makeHeader(const Target& target)
 	{
 		msgpack_sbuffer headerBuffer;
@@ -180,7 +175,7 @@ namespace Modules {
 		}
 
 		// Convert to vector<uint8_t>
-		vector<uint8_t> header;
+		MsgpackBinary header;
 		header.assign(headerBuffer.data, headerBuffer.data + headerBuffer.size);
 		msgpack_sbuffer_destroy(&headerBuffer);
 
@@ -200,54 +195,27 @@ namespace Modules {
 
 	//----------
 	void
-		RS485::transmit(const vector<uint8_t>& packetContent)
+		RS485::transmit(const msgpack_sbuffer& buffer)
 	{
-		this->transmit(packetContent.data(), packetContent.size());
+		auto data = (uint8_t*) buffer.data;
+		auto message = MsgpackBinary(data, data + buffer.size);
 	}
 
 	//----------
 	void
-		RS485::transmit(const uint8_t* data, size_t size)
+		RS485::transmit(const MsgpackBinary& packetContent)
 	{
-		// allocate buffer of max size for cobs
-		vector<uint8_t> binaryCOBS(size * 255 / 254 + 2);
-
-		// Perform the encode
-		auto encodeResult = cobs_encode(binaryCOBS.data()
-			, binaryCOBS.size()
-			, data
-			, size);
-
-		// Check we encoded OK
-		if (encodeResult.status != COBS_ENCODE_OK) {
-			ofLogError("RS485") << "Failed to encode COBS : " << encodeResult.status;
+		if (!this->serialThread) {
+			ofLogError() << "Cannot transmit when serial is closed";
 			return;
 		}
 
-		// Crop the message to the correct number of bytes
-		binaryCOBS.resize(encodeResult.out_len);
-
-		// Send the data to serial
-		auto bytesWritten = this->serial.writeBytes(binaryCOBS.data(), binaryCOBS.size());
-
-		// Check that all bytes were sent
-		if (bytesWritten != binaryCOBS.size()) {
-			ofLogError("RS485") << "Failed to write all " << binaryCOBS.size() << " bytes to stream";
-		}
-
-		// Send the EOP (this doesn't come with cobs-c
-		this->serial.writeByte((unsigned char)0);
-
-		// Store the messagepack representation in case the user wants to debug it
-		this->debug.lastMessagePackTx.assign(data, data + size);
-
-		this->debug.isFrameNewMessageTx.notify();
-		this->debug.txCount++;
+		this->serialThread->outbox.send(packetContent);
 	}
 
 	//----------
 	void
-		RS485::transmitPoll(const Target& target)
+		RS485::transmitPing(const Target& target)
 	{
 		this->transmit(msgpack11::MsgPack::array{
 			(int8_t)target
@@ -275,45 +243,106 @@ namespace Modules {
 
 	//----------
 	void
-		RS485::transmitHeaderAndBody(const vector<uint8_t>& header
-			, const vector<uint8_t>& body)
+		RS485::transmitHeaderAndBody(const MsgpackBinary& header
+			, const MsgpackBinary& body)
 	{
 		// Combine header and body
-		vector<uint8_t> headerAndBody = header;
+		MsgpackBinary headerAndBody = header;
 		headerAndBody.insert(headerAndBody.end()
 			, body.begin()
 			, body.end());
 
-		this->transmit(headerAndBody.data()
-			, headerAndBody.size());
+		this->transmit(headerAndBody);
 	}
 
 	//----------
 	void
-		RS485::receive()
+		RS485::processIncoming(const nlohmann::json& json)
 	{
-		if (!this->serial.isInitialized()) {
+		cout << "Rx : " << json.dump(4) << endl;
+		this->app->processIncoming(json);
+	}
+
+	//----------
+	void
+		RS485::openSerial(int deviceID)
+	{
+		if (this->serialThread) {
+			this->closeSerial();
+		}
+		auto serialThread = make_shared<SerialThread>();
+
+		serialThread->serial.setup(deviceID, this->parameters.baudRate.get());
+		if (!serialThread->serial.isInitialized()) {
+			// could also throw an exception at this point
 			return;
 		}
 
-		while (this->serial.available()) {
-			auto word = this->serial.readByte();
+		serialThread->thread = std::thread([this]() {
+			this->serialThreadedFunction();
+			});
+
+		this->serialThread = serialThread;
+	}
+
+	//----------
+	void
+		RS485::closeSerial()
+	{
+		if (!this->serialThread) {
+			return;
+		}
+
+		this->serialThread->joining = true;
+		this->serialThread->inbox.close();
+		this->serialThread->outbox.close();
+		this->serialThread->thread.join();
+		this->serialThread->serial.close();
+		this->serialThread.reset();
+	}
+
+	//----------
+	void
+		RS485::serialThreadedFunction()
+	{
+		while (!this->serialThread->joining) {
+			auto didRx = this->serialThreadReceive();
+			auto didTx = this->serialThreadSend();
+
+			// Sleep if we didn't do any work this loop
+			if (!didRx || didTx) {
+				std::this_thread::sleep_for(std::chrono::milliseconds(1));
+			}
+		}
+
+	}
+
+	//-----------
+	bool
+		RS485::serialThreadReceive()
+	{
+		if (!this->serialThread->serial.available()) {
+			return false;
+		}
+
+		while (this->serialThread->serial.available()) {
+			auto word = this->serialThread->serial.readByte();
 
 			// If end of COB packet
 			if (word == 0) {
 				// If there's nothing to decode, don't do anything
-				if (this->cobsIncoming.empty()) {
+				if (this->serialThread->cobsIncoming.empty()) {
 					continue;
 				}
 
 				// Clear incoming buffer (and keep a copy for use here)
-				auto copyOfIncoming = this->cobsIncoming;
-				this->cobsIncoming.clear();
+				auto copyOfIncoming = this->serialThread->cobsIncoming;
+				this->serialThread->cobsIncoming.clear();
 
-				if (this->isFirstIncoming)
+				if (this->serialThread->isFirstIncoming)
 				{
 					// Ignore first message (usually it's partial message)
-					this->isFirstIncoming = false;
+					this->serialThread->isFirstIncoming = false;
 				}
 				else {
 					// Decode the COBS message
@@ -331,55 +360,111 @@ namespace Modules {
 					}
 					binaryMessagePack.resize(decodeResult.out_len);
 
-					// Decode messagepack
-					nlohmann::json json;
-					try {
-						json = nlohmann::json::from_msgpack(binaryMessagePack);
-					}
-					catch (const std::exception& e) {
-						ofLogError("LaserSystem") << "msgpack deserialize error : " << e.what();
-
-						{
-							const bool debugBrokenMessagePack = true;
-							if (debugBrokenMessagePack) {
-								cout << "COBS : ";
-								for (const auto& byte : copyOfIncoming) {
-									printChar(byte);
-								}
-								cout << endl;
-
-								cout << "msgpack : ";
-								for (const auto& byte : binaryMessagePack) {
-									printChar(byte);
-								}
-								cout << endl;
-							}
-						}
-
-						this->debug.isFrameNewMessageRxError.notify();
-
-						continue;
-					}
-
-					// Perform deserialize on json
-					this->processIncoming(json);
-					this->lastIncomingMessageTime = std::chrono::system_clock::now();
-					this->debug.isFrameNewMessageRx.notify();
-					this->debug.rxCount++;
+					this->serialThread->inbox.send(binaryMessagePack);
 				}
 			}
 			// Continuation of COB packet
 			else {
-				this->cobsIncoming.push_back(word);
+				this->serialThread->cobsIncoming.push_back(word);
 			}
 		}
+
+		return true;
+	}
+
+	//-----------
+	bool
+		RS485::serialThreadSend()
+	{
+		if (this->serialThread->outbox.size() == 0) {
+			return false;
+		}
+
+		MsgpackBinary msgpackBinary;
+		while (this->serialThread->outbox.tryReceive(msgpackBinary)) {
+			auto data = msgpackBinary.data();
+			auto size = msgpackBinary.size();
+
+			// allocate buffer of max size for cobs
+			vector<uint8_t> binaryCOBS(size * 255 / 254 + 2);
+
+			// Perform the encode
+			auto encodeResult = cobs_encode(binaryCOBS.data()
+				, binaryCOBS.size()
+				, data
+				, size);
+
+			// Check we encoded OK
+			if (encodeResult.status != COBS_ENCODE_OK) {
+				ofLogError("RS485") << "Failed to encode COBS : " << encodeResult.status;
+				continue;
+			}
+
+			// Crop the message to the correct number of bytes
+			binaryCOBS.resize(encodeResult.out_len);
+
+			// Send the data to serial
+			auto bytesWritten = this->serialThread->serial.writeBytes(binaryCOBS.data()
+				, binaryCOBS.size());
+
+			// Check that all bytes were sent
+			if (bytesWritten != binaryCOBS.size()) {
+				ofLogError("RS485") << "Failed to write all " << binaryCOBS.size() << " bytes to stream";
+			}
+
+			// Send the EOP (this doesn't come with cobs-c
+			this->serialThread->serial.writeByte((unsigned char)0);
+
+			// Store the messagepack representation in case the user wants to debug it
+			this->debug.lastMessagePackTx.assign(data, data + size);
+
+			this->debug.isFrameNewMessageTx.notify();
+			this->debug.txCount++;
+		}
+
+		return true;
 	}
 
 	//----------
 	void
-		RS485::processIncoming(const nlohmann::json& json)
+		RS485::updateInbox()
 	{
-		cout << "Rx : " << json.dump(4) << endl;
-		this->app->processIncoming(json);
+		if (!this->serialThread) {
+			return;
+		}
+
+		MsgpackBinary msgpackBinary;
+
+		while (this->serialThread->inbox.tryReceive(msgpackBinary)) {
+			// Decode messagepack
+			nlohmann::json json;
+			try {
+				json = nlohmann::json::from_msgpack(msgpackBinary);
+			}
+			catch (const std::exception& e) {
+				ofLogError("LaserSystem") << "msgpack deserialize error : " << e.what();
+
+				{
+					const bool debugBrokenMessagePack = true;
+					if (debugBrokenMessagePack) {
+						cout << "msgpack : ";
+						for (const auto& byte : msgpackBinary) {
+							printChar(byte);
+						}
+						cout << endl;
+					}
+				}
+
+				this->debug.isFrameNewMessageRxError.notify();
+
+				continue;
+			}
+
+			// Perform deserialize on json
+			this->processIncoming(json);
+			this->lastIncomingMessageTime = std::chrono::system_clock::now();
+			this->debug.isFrameNewMessageRx.notify();
+			this->debug.rxCount++;
+		}
 	}
 }
