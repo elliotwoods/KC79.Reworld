@@ -85,7 +85,8 @@ namespace Modules {
 
 		// 1. First announce it
 		{
-			for (int i = 0; i < 5; i++) {
+			ofxCvGui::Utils::drawProcessingNotice("Announcing firmware");
+			for (int i = 0; i < 50; i++) {
 				this->announceFirmware();
 				ofSleepMillis(100);
 			}
@@ -93,12 +94,20 @@ namespace Modules {
 
 		// 2. Erase the existing firmware (required before uploading)
 		{
+			ofxCvGui::Utils::drawProcessingNotice("Erasing flash");
 			this->eraseFirmware();
-			ofSleepMillis(5000);
+			
+			// Send announcements whilst we're waiting for erase to finish
+			for (int i = 0; i < 50; i++) {
+				this->announceFirmware();
+				ofSleepMillis(100);
+			}
 		}
 
 		// 3. Upload
 		{
+			ofxCvGui::Utils::drawProcessingNotice("Uploading");
+
 			auto dataPosition = fileBuffer.getData();
 			auto dataEnd = dataPosition + size;
 			uint16_t packetIndex = 0;
@@ -110,22 +119,30 @@ namespace Modules {
 				{
 					ofxCvGui::Utils::drawProcessingNotice("Uploading : " + ofToString(remainingSize / 1000, 1) + "kB remaining");
 				}
+
+				
 				if (remainingSize > frameSize) {
-					uploadFirmwarePacket(frameOffset
-						, dataPosition
-						, FW_FRAME_SIZE);
+					for (int i = 0; i < this->parameters.upload.frameRepetitions.get(); i++) {
+						uploadFirmwarePacket(frameOffset
+							, dataPosition
+							, FW_FRAME_SIZE);
+						this_thread::sleep_for(chrono::milliseconds(this->parameters.upload.waitBetweenFrames));
+					}
+					
 					dataPosition += frameSize;
 					frameOffset += frameSize;
 				}
 				else {
-					uploadFirmwarePacket(frameOffset
-						, dataPosition
-						, remainingSize);
+					for (int i = 0; i < this->parameters.upload.frameRepetitions.get(); i++) {
+						uploadFirmwarePacket(frameOffset
+							, dataPosition
+							, remainingSize);
+						this_thread::sleep_for(chrono::milliseconds(this->parameters.upload.waitBetweenFrames));
+					}
 					dataPosition += remainingSize;
 					frameOffset += remainingSize;
 				}
 
-				this_thread::sleep_for(chrono::milliseconds(this->parameters.upload.waitBetweenFrames));
 			}
 		}
 

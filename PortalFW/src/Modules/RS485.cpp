@@ -10,6 +10,28 @@
 HardwareSerial serialRS485(PA3, PA2);
 msgpack::COBSRWStream cobsStream(serialRS485);
 
+#define BOOTLOADER_FLASH_ADDRESS 0x08000000U
+
+void run_bootloader()
+{
+	typedef void (*bootloader_reset_handler_pointer)(void);
+	__IO uint32_t* bootloader_vect_table = (__IO uint32_t*) BOOTLOADER_FLASH_ADDRESS;
+	bootloader_reset_handler_pointer bootloader_reset_handler = (bootloader_reset_handler_pointer) *(bootloader_vect_table + 1);
+
+	HAL_RCC_DeInit();
+	HAL_DeInit();
+
+	SysTick->CTRL = 0;
+	SysTick->LOAD = 0;
+	SysTick->VAL  = 0;
+
+	SCB->VTOR = (uint32_t) bootloader_vect_table;
+
+	__set_MSP(*bootloader_vect_table);
+
+	bootloader_reset_handler();
+}
+
 #define PIN_DE PA1
 namespace Modules {
 	//---------

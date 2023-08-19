@@ -3,6 +3,11 @@
 #include <assert.h>
 #include <msgpack.hpp>
 
+// This define will be overwritten by the python script
+#ifndef VERSION_STRING
+	#define VERSION_STRING "Portal"
+#endif
+
 #pragma mark Log
 
 #define LOG_MESSAGE_LENGTH 64
@@ -58,7 +63,7 @@ void
 Logger::setup()
 {
 	serial.begin(115200);
-	serial.println("APP START v2");
+	serial.println(VERSION_STRING);
 }
 
 //----------

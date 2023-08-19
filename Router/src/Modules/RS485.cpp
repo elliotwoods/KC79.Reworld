@@ -343,29 +343,22 @@ namespace Modules {
 				auto copyOfIncoming = this->serialThread->cobsIncoming;
 				this->serialThread->cobsIncoming.clear();
 
-				if (this->serialThread->isFirstIncoming)
-				{
-					// Ignore first message (usually it's partial message)
-					this->serialThread->isFirstIncoming = false;
-				}
-				else {
-					// Decode the COBS message
-					vector<uint8_t> binaryMessagePack(copyOfIncoming.size());
-					auto decodeResult = cobs_decode(binaryMessagePack.data(),
-						binaryMessagePack.size(),
-						copyOfIncoming.data(),
-						copyOfIncoming.size());
+				// Decode the COBS message
+				vector<uint8_t> binaryMessagePack(copyOfIncoming.size());
+				auto decodeResult = cobs_decode(binaryMessagePack.data(),
+					binaryMessagePack.size(),
+					copyOfIncoming.data(),
+					copyOfIncoming.size());
 
-					// Check if decoded OK (should predictably be true)
-					if (decodeResult.status != COBS_DECODE_OK) {
-						ofLogError("LaserSystem") << "COBS decode error " << (int)decodeResult.status;
-						this->debug.isFrameNewDeviceRxFail.notify();
-						continue;
-					}
-					binaryMessagePack.resize(decodeResult.out_len);
-
-					this->serialThread->inbox.send(binaryMessagePack);
+				// Check if decoded OK (should predictably be true)
+				if (decodeResult.status != COBS_DECODE_OK) {
+					ofLogError("LaserSystem") << "COBS decode error " << (int)decodeResult.status;
+					this->debug.isFrameNewDeviceRxFail.notify();
+					continue;
 				}
+				binaryMessagePack.resize(decodeResult.out_len);
+
+				this->serialThread->inbox.send(binaryMessagePack);
 			}
 			// Continuation of COB packet
 			else {
