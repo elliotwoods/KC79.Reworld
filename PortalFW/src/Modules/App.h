@@ -15,8 +15,6 @@
 #include <memory>
 #include <vector>
 
-#define STARTUP_ENABLED false
-
 namespace Modules {
 	class App : public Base {
 	public:
@@ -26,7 +24,7 @@ namespace Modules {
 		void update();
 		void reportStatus(msgpack::Serializer&);
 		void initRoutine(uint8_t tryCount);
-		
+		void flashLEDsRoutine(uint16_t period, uint16_t count);
 #ifndef GUI_DISABLED
 		GUI * gui;
 #endif

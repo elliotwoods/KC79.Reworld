@@ -1,6 +1,7 @@
 #include "App.h"
 #include <Arduino.h>
 
+#define INDICATOR_LED PB3
 namespace Modules {
 	//----------
 	const char *
@@ -48,9 +49,9 @@ namespace Modules {
 		this->motionControlB->setup();
 
 		// Calibrate self on startup
-		if(STARTUP_ENABLED) {
-			this->initRoutine(3);
-		}
+#ifndef STARTUP_INIT_DISABLED
+		this->initRoutine(3);
+#endif
 	}
 
 	//----------
@@ -78,7 +79,7 @@ namespace Modules {
 		// this->motorDriverSettings->setCurrent(0.05f);
 
 		// Indicate if either driver is enabled
-		digitalWrite(PB3
+		digitalWrite(INDICATOR_LED
 			, this->motorDriverA->getEnabled() || this->motorDriverB->getEnabled());
 	}
 	
@@ -117,6 +118,37 @@ namespace Modules {
 			}
 			return false;
 		};
+
+		// Walk both by a rotation
+		{
+			// We are going to speed things up a little by 
+			// Instruct move
+			this->motionControlA->setTargetPosition(this->motionControlA->getMicrostepsPerPrismRotation());
+			this->motionControlB->setTargetPosition(this->motionControlB->getMicrostepsPerPrismRotation());
+			
+			// Wait for move
+			while(this->motionControlA->getPosition() != this->motionControlA->getTargetPosition()
+			|| this->motionControlB->getPosition() != this->motionControlB->getTargetPosition()) {
+				motionControlA->update();
+				motionControlB->update();
+				HAL_Delay(1);
+			}
+
+			// Instruct move back to 0
+			this->motionControlA->setTargetPosition(0);
+			this->motionControlB->setTargetPosition(0);
+			
+			// Wait for move
+			while(this->motionControlA->getPosition() != this->motionControlA->getTargetPosition()
+			|| this->motionControlB->getPosition() != this->motionControlB->getTargetPosition()) {
+				motionControlA->update();
+				motionControlB->update();
+				HAL_Delay(1);
+			}
+
+			this->motionControlA->stop();
+			this->motionControlB->stop();
+		}
 		
 		bool success = true;
 		success &= tryNTimes([this, &settings]() {
@@ -138,6 +170,19 @@ namespace Modules {
 		else {
 			log(LogLevel::Error, "Init fail");
 		}
+	}
+
+	//----------
+	void
+	App::flashLEDsRoutine(uint16_t period, uint16_t count)
+	{
+		for(uint16_t i=0; i<count; i++) {
+			digitalWrite(INDICATOR_LED, HIGH);
+			delay(period / 2);
+			digitalWrite(INDICATOR_LED, LOW);
+			delay(period / 2);
+		}
+		
 	}
 
 	//----------
@@ -169,7 +214,7 @@ namespace Modules {
 			if(!msgpack::readNil(stream)) {
 				return false;
 			}
-			
+
 			// Now it's the end of the input stream and we're ready to write
 
 			rs485->sendStatusReport();
@@ -181,6 +226,7 @@ namespace Modules {
 				return false;
 			}
 			if(dataType == msgpack::DataType::Nil) {
+				msgpack::readNil(stream);
 				this->initRoutine(1);
 				return true;
 			}
@@ -193,6 +239,42 @@ namespace Modules {
 				return true;
 			}
 			return false;
+		}
+		if(strcmp(key, "flashLED") == 0) {
+			msgpack::DataType dataType;
+			if(!msgpack::getNextDataType(stream, dataType)) {
+				return false;
+			}
+
+			uint16_t period = 500;
+			uint16_t count = 5;
+
+			if(dataType == msgpack::DataType::Nil) {
+				msgpack::readNil(stream);
+			}
+			else if(dataType == msgpack::DataType::Array) {
+				size_t arraySize;
+				
+				if(!msgpack::readArraySize(stream, arraySize)) {
+					return false;
+				}
+				if(arraySize >= 1) {
+					if(!msgpack::readInt<uint16_t>(stream, period)) {
+						return false;
+					}
+				}
+				if(arraySize >= 2) {
+					if(!msgpack::readInt<uint16_t>(stream, count)) {
+						return false;
+					}
+				}
+			}
+			else {
+				return false;
+			}
+
+			this->flashLEDsRoutine(period, count);
+			return true;
 		}
 		
 		if(strcmp(key, "reset") == 0) {

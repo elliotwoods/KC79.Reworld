@@ -81,14 +81,20 @@ namespace Modules {
 			return (float) chrono::duration_cast<chrono::milliseconds>(chrono::system_clock::now() - this->lastIncoming).count() / 1000.0f;
 			});
 
-		inspector->addButton("Poll", [this]() {
-			this->poll();
-			});
+		auto buttonStack = inspector->addHorizontalStack();
+		{
+			buttonStack->addButton("Poll", [this]() {
+				this->poll();
+			})->setDrawGlyph(u8"\uf059");
 
+			buttonStack->addButton("Initialise routine", [this]() {
+				this->initRoutine();
+			})->setDrawGlyph(u8"\uf11e");
 
-		inspector->addButton("initRoutine", [this]() {
-			this->initRoutine();
-			});
+			buttonStack->addButton("Flash lights", [this]() {
+				this->flashLEDsRoutine();
+			})->setDrawGlyph(u8"\uf0eb");
+		}
 
 		inspector->addParameterGroup(this->parameters);
 	}
@@ -129,6 +135,21 @@ namespace Modules {
 		this->sendToPortal(msgpack11::MsgPack::object{
 				{
 					"init", msgpack11::MsgPack()
+				}
+			});
+		this->lastPoll = chrono::system_clock::now();
+	}
+
+	//----------
+	void
+		Portal::flashLEDsRoutine()
+	{
+		this->sendToPortal(msgpack11::MsgPack::object{
+				{
+					"flashLED", msgpack11::MsgPack::array {
+						(uint16_t)this->parameters.flash.period.get()
+						, (uint16_t)this->parameters.flash.count.get()
+					}
 				}
 			});
 		this->lastPoll = chrono::system_clock::now();

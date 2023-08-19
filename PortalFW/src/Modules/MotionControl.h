@@ -56,15 +56,18 @@ namespace Modules {
 		void zeroCurrentPosition();
 		void setCurrentPosition(Steps steps);
 
-		void setTargetPosition(Steps steps);
-		void setMaximumVelocty(StepsPerSecond stepsPerSecond);
-		void setMaximumAcceleration(StepsPerSecondPerSecond stepsPerSecondPerSecond);
-
 		void stop();
 		void run(bool direction, StepsPerSecond speed);
 
 		void disableInterrupt();
 		void enableInterrupt();
+
+		Steps getPosition() const;
+
+		void setTargetPosition(Steps steps);
+		Steps getTargetPosition() const;
+
+		bool getIsRunning() const;
 
 		Steps getMicrostepsPerPrismRotation() const;
 

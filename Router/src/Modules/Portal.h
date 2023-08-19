@@ -26,6 +26,7 @@ namespace Modules {
 
 		void poll();
 		void initRoutine();
+		void flashLEDsRoutine();
 
 		void sendToPortal(const msgpack11::MsgPack&);
 
@@ -50,7 +51,13 @@ namespace Modules {
 				PARAM_DECLARE("Poll", regularly, interval);
 			} poll;
 
-			PARAM_DECLARE("Portal", targetID, poll);
+			struct : ofParameterGroup {
+				ofParameter<int> period{ "Period [ms]", 500 };
+				ofParameter<int> count{ "Count", 5 };
+				PARAM_DECLARE("Flash", period, count);
+			} flash;
+
+			PARAM_DECLARE("Portal", targetID, poll, flash);
 		} parameters;
 
 		chrono::system_clock::time_point lastPoll = chrono::system_clock::now();

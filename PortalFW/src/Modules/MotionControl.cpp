@@ -90,6 +90,34 @@ namespace Modules {
 
 	//----------
 	Steps
+	MotionControl::getPosition() const
+	{
+		return this->position;
+	}
+
+	//----------
+	void
+	MotionControl::setTargetPosition(Steps value)
+	{
+		this->targetPosition = value;
+	}
+
+	//----------
+	Steps
+	MotionControl::getTargetPosition() const
+	{
+		return this->targetPosition;
+	}
+
+	//----------
+	bool
+	MotionControl::getIsRunning() const
+	{
+		return this->timer.running;
+	}
+
+	//----------
+	Steps
 	MotionControl::getMicrostepsPerPrismRotation() const
 	{
 		return (MOTION_STEPS_PER_PRISM_ROTATION) * this->motorDriverSettings.getMicrostepsPerStep();
@@ -384,7 +412,7 @@ namespace Modules {
 	MotionControl::updateStepCount()
 	{
 		if(this->currentMotionState.direction) {
-			
+
 			// Forwards
 
 			if(this->backlashControl.positionWithinBacklash < 0) {
