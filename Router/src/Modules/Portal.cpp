@@ -7,6 +7,7 @@ namespace Modules {
 		: rs485(rs485)
 	{
 		this->parameters.targetID = targetID;
+		this->init();
 	}
 
 	//----------
@@ -156,6 +157,20 @@ namespace Modules {
 	}
 
 	//----------
+	Portal::Target
+		Portal::getTarget() const
+	{
+		return this->parameters.targetID.get();
+	}
+
+	//----------
+	void
+		Portal::setTarget(Target value)
+	{
+		this->parameters.targetID.set(value);
+	}
+
+	//----------
 	void
 		Portal::sendToPortal(const msgpack11::MsgPack& message)
 	{
@@ -179,5 +194,12 @@ namespace Modules {
 		Portal::getAxis(int axisIndex)
 	{
 		return this->axis[axisIndex];
+	}
+
+	//----------
+	shared_ptr<PerPortal::Pilot>
+		Portal::getPilot()
+	{
+		return this->pilot;
 	}
 }

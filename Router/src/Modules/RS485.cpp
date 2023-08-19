@@ -259,7 +259,10 @@ namespace Modules {
 	void
 		RS485::processIncoming(const nlohmann::json& json)
 	{
-		cout << "Rx : " << json.dump(4) << endl;
+		if (this->parameters.debug.printResponses.get()) {
+			cout << "Rx : " << json.dump(4) << endl;
+		}
+
 		this->app->processIncoming(json);
 	}
 
@@ -421,15 +424,26 @@ namespace Modules {
 			this->debug.isFrameNewMessageTx.notify();
 			this->debug.txCount++;
 
+			// Wait for 10ms after each send
+			this_thread::sleep_for(chrono::milliseconds(this->parameters.gapBetweenSends_ms.get()));
+
 			// After we send, we try to receive for up to the duration of the response window
 			{
 				auto responseWindowDuration = chrono::milliseconds(this->parameters.responseWindow_ms.get());
 				auto responseWindowEnd = chrono::system_clock::now() + responseWindowDuration;
+
+				bool timeOut = true;
 				while (chrono::system_clock::now() < responseWindowEnd) {
 					if (this->serialThreadReceive()) {
 						// break on first response
+						timeOut = false;
 						break;
 					}
+					this_thread::sleep_for(chrono::milliseconds(1));
+				}
+
+				if (timeOut) {
+					ofLogError("RS485") << "Timeout waiting for response";
 				}
 			}
 		}
@@ -457,7 +471,7 @@ namespace Modules {
 				ofLogError("LaserSystem") << "msgpack deserialize error : " << e.what();
 
 				{
-					const bool debugBrokenMessagePack = true;
+					const bool debugBrokenMessagePack = this->parameters.debug.printResponses.get();
 					if (debugBrokenMessagePack) {
 						cout << "msgpack : ";
 						for (const auto& byte : msgpackBinary) {
@@ -473,7 +487,18 @@ namespace Modules {
 			}
 
 			// Perform deserialize on json
-			this->processIncoming(json);
+			try {
+				this->processIncoming(json);
+			}
+			catch (std::exception& e) {
+				ofLogError() << "Process incoming error" << e.what();
+			}
+			catch (const nlohmann::detail::type_error& e) {
+				ofLogError() << "Incoming JSON error" << e.what();
+			}
+			catch (...) {
+				ofLogError() << "Process incoming error";
+			}
 			this->lastIncomingMessageTime = std::chrono::system_clock::now();
 			this->debug.isFrameNewMessageRx.notify();
 			this->debug.rxCount++;

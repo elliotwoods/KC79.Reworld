@@ -42,5 +42,6 @@ namespace Modules {
 		MotionControl * motionControlB;
 	protected:
 		bool processIncomingByKey(const char * key, Stream &) override;
+		Exception walkBackAndForthRoutine(const MotionControl::MeasureRoutineSettings&);
 	};
 }

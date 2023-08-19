@@ -1,9 +1,15 @@
 #pragma once
 
+#include "ofxCvGui.h"
 #include <string>
+
+namespace Modules {
+	class Portal;
+}
 
 namespace Utils {
 	std::string getAxisLetter(int axisIndex);
+	shared_ptr<ofxCvGui::Widgets::Button> makeButton(shared_ptr<Modules::Portal>);
 
 	struct IReportedState {
 		IReportedState(const string& name);

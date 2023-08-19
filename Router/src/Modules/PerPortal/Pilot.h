@@ -20,6 +20,8 @@ namespace Modules {
 			void populateInspector(ofxCvGui::InspectArguments&);
 
 			ofxCvGui::PanelPtr getPanel();
+
+			void seeThrough();
 		protected:
 			void pushValues();
 
@@ -45,7 +47,7 @@ namespace Modules {
 					ofParameter<float> b{ "B", 0, 0, 1 };
 					ofParameter<float> offset{ "Offset", 0, -0.25, 0.25 };
 					ofParameter<int> microstepsPerPrismRotation{ "Microsteps per prism rotation", MOTION_STEPS_PER_PRISM_ROTATION * 128 };
-					ofParameter<bool> sendPeriodically{ "Send periodically", true };
+					ofParameter<bool> sendPeriodically{ "Send periodically", false };
 					PARAM_DECLARE("Axes", a, b, offset, microstepsPerPrismRotation, sendPeriodically);
 				} axes;
 				PARAM_DECLARE("PortalPilot", position, polar, axes);

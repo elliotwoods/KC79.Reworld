@@ -38,11 +38,6 @@ namespace Modules {
 
 		// init from the board
 		this->initFromBoard();
-
-		// flush the incoming serial buffer (we often get a 0 byte on startup)
-		while(serialID.available()) {
-			serialID.read();
-		}
 	}
 
 	//----------
@@ -71,34 +66,25 @@ namespace Modules {
 	void
 	ID::update()
 	{
-		// For now we presume 1 byte values
-		serialID.write(this->value);
-
-		// Check for incoming IDs 
-		while(serialID.available()) {
-			uint8_t previousID;
-		
-			auto bytesRead = serialID.readBytes(&previousID, 1);
-			
-			// check we received a valid ID
-			// (otherwise might be a spurious packet, especially `\0`)
-			if(previousID >= ID_PORTAL_MIN && previousID < ID_PORTAL_MAX) {
-				this->value = previousID + 1;
-				this->markNewID = true;
-
-				{
-					char message[64];
-					sprintf(message, "New ID : %d", (int) this->value);
-					log(LogLevel::Status, message);
-				}
-			}
-
-		}
+		// Check for incoming IDs
+		this->readIncomingID();
 		
 		// New ID this frame flag
 		{
 			this->isIDNewThisFrame = this->markNewID;
 			this->markNewID = false;
+		}
+
+		// Print if new
+		if(this->isIDNewThisFrame) {
+			char message[64];
+			sprintf(message, "New ID : %d", (int) this->value);
+			log(LogLevel::Status, message);
+		}
+
+		// If new ID, then send ours out
+		if(this->isIDNewThisFrame || millis() - this->lastSend > 1000) {
+			this->sendIDToNext();
 		}
 	}
 
@@ -114,5 +100,47 @@ namespace Modules {
 	ID::getIsIDNewThisFrame() const
 	{
 		return this->isIDNewThisFrame;
+	}
+
+	//---------
+	void
+	ID::readIncomingID()
+	{
+		while(serialID.available()) {
+			auto byte = serialID.read();
+			if(byte == 0) {
+				// try to process current buffer
+				if(this->incomingBytes.size() == 4) {
+					auto targetID = this->incomingBytes[0];
+					if(targetID ^ 'C' == this->incomingBytes[1]
+						&& targetID ^ 'R' == this->incomingBytes[2]
+						&& targetID ^ 'C' == this->incomingBytes[3]) {
+						
+						this->value = targetID + 1;
+						this->markNewID = true;
+					}
+				}
+			}
+			else {
+				// add the current buffer
+				this->incomingBytes.push_back(byte);
+
+				// limit to 4 elements in the buffer
+				while(this->incomingBytes.size() > 4) {
+					this->incomingBytes.pop_front();
+				}
+			}
+		}
+	}
+
+	//---------
+	void
+	ID::sendIDToNext()
+	{
+		this->lastSend = millis();
+		serialID.write(this->value);
+		serialID.write('C' ^ this->value);
+		serialID.write('R' ^ this->value);
+		serialID.write('C' ^ this->value);
 	}
 }

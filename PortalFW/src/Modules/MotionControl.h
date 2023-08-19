@@ -29,6 +29,12 @@
 namespace Modules {
 	class MotionControl : public Base {
 	public:
+		struct MotionProfile {
+			StepsPerSecond maximumSpeed = 30000;
+			StepsPerSecondPerSecond acceleration = 10000;
+			StepsPerSecond minimumSpeed = 100;
+		};
+
 		struct MotionState {
 			bool motorRunning = false;
 			StepsPerSecond speed = 0;
@@ -67,6 +73,9 @@ namespace Modules {
 		void setTargetPosition(Steps steps);
 		Steps getTargetPosition() const;
 
+		const MotionProfile & getMotionProfile() const;
+		void setMotionProfile(const MotionProfile&);
+		
 		bool getIsRunning() const;
 
 		Steps getMicrostepsPerPrismRotation() const;
@@ -81,7 +90,7 @@ namespace Modules {
 
 		void updateStepCount();
 		void updateMotion();
-		
+
 		MotionState calculateMotionState(unsigned long dt_us) const;
 
 		MotorDriverSettings& motorDriverSettings;
@@ -94,11 +103,7 @@ namespace Modules {
 			bool running = false;
 		} timer;
 
-		struct {
-			StepsPerSecond maximumSpeed = 30000;
-			StepsPerSecondPerSecond acceleration = 10000;
-			StepsPerSecond minimumSpeed = 100;
-		} motionProfile;
+		MotionProfile motionProfile;
 
 		struct {
 			Steps systemBacklash = 1499;
@@ -110,6 +115,10 @@ namespace Modules {
 
 		// Count steps happening in interrupt
 		Steps stepsInInterrupt = 0;
+		uint32_t lastStepDetectedOrRunStart = 0;
+		const uint32_t maxTimeWithoutSteps = 1000;
+		uint8_t stepWatchdogResetCount = 0;
+		const uint32_t maxStepWatchdogResets = 16;
 
 		bool interruptEnabed = false;
 		Steps position = 0;

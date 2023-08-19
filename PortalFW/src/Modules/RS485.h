@@ -26,7 +26,7 @@ namespace Modules {
 		static RS485 * instance;
 
 		void processIncoming();
-		Exception processCOBSPacket();
+		Exception processCOBSPacket(bool & packetNeedsACK);
 
 		void beginTransmission();
 		void endTransmission();

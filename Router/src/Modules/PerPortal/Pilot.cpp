@@ -355,5 +355,14 @@ namespace Modules {
 			this->cachedSentValues.b = this->parameters.axes.b;
 			this->cachedSentValues.lastUpdate = chrono::system_clock::now();
 		}
+
+		//----------
+		void
+			Pilot::seeThrough()
+		{
+			this->parameters.axes.a.set(0.0f);
+			this->parameters.axes.b.set(1.0f);
+			this->parameters.polar.enabled.set(false);
+		}
 	}
 }

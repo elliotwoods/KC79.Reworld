@@ -102,14 +102,22 @@ namespace Modules {
 			this->sentACKEarly = false;
 			this->disableACK = false;
 
-			auto exception = this->processCOBSPacket();
+			// this will be raised inside processCOBSPacket if packet is for us exclusively
+			bool packetNeedsACK = false;
+
+			auto exception = this->processCOBSPacket(packetNeedsACK);
 			if(exception) {
 				log(LogLevel::Error, exception.what());
-				this->sendACK(false);
 			}
-			else {
-				log(LogLevel::Status, "RS485 Rx");
-				this->sendACK(true);
+
+			if(packetNeedsACK) {
+				if(exception) {
+					this->sendACK(false);
+				}
+				else {
+					log(LogLevel::Status, "RS485 Rx");
+					this->sendACK(true);
+				}
 			}
 
 			cobsStream.nextIncomingPacket();
@@ -118,7 +126,7 @@ namespace Modules {
 
 	//---------
 	Exception
-	RS485::processCOBSPacket()
+	RS485::processCOBSPacket(bool & packetNeedsACK)
 	{
 		// Check it's a message for us
 		bool weShouldProcess = false;
@@ -144,10 +152,15 @@ namespace Modules {
 					return Exception::MessageFormatError();
 				}
 
-				// An address of -1 means it's addressed to all devices
-				if(targetAddress == this->app->id->get() || targetAddress == -1) {
+				if(targetAddress == this->app->id->get()) {
  					weShouldProcess = true;
-					this->disableACK = true;
+					packetNeedsACK = true;
+				}
+
+				// An address of -1 means it's addressed to all devices
+				// We process but we don't ACK
+				if(targetAddress == -1) {
+ 					weShouldProcess = true;
 				}
 			}
 
@@ -201,7 +214,7 @@ namespace Modules {
 	void
 	RS485::sendACK(bool success)
 	{
-		if(this->disableACK || this->sendACKEarly) {
+		if(this->disableACK || this->sentACKEarly) {
 			return;
 		}
 

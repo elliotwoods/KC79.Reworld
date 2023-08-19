@@ -21,11 +21,15 @@ namespace Modules {
 
 		void dragEvent(const ofDragInfo&);
 	protected:
+		void refreshPortalsByID();
+
 		shared_ptr<RS485> rs485;
 		shared_ptr<FWUpdate> fwUpdate;
 
-		shared_ptr<Portal> portal;
-		map<uint8_t, shared_ptr<Portal>> portalByID;
+		vector<shared_ptr<Portal>> portals;
+
+		map<uint8_t, shared_ptr<Portal>> portalsByID;
+		bool portalsByIDDirty = true;
 
 		vector<shared_ptr<Base>> modules;
 	};

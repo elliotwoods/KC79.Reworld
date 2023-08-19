@@ -219,41 +219,46 @@ namespace Modules {
 			this->panelsStale = true;
 
 			// Firstly try to cut down by truncating non-error messages
-			for (auto it = this->logMessages.begin(); it != this->logMessages.end(); ) {
-				if (it->level == LogLevel::Status) {
-					// consider abbreviating
-					auto next = it + 1;
-					auto itEnd = next;
+			if (false) // actually don't - this code doesn't work and gets trapped in an infinite loop
+			{
+				for (auto it = this->logMessages.begin(); it != this->logMessages.end(); ) {
+					if (it->level == LogLevel::Status) {
+						// consider abbreviating
+						auto next = it + 1;
+						auto itEnd = next;
 
-					// find the end of the sequence of status messages
-					size_t count = 1;
-					for (; itEnd != this->logMessages.end(); itEnd++) {
-						if (itEnd->level != LogLevel::Status) {
+						// find the end of the sequence of status messages
+						size_t count = 1;
+						for (; itEnd != this->logMessages.end(); itEnd++) {
+							if (itEnd->level != LogLevel::Status) {
+								break;
+							}
+							count++;
+						}
+
+						if (itEnd != next) {
+							// there was a sequence of status messages
+							it = this->logMessages.erase(it, itEnd);
+
+							// add the abbreviated message
+							LogMessage abbreviatedMessage{
+								"[abbreviated status messages]"
+								, LogLevel::Status
+								, count
+							};
+
+							// insert this abbreviated message in
+							it = this->logMessages.insert(it, abbreviatedMessage);
+						}
+
+						if (this->logMessages.size() <= maxSize) {
+							// Check if now we can exit this routine
 							break;
 						}
-						count++;
-					}
-
-					if (itEnd != next) {
-						// there was a sequence of status messages
-						it = this->logMessages.erase(it, itEnd);
-
-						// add the abbreviated message
-						LogMessage abbreviatedMessage{
-							"[abbreviated status messages]"
-							, LogLevel::Status
-							, count
-						};
-
-						// insert this abbreviated message in
-						it = this->logMessages.insert(it, abbreviatedMessage);
-					}
-
-					if (this->logMessages.size() <= maxSize) {
-						// Check if now we can exit this routine
 					}
 				}
 			}
+
 
 			// Now if we're too long, just truncate the end
 			if (this->logMessages.size() > maxSize) {

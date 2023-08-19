@@ -64,6 +64,7 @@ namespace Modules {
 	{
 		this->disableInterrupt();
 		this->timer.hardwareTimer->pause();
+		this->timer.hardwareTimer->timerHandleDeinit();
 		delete this->timer.hardwareTimer;
 		this->timer.hardwareTimer = nullptr;
 	}
@@ -107,6 +108,20 @@ namespace Modules {
 	MotionControl::getTargetPosition() const
 	{
 		return this->targetPosition;
+	}
+
+	//----------
+	const MotionControl::MotionProfile &
+	MotionControl::getMotionProfile() const
+	{
+		return this->motionProfile;
+	}
+
+	//----------
+	void
+	MotionControl::setMotionProfile(const MotionProfile& value)
+	{
+		this->motionProfile = value;
 	}
 
 	//----------
@@ -175,6 +190,28 @@ namespace Modules {
 		// If no hardware timer then nothing to do here
 		if(!this->timer.hardwareTimer) {
 			return;
+		}
+
+		// Reset the watchdog for steps
+		if(!this->currentMotionState.motorRunning) {
+			this->lastStepDetectedOrRunStart = millis();
+		}
+
+		// Watchdog for no steps detected
+		if(millis() - this->lastStepDetectedOrRunStart > this->maxTimeWithoutSteps) {
+			// The timer might have crashed. We see this occasionally on B
+			if(this->stepWatchdogResetCount >= this->maxStepWatchdogResets) {
+				// System reset in this case
+				log(LogLevel::Error, "Steps Watchdog timed out too many time - rebooting");
+				NVIC_SystemReset();
+			}
+
+			log(LogLevel::Error, "Steps Watchdog timed out");
+			this->deinitTimer();
+			this->initTimer();
+			this->stepWatchdogResetCount++;
+
+			this->lastStepDetectedOrRunStart = millis();
 		}
 
 		// Run the motor
@@ -411,6 +448,12 @@ namespace Modules {
 	void
 	MotionControl::updateStepCount()
 	{
+		if(this->stepsInInterrupt > 0) {
+			// Reset this watchdog
+			this->lastStepDetectedOrRunStart = millis();
+			this->stepWatchdogResetCount = 0;
+		}
+
 		if(this->currentMotionState.direction) {
 
 			// Forwards

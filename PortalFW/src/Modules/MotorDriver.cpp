@@ -11,6 +11,7 @@ namespace Modules {
 	{
 		Config config;
 		{
+			config.AxisLabel = 'A';
 			config.Fault = PA4;
 			config.Enable = PA5;
 			config.Step = PA6;
@@ -26,6 +27,7 @@ namespace Modules {
 	{
 		Config config;
 		{
+			config.AxisLabel = 'B';
 			config.Fault = PA8;
 			config.Enable = PA9;
 			config.Step = PA10;

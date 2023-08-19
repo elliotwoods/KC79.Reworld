@@ -1,6 +1,7 @@
 #include "pch_App.h"
 
 #include "Utils.h"
+#include "Modules/Portal.h"
 
 namespace Utils{
 	//----------
@@ -16,6 +17,17 @@ namespace Utils{
 			ofLogError("Invalid axis index");
 			return "";
 		}
+	}
+
+	//----------
+	shared_ptr<ofxCvGui::Widgets::Button>
+		makeButton(shared_ptr<Modules::Portal> portal)
+	{
+		auto button = make_shared<ofxCvGui::Widgets::Button>(ofToString((int) portal->getTarget()), [portal]() {
+			ofxCvGui::inspect(portal);
+			});
+
+		return button;
 	}
 
 	//----------

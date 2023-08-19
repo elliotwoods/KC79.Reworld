@@ -104,6 +104,8 @@ namespace Modules {
 	void
 	App::initRoutine(uint8_t tryCount)
 	{
+		log(LogLevel::Status, "initRoutine : begin");
+
 		MotionControl::MeasureRoutineSettings settings;
 
 		auto tryNTimes = [this, &tryCount](const std::function<Exception()> & action) {
@@ -119,38 +121,13 @@ namespace Modules {
 			return false;
 		};
 
-		// Walk both by a rotation
-		{
-			// We are going to speed things up a little by 
-			// Instruct move
-			this->motionControlA->setTargetPosition(this->motionControlA->getMicrostepsPerPrismRotation());
-			this->motionControlB->setTargetPosition(this->motionControlB->getMicrostepsPerPrismRotation());
-			
-			// Wait for move
-			while(this->motionControlA->getPosition() != this->motionControlA->getTargetPosition()
-			|| this->motionControlB->getPosition() != this->motionControlB->getTargetPosition()) {
-				motionControlA->update();
-				motionControlB->update();
-				HAL_Delay(1);
-			}
-
-			// Instruct move back to 0
-			this->motionControlA->setTargetPosition(0);
-			this->motionControlB->setTargetPosition(0);
-			
-			// Wait for move
-			while(this->motionControlA->getPosition() != this->motionControlA->getTargetPosition()
-			|| this->motionControlB->getPosition() != this->motionControlB->getTargetPosition()) {
-				motionControlA->update();
-				motionControlB->update();
-				HAL_Delay(1);
-			}
-
-			this->motionControlA->stop();
-			this->motionControlB->stop();
-		}
-		
+		// Walk both by a rotation a bit fast		
 		bool success = true;
+
+		success &= tryNTimes([this, &settings]() {
+			return this->walkBackAndForthRoutine(settings);
+		});
+
 		success &= tryNTimes([this, &settings]() {
 			return this->motionControlA->measureBacklashRoutine(settings);
 		});
@@ -165,10 +142,10 @@ namespace Modules {
 			return this->motionControlB->homeRoutine(settings);
 		});
 		if(success) {
-			log(LogLevel::Status, "Init OK");
+			log(LogLevel::Status, "initRoutine : OK");
 		}
 		else {
-			log(LogLevel::Error, "Init fail");
+			log(LogLevel::Error, "initRoutine : fail");
 		}
 	}
 
@@ -177,12 +154,12 @@ namespace Modules {
 	App::flashLEDsRoutine(uint16_t period, uint16_t count)
 	{
 		for(uint16_t i=0; i<count; i++) {
+			log(LogLevel::Status, "LED Flash");
 			digitalWrite(INDICATOR_LED, HIGH);
 			delay(period / 2);
 			digitalWrite(INDICATOR_LED, LOW);
 			delay(period / 2);
 		}
-		
 	}
 
 	//----------
@@ -287,5 +264,56 @@ namespace Modules {
 		
 
 		return false;
+	}
+
+	//----------
+	Exception
+	App::walkBackAndForthRoutine(const MotionControl::MeasureRoutineSettings& settings)
+	{
+		auto routineStart = millis();
+		auto routineDeadline = routineStart + (uint32_t) settings.timeout_s * 1000;
+
+		// Instruct move
+		auto moveEnd = this->motionControlA->getMicrostepsPerPrismRotation();
+		this->motionControlA->setTargetPosition(moveEnd);
+		this->motionControlB->setTargetPosition(moveEnd);
+
+		// Get default values (for timeout)
+		MotionControl::MeasureRoutineSettings measureRoutineSettings;
+
+		// Wait for move
+		log(LogLevel::Status, "Walk routine CW");
+		while(this->motionControlA->getPosition() != this->motionControlA->getTargetPosition()
+		|| this->motionControlB->getPosition() != this->motionControlB->getTargetPosition()) {
+			motionControlA->update();
+			motionControlB->update();
+			HAL_Delay(1);
+
+			if(millis() > routineDeadline) {
+				return Exception::Timeout();
+			}
+		}
+
+		// Instruct move back to 0
+		this->motionControlA->setTargetPosition(0);
+		this->motionControlB->setTargetPosition(0);
+		
+		// Wait for move
+		log(LogLevel::Status, "Walk routine CCW");
+		while(this->motionControlA->getPosition() != this->motionControlA->getTargetPosition()
+		|| this->motionControlB->getPosition() != this->motionControlB->getTargetPosition()) {
+			motionControlA->update();
+			motionControlB->update();
+			HAL_Delay(1);
+
+			if(millis() > routineDeadline) {
+				return Exception::Timeout();
+			}
+		}
+
+		this->motionControlA->stop();
+		this->motionControlB->stop();
+
+		return Exception::None();
 	}
 }

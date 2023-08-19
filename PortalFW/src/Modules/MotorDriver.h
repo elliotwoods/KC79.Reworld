@@ -10,6 +10,7 @@ namespace Modules {
 	class MotorDriver : public Base {
 	public:
 		struct Config {
+			char AxisLabel;
 			uint32_t Fault;
 			uint32_t Enable;
 			uint32_t Step;

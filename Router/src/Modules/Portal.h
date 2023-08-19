@@ -14,7 +14,9 @@ namespace Modules {
 	class Portal : public Base
 	{
 	public:
-		Portal(shared_ptr<RS485>, int targetID);
+		typedef uint8_t Target;
+
+		Portal(shared_ptr<RS485>, int Target);
 		string getTypeName() const override;
 		string getGlyph() const override;
 
@@ -28,10 +30,17 @@ namespace Modules {
 		void initRoutine();
 		void flashLEDsRoutine();
 
+		Target getTarget() const;
+		void setTarget(Target);
+
+		// Used by PerPortal classes to send out from module to RS485
 		void sendToPortal(const msgpack11::MsgPack&);
 
 		shared_ptr<PerPortal::MotorDriverSettings> getMotorDriverSettings();
 		shared_ptr<PerPortal::Axis> getAxis(int axis);
+		shared_ptr<PerPortal::Pilot> getPilot();
+
+		ofxLiquidEvent<Target> onTargetChange;
 	protected:
 		shared_ptr<RS485> rs485;
 		
@@ -46,7 +55,7 @@ namespace Modules {
 			ofParameter<int> targetID{ "Target ID", 1 };
 
 			struct : ofParameterGroup {
-				ofParameter<bool> regularly{ "Regularly", true };
+				ofParameter<bool> regularly{ "Regularly", false };
 				ofParameter<float> interval{ "Interval [s]", 1.0f, 0.01f, 60.0f };
 				PARAM_DECLARE("Poll", regularly, interval);
 			} poll;
