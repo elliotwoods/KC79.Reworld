@@ -253,15 +253,10 @@ namespace Modules {
 			this->flashLEDsRoutine(period, count);
 			return true;
 		}
-		
+
 		if(strcmp(key, "reset") == 0) {
 			NVIC_SystemReset();
 		}
-		if(strcmp(key, "FW") == 0) {
-			// Firmware announce packet - go to bootloader
-			NVIC_SystemReset();
-		}
-		
 
 		return false;
 	}

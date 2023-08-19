@@ -39,7 +39,8 @@ namespace Modules {
 			struct : ofParameterGroup {
 				ofParameter<int> frameSize{ "Frame size", FW_FRAME_SIZE };
 				ofParameter<int> waitBetweenFrames{ "Wait between frames [ms]", 10 };
-				PARAM_DECLARE("Upload", frameSize, waitBetweenFrames);
+				ofParameter<int> frameRepetitions{ "Frame repetitions", 2 };
+				PARAM_DECLARE("Upload", frameSize, waitBetweenFrames, frameRepetitions);
 			} upload;
 
 			PARAM_DECLARE("FWUpdate", announce, upload)

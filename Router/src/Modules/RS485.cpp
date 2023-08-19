@@ -199,6 +199,7 @@ namespace Modules {
 	{
 		auto data = (uint8_t*) buffer.data;
 		auto message = MsgpackBinary(data, data + buffer.size);
+		this->transmit(message);
 	}
 
 	//----------

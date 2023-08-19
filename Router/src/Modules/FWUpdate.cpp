@@ -67,6 +67,7 @@ namespace Modules {
 	}
 
 	//----------
+	// sequence : https://paper.dropbox.com/doc/KC79-Firmware-development-log--B~RnAsj4dL_fF81TgG7UhvbbAg-NaTWt2IkZT4ykJZeMERKP#:uid=689242674973595348642171&h2=Sequence
 	void
 		FWUpdate::uploadFirmware(const string& path)
 	{
@@ -77,33 +78,67 @@ namespace Modules {
 		auto size = fileBuffer.size();
 		cout << size << endl;
 
-		auto dataPosition = fileBuffer.getData();
-		auto dataEnd = dataPosition + size;
-		uint16_t packetIndex = 0;
-		const auto frameSize = this->parameters.upload.frameSize;
-		auto frameOffset = 0;
+		if (fileBuffer.size() == 0) {
+			ofLogError("FWUpdate") << "Couldn't read file contents";
+			return;
+		}
 
-		while (dataPosition < dataEnd) {
-			auto remainingSize = dataEnd - dataPosition;
-			{
-				ofxCvGui::Utils::drawProcessingNotice("Uploading : " + ofToString(remainingSize / 1000, 1) + "kB remaining");
+		// 1. First announce it
+		{
+			for (int i = 0; i < 5; i++) {
+				this->announceFirmware();
+				ofSleepMillis(100);
 			}
-			if (remainingSize > frameSize) {
-				uploadFirmwarePacket(frameOffset
-					, dataPosition
-					, FW_FRAME_SIZE);
-				dataPosition += frameSize;
-				frameOffset += frameSize;
+		}
+
+		// 2. Erase the existing firmware (required before uploading)
+		{
+			this->eraseFirmware();
+			ofSleepMillis(5000);
+		}
+
+		// 3. Upload
+		{
+			auto dataPosition = fileBuffer.getData();
+			auto dataEnd = dataPosition + size;
+			uint16_t packetIndex = 0;
+			const auto frameSize = this->parameters.upload.frameSize;
+			auto frameOffset = 0;
+
+			while (dataPosition < dataEnd) {
+				auto remainingSize = dataEnd - dataPosition;
+				{
+					ofxCvGui::Utils::drawProcessingNotice("Uploading : " + ofToString(remainingSize / 1000, 1) + "kB remaining");
+				}
+				if (remainingSize > frameSize) {
+					uploadFirmwarePacket(frameOffset
+						, dataPosition
+						, FW_FRAME_SIZE);
+					dataPosition += frameSize;
+					frameOffset += frameSize;
+				}
+				else {
+					uploadFirmwarePacket(frameOffset
+						, dataPosition
+						, remainingSize);
+					dataPosition += remainingSize;
+					frameOffset += remainingSize;
+				}
+
+				this_thread::sleep_for(chrono::milliseconds(this->parameters.upload.waitBetweenFrames));
 			}
-			else {
-				uploadFirmwarePacket(frameOffset
-					, dataPosition
-					, remainingSize);
-				dataPosition += remainingSize;
-				frameOffset += remainingSize;
-			}
-			
-			this_thread::sleep_for(chrono::milliseconds(this->parameters.upload.waitBetweenFrames));			
+		}
+
+		ofSleepMillis(1000);
+
+		// 4. Disable announce
+		{
+			this->parameters.announce.enabled = false;
+		}
+
+		// 5. Run application
+		{
+			this->runApplication();
 		}
 	}
 

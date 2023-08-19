@@ -133,9 +133,9 @@ namespace Modules {
 		{
 			// We're expecting a 3-element array
 			{
-				// Note that these exceptions will result in neg ACKs
-				// and might conflict with ACKs coming from other modules
-				// at the same time.
+				// Note that these exceptions should not be thrown as
+				// error ACKs, as they will conflict with ACKs coming
+				// from other modules at the same time.
 				size_t arraySize;
 				if(!msgpack::readArraySize(cobsStream, arraySize)) {
 					return Exception::MessageFormatError();
@@ -173,16 +173,33 @@ namespace Modules {
 			}
 
 			if(weShouldProcess) {
-				// We should process this packet, next is the value of the outer map
+				// We should process this packet
+				// There are different types of packet:
 
-				// If it's a Nil, then it's a ping
 				if(msgpack::nextDataTypeIs(cobsStream, msgpack::DataType::Nil)) {
+					// If it's a Nil, then it's a ping
 					if(!msgpack::readNil(cobsStream)) {
 						return Exception::MessageFormatError();
 					}
 					// Will result in an ACK being sent (the ping reply)
 				}
+				else if(msgpack::nextDataTypeIs(cobsStream, msgpack::DataType::String5)) {
+					// If it's a string5, it's a magic word
+					char word[64];
+					uint8_t wordSize;
+					if(!msgpack::readString5(cobsStream, word, 64, wordSize)) {
+						return Exception::MessageFormatError();
+					}
+					if(word[0] == 'F' && word[1] == 'W') {
+						// Firmware announce packet
+						// Reset into the bootloader
+						log(LogLevel::Status, "Firmware announced, rebooting...");
+						HAL_Delay(500);
+						NVIC_SystemReset();
+					}
+				}
 				else {
+					// If it's a map, it's a message for the app
 					auto success = app->processIncoming(cobsStream);
 					if(!success) {
 						return Exception::MessageFormatError();

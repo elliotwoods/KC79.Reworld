@@ -58,7 +58,7 @@ void
 Logger::setup()
 {
 	serial.begin(115200);
-	serial.println("APP START");
+	serial.println("APP START v2");
 }
 
 //----------
