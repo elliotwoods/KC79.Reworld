@@ -24,16 +24,19 @@ namespace Modules {
 			void processIncoming(const nlohmann::json&) override;
 
 			void move(Steps targetPosition);
-			void move(int32_t targetPosition
-				, int32_t maxVelocity
-				, int32_t acceleration
-				, int32_t minVelocity);
+			void move(Steps targetPosition
+				, StepsPerSecond maxVelocity
+				, StepsPerSecondPerSecond acceleration
+				, StepsPerSecond minVelocity);
 
 			void zeroCurrentPosition();
 
 			msgpack11::MsgPack getMeasureSettings() const;
 			void measureBacklash();
 			void homeRoutine();
+
+			Steps getCurrentPosition() const;
+			Steps getTargetPosition() const;
 
 			void deinitTimer();
 			void initTimer();
@@ -72,7 +75,10 @@ namespace Modules {
 			struct {
 				Utils::ReportedState<int32_t> position{ "position" };
 				Utils::ReportedState<int32_t> targetPosition{ "targetPosition" };
-				vector<Utils::IReportedState*> variables;
+				vector<Utils::IReportedState*> variables{
+					&position
+					, &targetPosition
+				};
 			} reportedState;
 		};
 	}

@@ -10,6 +10,11 @@ namespace Modules {
 		class Pilot : public Base
 		{
 		public:
+			MAKE_ENUM(LeadingControl
+				, (Position, Polar, Axes)
+				, ("Position", "Polar", "Axes")
+			);
+
 			Pilot(Portal *);
 			string getTypeName() const override;
 			string getGlyph() const override;
@@ -22,24 +27,42 @@ namespace Modules {
 			ofxCvGui::PanelPtr getPanel();
 
 			void seeThrough();
+
+			const glm::vec2 getPosition() const;
+			const glm::vec2 getPolar() const;
+			const glm::vec2 getAxes() const;
+
+			void setPosition(const glm::vec2&);
+			void setPolar(const glm::vec2&);
+			void setAxes(const glm::vec2&);
+
+			glm::vec2 positionToPolar(const glm::vec2&) const;
+			glm::vec2 polarToPosition(const glm::vec2&) const;
+			glm::vec2 polarToAxes(const glm::vec2&) const;
+			glm::vec2 axesToPolar(const glm::vec2&) const;
+
+			Steps axisToSteps(float) const;
+			float stepsToAxis(Steps) const;
 		protected:
 			void pushValues();
+			void pushA();
+			void pushB();
 
 			Portal * portal;
 
 			struct : ofParameterGroup {
+				ofParameter<LeadingControl> leadingControl{ "Leading control", LeadingControl::Position };
+
 				struct : ofParameterGroup {
 					ofParameter<float> x{ "X", 0, -1, 1 };
 					ofParameter<float> y{ "Y", 0, -1, 1 };
-					ofParameter<bool> enabled{ "Enabled", true };
-					PARAM_DECLARE("Position", x, y, enabled);
+					PARAM_DECLARE("Position", x, y);
 				} position;
 
 				struct : ofParameterGroup {
 					ofParameter<float> r{ "r", 0, 0, 1 };
 					ofParameter<float> theta{ "Theta", 0, -acos(0), acos(0) };
-					ofParameter<bool> enabled{ "Enabled", true };
-					PARAM_DECLARE("Polar", r, theta, enabled);
+					PARAM_DECLARE("Polar", r, theta);
 				} polar;
 
 				struct : ofParameterGroup {
@@ -50,15 +73,18 @@ namespace Modules {
 					ofParameter<bool> sendPeriodically{ "Send periodically", false };
 					PARAM_DECLARE("Axes", a, b, offset, microstepsPerPrismRotation, sendPeriodically);
 				} axes;
-				PARAM_DECLARE("PortalPilot", position, polar, axes);
+				PARAM_DECLARE("PortalPilot", leadingControl, position, polar, axes);
 			} parameters;
 
 			struct : ofParameterGroup {
 				float a = -2;
 				float b = -2;
-				chrono::system_clock::time_point lastUpdate = chrono::system_clock::now();
+				chrono::system_clock::time_point lastUpdateRequest = chrono::system_clock::now();
 				chrono::milliseconds updatePeriod{ 1000 };
 			} cachedSentValues;
+
+			glm::vec2 liveAxisValues;
+			glm::vec2 liveAxisTargetValues;
 		};
 	}
 }

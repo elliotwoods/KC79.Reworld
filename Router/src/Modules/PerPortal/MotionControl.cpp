@@ -12,10 +12,6 @@ namespace Modules {
 			: portal(portal)
 			, axisIndex(axisIndex)
 		{
-			this->reportedState.variables = {
-				&this->reportedState.position
-				, &this->reportedState.targetPosition
-			};
 		}
 
 		//----------
@@ -118,12 +114,9 @@ namespace Modules {
 				}
 			}
 
-			inspector->addLiveValue<string>("Current position", [this]() {
-				return this->reportedState.position.toString();
-				});
-			inspector->addLiveValue<string>("Current target", [this]() {
-				return this->reportedState.targetPosition.toString();
-				});
+			for (const auto& variable : this->reportedState.variables) {
+				inspector->add(Utils::makeGUIElement(variable));
+			}
 
 			inspector->addParameterGroup(this->parameters);
 		}
@@ -154,9 +147,9 @@ namespace Modules {
 		//----------
 		void
 			MotionControl::move(Steps targetPosition
-				, int32_t maxVelocity
-				, int32_t acceleration
-				, int32_t minVelocity)
+				, StepsPerSecond maxVelocity
+				, StepsPerSecondPerSecond acceleration
+				, StepsPerSecond minVelocity)
 		{
 			auto message = MsgPack::object{
 				{
@@ -237,6 +230,20 @@ namespace Modules {
 				}
 			};
 			this->portal->sendToPortal(message);
+		}
+
+		//----------
+		Steps
+			MotionControl::getCurrentPosition() const
+		{
+			return this->reportedState.position.value;
+		}
+
+		//----------
+		Steps
+			MotionControl::getTargetPosition() const
+		{
+			return this->reportedState.targetPosition.value;
 		}
 
 		//----------

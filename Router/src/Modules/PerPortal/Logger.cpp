@@ -275,6 +275,18 @@ namespace Modules {
 		}
 		
 		//----------
+		const Logger::LogMessage *
+			Logger::getLatestMessage() const
+		{
+			if (this->logMessages.empty()) {
+				return nullptr;
+			}
+			else {
+				return &this->logMessages.back();
+			}
+		}
+
+		//----------
 		void
 			Logger::refreshPanels()
 		{

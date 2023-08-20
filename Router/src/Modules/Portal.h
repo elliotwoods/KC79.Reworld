@@ -69,6 +69,17 @@ namespace Modules {
 			PARAM_DECLARE("Portal", targetID, poll, flash);
 		} parameters;
 
+		struct {
+			Utils::ReportedState<uint32_t> upTime{ "upTime" };
+			Utils::ReportedState<string> version{ "version" };
+			Utils::ReportedState<bool> initialised{ "initialised" };
+			vector<Utils::IReportedState*> variables{
+				&upTime
+				, &version
+				, &initialised
+			};
+		} reportedState;
+
 		chrono::system_clock::time_point lastPoll = chrono::system_clock::now();
 		chrono::system_clock::time_point lastIncoming = chrono::system_clock::now();
 	};

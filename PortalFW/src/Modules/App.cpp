@@ -87,8 +87,18 @@ namespace Modules {
 	void
 	App::reportStatus(msgpack::Serializer& serializer)
 	{
-		serializer.beginMap(3);
+		serializer.beginMap(4);
 		{
+			serializer << "app";
+			{
+				serializer.beginMap(3);
+				{
+					serializer << "upTime" << millis();
+					serializer << "version" << PORTAL_VERSION_STRING;
+					serializer << "initialised" << this->initalised;
+				}
+			}
+
 			serializer << "mca";
 			this->motionControlA->reportStatus(serializer);
 
@@ -141,7 +151,9 @@ namespace Modules {
 		success &= tryNTimes([this, &settings]() {
 			return this->motionControlB->homeRoutine(settings);
 		});
+
 		if(success) {
+			this->initalised = true;
 			log(LogLevel::Status, "initRoutine : OK");
 		}
 		else {

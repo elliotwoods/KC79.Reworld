@@ -82,11 +82,21 @@ namespace Modules {
 			return (float) chrono::duration_cast<chrono::milliseconds>(chrono::system_clock::now() - this->lastIncoming).count() / 1000.0f;
 			});
 
+		inspector->addLiveValue<string>("Last log message", [this]() {
+			auto message = this->logger->getLatestMessage();
+			if (!message) {
+				return string("");
+			}
+			else {
+				return message->message;
+			}
+			});
+
 		auto buttonStack = inspector->addHorizontalStack();
 		{
 			buttonStack->addButton("Poll", [this]() {
 				this->poll();
-			})->setDrawGlyph(u8"\uf059");
+			}, ' ')->setDrawGlyph(u8"\uf059");
 
 			buttonStack->addButton("Initialise routine", [this]() {
 				this->initRoutine();
@@ -95,6 +105,10 @@ namespace Modules {
 			buttonStack->addButton("Flash lights", [this]() {
 				this->flashLEDsRoutine();
 			})->setDrawGlyph(u8"\uf0eb");
+		}
+
+		for (auto variable : this->reportedState.variables) {
+			inspector->add(Utils::makeGUIElement(variable));
 		}
 
 		inspector->addParameterGroup(this->parameters);
@@ -114,6 +128,11 @@ namespace Modules {
 		}
 		if (json.contains("logger")) {
 			this->logger->processIncoming(json["logger"]);
+		}
+		if (json.contains("app")) {
+			for (const auto& variable : this->reportedState.variables) {
+				variable->processIncoming(json["app"]);
+			}
 		}
 	}
 

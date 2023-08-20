@@ -39,30 +39,64 @@ namespace Modules {
 		void
 			Pilot::update()
 		{
-			// Calculate polar angles
-			if (this->parameters.position.enabled) {
-				const auto x = this->parameters.position.x;
-				const auto y = this->parameters.position.y;
-				auto r = glm::length(glm::vec2(x, y));
-				auto theta = atan2(y, x);
+			// Calculate other values from the leading control
+			switch (this->parameters.leadingControl.get().get()) {
+			case LeadingControl::Position:
+			{
+				auto position = this->getPosition();
+				auto polar = this->positionToPolar(position);
 
 				// clamp max r value
-				if (r > 1.0f) {
-					r = 1.0f;
-					this->parameters.position.x.set(cos(theta) * r);
-					this->parameters.position.y.set(sin(theta) * r);
+				if (polar[0] > 1.0f) {
+					polar[0] = 1.0f;
+					position = this->polarToPosition({ polar[0], polar[1] });
+					this->setPosition(position);
 				}
 
-				this->parameters.polar.r.set(r);
-				this->parameters.polar.theta.set(theta);
-			}
+				{
+					this->parameters.polar.r.set(polar[0]);
+					this->parameters.polar.theta.set(polar[1]);
+				}
 
-			// Calculate prism step positions
-			if (this->parameters.polar.enabled) {
-				auto thetaNorm = this->parameters.polar.theta / TWO_PI;
-				auto r = this->parameters.polar.r;
-				this->parameters.axes.a = thetaNorm - r * 0.25;
-				this->parameters.axes.b = 0.5 - (thetaNorm + r * 0.25);
+				auto axes = this->polarToAxes(polar);
+				{
+					this->parameters.axes.a.set(axes[0]);
+					this->parameters.axes.b.set(axes[1]);
+				}
+				break;
+			}
+			case LeadingControl::Polar:
+			{
+				auto polar = this->getPolar();
+				auto position = this->polarToPosition(polar);
+				{
+					this->parameters.position.x.set(position[0]);
+					this->parameters.position.y.set(position[1]);
+				}
+				auto axes = this->polarToAxes(polar);
+				{
+					this->parameters.axes.a.set(axes[0]);
+					this->parameters.axes.b.set(axes[1]);
+				}
+				break;
+			}
+			case LeadingControl::Axes:
+			{
+				auto axes = this->getAxes();
+				auto polar = this->axesToPolar(axes);
+				{
+					this->parameters.polar.r.set(polar[0]);
+					this->parameters.polar.theta.set(polar[1]);
+				}
+				auto position = this->polarToPosition(polar);
+				{
+					this->parameters.position.x.set(position[0]);
+					this->parameters.position.y.set(position[1]);
+				}
+				break;
+			}
+			default:
+				break;
 			}
 
 			// Check if needs push
@@ -71,18 +105,38 @@ namespace Modules {
 				{
 					if (this->parameters.axes.sendPeriodically) {
 						auto now = chrono::system_clock::now();
-						if (now - this->cachedSentValues.lastUpdate > this->cachedSentValues.updatePeriod) {
+						if (now - this->cachedSentValues.lastUpdateRequest > this->cachedSentValues.updatePeriod) {
 							needsSend = true;
 						}
 					}
 				}
-				needsSend |= this->parameters.axes.a != this->cachedSentValues.a;
-				needsSend |= this->parameters.axes.b != this->cachedSentValues.b;
-
-				if (needsSend)
-				{
+				if (needsSend) {
 					this->pushValues();
 				}
+				else {
+					if (this->parameters.axes.a != this->cachedSentValues.a) {
+						this->pushA();
+					}
+					if (this->parameters.axes.b != this->cachedSentValues.b) {
+						this->pushB();
+					}
+				}
+			}
+
+			// Update live axis values
+			{
+				this->liveAxisValues.x = this->stepsToAxis(
+					this->portal->getAxis(0)->getMotionControl()->getCurrentPosition()
+				);
+				this->liveAxisValues.y = this->stepsToAxis(
+					this->portal->getAxis(1)->getMotionControl()->getCurrentPosition()
+				);
+				this->liveAxisTargetValues.x = this->stepsToAxis(
+					this->portal->getAxis(0)->getMotionControl()->getTargetPosition()
+				);
+				this->liveAxisTargetValues.y = this->stepsToAxis(
+					this->portal->getAxis(1)->getMotionControl()->getTargetPosition()
+				);
 			}
 		}
 
@@ -94,9 +148,14 @@ namespace Modules {
 
 			inspector->add(this->getPanel());
 			inspector->addButton("Reset position", [this]() {
-				this->parameters.position.x = 0;
-				this->parameters.position.y = 0;
+				this->setPosition({ 0.0f, 0.0f });
 				}, 'r');
+			inspector->addButton("Push axis values", [this]() {
+				this->pushValues();
+				}, ' ');
+			inspector->addButton("Poll", [this]() {
+				this->portal->poll();
+				}, 'p');
 			inspector->addParameterGroup(this->parameters);
 		}
 
@@ -113,7 +172,9 @@ namespace Modules {
 			{
 				auto power = 0.2f;
 
+				// Create the main position panel
 				auto panel = ofxCvGui::Panels::makeBlank();
+				auto panelWeak = weak_ptr<ofxCvGui::Panels::Base>(panel);
 				panel->onDraw += [this, power](ofxCvGui::DrawArguments& args)
 				{
 					auto panelCenter = args.localBounds.getCenter();
@@ -146,14 +207,12 @@ namespace Modules {
 					}
 					ofPopMatrix();
 
-					{
-						auto x = this->parameters.position.x;
-						auto y = this->parameters.position.y;
-						auto r = glm::length(glm::vec2(x, y));
-						auto theta = atan2(y, x);
+					auto polarToView = [this, panelCenter, panelSize, power](const glm::vec2& polar) {
+						const auto& r = polar[0];
+						const auto& theta = polar[1];
 						auto r_view = pow(r, power);
 
-						ofDrawCircle(
+						return glm::vec2{
 							ofMap(r_view * cos(theta)
 								, -1
 								, 1
@@ -164,12 +223,43 @@ namespace Modules {
 								, 1
 								, panelCenter.y - panelSize / 2
 								, panelCenter.y + panelSize / 2)
-							, 10.0f
-						);
+						};
+					};
+
+					// Draw current position (presumes known)
+					{
+						auto currentPolar = this->axesToPolar(this->liveAxisValues);
+						auto currentPositionInView = polarToView(currentPolar);
+						ofPushMatrix();
+						ofPushStyle();
+						{
+							ofTranslate(currentPositionInView);
+							ofSetColor(200);
+							ofDrawLine(-10, 0, 10, 0);
+							ofDrawLine(0, -10, 0, 10);
+						}
+						ofPopStyle();
+						ofPopMatrix();
 					}
+
+					// Draw cursor
+					ofPushStyle();
+					{
+						if (this->parameters.leadingControl.get() == LeadingControl::Position) {
+							ofFill();
+						}
+						else {
+							ofNoFill();
+						}
+						ofDrawCircle(polarToView(this->getPolar()), 10.0f);
+					}
+					ofPopStyle();
+
 				};
-				panel->onMouse += [this, panel, power](ofxCvGui::MouseArguments& args)
+				panel->onMouse += [this, panelWeak, power](ofxCvGui::MouseArguments& args)
 				{
+					auto panel = panelWeak.lock();
+
 					args.takeMousePress(panel);
 
 					if (args.isDragging(panel)) {
@@ -180,10 +270,35 @@ namespace Modules {
 						auto r_factor = pow(ofClamp(r, 0.0001, 1), power); // allow for movements when at 0,0
 
 						auto movement = r_factor * args.movement / glm::vec2(panel->getWidth(), panel->getHeight());
-						this->parameters.position.x += movement.x;
-						this->parameters.position.y += movement.y;
-						this->parameters.position.x = ofClamp(this->parameters.position.x, -1, 1);
-						this->parameters.position.y = ofClamp(this->parameters.position.y, -1, 1);
+						auto position = this->getPosition();
+						position += movement;
+						position.x = ofClamp(position.x, -1, 1);
+						position.y = ofClamp(position.y, -1, 1);
+						this->setPosition(position);
+					}
+
+					if (args.isDoubleClicked(panel)) {
+						auto panelSize = min(panel->getWidth(), panel->getHeight());
+						auto panelCenter = glm::vec2(panel->getWidth() / 2.0f, panel->getHeight() / 2.0f);
+						auto xyPanel = glm::vec2({
+							ofMap(args.local.x
+								, panelCenter.x - panelSize / 2
+								, panelCenter.x + panelSize / 2
+								, -1
+								, 1)
+							, ofMap(args.local.y
+								, panelCenter.y - panelSize / 2
+								, panelCenter.y + panelSize / 2
+								, -1
+								, 1)
+							});
+
+						auto r_view = glm::length(xyPanel);
+						auto theta = atan2(xyPanel[1], xyPanel[0]);
+						auto r = pow(r_view, 1.0f / power);
+						auto x = r * cos(theta);
+						auto y = r * sin(theta);
+						this->setPosition({ x, y });
 					}
 				};
 
@@ -200,14 +315,14 @@ namespace Modules {
 			{
 				auto verticalStrip = ofxCvGui::Panels::Groups::makeStrip(ofxCvGui::Panels::Groups::Strip::Direction::Vertical);
 				{
-					auto makeAxisControlPanel = [this](ofParameter<float>& axis) {
+					auto makeAxisControlPanel = [this](ofParameter<float>& axis, int axisIndex) {
 						auto horizontalStrip = ofxCvGui::Panels::Groups::makeStrip(ofxCvGui::Panels::Groups::Strip::Direction::Horizontal);
 						horizontalStrip->setCellSizes({ -1, 80});
 						{
 							auto panel = ofxCvGui::Panels::makeBlank();
 							panel->setWidth(100.0f);
 							panel->setHeight(100.0f);
-							panel->onDraw += [this, &axis](ofxCvGui::DrawArguments& args)
+							panel->onDraw += [this, &axis, axisIndex](ofxCvGui::DrawArguments& args)
 							{
 								auto panelCenter = args.localBounds.getCenter();
 								auto panelSize = min(args.localBounds.width, args.localBounds.height);
@@ -223,20 +338,21 @@ namespace Modules {
 										ofSetColor(150);
 										ofSetCircleResolution(32);
 										ofDrawCircle(0, 0, 1.0f);
-										ofDrawLine(-1, 0, 1, 0);
-										ofDrawLine(0, -1, 0, 1);
+										ofDrawLine(-1, 0, -0.9, 0);
+										ofDrawLine(1, 0, 0.9, 0);
+										ofDrawLine(0, -1, 0, -0.9);
+										ofDrawLine(0, 1, 0, 0.9);
 									}
 									ofPopStyle();
 								}
 								ofPopMatrix();
 
-								{
-									auto theta = ofMap(axis.get()
+								auto axisValueToPanelPosition = [&](float axisValue, float r) {
+									auto theta = ofMap(axisValue
 										, 0
 										, 1
 										, 0
 										, TWO_PI) + PI;
-									auto r = 0.75f;
 									auto x = r * cos(theta);
 									auto y = r * sin(theta);
 
@@ -246,15 +362,53 @@ namespace Modules {
 									auto panel_y = ofMap(y, -1, 1
 										, panelCenter.y - panelSize / 2
 										, panelCenter.y + panelSize / 2);
+									return glm::vec2{
+										panel_x
+										, panel_y
+									};
+								};
+
+								// Draw current value
+								{
+									auto drawPosition = axisValueToPanelPosition(this->liveAxisValues[axisIndex], 0.5f);
 									ofPushStyle();
 									{
-										if (this->parameters.polar.enabled) {
-											ofNoFill();
-										}
-										ofDrawCircle(panel_x, panel_y, 10.0f);
+										ofSetColor(200);
+										ofDrawLine(panelCenter, { drawPosition.x, drawPosition.y });
+										ofDrawCircle({ drawPosition.x, drawPosition.y }, 5.0f);
 									}
 									ofPopStyle();
-									ofDrawLine(panelCenter.x, panelCenter.y, panel_x, panel_y);
+								}
+
+								// Draw current target value
+								{
+									auto drawPosition = axisValueToPanelPosition(this->liveAxisTargetValues[axisIndex], 0.5f);
+									ofPushStyle();
+									{
+										ofNoFill();
+										ofSetColor(200);
+										ofDrawCircle({ drawPosition.x, drawPosition.y }, 8.0f);
+									}
+									ofPopStyle();
+								}
+
+								// Draw line and circle
+								{
+
+									auto drawPosition = axisValueToPanelPosition(axis.get(), 0.75f);
+
+									ofPushStyle();
+									{
+										if (this->parameters.leadingControl.get() == LeadingControl::Axes) {
+											ofFill();
+										}
+										else {
+											ofNoFill();
+										}
+										ofDrawCircle(drawPosition, 10.0f);
+									}
+									ofPopStyle();
+									ofDrawLine(panelCenter, drawPosition);
 
 									{
 										ofRectangle textBounds(panelCenter - glm::vec2(20, 20), 40, 40);
@@ -269,16 +423,16 @@ namespace Modules {
 								args.takeMousePress(panel);
 
 								if (args.isDragging(panel)) {
-									this->parameters.polar.enabled.set(false);
 									auto movement = args.movement / glm::vec2(panel->getWidth(), panel->getHeight());
-									axis += movement.x / 10.0f;
+									axis.set(axis.get() + movement.x / 10.0f);
+									this->parameters.leadingControl.set(LeadingControl::Axes);
 								}
 
 								if (args.isDoubleClicked(panel)) {
 									auto response = ofSystemTextBoxDialog("Value for " + axis.getName());
 									if (!response.empty()) {
 										axis.set(ofToFloat(response));
-										this->parameters.polar.enabled = false;
+										this->setAxes(this->getAxes()); // invoke set events
 									}
 								}
 							};
@@ -288,8 +442,8 @@ namespace Modules {
 						{
 							auto buttonStrip = ofxCvGui::Panels::makeWidgets();
 							auto go = [&axis, this](float position) {
-								this->parameters.polar.enabled.set(false);
 								axis.set(position);
+								this->setAxes(this->getAxes()); // invoke events
 							};
 							map<float, string> positions;
 							{
@@ -318,8 +472,8 @@ namespace Modules {
 						return horizontalStrip;
 					};
 
-					verticalStrip->add(makeAxisControlPanel(this->parameters.axes.a));
-					verticalStrip->add(makeAxisControlPanel(this->parameters.axes.b));
+					verticalStrip->add(makeAxisControlPanel(this->parameters.axes.a, 0));
+					verticalStrip->add(makeAxisControlPanel(this->parameters.axes.b, 1));
 				}
 				horizontalStrip->add(verticalStrip);
 			}
@@ -329,31 +483,37 @@ namespace Modules {
 
 		//----------
 		void
-			Pilot::pushValues()
+			Pilot::pushA()
 		{
-			{
-				auto norm = this->parameters.axes.a.get() + this->parameters.axes.offset.get();
-				auto steps = (int32_t)ofMap(norm
-					, 0
-					, 1
-					, 0
-					, this->parameters.axes.microstepsPerPrismRotation.get());
-				this->portal->getAxis(0)->getMotionControl()->move(steps);
-			}
-
-			{
-				auto norm = this->parameters.axes.b.get() - this->parameters.axes.offset.get();
-				auto steps = (int32_t)ofMap(norm
-					, 0
-					, 1
-					, 0
-					, -this->parameters.axes.microstepsPerPrismRotation.get());
-				this->portal->getAxis(1)->getMotionControl()->move(steps);
-			}
+			auto norm = this->parameters.axes.a.get() + this->parameters.axes.offset.get();
+			auto steps = this->axisToSteps(norm);
+			this->portal->getAxis(0)->getMotionControl()->move(steps);
 
 			this->cachedSentValues.a = this->parameters.axes.a;
+		}
+
+		//----------
+		void
+			Pilot::pushB()
+		{
+			auto norm = this->parameters.axes.b.get() - this->parameters.axes.offset.get();
+			auto steps = this->axisToSteps(norm);
+			this->portal->getAxis(1)->getMotionControl()->move(steps);
+
 			this->cachedSentValues.b = this->parameters.axes.b;
-			this->cachedSentValues.lastUpdate = chrono::system_clock::now();
+		}
+
+		//----------
+		void
+			Pilot::pushValues()
+		{
+			this->pushA();
+
+			ofSleepMillis(100);
+
+			this->pushB();
+
+			this->cachedSentValues.lastUpdateRequest = chrono::system_clock::now();
 		}
 
 		//----------
@@ -362,7 +522,144 @@ namespace Modules {
 		{
 			this->parameters.axes.a.set(0.0f);
 			this->parameters.axes.b.set(1.0f);
-			this->parameters.polar.enabled.set(false);
+			this->parameters.leadingControl.set(LeadingControl::Axes);
+		}
+
+		//----------
+		const glm::vec2
+			Pilot::getPosition() const
+		{
+			return {
+				this->parameters.position.x.get()
+				, this->parameters.position.y.get()
+			};
+		}
+
+		//----------
+		const glm::vec2
+			Pilot::getPolar() const
+		{
+			return {
+				this->parameters.polar.r.get()
+				, this->parameters.polar.theta.get()
+			};
+		}
+
+		//----------
+		const glm::vec2
+			Pilot::getAxes() const
+		{
+			return {
+				this->parameters.axes.a.get()
+				, this->parameters.axes.b.get()
+			};
+		}
+
+		//----------
+		void
+			Pilot::setPosition(const glm::vec2& position)
+		{
+			this->parameters.position.x.set(position.x);
+			this->parameters.position.y.set(position.y);
+			this->parameters.leadingControl.set(LeadingControl::Position);
+		}
+
+		//----------
+		void
+			Pilot::setPolar(const glm::vec2& polar)
+		{
+			this->parameters.polar.r.set(polar[0]);
+			this->parameters.polar.theta.set(polar[1]);
+			this->parameters.leadingControl.set(LeadingControl::Polar);
+		}
+
+		//----------
+		void
+			Pilot::setAxes(const glm::vec2& axes)
+		{
+			this->parameters.axes.a.set(axes[0]);
+			this->parameters.axes.b.set(axes[1]);
+			this->parameters.leadingControl.set(LeadingControl::Axes);
+		}
+
+		//----------
+		glm::vec2
+			Pilot::positionToPolar(const glm::vec2& position) const
+		{
+			auto r = glm::length(position);
+			auto theta = atan2(position.y, position.x);
+
+			return { r, theta };
+		}
+
+		//----------
+		glm::vec2
+			Pilot::polarToPosition(const glm::vec2& polar) const
+		{
+			const auto& r = polar[0];
+			const auto& theta = polar[1];
+
+			return {
+				r * cos(theta)
+				, r * sin(theta)
+			};
+		}
+
+		//----------
+		glm::vec2
+			Pilot::polarToAxes(const glm::vec2& polar) const
+		{
+			const auto & r = polar[0];
+			const auto & theta = polar[1];
+
+			const auto thetaNorm = theta / TWO_PI;
+
+			// our special sauce for our lenses
+			return {
+				thetaNorm - r * 0.25
+				, 0.5 - (thetaNorm + r * 0.25)
+			};
+		}
+
+		//----------
+		// https://www.wolframalpha.com/input?i=systems+of+equations+calculator&assumption=%7B%22F%22%2C+%22SolveSystemOf2EquationsCalculator%22%2C+%22equation1%22%7D+-%3E%22a+%3D+y+-+x%2F4%22&assumption=%22FSelect%22+-%3E+%7B%7B%22SolveSystemOf2EquationsCalculator%22%7D%7D&assumption=%7B%22F%22%2C+%22SolveSystemOf2EquationsCalculator%22%2C+%22equation2%22%7D+-%3E%22b+%3D+1%2F2+-+%28y+%2B+a%2F4%29%22
+		glm::vec2
+			Pilot::axesToPolar(const glm::vec2& axes) const
+		{
+			const auto& a = axes[0];
+			const auto& b = axes[1];
+
+			auto r = -5 * a - 4 * b + 2;
+			auto thetaNorm = (-a - 4*b + 2) / 4;
+
+			auto theta = thetaNorm * TWO_PI;
+
+			return {
+				r
+				, theta
+			};
+		}
+
+		//----------
+		Steps
+			Pilot::axisToSteps(float axisValue) const
+		{
+			return ofMap(axisValue
+				, 0
+				, 1
+				, 0
+				, -this->parameters.axes.microstepsPerPrismRotation.get());
+		}
+
+		//----------
+		float
+			Pilot::stepsToAxis(Steps stepsValue) const
+		{
+			return ofMap(stepsValue
+				, 0
+				, -this->parameters.axes.microstepsPerPrismRotation.get()
+				, 0
+				, 1);
 		}
 	}
 }

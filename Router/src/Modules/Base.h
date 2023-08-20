@@ -4,6 +4,8 @@
 
 namespace Modules {
 	typedef int32_t Steps;
+	typedef int32_t StepsPerSecond;
+	typedef int32_t StepsPerSecondPerSecond;
 
 	class Base : public ofxCvGui::IInspectable
 	{

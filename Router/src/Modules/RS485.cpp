@@ -23,6 +23,12 @@ namespace Modules {
 	}
 
 	//----------
+	RS485::~RS485()
+	{
+		this->closeSerial();
+	}
+
+	//----------
 	string
 		RS485::getTypeName() const
 	{

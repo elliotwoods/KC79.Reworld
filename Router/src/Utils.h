@@ -47,4 +47,19 @@ namespace Utils {
 			}
 		}
 	};
+
+	ofxCvGui::ElementPtr makeGUIElementTyped(ReportedState<bool> *);
+	ofxCvGui::ElementPtr makeGUIElementTyped(ReportedState<string>*);
+	ofxCvGui::ElementPtr makeGUIElementTyped(ReportedState<float>*);
+	ofxCvGui::ElementPtr makeGUIElementTyped(ReportedState<double> *);
+
+	template<typename T, typename std::enable_if<std::is_integral<T>::value, T>::type = 0>
+	ofxCvGui::ElementPtr
+	makeGUIElementTyped(ReportedState<T>* variable) {
+		return make_shared<ofxCvGui::Widgets::LiveValue<T>>(variable->name, [variable]() {
+			return variable->value;
+			});
+	}
+
+	ofxCvGui::ElementPtr makeGUIElement(IReportedState* variable);
 }

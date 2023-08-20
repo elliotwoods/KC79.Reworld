@@ -34,7 +34,8 @@ namespace Modules {
 		// 1-127 = Clients
 		typedef int8_t Target;
 
-		RS485(App *);
+		RS485(App*);
+		~RS485();
 
 		string getTypeName() const override;
 		void init() override;

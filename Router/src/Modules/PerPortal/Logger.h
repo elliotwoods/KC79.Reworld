@@ -45,6 +45,8 @@ namespace Modules {
 
 			void limitMaxMessages();
 			void clear();
+
+			const LogMessage* getLatestMessage() const;
 		protected:
 			void refreshPanels();
 			void refreshPanel(shared_ptr<ofxCvGui::Panels::Widgets>);
