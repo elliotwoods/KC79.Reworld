@@ -199,23 +199,24 @@ namespace Modules {
 		}
 		if(strcmp(key, "init") == 0) {
 			msgpack::DataType dataType;
+			uint8_t tryCount = 1;
 			if(!msgpack::getNextDataType(stream, dataType)) {
 				return false;
 			}
 			if(dataType == msgpack::DataType::Nil) {
 				msgpack::readNil(stream);
-				this->initRoutine(1);
-				return true;
 			}
 			else if(msgpack::isInt(dataType)) {
-				uint8_t tryCount;
 				if(!msgpack::readInt<uint8_t>(stream, tryCount)) {
 					return false;
 				}
-				this->initRoutine(tryCount);
 				return true;
 			}
-			return false;
+			else {
+				return false;
+			}
+			RS485::sendACKEarly(true);
+			this->initRoutine(tryCount);
 		}
 		if(strcmp(key, "flashLED") == 0) {
 			msgpack::DataType dataType;
@@ -269,7 +270,7 @@ namespace Modules {
 		auto routineDeadline = routineStart + (uint32_t) settings.timeout_s * 1000;
 
 		// Instruct move
-		auto moveEnd = this->motionControlA->getMicrostepsPerPrismRotation();
+		auto moveEnd = this->motionControlA->getMicrostepsPerPrismRotation() / 2;
 		this->motionControlA->setTargetPosition(moveEnd);
 		this->motionControlB->setTargetPosition(moveEnd);
 

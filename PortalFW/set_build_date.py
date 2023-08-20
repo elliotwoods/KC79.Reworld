@@ -1,8 +1,7 @@
 from datetime import datetime
-Import("env")
-now = datetime.now()
-time_string = now.strftime("%Y0%n0%d-%H:%M")
 
-env.Append(
-    CPPDEFINES=[("VERSION_STRING", "PORTALv" % time_string)],
-)
+now = datetime.now()
+time_string = now.strftime("%Y-%m-%d_%H:%M")
+
+version_string = "Portal v%s" % time_string;
+print('-D PORTAL_VERSION_STRING="\\"' + version_string + '\\""')

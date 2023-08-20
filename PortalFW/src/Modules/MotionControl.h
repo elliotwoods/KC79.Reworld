@@ -43,7 +43,7 @@ namespace Modules {
 
 		struct MeasureRoutineSettings {
 			uint8_t tries = 2;
-			uint8_t timeout_s = 60;
+			uint8_t timeout_s = 120;
 			StepsPerSecond slowMoveSpeed = 2000;
 			Steps backOffDistance = MOTION_STEPS_PER_PRISM_ROTATION / 100; // Full steps
 			Steps debounceDistance = 10; // Full steps

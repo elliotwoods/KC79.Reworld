@@ -4,8 +4,8 @@
 #include <msgpack.hpp>
 
 // This define will be overwritten by the python script
-#ifndef VERSION_STRING
-	#define VERSION_STRING "Portal"
+#ifndef PORTAL_VERSION_STRING
+	#define PORTAL_VERSION_STRING "Portal"
 #endif
 
 #pragma mark Log
@@ -63,7 +63,7 @@ void
 Logger::setup()
 {
 	serial.begin(115200);
-	serial.println(VERSION_STRING);
+	serial.println(PORTAL_VERSION_STRING);
 }
 
 //----------

@@ -198,21 +198,21 @@ namespace Modules {
 		}
 
 		// Watchdog for no steps detected
-		if(millis() - this->lastStepDetectedOrRunStart > this->maxTimeWithoutSteps) {
-			// The timer might have crashed. We see this occasionally on B
-			if(this->stepWatchdogResetCount >= this->maxStepWatchdogResets) {
-				// System reset in this case
-				log(LogLevel::Error, "Steps Watchdog timed out too many time - rebooting");
-				NVIC_SystemReset();
-			}
+		// if(millis() - this->lastStepDetectedOrRunStart > this->maxTimeWithoutSteps) {
+		// 	// The timer might have crashed. We see this occasionally on B
+		// 	if(this->stepWatchdogResetCount >= this->maxStepWatchdogResets) {
+		// 		// System reset in this case
+		// 		log(LogLevel::Error, "Steps Watchdog timed out too many time - rebooting");
+		// 		NVIC_SystemReset();
+		// 	}
 
-			log(LogLevel::Error, "Steps Watchdog timed out");
-			this->deinitTimer();
-			this->initTimer();
-			this->stepWatchdogResetCount++;
+		// 	log(LogLevel::Error, "Steps Watchdog timed out");
+		// 	this->deinitTimer();
+		// 	this->initTimer();
+		// 	this->stepWatchdogResetCount++;
 
-			this->lastStepDetectedOrRunStart = millis();
-		}
+		// 	this->lastStepDetectedOrRunStart = millis();
+		// }
 
 		// Run the motor
 		this->motorDriver.setEnabled(true);
@@ -949,7 +949,7 @@ namespace Modules {
 
 			// (0) Walk to where we last saw home
 			log(LogLevel::Status, "Home 0: walk to last home");
-			{
+			if(!this->homeSwitch.getForwardsActive() && !this->homeSwitch.getBackwardsActive()) {
 				if(this->position != 0) {
 					this->targetPosition = 0;
 					while(this->targetPosition != this->position) {
