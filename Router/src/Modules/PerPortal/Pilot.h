@@ -41,8 +41,8 @@ namespace Modules {
 			glm::vec2 polarToAxes(const glm::vec2&) const;
 			glm::vec2 axesToPolar(const glm::vec2&) const;
 
-			Steps axisToSteps(float) const;
-			float stepsToAxis(Steps) const;
+			Steps axisToSteps(float, int axisIndex) const;
+			float stepsToAxis(Steps, int axisIndex) const;
 		protected:
 			void pushValues();
 			void pushA();
@@ -60,8 +60,8 @@ namespace Modules {
 				} position;
 
 				struct : ofParameterGroup {
-					ofParameter<float> r{ "r", 0, 0, 1 };
-					ofParameter<float> theta{ "Theta", 0, -acos(0), acos(0) };
+					ofParameter<float> r{ "r", 0, -1, 1 };
+					ofParameter<float> theta{ "Theta", 0, -acos(0) * 2, acos(0) * 2 };
 					PARAM_DECLARE("Polar", r, theta);
 				} polar;
 

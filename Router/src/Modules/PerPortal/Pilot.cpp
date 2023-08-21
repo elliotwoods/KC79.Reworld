@@ -127,15 +127,19 @@ namespace Modules {
 			{
 				this->liveAxisValues.x = this->stepsToAxis(
 					this->portal->getAxis(0)->getMotionControl()->getCurrentPosition()
+					, 0
 				);
 				this->liveAxisValues.y = this->stepsToAxis(
 					this->portal->getAxis(1)->getMotionControl()->getCurrentPosition()
+					, 1
 				);
 				this->liveAxisTargetValues.x = this->stepsToAxis(
 					this->portal->getAxis(0)->getMotionControl()->getTargetPosition()
+					, 0
 				);
 				this->liveAxisTargetValues.y = this->stepsToAxis(
 					this->portal->getAxis(1)->getMotionControl()->getTargetPosition()
+					, 1
 				);
 			}
 		}
@@ -195,13 +199,13 @@ namespace Modules {
 							for (float r = 0.1; r <= 1.0f; r += 0.1f) {
 								ofDrawCircle(0, 0, pow(r, power));
 							}
+							ofDrawLine(-1, 0, 1, 0);
+							ofDrawLine(0, -1, 0, 1);
 
 							// Draw bolder lines
 							ofSetColor(200);
 							ofDrawCircle(0, 0, pow(0.5, power));
 							ofDrawCircle(0, 0, 1.0);
-							ofDrawLine(-1, 0, 1, 0);
-							ofDrawLine(0, -1, 0, 1);
 						}
 						ofPopStyle();
 					}
@@ -337,11 +341,12 @@ namespace Modules {
 										ofNoFill();
 										ofSetColor(150);
 										ofSetCircleResolution(32);
+										const auto r = 0.8f;
 										ofDrawCircle(0, 0, 1.0f);
-										ofDrawLine(-1, 0, -0.9, 0);
-										ofDrawLine(1, 0, 0.9, 0);
-										ofDrawLine(0, -1, 0, -0.9);
-										ofDrawLine(0, 1, 0, 0.9);
+										ofDrawLine(-1, 0, -r, 0);
+										ofDrawLine(1, 0, r, 0);
+										ofDrawLine(0, -1, 0, -r);
+										ofDrawLine(0, 1, 0, r);
 									}
 									ofPopStyle();
 								}
@@ -485,8 +490,8 @@ namespace Modules {
 		void
 			Pilot::pushA()
 		{
-			auto norm = this->parameters.axes.a.get() + this->parameters.axes.offset.get();
-			auto steps = this->axisToSteps(norm);
+			auto norm = this->parameters.axes.a.get();
+			auto steps = this->axisToSteps(norm, 0);
 			this->portal->getAxis(0)->getMotionControl()->move(steps);
 
 			this->cachedSentValues.a = this->parameters.axes.a;
@@ -496,8 +501,8 @@ namespace Modules {
 		void
 			Pilot::pushB()
 		{
-			auto norm = this->parameters.axes.b.get() - this->parameters.axes.offset.get();
-			auto steps = this->axisToSteps(norm);
+			auto norm = this->parameters.axes.b.get();
+			auto steps = this->axisToSteps(norm, 1);
 			this->portal->getAxis(1)->getMotionControl()->move(steps);
 
 			this->cachedSentValues.b = this->parameters.axes.b;
@@ -612,25 +617,31 @@ namespace Modules {
 			const auto & r = polar[0];
 			const auto & theta = polar[1];
 
-			const auto thetaNorm = theta / TWO_PI;
+			// axes norm coordinates are offset by half rotation from polar
+			// (for axes, left = 0; for polar, right = 0)
+			const auto thetaNorm = theta / TWO_PI - 0.5f;
+
+			const auto offset = this->parameters.axes.offset.get();
 
 			// our special sauce for our lenses
 			return {
-				thetaNorm - r * 0.25
-				, 0.5 - (thetaNorm + r * 0.25)
+				thetaNorm - (1 - r) * 0.25 + 0.5 - offset
+				, thetaNorm + (1 - r) * 0.25  + 0.5 + offset
 			};
 		}
 
 		//----------
-		// https://www.wolframalpha.com/input?i=systems+of+equations+calculator&assumption=%7B%22F%22%2C+%22SolveSystemOf2EquationsCalculator%22%2C+%22equation1%22%7D+-%3E%22a+%3D+y+-+x%2F4%22&assumption=%22FSelect%22+-%3E+%7B%7B%22SolveSystemOf2EquationsCalculator%22%7D%7D&assumption=%7B%22F%22%2C+%22SolveSystemOf2EquationsCalculator%22%2C+%22equation2%22%7D+-%3E%22b+%3D+1%2F2+-+%28y+%2B+a%2F4%29%22
+		// https://www.wolframalpha.com/input?i=systems+of+equations+calculator&assumption=%7B%22F%22%2C+%22SolveSystemOf2EquationsCalculator%22%2C+%22equation1%22%7D+-%3E%22a+%3D+t+-+%281-r%29*0.25%22&assumption=%22FSelect%22+-%3E+%7B%7B%22SolveSystemOf2EquationsCalculator%22%7D%7D&assumption=%7B%22F%22%2C+%22SolveSystemOf2EquationsCalculator%22%2C+%22equation2%22%7D+-%3E%22b+%3D+t+%2B+%281-r%29*0.25%22
 		glm::vec2
 			Pilot::axesToPolar(const glm::vec2& axes) const
 		{
-			const auto& a = axes[0];
-			const auto& b = axes[1];
+			const auto offset = this->parameters.axes.offset.get();
 
-			auto r = -5 * a - 4 * b + 2;
-			auto thetaNorm = (-a - 4*b + 2) / 4;
+			const auto& a = axes[0] + offset;
+			const auto& b = axes[1] - offset;
+
+			auto r = 2 * a - 2 * b + 1;
+			auto thetaNorm = (a + b - 1) / 2;
 
 			auto theta = thetaNorm * TWO_PI;
 
@@ -642,22 +653,31 @@ namespace Modules {
 
 		//----------
 		Steps
-			Pilot::axisToSteps(float axisValue) const
+			Pilot::axisToSteps(float axisValue, int axisIndex) const
 		{
+			float invert = 1.0f;
+			if (axisIndex == 1) {
+				invert = -1.0f;
+			}
+
 			return ofMap(axisValue
 				, 0
 				, 1
 				, 0
-				, -this->parameters.axes.microstepsPerPrismRotation.get());
+				, invert * this->parameters.axes.microstepsPerPrismRotation.get());
 		}
 
 		//----------
 		float
-			Pilot::stepsToAxis(Steps stepsValue) const
+			Pilot::stepsToAxis(Steps stepsValue, int axisIndex) const
 		{
+			float invert = 1.0f;
+			if (axisIndex == 1) {
+				invert = -1.0f;
+			}
 			return ofMap(stepsValue
 				, 0
-				, -this->parameters.axes.microstepsPerPrismRotation.get()
+				, invert * this->parameters.axes.microstepsPerPrismRotation.get()
 				, 0
 				, 1);
 		}
