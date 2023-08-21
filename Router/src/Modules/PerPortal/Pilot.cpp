@@ -656,13 +656,35 @@ namespace Modules {
 		{
 			const auto offset = this->parameters.axes.offset.get();
 
-			const auto& a = axes[0] + offset;
-			const auto& b = axes[1] - offset;
+			auto a = axes[0] + offset;
+			auto b = axes[1] - offset;
+
+			// ignore cycles
+			auto flattenCycle = [](float x) {
+				// bring it into -1...1
+				x = fmodf(x, 1);
+				if (x < 0) {
+					x += 1;
+				}
+				return x;
+			};
+
+			a = flattenCycle(a);
+			b = flattenCycle(b);
 
 			auto r = 2 * a - 2 * b + 1;
 			auto thetaNorm = (a + b - 1) / 2;
 
-			auto theta = thetaNorm * TWO_PI;
+			// Somehow this seems to work
+			if (r > 1.0f) {
+				r = 1 - (r - 1);
+			}
+			if (r < 0.0f) {
+				thetaNorm += 0.5f;
+				r = -r;
+			}
+
+			auto theta = (thetaNorm + 0.5f) * TWO_PI;
 
 			return {
 				r
