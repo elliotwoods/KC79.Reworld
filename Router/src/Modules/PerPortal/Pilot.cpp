@@ -3,6 +3,8 @@
 
 #include "../Portal.h"
 
+using namespace msgpack11;
+
 namespace Modules {
 	namespace PerPortal {
 		//----------
@@ -110,16 +112,10 @@ namespace Modules {
 						}
 					}
 				}
-				if (needsSend) {
+				if (needsSend
+					|| this->parameters.axes.a != this->cachedSentValues.a
+					|| this->parameters.axes.b != this->cachedSentValues.b) {
 					this->pushValues();
-				}
-				else {
-					if (this->parameters.axes.a != this->cachedSentValues.a) {
-						this->pushA();
-					}
-					if (this->parameters.axes.b != this->cachedSentValues.b) {
-						this->pushB();
-					}
 				}
 			}
 
@@ -507,36 +503,25 @@ namespace Modules {
 
 		//----------
 		void
-			Pilot::pushA()
-		{
-			auto norm = this->parameters.axes.a.get();
-			auto steps = this->axisToSteps(norm, 0);
-			this->portal->getAxis(0)->getMotionControl()->move(steps);
-
-			this->cachedSentValues.a = this->parameters.axes.a;
-		}
-
-		//----------
-		void
-			Pilot::pushB()
-		{
-			auto norm = this->parameters.axes.b.get();
-			auto steps = this->axisToSteps(norm, 1);
-			this->portal->getAxis(1)->getMotionControl()->move(steps);
-
-			this->cachedSentValues.b = this->parameters.axes.b;
-		}
-
-		//----------
-		void
 			Pilot::pushValues()
 		{
-			this->pushA();
+			Steps stepsA = this->axisToSteps(this->parameters.axes.a.get(), 0);
+			Steps stepsB = this->axisToSteps(this->parameters.axes.b.get(), 1);
 
-			ofSleepMillis(100);
+			auto message = MsgPack::object{
+				{
+					"m"
+					, MsgPack::array{
+						(int32_t)stepsA
+						, (int32_t)stepsB
+					}
+				}
+			};
 
-			this->pushB();
+			this->portal->sendToPortal(message);
 
+			this->cachedSentValues.a = this->parameters.axes.a.get();
+			this->cachedSentValues.b = this->parameters.axes.b.get();
 			this->cachedSentValues.lastUpdateRequest = chrono::system_clock::now();
 		}
 

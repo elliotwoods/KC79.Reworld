@@ -178,28 +178,52 @@ namespace Modules {
 	bool
 	App::processIncomingByKey(const char * key, Stream & stream)
 	{
-		if(strcmp(key, "id") == 0) {
+		if(strcmp(key, "m") == 0) {
+			// Special 2-axis move message
+			size_t arraySize;
+			if(!msgpack::readArraySize(stream, arraySize)) {
+				return false;
+			}
+			if(arraySize >= 1) {
+				Steps position;
+				if(!msgpack::readInt<int32_t>(stream, position)) {
+					return false;
+				}
+				this->motionControlA->setTargetPosition(position);
+			}
+			if(arraySize >= 2) {
+				Steps position;
+				if(!msgpack::readInt<int32_t>(stream, position)) {
+					return false;
+				}
+				this->motionControlB->setTargetPosition(position);
+			}
+			return true;
+		}
+
+		else if(strcmp(key, "id") == 0) {
 			return this->id->processIncoming(stream);
 		}
 		
-		if(strcmp(key, "motorDriverSettings") == 0) {
+		else if(strcmp(key, "motorDriverSettings") == 0) {
 			return this->motorDriverSettings->processIncoming(stream);
 		}
 
-		if(strcmp(key, "motorDriverA") == 0) {
+		else if(strcmp(key, "motorDriverA") == 0) {
 			return this->motorDriverA->processIncoming(stream);
 		}
-		if(strcmp(key, "motorDriverB") == 0) {
+		else if(strcmp(key, "motorDriverB") == 0) {
 			return this->motorDriverB->processIncoming(stream);
 		}
 
-		if(strcmp(key, "motionControlA") == 0) {
+		else if(strcmp(key, "motionControlA") == 0) {
 			return this->motionControlA->processIncoming(stream);
 		}
-		if(strcmp(key, "motionControlB") == 0) {
+		else if(strcmp(key, "motionControlB") == 0) {
 			return this->motionControlB->processIncoming(stream);
 		}
-		if(strcmp(key, "poll") == 0) {
+
+		else if(strcmp(key, "poll") == 0) {
 			if(!msgpack::readNil(stream)) {
 				return false;
 			}
@@ -209,7 +233,8 @@ namespace Modules {
 			rs485->sendStatusReport();
 			return true;
 		}
-		if(strcmp(key, "init") == 0) {
+
+		else if(strcmp(key, "init") == 0) {
 			msgpack::DataType dataType;
 			uint8_t tryCount = 1;
 			if(!msgpack::getNextDataType(stream, dataType)) {
@@ -267,7 +292,7 @@ namespace Modules {
 			return true;
 		}
 
-		if(strcmp(key, "reset") == 0) {
+		else if(strcmp(key, "reset") == 0) {
 			NVIC_SystemReset();
 		}
 

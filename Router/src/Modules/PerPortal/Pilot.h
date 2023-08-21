@@ -45,8 +45,6 @@ namespace Modules {
 			float stepsToAxis(Steps, int axisIndex) const;
 		protected:
 			void pushValues();
-			void pushA();
-			void pushB();
 
 			Portal * portal;
 
