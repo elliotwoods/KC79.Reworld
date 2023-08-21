@@ -238,9 +238,9 @@ namespace Modules {
 						ofPushStyle();
 						{
 							ofTranslate(currentPositionInView);
-							ofSetColor(200);
-							ofDrawLine(-10, 0, 10, 0);
-							ofDrawLine(0, -10, 0, 10);
+							ofSetColor(100, 100, 200);
+							ofDrawLine(-15, 0, 15, 0);
+							ofDrawLine(0, -15, 0, 15);
 						}
 						ofPopStyle();
 						ofPopMatrix();
@@ -266,31 +266,16 @@ namespace Modules {
 
 					args.takeMousePress(panel);
 
-					if (args.isDragging(panel)) {
-						// Multiply movements by current r value 
-						auto x = this->parameters.position.x.get();
-						auto y = this->parameters.position.x.get();
-						auto r = glm::length(glm::vec2(x, y));
-						auto r_factor = pow(ofClamp(r, 0.0001, 1), power); // allow for movements when at 0,0
-
-						auto movement = r_factor * args.movement / glm::vec2(panel->getWidth(), panel->getHeight());
-						auto position = this->getPosition();
-						position += movement;
-						position.x = ofClamp(position.x, -1, 1);
-						position.y = ofClamp(position.y, -1, 1);
-						this->setPosition(position);
-					}
-
-					if (args.isDoubleClicked(panel)) {
+					auto panelToPosition = [panel, power](const glm::vec2& panelPosition) {
 						auto panelSize = min(panel->getWidth(), panel->getHeight());
 						auto panelCenter = glm::vec2(panel->getWidth() / 2.0f, panel->getHeight() / 2.0f);
 						auto xyPanel = glm::vec2({
-							ofMap(args.local.x
+							ofMap(panelPosition.x
 								, panelCenter.x - panelSize / 2
 								, panelCenter.x + panelSize / 2
 								, -1
 								, 1)
-							, ofMap(args.local.y
+							, ofMap(panelPosition.y
 								, panelCenter.y - panelSize / 2
 								, panelCenter.y + panelSize / 2
 								, -1
@@ -302,7 +287,41 @@ namespace Modules {
 						auto r = pow(r_view, 1.0f / power);
 						auto x = r * cos(theta);
 						auto y = r * sin(theta);
-						this->setPosition({ x, y });
+						return glm::vec2{ x, y };
+					};
+
+					auto positionToPanel = [this, panel, power](const glm::vec2& position) {
+						auto panelSize = min(panel->getWidth(), panel->getHeight());
+						auto panelCenter = glm::vec2(panel->getWidth() / 2.0f, panel->getHeight() / 2.0f);
+
+						auto polar = this->positionToPolar(position);
+						const auto& r = polar[0];
+						const auto& theta = polar[1];
+						auto r_view = pow(r, power);
+
+						return glm::vec2{
+							ofMap(r_view * cos(theta)
+								, -1
+								, 1
+								, panelCenter.x - panelSize / 2
+								, panelCenter.x + panelSize / 2)
+							, ofMap(r_view * sin(theta)
+								, -1
+								, 1
+								, panelCenter.y - panelSize / 2
+								, panelCenter.y + panelSize / 2)
+						};
+					};
+
+					if (args.isDragging(panel)) {
+						auto priorPanelXY = positionToPanel(this->getPosition());
+						auto newPanelXY = priorPanelXY + args.movement;
+						auto newPosition = panelToPosition(newPanelXY);
+						this->setPosition(newPosition);
+					}
+
+					if (args.isDoubleClicked(panel)) {
+						this->setPosition(panelToPosition(args.local));
 					}
 				};
 
@@ -378,7 +397,7 @@ namespace Modules {
 									auto drawPosition = axisValueToPanelPosition(this->liveAxisValues[axisIndex], 0.5f);
 									ofPushStyle();
 									{
-										ofSetColor(200);
+										ofSetColor(100, 100, 200);
 										ofDrawLine(panelCenter, { drawPosition.x, drawPosition.y });
 										ofDrawCircle({ drawPosition.x, drawPosition.y }, 5.0f);
 									}
@@ -391,7 +410,7 @@ namespace Modules {
 									ofPushStyle();
 									{
 										ofNoFill();
-										ofSetColor(200);
+										ofSetColor(100, 100, 200);
 										ofDrawCircle({ drawPosition.x, drawPosition.y }, 8.0f);
 									}
 									ofPopStyle();
@@ -631,7 +650,7 @@ namespace Modules {
 		}
 
 		//----------
-		// https://www.wolframalpha.com/input?i=systems+of+equations+calculator&assumption=%7B%22F%22%2C+%22SolveSystemOf2EquationsCalculator%22%2C+%22equation1%22%7D+-%3E%22a+%3D+t+-+%281-r%29*0.25%22&assumption=%22FSelect%22+-%3E+%7B%7B%22SolveSystemOf2EquationsCalculator%22%7D%7D&assumption=%7B%22F%22%2C+%22SolveSystemOf2EquationsCalculator%22%2C+%22equation2%22%7D+-%3E%22b+%3D+t+%2B+%281-r%29*0.25%22
+		// https://www.wolframalpha.com/input?i=systems+of+equations+calculator&assumption=%7B%22F%22%2C+%22SolveSystemOf2EquationsCalculator%22%2C+%22equation1%22%7D+-%3E%22a+%3D+t+-+%281-r%29*0.25+%2B+0.5%22&assumption=%22FSelect%22+-%3E+%7B%7B%22SolveSystemOf2EquationsCalculator%22%7D%7D&assumption=%7B%22F%22%2C+%22SolveSystemOf2EquationsCalculator%22%2C+%22equation2%22%7D+-%3E%22b+%3D+t+%2B+%281-r%29*0.25+%2B+0.5%22
 		glm::vec2
 			Pilot::axesToPolar(const glm::vec2& axes) const
 		{
