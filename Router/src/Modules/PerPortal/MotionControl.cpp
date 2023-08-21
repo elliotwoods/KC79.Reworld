@@ -233,6 +233,13 @@ namespace Modules {
 		}
 
 		//----------
+		bool
+			MotionControl::getCurrentPositionKnown() const
+		{
+			return this->reportedState.position.hasBeenReported;
+		}
+
+		//----------
 		Steps
 			MotionControl::getCurrentPosition() const
 		{
@@ -240,10 +247,34 @@ namespace Modules {
 		}
 
 		//----------
+		bool
+			MotionControl::getTargetPositionKnown() const
+		{
+			return this->reportedState.targetPosition.hasBeenReported;
+		}
+
+		//----------
 		Steps
 			MotionControl::getTargetPosition() const
 		{
 			return this->reportedState.targetPosition.value;
+		}
+
+		//----------
+		void
+			MotionControl::setReportedCurrentPosition(Steps value)
+		{
+			this->reportedState.position.value = value;
+			this->reportedState.position.hasBeenReported = true;
+
+		}
+
+		//----------
+		void
+			MotionControl::setReportedTargetPosition(Steps value)
+		{
+			this->reportedState.targetPosition.value = value;
+			this->reportedState.targetPosition.hasBeenReported = true;
 		}
 
 		//----------

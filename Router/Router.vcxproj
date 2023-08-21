@@ -65,7 +65,7 @@
       <PreprocessorDefinitions>%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
       <WarningLevel>Level3</WarningLevel>
-      <AdditionalIncludeDirectories>src\msgpack11;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>src\;src\msgpack11;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
       <ObjectFileName>$(IntDir)\Build\%(RelativeDir)\$(Configuration)\</ObjectFileName>
       <PrecompiledHeader>Use</PrecompiledHeader>
@@ -87,7 +87,7 @@
       <PreprocessorDefinitions>%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
       <WarningLevel>Level3</WarningLevel>
-      <AdditionalIncludeDirectories>src\msgpack11;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>src\;src\msgpack11;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <ObjectFileName>$(IntDir)\Build\%(RelativeDir)\$(Configuration)\</ObjectFileName>
       <PrecompiledHeader>Use</PrecompiledHeader>
       <PrecompiledHeaderFile>pch_App.h</PrecompiledHeaderFile>
@@ -114,7 +114,6 @@
     <ClCompile Include="src\Modules\App.cpp" />
     <ClCompile Include="src\Modules\Base.cpp" />
     <ClCompile Include="src\Modules\FWUpdate.cpp" />
-    <ClCompile Include="src\Modules\ModuleControl.cpp" />
     <ClCompile Include="src\Modules\PerPortal\Axis.cpp" />
     <ClCompile Include="src\Modules\PerPortal\Logger.cpp" />
     <ClCompile Include="src\Modules\PerPortal\MotionControl.cpp" />
@@ -122,7 +121,6 @@
     <ClCompile Include="src\Modules\PerPortal\MotorDriverSettings.cpp" />
     <ClCompile Include="src\Modules\PerPortal\Pilot.cpp" />
     <ClCompile Include="src\Modules\Portal.cpp" />
-    <ClCompile Include="src\Modules\PortalPilot.cpp" />
     <ClCompile Include="src\Modules\RS485.cpp" />
     <ClCompile Include="src\msgpack11\msgpack11.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>
@@ -136,11 +134,41 @@
     <ClCompile Include="src\Utils.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="src\boost\algorithm\string\detail\predicate.hpp" />
+    <ClInclude Include="src\boost\algorithm\string\find.hpp" />
+    <ClInclude Include="src\boost\algorithm\string\predicate.hpp" />
     <ClInclude Include="src\cobs-c\cobs.h" />
+    <ClInclude Include="src\crow\crow.h" />
+    <ClInclude Include="src\crow\crow\app.h" />
+    <ClInclude Include="src\crow\crow\ci_map.h" />
+    <ClInclude Include="src\crow\crow\common.h" />
+    <ClInclude Include="src\crow\crow\compression.h" />
+    <ClInclude Include="src\crow\crow\http_connection.h" />
+    <ClInclude Include="src\crow\crow\http_parser_merged.h" />
+    <ClInclude Include="src\crow\crow\http_request.h" />
+    <ClInclude Include="src\crow\crow\http_response.h" />
+    <ClInclude Include="src\crow\crow\http_server.h" />
+    <ClInclude Include="src\crow\crow\json.h" />
+    <ClInclude Include="src\crow\crow\logging.h" />
+    <ClInclude Include="src\crow\crow\middleware.h" />
+    <ClInclude Include="src\crow\crow\middleware_context.h" />
+    <ClInclude Include="src\crow\crow\mime_types.h" />
+    <ClInclude Include="src\crow\crow\multipart.h" />
+    <ClInclude Include="src\crow\crow\mustache.h" />
+    <ClInclude Include="src\crow\crow\parser.h" />
+    <ClInclude Include="src\crow\crow\query_string.h" />
+    <ClInclude Include="src\crow\crow\returnable.h" />
+    <ClInclude Include="src\crow\crow\routing.h" />
+    <ClInclude Include="src\crow\crow\settings.h" />
+    <ClInclude Include="src\crow\crow\socket_adaptors.h" />
+    <ClInclude Include="src\crow\crow\task_timer.h" />
+    <ClInclude Include="src\crow\crow\TinySHA1.hpp" />
+    <ClInclude Include="src\crow\crow\utility.h" />
+    <ClInclude Include="src\crow\crow\version.h" />
+    <ClInclude Include="src\crow\crow\websocket.h" />
     <ClInclude Include="src\Modules\App.h" />
     <ClInclude Include="src\Modules\Base.h" />
     <ClInclude Include="src\Modules\FWUpdate.h" />
-    <ClInclude Include="src\Modules\ModuleControl.h" />
     <ClInclude Include="src\Modules\PerPortal\Axis.h" />
     <ClInclude Include="src\Modules\PerPortal\Constants.h" />
     <ClInclude Include="src\Modules\PerPortal\Logger.h" />
@@ -149,7 +177,6 @@
     <ClInclude Include="src\Modules\PerPortal\MotorDriverSettings.h" />
     <ClInclude Include="src\Modules\PerPortal\Pilot.h" />
     <ClInclude Include="src\Modules\Portal.h" />
-    <ClInclude Include="src\Modules\PortalPilot.h" />
     <ClInclude Include="src\Modules\RS485.h" />
     <ClInclude Include="src\msgpack11\msgpack11.hpp" />
     <ClInclude Include="src\ofApp.h" />

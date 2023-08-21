@@ -93,6 +93,39 @@ namespace Modules {
 
 	//---------
 	void
+	RS485::sendPositions()
+	{
+		this->beginTransmission();
+
+		const auto ourID = this->app->id->get();
+		
+		// Packer [target, sender, message]
+		msgpack::writeArraySize4(cobsStream, 3);
+		{
+			msgpack::writeInt8(cobsStream, 0);
+			msgpack::writeInt8(cobsStream, ourID);
+
+			msgpack::writeMapSize4(cobsStream, 1);
+			{
+				// Key
+				msgpack::writeString5(cobsStream, "p", 1);
+
+				// Value
+				msgpack::writeArraySize4(cobsStream, 4);
+				{
+					msgpack::writeInt32(cobsStream, this->app->motionControlA->getPosition());
+					msgpack::writeInt32(cobsStream, this->app->motionControlB->getPosition());
+					msgpack::writeInt32(cobsStream, this->app->motionControlA->getTargetPosition());
+					msgpack::writeInt32(cobsStream, this->app->motionControlB->getTargetPosition());
+				}
+			}
+		}
+
+		this->endTransmission();
+	}
+
+	//---------
+	void
 	RS485::sendACKEarly(bool success)
 	{
 		RS485::instance->sendACK(success);

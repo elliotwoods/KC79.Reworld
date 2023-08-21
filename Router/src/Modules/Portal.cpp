@@ -134,6 +134,24 @@ namespace Modules {
 				variable->processIncoming(json["app"]);
 			}
 		}
+		if (json.contains("p")) {
+			// it's the succinct position report
+			auto motionControlA = this->getAxis(0)->getMotionControl();
+			auto motionControlB = this->getAxis(1)->getMotionControl();
+
+			if (json["p"].size() >= 1) {
+				motionControlA->setReportedCurrentPosition(json["p"][0]);
+			}
+			if (json["p"].size() >= 2) {
+				motionControlB->setReportedCurrentPosition(json["p"][1]);
+			}
+			if (json["p"].size() >= 3) {
+				motionControlA->setReportedTargetPosition(json["p"][0]);
+			}
+			if (json["p"].size() >= 4) {
+				motionControlB->setReportedTargetPosition(json["p"][1]);
+			}
+		}
 	}
 
 	//----------

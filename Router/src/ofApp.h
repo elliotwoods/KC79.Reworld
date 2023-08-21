@@ -14,5 +14,4 @@ class ofApp : public ofBaseApp {
 		ofxCvGui::Builder gui;
 
 		shared_ptr<Modules::App> app;
-
 };

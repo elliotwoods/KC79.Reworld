@@ -29,6 +29,19 @@ namespace Modules {
 			}
 			this->portalsByIDDirty = true;
 		}
+
+		{
+			this->setupCrowRoutes();
+			this->crowRun = this->crow.port(8080).multithreaded().run_async();
+			this->crow.loglevel(crow::LogLevel::Warning);
+		}
+	}
+
+	//----------
+	App::~App()
+	{
+		this->crow.stop();
+		this->crowRun.get();
 	}
 
 	//----------
@@ -130,8 +143,8 @@ namespace Modules {
 	{
 		if (json.size() >= 3) {
 			// It's a packet
-			auto target = (uint8_t)json[0];
-			auto origin = (uint8_t)json[1];
+			auto target = (Portal::Target)json[0];
+			auto origin = (Portal::Target)json[1];
 			auto message = json[2];
 
 			// Route message to portal
@@ -155,6 +168,20 @@ namespace Modules {
 	}
 
 	//----------
+	shared_ptr<Portal>
+		App::getPortalByTargetID(Portal::Target targetID)
+	{
+		auto findPortal = this->portalsByID.find(targetID);
+		if (findPortal == this->portalsByID.end()) {
+			// Empty response = not found
+			return shared_ptr<Portal>();
+		}
+		else {
+			return findPortal->second;
+		}
+	}
+
+	//----------
 	void
 		App::refreshPortalsByID()
 	{
@@ -163,5 +190,76 @@ namespace Modules {
 			this->portalsByID.emplace(portal->getTarget(), portal);
 		}
 		this->portalsByIDDirty = false;
+	}
+
+	//----------
+	void
+		App::setupCrowRoutes()
+	{
+		CROW_ROUTE(crow, "/<int>/<int>/setPosition/<float>,<float>")([this](int col, int module, float x, float y) {
+			// for now we ignore the column
+
+			// Get the portal
+			auto portal = this->getPortalByTargetID(module);
+			if (!portal) {
+				return crow::response(500, "Portal not found");
+			}
+
+			if (glm::length(glm::vec2{ x, y }) > 1.0f) {
+				return crow::response(500, "Out of range");
+			}
+
+			portal->getPilot()->setPosition({ x, y });
+
+			return crow::response(200, "success");
+			});
+
+		CROW_ROUTE(crow, "/<int>/<int>/getPosition")([this](int col, int module) {
+			// for now we ignore the column
+
+			// Get the portal
+			auto portal = this->getPortalByTargetID(module);
+			if (!portal) {
+				return crow::response(500, "Portal not found");
+			}
+
+			crow::json::wvalue json;
+			auto position = portal->getPilot()->getPosition();
+			json["x"] = position.x;
+			json["y"] = position.y;
+
+			return crow::response(200, json);
+			});
+
+		CROW_ROUTE(crow, "/<int>/<int>/isInPosition")([this](int col, int module) {
+			// for now we ignore the column
+
+			// Get the portal
+			auto portal = this->getPortalByTargetID(module);
+			if (!portal) {
+				return crow::response(500, "Portal not found");
+			}
+
+			if (portal->getPilot()->isInTargetPosition()) {
+				return crow::response(200, crow::json::wvalue( true ));
+			}
+			else {
+				return crow::response(200, crow::json::wvalue( false ));
+			}
+			});
+
+		CROW_ROUTE(crow, "/<int>/<int>/poll")([this](int col, int module) {
+			// for now we ignore the column
+
+			// Get the portal
+			auto portal = this->getPortalByTargetID(module);
+			if (!portal) {
+				return crow::response(500, "Portal not found");
+			}
+
+			portal->getPilot()->poll();
+
+			return crow::response(200);
+			});
 	}
 }

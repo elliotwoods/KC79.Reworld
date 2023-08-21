@@ -35,8 +35,14 @@ namespace Modules {
 			void measureBacklash();
 			void homeRoutine();
 
+			bool getCurrentPositionKnown() const;
 			Steps getCurrentPosition() const;
+
+			bool getTargetPositionKnown() const;
 			Steps getTargetPosition() const;
+
+			void setReportedCurrentPosition(Steps);
+			void setReportedTargetPosition(Steps);
 
 			void deinitTimer();
 			void initTimer();

@@ -22,12 +22,6 @@
     <ClCompile Include="src\Modules\App.cpp">
       <Filter>src\Modules</Filter>
     </ClCompile>
-    <ClCompile Include="src\Modules\ModuleControl.cpp">
-      <Filter>src\Modules</Filter>
-    </ClCompile>
-    <ClCompile Include="src\Modules\PortalPilot.cpp">
-      <Filter>src\Modules</Filter>
-    </ClCompile>
     <ClCompile Include="src\Modules\Portal.cpp">
       <Filter>src\Modules</Filter>
     </ClCompile>
@@ -75,6 +69,24 @@
     <Filter Include="src\msgpack11">
       <UniqueIdentifier>{624f35ea-3d29-4999-96b9-224c86445965}</UniqueIdentifier>
     </Filter>
+    <Filter Include="src\crow">
+      <UniqueIdentifier>{de0ee556-d80b-4124-8201-bb80b94ede02}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\crow\crow">
+      <UniqueIdentifier>{5fbf240b-0f1a-4805-a719-b90841e6754c}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\boost">
+      <UniqueIdentifier>{ae67b768-231c-4a90-a04a-136668e39f76}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\boost\algorithm">
+      <UniqueIdentifier>{829c4131-ef9d-40b8-aeed-5473e9990e67}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\boost\algorithm\string">
+      <UniqueIdentifier>{0d3363b4-5b33-43d6-b8c5-03740ef37426}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\boost\algorithm\string\detail">
+      <UniqueIdentifier>{f152f41e-52f8-4282-a21a-84144a2361fb}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\ofApp.h">
@@ -96,12 +108,6 @@
       <Filter>src\Modules</Filter>
     </ClInclude>
     <ClInclude Include="src\Modules\App.h">
-      <Filter>src\Modules</Filter>
-    </ClInclude>
-    <ClInclude Include="src\Modules\ModuleControl.h">
-      <Filter>src\Modules</Filter>
-    </ClInclude>
-    <ClInclude Include="src\Modules\PortalPilot.h">
       <Filter>src\Modules</Filter>
     </ClInclude>
     <ClInclude Include="src\Modules\Portal.h">
@@ -133,6 +139,99 @@
     </ClInclude>
     <ClInclude Include="src\Modules\PerPortal\Logger.h">
       <Filter>src\Modules\PerPortal</Filter>
+    </ClInclude>
+    <ClInclude Include="src\crow\crow.h">
+      <Filter>src\crow</Filter>
+    </ClInclude>
+    <ClInclude Include="src\crow\crow\app.h">
+      <Filter>src\crow\crow</Filter>
+    </ClInclude>
+    <ClInclude Include="src\crow\crow\ci_map.h">
+      <Filter>src\crow\crow</Filter>
+    </ClInclude>
+    <ClInclude Include="src\crow\crow\common.h">
+      <Filter>src\crow\crow</Filter>
+    </ClInclude>
+    <ClInclude Include="src\crow\crow\compression.h">
+      <Filter>src\crow\crow</Filter>
+    </ClInclude>
+    <ClInclude Include="src\crow\crow\http_connection.h">
+      <Filter>src\crow\crow</Filter>
+    </ClInclude>
+    <ClInclude Include="src\crow\crow\http_parser_merged.h">
+      <Filter>src\crow\crow</Filter>
+    </ClInclude>
+    <ClInclude Include="src\crow\crow\http_request.h">
+      <Filter>src\crow\crow</Filter>
+    </ClInclude>
+    <ClInclude Include="src\crow\crow\http_response.h">
+      <Filter>src\crow\crow</Filter>
+    </ClInclude>
+    <ClInclude Include="src\crow\crow\http_server.h">
+      <Filter>src\crow\crow</Filter>
+    </ClInclude>
+    <ClInclude Include="src\crow\crow\json.h">
+      <Filter>src\crow\crow</Filter>
+    </ClInclude>
+    <ClInclude Include="src\crow\crow\logging.h">
+      <Filter>src\crow\crow</Filter>
+    </ClInclude>
+    <ClInclude Include="src\crow\crow\middleware.h">
+      <Filter>src\crow\crow</Filter>
+    </ClInclude>
+    <ClInclude Include="src\crow\crow\middleware_context.h">
+      <Filter>src\crow\crow</Filter>
+    </ClInclude>
+    <ClInclude Include="src\crow\crow\mime_types.h">
+      <Filter>src\crow\crow</Filter>
+    </ClInclude>
+    <ClInclude Include="src\crow\crow\multipart.h">
+      <Filter>src\crow\crow</Filter>
+    </ClInclude>
+    <ClInclude Include="src\crow\crow\mustache.h">
+      <Filter>src\crow\crow</Filter>
+    </ClInclude>
+    <ClInclude Include="src\crow\crow\parser.h">
+      <Filter>src\crow\crow</Filter>
+    </ClInclude>
+    <ClInclude Include="src\crow\crow\query_string.h">
+      <Filter>src\crow\crow</Filter>
+    </ClInclude>
+    <ClInclude Include="src\crow\crow\returnable.h">
+      <Filter>src\crow\crow</Filter>
+    </ClInclude>
+    <ClInclude Include="src\crow\crow\routing.h">
+      <Filter>src\crow\crow</Filter>
+    </ClInclude>
+    <ClInclude Include="src\crow\crow\settings.h">
+      <Filter>src\crow\crow</Filter>
+    </ClInclude>
+    <ClInclude Include="src\crow\crow\socket_adaptors.h">
+      <Filter>src\crow\crow</Filter>
+    </ClInclude>
+    <ClInclude Include="src\crow\crow\task_timer.h">
+      <Filter>src\crow\crow</Filter>
+    </ClInclude>
+    <ClInclude Include="src\crow\crow\TinySHA1.hpp">
+      <Filter>src\crow\crow</Filter>
+    </ClInclude>
+    <ClInclude Include="src\crow\crow\utility.h">
+      <Filter>src\crow\crow</Filter>
+    </ClInclude>
+    <ClInclude Include="src\crow\crow\version.h">
+      <Filter>src\crow\crow</Filter>
+    </ClInclude>
+    <ClInclude Include="src\crow\crow\websocket.h">
+      <Filter>src\crow\crow</Filter>
+    </ClInclude>
+    <ClInclude Include="src\boost\algorithm\string\predicate.hpp">
+      <Filter>src\boost\algorithm\string</Filter>
+    </ClInclude>
+    <ClInclude Include="src\boost\algorithm\string\find.hpp">
+      <Filter>src\boost\algorithm\string</Filter>
+    </ClInclude>
+    <ClInclude Include="src\boost\algorithm\string\detail\predicate.hpp">
+      <Filter>src\boost\algorithm\string\detail</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>

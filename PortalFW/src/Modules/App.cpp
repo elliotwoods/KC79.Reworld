@@ -233,6 +233,16 @@ namespace Modules {
 			rs485->sendStatusReport();
 			return true;
 		}
+		else if(strcmp(key, "p") == 0) {
+			// Miniature poll (positions only)
+
+			if(!msgpack::readNil(stream)) {
+				return false;
+			}
+
+			rs485->sendPositions();
+			return true;
+		}
 
 		else if(strcmp(key, "init") == 0) {
 			msgpack::DataType dataType;

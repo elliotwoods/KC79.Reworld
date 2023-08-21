@@ -121,22 +121,25 @@ namespace Modules {
 
 			// Update live axis values
 			{
-				this->liveAxisValues.x = this->stepsToAxis(
-					this->portal->getAxis(0)->getMotionControl()->getCurrentPosition()
-					, 0
-				);
-				this->liveAxisValues.y = this->stepsToAxis(
-					this->portal->getAxis(1)->getMotionControl()->getCurrentPosition()
-					, 1
-				);
-				this->liveAxisTargetValues.x = this->stepsToAxis(
-					this->portal->getAxis(0)->getMotionControl()->getTargetPosition()
-					, 0
-				);
-				this->liveAxisTargetValues.y = this->stepsToAxis(
-					this->portal->getAxis(1)->getMotionControl()->getTargetPosition()
-					, 1
-				);
+				for (int i = 0; i < 2; i++) {
+					auto axis = this->portal->getAxis(i);
+
+					if (axis->getMotionControl()->getCurrentPositionKnown()) {
+						this->liveAxisValues[i] = this->stepsToAxis(
+							axis->getMotionControl()->getCurrentPosition()
+							, i
+						);
+						this->liveAxisValuesKnown[i] = true;
+					}
+
+					if (axis->getMotionControl()->getTargetPositionKnown()) {
+						this->liveAxisTargetValues[i] = this->stepsToAxis(
+							axis->getMotionControl()->getTargetPosition()
+							, i
+						);
+						this->liveAxisTargetValuesKnown[i] = true;
+					}
+				}
 			}
 		}
 
@@ -170,7 +173,7 @@ namespace Modules {
 				horizontalStrip->setHeight(400.0f);
 			}
 			{
-				auto power = 0.2f;
+				auto power = 0.4f;
 
 				// Create the main position panel
 				auto panel = ofxCvGui::Panels::makeBlank();
@@ -202,6 +205,9 @@ namespace Modules {
 							ofSetColor(200);
 							ofDrawCircle(0, 0, pow(0.5, power));
 							ofDrawCircle(0, 0, 1.0);
+
+							// Draw the overflow line -> where the polar cycle ends (note it's offset by 0.5 in thetaNorm, hence left not right)
+							ofDrawLine(-1, 0, 0, 0);
 						}
 						ofPopStyle();
 					}
@@ -530,7 +536,7 @@ namespace Modules {
 			Pilot::seeThrough()
 		{
 			this->parameters.axes.a.set(0.0f);
-			this->parameters.axes.b.set(1.0f);
+			this->parameters.axes.b.set(0.5f);
 			this->parameters.leadingControl.set(LeadingControl::Axes);
 		}
 
@@ -706,6 +712,38 @@ namespace Modules {
 				, invert * this->parameters.axes.microstepsPerPrismRotation.get()
 				, 0
 				, 1);
+		}
+
+		//----------
+		void
+			Pilot::poll()
+		{
+			auto message = MsgPack::object{
+				{
+					"p"
+					, MsgPack()
+				}
+			};
+
+			this->portal->sendToPortal(message);
+		}
+
+		//----------
+		bool
+			Pilot::isInTargetPosition() const
+		{
+			// Check if we've received data first
+			if (!(glm::all(this->liveAxisValuesKnown) && glm::all(this->liveAxisTargetValuesKnown))) {
+				return false;
+			}
+
+			// target on module == target here
+			// live value == target here
+			// we perform in steps to avoid rounding errors
+			return this->axisToSteps(this->liveAxisTargetValues[0], 0) == this->axisToSteps(this->liveAxisValues[0], 0)
+				&& this->axisToSteps(this->liveAxisTargetValues[1], 1) == this->axisToSteps(this->liveAxisValues[1], 1)
+				&& this->axisToSteps(this->parameters.axes.a.get(), 0) == this->axisToSteps(this->liveAxisValues[0], 0)
+				&& this->axisToSteps(this->parameters.axes.b.get(), 1) == this->axisToSteps(this->liveAxisValues[1], 1);
 		}
 	}
 }

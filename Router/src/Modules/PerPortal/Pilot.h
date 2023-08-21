@@ -43,6 +43,9 @@ namespace Modules {
 
 			Steps axisToSteps(float, int axisIndex) const;
 			float stepsToAxis(Steps, int axisIndex) const;
+
+			void poll();
+			bool isInTargetPosition() const;
 		protected:
 			void pushValues();
 
@@ -81,7 +84,10 @@ namespace Modules {
 				chrono::milliseconds updatePeriod{ 1000 };
 			} cachedSentValues;
 
+
+			glm::tvec2<bool> liveAxisValuesKnown{ false, false };
 			glm::vec2 liveAxisValues;
+			glm::tvec2<bool> liveAxisTargetValuesKnown{ false, false };
 			glm::vec2 liveAxisTargetValues;
 		};
 	}

@@ -13,6 +13,7 @@ namespace Modules {
 		void update() override;
 		
 		void sendStatusReport();
+		void sendPositions();
 
 		// Use this function if you want to manually send an ACK
 		// e.g. if the message starts a routine which takes time (init/home/etc)
