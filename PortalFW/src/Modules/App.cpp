@@ -1,5 +1,6 @@
 #include "App.h"
 #include <Arduino.h>
+#include "../Version.h"
 
 #define INDICATOR_LED PB3
 namespace Modules {

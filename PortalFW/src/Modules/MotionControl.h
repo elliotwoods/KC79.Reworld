@@ -32,7 +32,7 @@ namespace Modules {
 		struct MotionProfile {
 			StepsPerSecond maximumSpeed = 30000;
 			StepsPerSecondPerSecond acceleration = 10000;
-			StepsPerSecond minimumSpeed = 100;
+			StepsPerSecond minimumSpeed = 5;
 		};
 
 		struct MotionState {
