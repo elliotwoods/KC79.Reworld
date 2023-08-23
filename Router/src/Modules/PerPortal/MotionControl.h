@@ -44,6 +44,7 @@ namespace Modules {
 			void setReportedCurrentPosition(Steps);
 			void setReportedTargetPosition(Steps);
 
+			void testTimer();
 			void deinitTimer();
 			void initTimer();
 

@@ -196,6 +196,11 @@ namespace Modules {
 	void
 		App::setupCrowRoutes()
 	{
+		CROW_ROUTE(crow, "/")([this]() {
+			// test response
+			return crow::response(200, "true");
+			});
+
 		CROW_ROUTE(crow, "/<int>/<int>/setPosition/<float>,<float>")([this](int col, int module, float x, float y) {
 			// for now we ignore the column
 
@@ -211,7 +216,7 @@ namespace Modules {
 
 			portal->getPilot()->setPosition({ x, y });
 
-			return crow::response(200, "success");
+			return crow::response(200, "true");
 			});
 
 		CROW_ROUTE(crow, "/<int>/<int>/getPosition")([this](int col, int module) {
@@ -224,7 +229,24 @@ namespace Modules {
 			}
 
 			crow::json::wvalue json;
-			auto position = portal->getPilot()->getPosition();
+			auto position = portal->getPilot()->getLivePosition();
+			json["x"] = position.x;
+			json["y"] = position.y;
+
+			return crow::response(200, json);
+			});
+
+		CROW_ROUTE(crow, "/<int>/<int>/getTargetPosition")([this](int col, int module) {
+			// for now we ignore the column
+
+			// Get the portal
+			auto portal = this->getPortalByTargetID(module);
+			if (!portal) {
+				return crow::response(500, "Portal not found");
+			}
+
+			crow::json::wvalue json;
+			auto position = portal->getPilot()->getLiveTargetPosition();
 			json["x"] = position.x;
 			json["y"] = position.y;
 
@@ -259,7 +281,21 @@ namespace Modules {
 
 			portal->getPilot()->poll();
 
-			return crow::response(200);
+			return crow::response(200, "true");
+			});
+
+		CROW_ROUTE(crow, "/<int>/<int>/push")([this](int col, int module) {
+			// for now we ignore the column
+
+			// Get the portal
+			auto portal = this->getPortalByTargetID(module);
+			if (!portal) {
+				return crow::response(500, "Portal not found");
+			}
+
+			portal->getPilot()->push();
+
+			return crow::response(200, "true");
 			});
 	}
 }

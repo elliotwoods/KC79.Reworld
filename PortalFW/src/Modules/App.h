@@ -23,7 +23,8 @@ namespace Modules {
 		void setup();
 		void update();
 		void reportStatus(msgpack::Serializer&);
-		void initRoutine(uint8_t tryCount);
+		bool initRoutine(uint8_t tryCount);
+		bool calibrateRoutine(uint8_t tryCount);
 		void flashLEDsRoutine(uint16_t period, uint16_t count);
 #ifndef GUI_DISABLED
 		GUI * gui;
@@ -44,6 +45,6 @@ namespace Modules {
 		bool processIncomingByKey(const char * key, Stream &) override;
 		Exception walkBackAndForthRoutine(const MotionControl::MeasureRoutineSettings&);
 
-		bool initalised = false;
+		bool calibrated = false;
 	};
 }

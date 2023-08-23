@@ -56,6 +56,7 @@ namespace Modules {
 		const char * getTypeName() const;
 		void update();
 
+		void testTimer();
 		void initTimer();
 		void deinitTimer();
 

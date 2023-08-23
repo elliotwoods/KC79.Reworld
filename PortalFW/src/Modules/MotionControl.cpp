@@ -34,6 +34,54 @@ namespace Modules {
 
 	//----------
 	void
+	MotionControl::testTimer()
+	{
+		uint32_t target_count = 50000;
+		uint32_t period_us = 100;
+		
+		int currentCount = 0;
+
+		this->initTimer();
+		this->motorDriver.setEnabled(true);
+
+		this->disableInterrupt();
+
+		this->timer.hardwareTimer->attachInterrupt([&]() {
+			currentCount++;
+		});
+
+		this->motorDriver.setEnabled(true);
+		this->timer.hardwareTimer->resume();
+
+		log(LogLevel::Status, "Test begin");
+
+		do {
+			HAL_Delay(10);
+
+			// Print message
+			{
+				char message[100];
+				sprintf(message, "%d->%d (%d)\n"
+					, (int) currentCount
+					, (int) target_count
+					, (int) period_us);
+				log(LogLevel::Status, message);
+			}
+		} while (currentCount < target_count);
+
+		log(LogLevel::Status, "Test end");
+		// this->timer.hardwareTimer->pause();
+
+		// // destroy it for now (so that we can call multiple times)
+		// delete this->timer.hardwareTimer;
+
+		this->deinitTimer();
+
+		this->motorDriver.setEnabled(false);
+	}
+
+	//----------
+	void
 	MotionControl::initTimer()
 	{
 		if(this->timer.hardwareTimer) {
@@ -49,7 +97,7 @@ namespace Modules {
 			, TIMER_OUTPUT_COMPARE_PWM1
 			, stepPin);
 		
-		this->timer.hardwareTimer->setOverflow(10000000, MICROSEC_FORMAT);
+		this->timer.hardwareTimer->setOverflow(1000, MICROSEC_FORMAT);
 		this->timer.hardwareTimer->setCaptureCompare(this->timer.channel
 			, 127
 			, TimerCompareFormat_t::RESOLUTION_8B_COMPARE_FORMAT);
@@ -64,9 +112,23 @@ namespace Modules {
 	{
 		this->disableInterrupt();
 		this->timer.hardwareTimer->pause();
-		this->timer.hardwareTimer->timerHandleDeinit();
 		delete this->timer.hardwareTimer;
 		this->timer.hardwareTimer = nullptr;
+	}
+
+	//----------
+	void
+	MotionControl::disableInterrupt()
+	{
+		if(!this->timer.hardwareTimer) {
+			return;
+		}
+
+		if(!this->interruptEnabed) {
+			return;
+		}
+		this->timer.hardwareTimer->detachInterrupt();
+		this->interruptEnabed = false;
 	}
 
 	//----------
@@ -140,20 +202,6 @@ namespace Modules {
 
 	//----------
 	void
-	MotionControl::disableInterrupt()
-	{
-		if(!this->timer.hardwareTimer) {
-			return;
-		}
-
-		if(this->interruptEnabed) {
-			this->timer.hardwareTimer->detachInterrupt();
-		}
-		this->interruptEnabed = false;
-	}
-
-	//----------
-	void
 	MotionControl::zeroCurrentPosition()
 	{
 		this->setCurrentPosition(0);
@@ -195,6 +243,11 @@ namespace Modules {
 		// Reset the watchdog for steps
 		if(!this->currentMotionState.motorRunning) {
 			this->lastStepDetectedOrRunStart = millis();
+		}
+
+		// Check minimum speed
+		if(speed < this->motionProfile.minimumSpeed) {
+			speed = this->motionProfile.minimumSpeed;
 		}
 
 		// Watchdog for no steps detected
@@ -439,6 +492,13 @@ namespace Modules {
 				return false;
 			}
 			this->deinitTimer();
+			return true;
+		}
+		else if(strcmp(key, "testTimer") == 0) {
+			if(!msgpack::readNil(stream)) {
+				return false;
+			}
+			this->testTimer();
 			return true;
 		}
 		return false;

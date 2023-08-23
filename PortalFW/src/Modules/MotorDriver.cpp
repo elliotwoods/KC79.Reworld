@@ -171,11 +171,13 @@ namespace Modules {
 
 		// note the library accepts all different formats (ticks, us, hz)
 
-		auto stepPin = this->config.StepTimerPin; //(this->config.Step);
+		auto stepPin = this->config.StepTimerPin;
 		this->timer.timer = (TIM_TypeDef *) pinmap_peripheral(stepPin, PinMap_TIM);
 		this->timer.hardwareTimer = new HardwareTimer(this->timer.timer);
 		auto channel = STM_PIN_CHANNEL(pinmap_function(stepPin, PinMap_TIM));
-		this->timer.hardwareTimer->setMode(channel, TIMER_OUTPUT_COMPARE_PWM1, stepPin);
+		this->timer.hardwareTimer->setMode(channel
+			, TIMER_OUTPUT_COMPARE_PWM1
+			, stepPin);
 		this->timer.hardwareTimer->setOverflow(period_us, MICROSEC_FORMAT);
 		this->timer.hardwareTimer->setCaptureCompare(channel
 			, 127

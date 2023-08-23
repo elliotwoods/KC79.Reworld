@@ -102,9 +102,17 @@ namespace Modules {
 				this->initRoutine();
 			})->setDrawGlyph(u8"\uf11e");
 
+			buttonStack->addButton("Calibrate routine", [this]() {
+				this->calibrateRoutine();
+				})->setDrawGlyph(u8"\uf545");
+
 			buttonStack->addButton("Flash lights", [this]() {
 				this->flashLEDsRoutine();
 			})->setDrawGlyph(u8"\uf0eb");
+
+			buttonStack->addButton("Reset", [this]() {
+				this->reset();
+				})->setDrawGlyph(u8"\uf011");
 		}
 
 		for (auto variable : this->reportedState.variables) {
@@ -146,10 +154,10 @@ namespace Modules {
 				motionControlB->setReportedCurrentPosition(json["p"][1]);
 			}
 			if (json["p"].size() >= 3) {
-				motionControlA->setReportedTargetPosition(json["p"][0]);
+				motionControlA->setReportedTargetPosition(json["p"][2]);
 			}
 			if (json["p"].size() >= 4) {
-				motionControlB->setReportedTargetPosition(json["p"][1]);
+				motionControlB->setReportedTargetPosition(json["p"][3]);
 			}
 		}
 	}
@@ -180,6 +188,18 @@ namespace Modules {
 
 	//----------
 	void
+		Portal::calibrateRoutine()
+	{
+		this->sendToPortal(msgpack11::MsgPack::object{
+				{
+					"calibrate", msgpack11::MsgPack()
+				}
+			});
+		this->lastPoll = chrono::system_clock::now();
+	}
+
+	//----------
+	void
 		Portal::flashLEDsRoutine()
 	{
 		this->sendToPortal(msgpack11::MsgPack::object{
@@ -191,6 +211,17 @@ namespace Modules {
 				}
 			});
 		this->lastPoll = chrono::system_clock::now();
+	}
+
+	//----------
+	void
+		Portal::reset()
+	{
+		this->sendToPortal(msgpack11::MsgPack::object{
+				{
+					"reset", msgpack11::MsgPack()
+				}
+			});
 	}
 
 	//----------

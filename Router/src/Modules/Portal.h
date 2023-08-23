@@ -28,7 +28,9 @@ namespace Modules {
 
 		void poll();
 		void initRoutine();
+		void calibrateRoutine();
 		void flashLEDsRoutine();
+		void reset();
 
 		Target getTarget() const;
 		void setTarget(Target);
@@ -72,11 +74,11 @@ namespace Modules {
 		struct {
 			Utils::ReportedState<uint32_t> upTime{ "upTime" };
 			Utils::ReportedState<string> version{ "version" };
-			Utils::ReportedState<bool> initialised{ "initialised" };
+			Utils::ReportedState<bool> calibrated{ "calibrated" };
 			vector<Utils::IReportedState*> variables{
 				&upTime
 				, &version
-				, &initialised
+				, & calibrated
 			};
 		} reportedState;
 

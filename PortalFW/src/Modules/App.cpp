@@ -95,7 +95,7 @@ namespace Modules {
 				{
 					serializer << "upTime" << millis();
 					serializer << "version" << PORTAL_VERSION_STRING;
-					serializer << "initialised" << this->initalised;
+					serializer << "calibrated" << this->calibrated;
 				}
 			}
 
@@ -111,54 +111,78 @@ namespace Modules {
 	}
 
 	//----------
-	void
+	bool
+	tryNTimes(const std::function<Exception()> & action, uint8_t tryCount)
+	{
+		for(uint8_t tries = 0; tries < tryCount; tries++) {
+			auto result = action();
+			if(result) {
+				log(LogLevel::Error, result.what());
+			}
+			else {
+				return true;
+			}
+		}
+		return false;
+	}
+	//----------
+	bool
 	App::initRoutine(uint8_t tryCount)
 	{
 		log(LogLevel::Status, "initRoutine : begin");
 
+		bool success = true;
 		MotionControl::MeasureRoutineSettings settings;
 
-		auto tryNTimes = [this, &tryCount](const std::function<Exception()> & action) {
-			for(uint8_t tries = 0; tries < tryCount; tries++) {
-				auto result = action();
-				if(result) {
-					log(LogLevel::Error, result.what());
-				}
-				else {
-					return true;
-				}
-			}
-			return false;
-		};
-
-		// Walk both by a rotation a bit fast		
-		bool success = true;
-
+		// Walk both by 1/2 a rotation
 		success &= tryNTimes([this, &settings]() {
 			return this->walkBackAndForthRoutine(settings);
-		});
+		}, tryCount);
 
-		success &= tryNTimes([this, &settings]() {
-			return this->motionControlA->measureBacklashRoutine(settings);
-		});
-		success &= tryNTimes([this, &settings]() {
-			return this->motionControlA->homeRoutine(settings);
-		});
-
-		success &= tryNTimes([this, &settings]() {
-			return this->motionControlB->measureBacklashRoutine(settings);
-		});
-		success &= tryNTimes([this, &settings]() {
-			return this->motionControlB->homeRoutine(settings);
-		});
+		success &= this->calibrateRoutine(tryCount);
 
 		if(success) {
-			this->initalised = true;
 			log(LogLevel::Status, "initRoutine : OK");
 		}
 		else {
 			log(LogLevel::Error, "initRoutine : fail");
 		}
+
+		return success;
+	}
+
+	//----------
+	bool
+	App::calibrateRoutine(uint8_t tryCount)
+	{
+		log(LogLevel::Status, "calibrateRoutine : begin");
+
+		bool success = true;
+		MotionControl::MeasureRoutineSettings settings;
+
+		success &= tryNTimes([this, &settings]() {
+			return this->motionControlA->measureBacklashRoutine(settings);
+		}, tryCount);
+		success &= tryNTimes([this, &settings]() {
+			return this->motionControlA->homeRoutine(settings);
+		}, tryCount);
+
+		success &= tryNTimes([this, &settings]() {
+			return this->motionControlB->measureBacklashRoutine(settings);
+		}, tryCount);
+		success &= tryNTimes([this, &settings]() {
+			return this->motionControlB->homeRoutine(settings);
+		}, tryCount);
+
+		if(success) {
+			this->calibrated = true;
+			log(LogLevel::Status, "calibrateRoutine : OK");
+		}
+		else {
+			log(LogLevel::Error, "calibrateRoutine : fail");
+		}
+		
+		return success;
 	}
 
 	//----------
@@ -264,6 +288,27 @@ namespace Modules {
 			}
 			RS485::sendACKEarly(true);
 			this->initRoutine(tryCount);
+		}
+		else if(strcmp(key, "calibrate") == 0) {
+			msgpack::DataType dataType;
+			uint8_t tryCount = 1;
+			if(!msgpack::getNextDataType(stream, dataType)) {
+				return false;
+			}
+			if(dataType == msgpack::DataType::Nil) {
+				msgpack::readNil(stream);
+			}
+			else if(msgpack::isInt(dataType)) {
+				if(!msgpack::readInt<uint8_t>(stream, tryCount)) {
+					return false;
+				}
+				return true;
+			}
+			else {
+				return false;
+			}
+			RS485::sendACKEarly(true);
+			this->calibrateRoutine(tryCount);
 		}
 		if(strcmp(key, "flashLED") == 0) {
 			msgpack::DataType dataType;

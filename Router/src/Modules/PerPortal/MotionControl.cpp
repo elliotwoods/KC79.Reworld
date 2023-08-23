@@ -106,6 +106,13 @@ namespace Modules {
 					buttonStack->add(button);
 				}
 				{
+					auto button = make_shared<ofxCvGui::Widgets::Button>("testTimer", [this]() {
+						this->testTimer();
+						});
+					button->setDrawGlyph(u8"\uf492");
+					buttonStack->add(button);
+				}
+				{
 					auto button = make_shared<ofxCvGui::Widgets::Button>("Push motion profile", [this]() {
 						this->pushMotionProfile();
 						});
@@ -275,6 +282,23 @@ namespace Modules {
 		{
 			this->reportedState.targetPosition.value = value;
 			this->reportedState.targetPosition.hasBeenReported = true;
+		}
+
+		//----------
+		void
+			MotionControl::testTimer()
+		{
+			auto message = MsgPack::object{
+				{
+					this->getFWModuleName() , MsgPack::object{
+						{
+							"testTimer"
+							, MsgPack()
+						}
+					}
+				}
+			};
+			this->portal->sendToPortal(message);
 		}
 
 		//----------

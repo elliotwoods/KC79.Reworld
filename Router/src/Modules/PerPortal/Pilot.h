@@ -44,10 +44,14 @@ namespace Modules {
 			Steps axisToSteps(float, int axisIndex) const;
 			float stepsToAxis(Steps, int axisIndex) const;
 
+			void push();
 			void poll();
+
+			glm::vec2 getLivePosition() const;
+			glm::vec2 getLiveTargetPosition() const;
 			bool isInTargetPosition() const;
+
 		protected:
-			void pushValues();
 
 			Portal * portal;
 

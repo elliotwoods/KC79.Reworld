@@ -93,8 +93,8 @@ namespace Modules {
 					"motorDriver" + Utils::getAxisLetter(this->axisIndex) , MsgPack::object{
 						{
 							"testTimer", MsgPack::array{
-								(uint32_t) this->parameters.testTimer.count.get()
-								, (uint32_t)this->parameters.testTimer.period.get()
+								(uint32_t)this->parameters.testTimer.period.get()
+								, (uint32_t) this->parameters.testTimer.count.get()
 							}
 
 						}

@@ -116,8 +116,11 @@ namespace Modules {
 						&& targetID ^ 'R' == this->incomingBytes[2]
 						&& targetID ^ 'C' == this->incomingBytes[3]) {
 						
-						this->value = targetID + 1;
-						this->markNewID = true;
+						auto newValue = targetID + 1;
+						if(newValue != this->value) {
+							this->value = newValue;
+							this->markNewID = true;
+						}
 					}
 				}
 			}
@@ -142,5 +145,6 @@ namespace Modules {
 		serialID.write('C' ^ this->value);
 		serialID.write('R' ^ this->value);
 		serialID.write('C' ^ this->value);
+		serialID.write(0);
 	}
 }

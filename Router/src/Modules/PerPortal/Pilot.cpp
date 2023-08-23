@@ -101,6 +101,27 @@ namespace Modules {
 				break;
 			}
 
+			// alias the axis values
+			{
+				this->parameters.axes.a.set(
+					this->stepsToAxis(
+						this->axisToSteps(
+							this->parameters.axes.a.get()
+							, 0
+						)
+						, 0)
+					);
+
+				this->parameters.axes.b.set(
+					this->stepsToAxis(
+						this->axisToSteps(
+							this->parameters.axes.b.get()
+							, 1
+						)
+						, 1)
+					);
+			}
+
 			// Check if needs push
 			{
 				bool needsSend = false;
@@ -115,7 +136,7 @@ namespace Modules {
 				if (needsSend
 					|| this->parameters.axes.a != this->cachedSentValues.a
 					|| this->parameters.axes.b != this->cachedSentValues.b) {
-					this->pushValues();
+					this->push();
 				}
 			}
 
@@ -153,12 +174,12 @@ namespace Modules {
 			inspector->addButton("Reset position", [this]() {
 				this->setPosition({ 0.0f, 0.0f });
 				}, 'r');
-			inspector->addButton("Push axis values", [this]() {
-				this->pushValues();
-				}, ' ');
+			inspector->addButton("Push", [this]() {
+				this->push();
+				}, 'p');
 			inspector->addButton("Poll", [this]() {
 				this->portal->poll();
-				}, 'p');
+				}, ' ');
 			inspector->addParameterGroup(this->parameters);
 		}
 
@@ -509,30 +530,6 @@ namespace Modules {
 
 		//----------
 		void
-			Pilot::pushValues()
-		{
-			Steps stepsA = this->axisToSteps(this->parameters.axes.a.get(), 0);
-			Steps stepsB = this->axisToSteps(this->parameters.axes.b.get(), 1);
-
-			auto message = MsgPack::object{
-				{
-					"m"
-					, MsgPack::array{
-						(int32_t)stepsA
-						, (int32_t)stepsB
-					}
-				}
-			};
-
-			this->portal->sendToPortal(message);
-
-			this->cachedSentValues.a = this->parameters.axes.a.get();
-			this->cachedSentValues.b = this->parameters.axes.b.get();
-			this->cachedSentValues.lastUpdateRequest = chrono::system_clock::now();
-		}
-
-		//----------
-		void
 			Pilot::seeThrough()
 		{
 			this->parameters.axes.a.set(0.0f);
@@ -716,6 +713,30 @@ namespace Modules {
 
 		//----------
 		void
+			Pilot::push()
+		{
+			Steps stepsA = this->axisToSteps(this->parameters.axes.a.get(), 0);
+			Steps stepsB = this->axisToSteps(this->parameters.axes.b.get(), 1);
+
+			auto message = MsgPack::object{
+				{
+					"m"
+					, MsgPack::array{
+						(int32_t)stepsA
+						, (int32_t)stepsB
+					}
+				}
+			};
+
+			this->portal->sendToPortal(message);
+
+			this->cachedSentValues.a = this->parameters.axes.a.get();
+			this->cachedSentValues.b = this->parameters.axes.b.get();
+			this->cachedSentValues.lastUpdateRequest = chrono::system_clock::now();
+		}
+
+		//----------
+		void
 			Pilot::poll()
 		{
 			auto message = MsgPack::object{
@@ -726,6 +747,28 @@ namespace Modules {
 			};
 
 			this->portal->sendToPortal(message);
+		}
+
+		//----------
+		glm::vec2
+			Pilot::getLivePosition() const
+		{
+			auto axisValues = glm::vec2 {
+				this->liveAxisValues[0]
+				, this->liveAxisValues[1]
+			};
+			return this->polarToPosition(this->axesToPolar(axisValues));
+		}
+
+		//----------
+		glm::vec2
+			Pilot::getLiveTargetPosition() const
+		{
+			auto axisValues = glm::vec2{
+				this->liveAxisTargetValues[0]
+				, this->liveAxisTargetValues[1]
+			};
+			return this->polarToPosition(this->axesToPolar(axisValues));
 		}
 
 		//----------
