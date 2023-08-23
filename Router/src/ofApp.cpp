@@ -6,7 +6,7 @@ void ofApp::setup(){
 	ofSetFrameRate(60.0f);
 
 	gui.init();
-	gui.addInspector();
+	gui.addInspector()->setCaption("Router");
 	
 	this->app = make_shared<Modules::App>();
 	this->app->init();

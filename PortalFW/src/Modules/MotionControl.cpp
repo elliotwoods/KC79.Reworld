@@ -1,5 +1,6 @@
 #include "MotionControl.h"
 #include "Logger.h"
+#include "App.h"
 
 namespace Modules {
 	//----------
@@ -775,6 +776,7 @@ namespace Modules {
 					while(this->targetPosition != this->position) {
 						if (millis() > timeoutTime) { endRoutine(); return Exception::Timeout(); }
 						this->updateMotion();
+						App::updateFromRoutine();
 						HAL_Delay(1);
 					}
 
@@ -796,6 +798,7 @@ namespace Modules {
 				while(!switchSeen.seenPressed && this->targetPosition != this->position) {
 					if (millis() > timeoutTime) { endRoutine(); return Exception::Timeout(); }
 					this->updateMotion();
+					App::updateFromRoutine();
 					HAL_Delay(1);
 				}
 				this->stop();
@@ -820,6 +823,7 @@ namespace Modules {
 					while(this->targetPosition != this->position) {
 						if (millis() > timeoutTime) { endRoutine(); return Exception::Timeout(); }
 						this->updateMotion();
+						App::updateFromRoutine();
 						HAL_Delay(1);
 					}
 				}
@@ -830,6 +834,7 @@ namespace Modules {
 					while(this->targetPosition != this->position) {
 						if (millis() > timeoutTime) { endRoutine(); return Exception::Timeout(); }
 						this->updateMotion();
+						App::updateFromRoutine();
 						HAL_Delay(1);
 					}
 				}
@@ -847,6 +852,7 @@ namespace Modules {
 				this->run(true, settings.slowMoveSpeed);
 				while(!switchSeen.seenPressed) {
 					if (millis() > timeoutTime) { endRoutine(); return Exception::Timeout(); }
+					App::updateFromRoutine();
 				}
 				this->stop();
 			}
@@ -865,6 +871,7 @@ namespace Modules {
 				while(this->position != this->targetPosition) {
 					if (millis() > timeoutTime) { endRoutine(); return Exception::Timeout(); }
 					this->updateMotion();
+					App::updateFromRoutine();
 					HAL_Delay(1);
 				}
 			}
@@ -886,6 +893,7 @@ namespace Modules {
 				this->run(false, settings.slowMoveSpeed);
 				while(!switchSeen.seenNotPressed) {
 					if (millis() > timeoutTime) { endRoutine(); return Exception::Timeout(); }
+					App::updateFromRoutine();
 				}
 				this->stop();
 			}
@@ -1015,6 +1023,7 @@ namespace Modules {
 					while(this->targetPosition != this->position) {
 						if (millis() > timeoutTime) { endRoutine(); return Exception::Timeout(); }
 						this->updateMotion();
+						App::updateFromRoutine();
 						HAL_Delay(1);
 					}
 
@@ -1031,6 +1040,7 @@ namespace Modules {
 					while(this->targetPosition != this->position) {
 						if (millis() > timeoutTime) { endRoutine(); return Exception::Timeout(); }
 						this->updateMotion();
+						App::updateFromRoutine();
 						HAL_Delay(1);
 					}
 
@@ -1052,6 +1062,7 @@ namespace Modules {
 				while(!switchesSeen[0].seenPressed) {
 					if (millis() > timeoutTime) { endRoutine(); return Exception::Timeout(); }
 					this->updateMotion();
+					App::updateFromRoutine();
 					HAL_Delay(1);
 				}
 
@@ -1069,6 +1080,7 @@ namespace Modules {
 				while(this->position != this->targetPosition) {
 					if (millis() > timeoutTime) { endRoutine(); return Exception::Timeout(); }
 					this->updateMotion();
+					App::updateFromRoutine();
 					HAL_Delay(1);
 				}
 			}
@@ -1087,6 +1099,7 @@ namespace Modules {
 				this->run(true, settings.slowMoveSpeed);
 				while(!switchesSeen[0].seenPressed) {
 					if (millis() > timeoutTime) { endRoutine(); return Exception::Timeout(); }
+					App::updateFromRoutine();
 				}
 				this->stop();
 			}
@@ -1103,6 +1116,7 @@ namespace Modules {
 				while(this->position != this->targetPosition) {
 					if (millis() > timeoutTime) { endRoutine(); return Exception::Timeout(); }
 					this->updateMotion();
+					App::updateFromRoutine();
 					HAL_Delay(1);
 				}
 			}
@@ -1121,6 +1135,7 @@ namespace Modules {
 				this->run(false, settings.slowMoveSpeed);
 				while(!switchesSeen[1].seenPressed) {
 					if (millis() > timeoutTime) { endRoutine(); return Exception::Timeout(); }
+					App::updateFromRoutine();
 				}
 				this->stop();
 			}

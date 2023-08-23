@@ -11,10 +11,7 @@ void setup() {
 	app.setup();
 }
 
-void loop() {
-	// Cycle LED's
-	analogWrite(PB4, (millis() % 1000) / 64);
-	
+void loop() {	
 	app.update();
 
 	// We need some delay to allow for bigger numbers in MotionControl (otherwise can't accelerate)

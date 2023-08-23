@@ -1,15 +1,25 @@
 #include "App.h"
 #include <Arduino.h>
 #include "../Version.h"
+#include "stm32g0xx_ll_iwdg.h"
 
 #define INDICATOR_LED PB3
 namespace Modules
 {
 	//----------
+	App * App::instance = nullptr;
+
+	//----------
 	const char *
 	App::getTypeName() const
 	{
 		return "App";
+	}
+
+	//----------
+	App::App()
+	{
+		this->instance = this;
 	}
 
 	//----------
@@ -74,14 +84,26 @@ namespace Modules
 		this->gui->update();
 #endif
 
-		// OLD HACK TO JUST RUN MOTORS AND DO THINGS
-		// this->motorDriverSettings->setCurrent(0.15f);
-		// this->motorDriverA->testRoutine();
-		// this->motorDriverB->testRoutine();
-		// this->motorDriverSettings->setCurrent(0.05f);
+		// Heartbeat LED
+		if(this->calibrated) {
+			analogWrite(PB4, (millis() % 1000) / 64);
+		} else {
+			analogWrite(PB4, (millis() % 250) / 16);
+		}
 
 		// Indicate if either driver is enabled
 		digitalWrite(INDICATOR_LED, this->motorDriverA->getEnabled() || this->motorDriverB->getEnabled());
+
+		// Refresh the watchdog counter
+		LL_IWDG_ReloadCounter(IWDG);
+	}
+
+	//---------
+	void
+	App::updateFromRoutine()
+	{
+		App::instance->rs485->update();
+		LL_IWDG_ReloadCounter(IWDG);
 	}
 
 	//----------
@@ -204,6 +226,8 @@ namespace Modules
 			delay(period / 2);
 			digitalWrite(INDICATOR_LED, LOW);
 			delay(period / 2);
+
+			App::updateFromRoutine();
 		}
 	}
 
@@ -410,9 +434,14 @@ namespace Modules
 		auto routineDeadline = routineStart + (uint32_t)settings.timeout_s * 1000;
 
 		// Instruct move
-		auto moveEnd = this->motionControlA->getMicrostepsPerPrismRotation() / 2;
-		this->motionControlA->setTargetPosition(moveEnd + this->motionControlA->getPosition());
-		this->motionControlB->setTargetPosition(moveEnd + this->motionControlA->getPosition());
+		auto moveStartA = this->motionControlA->getPosition();
+		auto moveStartB = this->motionControlB->getPosition();
+		auto movement = this->motionControlA->getMicrostepsPerPrismRotation() / 2;
+		auto moveEndA = moveStartA + movement;
+		auto moveEndB = moveStartB + movement;
+
+		this->motionControlA->setTargetPosition(moveEndA);
+		this->motionControlB->setTargetPosition(moveEndB);
 
 		// Get default values (for timeout)
 		MotionControl::MeasureRoutineSettings measureRoutineSettings;
@@ -423,6 +452,7 @@ namespace Modules
 		{
 			motionControlA->update();
 			motionControlB->update();
+			App::updateFromRoutine();
 			HAL_Delay(1);
 
 			if (millis() > routineDeadline)
@@ -441,6 +471,7 @@ namespace Modules
 		{
 			motionControlA->update();
 			motionControlB->update();
+			App::updateFromRoutine();
 			HAL_Delay(1);
 
 			if (millis() > routineDeadline)

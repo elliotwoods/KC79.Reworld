@@ -18,6 +18,7 @@
 namespace Modules {
 	class App : public Base {
 	public:
+		App();
 		const char * getTypeName() const;
 
 		void setup();
@@ -26,6 +27,9 @@ namespace Modules {
 		bool initRoutine(uint8_t tryCount);
 		bool calibrateRoutine(uint8_t tryCount);
 		void flashLEDsRoutine(uint16_t period, uint16_t count);
+
+		static void updateFromRoutine();
+
 #ifndef GUI_DISABLED
 		GUI * gui;
 #endif
@@ -41,7 +45,12 @@ namespace Modules {
 
 		MotionControl * motionControlA;
 		MotionControl * motionControlB;
+
+		// Use this update if you're doing a routine that's blocking the mainloop
+		// e.g. to send a reboot / FW announce
 	protected:
+		static App * instance;
+
 		bool processIncomingByKey(const char * key, Stream &) override;
 		Exception walkBackAndForthRoutine(const MotionControl::MeasureRoutineSettings&);
 
