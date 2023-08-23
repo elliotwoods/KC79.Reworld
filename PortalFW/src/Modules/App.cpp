@@ -3,7 +3,8 @@
 #include "../Version.h"
 
 #define INDICATOR_LED PB3
-namespace Modules {
+namespace Modules
+{
 	//----------
 	const char *
 	App::getTypeName() const
@@ -27,7 +28,7 @@ namespace Modules {
 
 		this->rs485 = new RS485(this);
 		this->rs485->setup();
-		
+
 		this->motorDriverSettings = new MotorDriverSettings(MotorDriverSettings::Config());
 		this->motorDriverSettings->setup();
 
@@ -80,13 +81,12 @@ namespace Modules {
 		// this->motorDriverSettings->setCurrent(0.05f);
 
 		// Indicate if either driver is enabled
-		digitalWrite(INDICATOR_LED
-			, this->motorDriverA->getEnabled() || this->motorDriverB->getEnabled());
+		digitalWrite(INDICATOR_LED, this->motorDriverA->getEnabled() || this->motorDriverB->getEnabled());
 	}
-	
+
 	//----------
 	void
-	App::reportStatus(msgpack::Serializer& serializer)
+	App::reportStatus(msgpack::Serializer &serializer)
 	{
 		serializer.beginMap(4);
 		{
@@ -113,14 +113,17 @@ namespace Modules {
 
 	//----------
 	bool
-	tryNTimes(const std::function<Exception()> & action, uint8_t tryCount)
+	tryNTimes(const std::function<Exception()> &action, uint8_t tryCount)
 	{
-		for(uint8_t tries = 0; tries < tryCount; tries++) {
+		for (uint8_t tries = 0; tries < tryCount; tries++)
+		{
 			auto result = action();
-			if(result) {
+			if (result)
+			{
 				log(LogLevel::Error, result.what());
 			}
-			else {
+			else
+			{
 				return true;
 			}
 		}
@@ -136,16 +139,18 @@ namespace Modules {
 		MotionControl::MeasureRoutineSettings settings;
 
 		// Walk both by 1/2 a rotation
-		success &= tryNTimes([this, &settings]() {
-			return this->walkBackAndForthRoutine(settings);
-		}, tryCount);
+		success &= tryNTimes([this, &settings]()
+							 { return this->walkBackAndForthRoutine(settings); },
+							 tryCount);
 
 		success &= this->calibrateRoutine(tryCount);
 
-		if(success) {
+		if (success)
+		{
 			log(LogLevel::Status, "initRoutine : OK");
 		}
-		else {
+		else
+		{
 			log(LogLevel::Error, "initRoutine : fail");
 		}
 
@@ -161,28 +166,30 @@ namespace Modules {
 		bool success = true;
 		MotionControl::MeasureRoutineSettings settings;
 
-		success &= tryNTimes([this, &settings]() {
-			return this->motionControlA->measureBacklashRoutine(settings);
-		}, tryCount);
-		success &= tryNTimes([this, &settings]() {
-			return this->motionControlA->homeRoutine(settings);
-		}, tryCount);
+		success &= tryNTimes([this, &settings]()
+							 { return this->motionControlA->measureBacklashRoutine(settings); },
+							 tryCount);
+		success &= tryNTimes([this, &settings]()
+							 { return this->motionControlA->homeRoutine(settings); },
+							 tryCount);
 
-		success &= tryNTimes([this, &settings]() {
-			return this->motionControlB->measureBacklashRoutine(settings);
-		}, tryCount);
-		success &= tryNTimes([this, &settings]() {
-			return this->motionControlB->homeRoutine(settings);
-		}, tryCount);
+		success &= tryNTimes([this, &settings]()
+							 { return this->motionControlB->measureBacklashRoutine(settings); },
+							 tryCount);
+		success &= tryNTimes([this, &settings]()
+							 { return this->motionControlB->homeRoutine(settings); },
+							 tryCount);
 
-		if(success) {
+		if (success)
+		{
 			this->calibrated = true;
 			log(LogLevel::Status, "calibrateRoutine : OK");
 		}
-		else {
+		else
+		{
 			log(LogLevel::Error, "calibrateRoutine : fail");
 		}
-		
+
 		return success;
 	}
 
@@ -190,7 +197,8 @@ namespace Modules {
 	void
 	App::flashLEDsRoutine(uint16_t period, uint16_t count)
 	{
-		for(uint16_t i=0; i<count; i++) {
+		for (uint16_t i = 0; i < count; i++)
+		{
 			log(LogLevel::Status, "LED Flash");
 			digitalWrite(INDICATOR_LED, HIGH);
 			delay(period / 2);
@@ -201,24 +209,30 @@ namespace Modules {
 
 	//----------
 	bool
-	App::processIncomingByKey(const char * key, Stream & stream)
+	App::processIncomingByKey(const char *key, Stream &stream)
 	{
-		if(strcmp(key, "m") == 0) {
+		if (strcmp(key, "m") == 0)
+		{
 			// Special 2-axis move message
 			size_t arraySize;
-			if(!msgpack::readArraySize(stream, arraySize)) {
+			if (!msgpack::readArraySize(stream, arraySize))
+			{
 				return false;
 			}
-			if(arraySize >= 1) {
+			if (arraySize >= 1)
+			{
 				Steps position;
-				if(!msgpack::readInt<int32_t>(stream, position)) {
+				if (!msgpack::readInt<int32_t>(stream, position))
+				{
 					return false;
 				}
 				this->motionControlA->setTargetPosition(position);
 			}
-			if(arraySize >= 2) {
+			if (arraySize >= 2)
+			{
 				Steps position;
-				if(!msgpack::readInt<int32_t>(stream, position)) {
+				if (!msgpack::readInt<int32_t>(stream, position))
+				{
 					return false;
 				}
 				this->motionControlB->setTargetPosition(position);
@@ -226,30 +240,38 @@ namespace Modules {
 			return true;
 		}
 
-		else if(strcmp(key, "id") == 0) {
+		else if (strcmp(key, "id") == 0)
+		{
 			return this->id->processIncoming(stream);
 		}
-		
-		else if(strcmp(key, "motorDriverSettings") == 0) {
+
+		else if (strcmp(key, "motorDriverSettings") == 0)
+		{
 			return this->motorDriverSettings->processIncoming(stream);
 		}
 
-		else if(strcmp(key, "motorDriverA") == 0) {
+		else if (strcmp(key, "motorDriverA") == 0)
+		{
 			return this->motorDriverA->processIncoming(stream);
 		}
-		else if(strcmp(key, "motorDriverB") == 0) {
+		else if (strcmp(key, "motorDriverB") == 0)
+		{
 			return this->motorDriverB->processIncoming(stream);
 		}
 
-		else if(strcmp(key, "motionControlA") == 0) {
+		else if (strcmp(key, "motionControlA") == 0)
+		{
 			return this->motionControlA->processIncoming(stream);
 		}
-		else if(strcmp(key, "motionControlB") == 0) {
+		else if (strcmp(key, "motionControlB") == 0)
+		{
 			return this->motionControlB->processIncoming(stream);
 		}
 
-		else if(strcmp(key, "poll") == 0) {
-			if(!msgpack::readNil(stream)) {
+		else if (strcmp(key, "poll") == 0)
+		{
+			if (!msgpack::readNil(stream))
+			{
 				return false;
 			}
 
@@ -258,10 +280,12 @@ namespace Modules {
 			rs485->sendStatusReport();
 			return true;
 		}
-		else if(strcmp(key, "p") == 0) {
+		else if (strcmp(key, "p") == 0)
+		{
 			// Miniature poll (positions only)
 
-			if(!msgpack::readNil(stream)) {
+			if (!msgpack::readNil(stream))
+			{
 				return false;
 			}
 
@@ -269,78 +293,100 @@ namespace Modules {
 			return true;
 		}
 
-		else if(strcmp(key, "init") == 0) {
+		else if (strcmp(key, "init") == 0)
+		{
 			msgpack::DataType dataType;
 			uint8_t tryCount = 1;
-			if(!msgpack::getNextDataType(stream, dataType)) {
+			if (!msgpack::getNextDataType(stream, dataType))
+			{
 				return false;
 			}
-			if(dataType == msgpack::DataType::Nil) {
+			if (dataType == msgpack::DataType::Nil)
+			{
 				msgpack::readNil(stream);
 			}
-			else if(msgpack::isInt(dataType)) {
-				if(!msgpack::readInt<uint8_t>(stream, tryCount)) {
+			else if (msgpack::isInt(dataType))
+			{
+				if (!msgpack::readInt<uint8_t>(stream, tryCount))
+				{
 					return false;
 				}
 				return true;
 			}
-			else {
+			else
+			{
 				return false;
 			}
 			RS485::sendACKEarly(true);
 			this->initRoutine(tryCount);
 		}
-		else if(strcmp(key, "calibrate") == 0) {
+		else if (strcmp(key, "calibrate") == 0)
+		{
 			msgpack::DataType dataType;
 			uint8_t tryCount = 1;
-			if(!msgpack::getNextDataType(stream, dataType)) {
+			if (!msgpack::getNextDataType(stream, dataType))
+			{
 				return false;
 			}
-			if(dataType == msgpack::DataType::Nil) {
+			if (dataType == msgpack::DataType::Nil)
+			{
 				msgpack::readNil(stream);
 			}
-			else if(msgpack::isInt(dataType)) {
-				if(!msgpack::readInt<uint8_t>(stream, tryCount)) {
+			else if (msgpack::isInt(dataType))
+			{
+				if (!msgpack::readInt<uint8_t>(stream, tryCount))
+				{
 					return false;
 				}
 				return true;
 			}
-			else {
+			else
+			{
 				return false;
 			}
 			RS485::sendACKEarly(true);
 			this->calibrateRoutine(tryCount);
 		}
-		if(strcmp(key, "flashLED") == 0) {
+		if (strcmp(key, "flashLED") == 0)
+		{
 			msgpack::DataType dataType;
-			if(!msgpack::getNextDataType(stream, dataType)) {
+			if (!msgpack::getNextDataType(stream, dataType))
+			{
 				return false;
 			}
 
 			uint16_t period = 500;
 			uint16_t count = 5;
 
-			if(dataType == msgpack::DataType::Nil) {
+			if (dataType == msgpack::DataType::Nil)
+			{
 				msgpack::readNil(stream);
 			}
-			else if(dataType == msgpack::DataType::Array) {
+			else if (dataType == msgpack::DataType::Array)
+			{
 				size_t arraySize;
-				
-				if(!msgpack::readArraySize(stream, arraySize)) {
+
+				if (!msgpack::readArraySize(stream, arraySize))
+				{
 					return false;
 				}
-				if(arraySize >= 1) {
-					if(!msgpack::readInt<uint16_t>(stream, period)) {
+				if (arraySize >= 1)
+				{
+					if (!msgpack::readInt<uint16_t>(stream, period))
+					{
 						return false;
 					}
 				}
-				if(arraySize >= 2) {
-					if(!msgpack::readInt<uint16_t>(stream, count)) {
+				if (arraySize >= 2)
+				{
+					if (!msgpack::readInt<uint16_t>(stream, count))
+					{
 						return false;
 					}
 				}
 			}
-			else {
+			else
+			{
 				return false;
 			}
 
@@ -348,7 +394,8 @@ namespace Modules {
 			return true;
 		}
 
-		else if(strcmp(key, "reset") == 0) {
+		else if (strcmp(key, "reset") == 0)
+		{
 			NVIC_SystemReset();
 		}
 
@@ -357,28 +404,29 @@ namespace Modules {
 
 	//----------
 	Exception
-	App::walkBackAndForthRoutine(const MotionControl::MeasureRoutineSettings& settings)
+	App::walkBackAndForthRoutine(const MotionControl::MeasureRoutineSettings &settings)
 	{
 		auto routineStart = millis();
-		auto routineDeadline = routineStart + (uint32_t) settings.timeout_s * 1000;
+		auto routineDeadline = routineStart + (uint32_t)settings.timeout_s * 1000;
 
 		// Instruct move
 		auto moveEnd = this->motionControlA->getMicrostepsPerPrismRotation() / 2;
-		this->motionControlA->setTargetPosition(moveEnd);
-		this->motionControlB->setTargetPosition(moveEnd);
+		this->motionControlA->setTargetPosition(moveEnd + this->motionControlA->getPosition());
+		this->motionControlB->setTargetPosition(moveEnd + this->motionControlA->getPosition());
 
 		// Get default values (for timeout)
 		MotionControl::MeasureRoutineSettings measureRoutineSettings;
 
 		// Wait for move
 		log(LogLevel::Status, "Walk routine CW");
-		while(this->motionControlA->getPosition() != this->motionControlA->getTargetPosition()
-		|| this->motionControlB->getPosition() != this->motionControlB->getTargetPosition()) {
+		while (this->motionControlA->getPosition() < this->motionControlA->getTargetPosition() || this->motionControlB->getPosition() < this->motionControlB->getTargetPosition())
+		{
 			motionControlA->update();
 			motionControlB->update();
 			HAL_Delay(1);
 
-			if(millis() > routineDeadline) {
+			if (millis() > routineDeadline)
+			{
 				return Exception::Timeout();
 			}
 		}
@@ -386,16 +434,17 @@ namespace Modules {
 		// Instruct move back to 0
 		this->motionControlA->setTargetPosition(0);
 		this->motionControlB->setTargetPosition(0);
-		
+
 		// Wait for move
 		log(LogLevel::Status, "Walk routine CCW");
-		while(this->motionControlA->getPosition() != this->motionControlA->getTargetPosition()
-		|| this->motionControlB->getPosition() != this->motionControlB->getTargetPosition()) {
+		while (this->motionControlA->getPosition() > this->motionControlA->getTargetPosition() || this->motionControlB->getPosition() > this->motionControlB->getTargetPosition())
+		{
 			motionControlA->update();
 			motionControlB->update();
 			HAL_Delay(1);
 
-			if(millis() > routineDeadline) {
+			if (millis() > routineDeadline)
+			{
 				return Exception::Timeout();
 			}
 		}
