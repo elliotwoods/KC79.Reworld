@@ -160,6 +160,9 @@ namespace Modules {
 			// this will be raised inside processCOBSPacket if packet is for us exclusively
 			bool packetNeedsACK = false;
 
+			// Message that we've got something
+			log(LogLevel::Status, "RS485 Rx");
+
 			auto exception = this->processCOBSPacket(packetNeedsACK);
 			if(exception) {
 				log(LogLevel::Error, exception.what());
@@ -170,7 +173,6 @@ namespace Modules {
 					this->sendACK(false);
 				}
 				else {
-					log(LogLevel::Status, "RS485 Rx");
 					this->sendACK(true);
 				}
 			}

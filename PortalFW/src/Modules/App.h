@@ -29,6 +29,7 @@ namespace Modules {
 		void flashLEDsRoutine(uint16_t period, uint16_t count);
 
 		static void updateFromRoutine();
+		static void notifyUncalibrated();
 
 #ifndef GUI_DISABLED
 		GUI * gui;

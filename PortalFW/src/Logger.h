@@ -37,6 +37,7 @@ public:
 class Logger {
 public:
 	static void setup();
+	static void update();
 
 	static Logger& X();
 	static std::shared_ptr<Logger> get();

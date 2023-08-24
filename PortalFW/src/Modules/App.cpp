@@ -70,6 +70,8 @@ namespace Modules
 	void
 	App::update()
 	{
+		Logger::update();
+
 		this->id->update();
 		this->rs485->update();
 		this->motorDriverSettings->update();
@@ -102,8 +104,29 @@ namespace Modules
 	void
 	App::updateFromRoutine()
 	{
+		// Update logger (e.g. dump messages on request)
+		Logger::update();
+
+		// Process RS485 messages
 		App::instance->rs485->update();
+
+		// Feed the watchdog
 		LL_IWDG_ReloadCounter(IWDG);
+
+		// Alternate flashes
+		{
+			auto state = (bool) (millis() % 500 < 250);
+			digitalWrite(PB3, state ? HIGH : LOW);
+			digitalWrite(PB4, state ? LOW : HIGH);
+		}
+	}
+
+	//----------
+	void
+	App::notifyUncalibrated()
+	{
+		auto app = App::instance;
+		app->calibrated = false;
 	}
 
 	//----------
@@ -343,6 +366,7 @@ namespace Modules
 			}
 			RS485::sendACKEarly(true);
 			this->initRoutine(tryCount);
+			return true;
 		}
 		else if (strcmp(key, "calibrate") == 0)
 		{
@@ -370,6 +394,18 @@ namespace Modules
 			}
 			RS485::sendACKEarly(true);
 			this->calibrateRoutine(tryCount);
+			return true;
+		}
+		else if (strcmp(key, "unblock") == 0)
+		{
+			if(!msgpack::readNil(stream)) {
+				return false;
+			}
+			MotionControl::MeasureRoutineSettings settings;
+			motionControlA->unblockRoutine(settings);
+			motionControlB->unblockRoutine(settings);
+			return true;
+
 		}
 		if (strcmp(key, "flashLED") == 0)
 		{

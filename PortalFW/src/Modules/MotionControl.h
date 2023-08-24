@@ -84,6 +84,7 @@ namespace Modules {
 		// Warning : This routine loses homing
 		Exception measureBacklashRoutine(const MeasureRoutineSettings&);
 		Exception homeRoutine(const MeasureRoutineSettings&);
+		Exception unblockRoutine(const MeasureRoutineSettings&);
 
 		void reportStatus(msgpack::Serializer&) override;
 	protected:

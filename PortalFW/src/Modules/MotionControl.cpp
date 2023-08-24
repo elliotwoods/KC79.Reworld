@@ -1167,6 +1167,88 @@ namespace Modules {
 		return Exception::None();
 	}
 
+//----------
+	Exception
+	MotionControl::unblockRoutine(const MeasureRoutineSettings& settings)
+	{
+		// Stop any existing motion profile
+		this->stop();
+
+		if(!this->timer.hardwareTimer) {
+			return Exception("No hardware timer");
+		}
+
+		log(LogLevel::Status, "unblockRoutine : begin");
+
+		// store priors for later
+		auto priorCurrent = this->motorDriverSettings.getCurrent();
+		auto priorMicrostep = this->motorDriverSettings.getMicrostepResolution();
+
+		App::notifyUncalibrated();
+
+		this->motorDriverSettings.setCurrent(0.3f);
+		this->motorDriverSettings.setMicrostepResolution(MotorDriverSettings::MicrostepResolution::_1);
+
+		auto priorMotionProfile = this->motionProfile;
+		MotionProfile unblockMotionProfile;
+		{
+			unblockMotionProfile.acceleration = 500;
+			unblockMotionProfile.maximumSpeed = 500;
+		}
+		this->setMotionProfile(unblockMotionProfile);
+
+		// Start measuring time for timeout
+		uint32_t startTime = millis();
+		uint32_t routineDeadline = startTime + (uint32_t) settings.timeout_s * 1000U;
+
+		log(LogLevel::Status, "Home : begin");
+
+		auto endRoutine = [&]() {
+			this->setMotionProfile(priorMotionProfile);
+			this->motorDriverSettings.setCurrent(priorCurrent);
+			this->motorDriverSettings.setMicrostepResolution(priorMicrostep);
+			this->stop();
+		};
+		
+		auto endPosition = this->getMicrostepsPerPrismRotation();
+		this->setTargetPosition(endPosition);
+		
+		// Wait for move
+		log(LogLevel::Status, "Walk routine CW");
+		while (this->getPosition() < this->getTargetPosition())
+		{
+			this->update();
+			App::updateFromRoutine();
+			HAL_Delay(1);
+
+			if (millis() > routineDeadline)
+			{
+				return Exception::Timeout();
+			}
+		}
+
+		// Instruct move back to 0
+		this->setTargetPosition(0);
+
+		// Wait for move
+		log(LogLevel::Status, "Walk routine CCW");
+		while (this->getPosition() > this->getTargetPosition())
+		{
+			this->update();
+			App::updateFromRoutine();
+			HAL_Delay(1);
+
+			if (millis() > routineDeadline)
+			{
+				return Exception::Timeout();
+			}
+		}
+
+		endRoutine();
+		log(LogLevel::Status, "unblockRoutine : end");
+		return Exception::None();
+	}
+
 	//----------
 	void
 	MotionControl::reportStatus(msgpack::Serializer& serializer)
