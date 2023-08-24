@@ -74,7 +74,7 @@ namespace Modules {
 					ofParameter<float> a{ "A", 0, 0, 1 };
 					ofParameter<float> b{ "B", 0, 0, 1 };
 					ofParameter<float> offset{ "Offset", 0, -0.25, 0.25 };
-					ofParameter<int> microstepsPerPrismRotation{ "Microsteps per prism rotation", MOTION_STEPS_PER_PRISM_ROTATION * 128 };
+					ofParameter<int> microstepsPerPrismRotation{ "Microsteps per prism rotation", MOTION_MICROSTEPS_PER_PRISM_ROTATION };
 					ofParameter<bool> sendPeriodically{ "Send periodically", false };
 					PARAM_DECLARE("Axes", a, b, offset, microstepsPerPrismRotation, sendPeriodically);
 				} axes;

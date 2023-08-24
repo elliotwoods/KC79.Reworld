@@ -108,7 +108,7 @@ namespace Modules {
 
 			buttonStack->addButton("Flash lights", [this]() {
 				this->flashLEDsRoutine();
-			})->setDrawGlyph(u8"\uf0eb");
+			})->setDrawGlyph(u8"\uf185");
 
 			buttonStack->addButton("Reset", [this]() {
 				this->reset();

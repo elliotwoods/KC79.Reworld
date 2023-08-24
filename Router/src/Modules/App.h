@@ -23,7 +23,16 @@ namespace Modules {
 
 		void dragEvent(const ofDragInfo&);
 
+		void buildPanels(size_t panelCount);
 		shared_ptr<Portal> getPortalByTargetID(Portal::Target);
+
+		void broadcastInit();
+		void broadcastCalibrate();
+		void broadcastFlashLED();
+		void broadcastHome();
+		void broadcastSeeThrough();
+		void broadcastReset();
+		void broadcast(const msgpack11::MsgPack&);
 
 	protected:
 		void refreshPortalsByID();

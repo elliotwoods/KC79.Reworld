@@ -2,6 +2,8 @@
 #include "App.h"
 #include "..\Utils.h"
 
+using namespace msgpack11;
+
 namespace Modules {
 	//----------
 	App::App()
@@ -16,19 +18,7 @@ namespace Modules {
 			this->modules.push_back(this->fwUpdate);
 		}
 
-		{
-			for (int j = 0; j < 3; j++) {
-				for (int i = 0; i < 3; i++) {
-					auto target = i + j * 3 + 1;
-					auto portal = make_shared<Portal>(this->rs485, target);
-					portal->onTargetChange += [this](Portal::Target) {
-						this->portalsByIDDirty = true;
-					};
-					this->portals.push_back(portal);
-				}
-			}
-			this->portalsByIDDirty = true;
-		}
+		this->buildPanels(1);
 
 		{
 			this->setupCrowRoutes();
@@ -106,6 +96,19 @@ namespace Modules {
 			module->addSubMenuToInsecptor(inspector, module);
 		}
 
+		// Panel builder
+		{
+			inspector->addButton("Build panels", [this]() {
+				auto response = ofSystemTextBoxDialog("Panel count");
+				if (!response.empty()) {
+					auto panelCount = ofToInt(response);
+					if (panelCount > 0 && panelCount < 16) {
+						this->buildPanels(panelCount);
+					}
+				}
+				})->setDrawGlyph(u8"\uf0fe");
+		}
+
 		// Add portals
 		{
 			map<int, shared_ptr<ofxCvGui::Widgets::HorizontalStack>> widgetRows;
@@ -125,16 +128,30 @@ namespace Modules {
 		}
 
 		// Actions
-		inspector->addButton("Initialise all", [this]() {
-			for (auto portal : this->portals) {
-				portal->initRoutine();
-			}
-			})->setDrawGlyph(u8"\uf11e");
-		inspector->addButton("See through all", [this]() {
-			for (auto portal : this->portals) {
-				portal->getPilot()->seeThrough();
-			}
-			})->setDrawGlyph(u8"\uf06e");
+		{
+			inspector->addTitle("Broadcast:", ofxCvGui::Widgets::Title::Level::H3);
+
+			auto horizontalStack = inspector->addHorizontalStack();
+			horizontalStack->addButton("Initialise", [this]() {
+				this->broadcastInit();
+				})->setDrawGlyph(u8"\uf11e");
+			horizontalStack->addButton("Calibrate", [this]() {
+				this->broadcastCalibrate();
+				})->setDrawGlyph(u8"\uf545");
+			horizontalStack->addButton("Flash LED", [this]() {
+				this->broadcastFlashLED();
+				})->setDrawGlyph(u8"\uf185");
+			horizontalStack->addButton("Home", [this]() {
+				this->broadcastHome();
+				})->setDrawGlyph(u8"\uf015");
+			horizontalStack->addButton("See through", [this]() {
+				this->broadcastSeeThrough();
+				})->setDrawGlyph(u8"\uf06e");
+			horizontalStack->addButton("Reset", [this]() {
+				this->broadcastReset();
+				})->setDrawGlyph(u8"\uf011");
+		}
+		
 	}
 
 	//----------
@@ -168,6 +185,25 @@ namespace Modules {
 	}
 
 	//----------
+	void
+		App::buildPanels(size_t panelCount)
+	{
+		auto rows = panelCount * 3;
+		for (int j = 0; j < rows; j++) {
+			for (int i = 0; i < 3; i++) {
+				auto target = i + j * 3 + 1;
+				auto portal = make_shared<Portal>(this->rs485, target);
+				portal->onTargetChange += [this](Portal::Target) {
+					this->portalsByIDDirty = true;
+				};
+				this->portals.push_back(portal);
+			}
+		}
+		this->portalsByIDDirty = true;
+		ofxCvGui::refreshInspector(this);
+	}
+
+	//----------
 	shared_ptr<Portal>
 		App::getPortalByTargetID(Portal::Target targetID)
 	{
@@ -179,6 +215,85 @@ namespace Modules {
 		else {
 			return findPortal->second;
 		}
+	}
+
+	//----------
+	void
+		App::broadcastInit()
+	{
+		this->broadcast(MsgPack::object{
+			{ "init", MsgPack() }
+			});
+	}
+
+	//----------
+	void
+		App::broadcastCalibrate()
+	{
+		this->broadcast(MsgPack::object{
+			{ "calibrate", MsgPack() }
+			});
+	}
+
+	//----------
+	void
+		App::broadcastFlashLED()
+	{
+		this->broadcast(MsgPack::object{
+			{ "flashLED", MsgPack() }
+			});
+	}
+
+	//----------
+	void
+		App::broadcastHome()
+	{
+		this->broadcast(MsgPack::object{
+			{
+				"m"
+				, MsgPack::array {
+					0
+					, 0
+				}
+			}
+			});
+	}
+	
+	//----------
+	void
+		App::broadcastSeeThrough()
+	{
+		this->broadcast(MsgPack::object{
+			{
+				"m"
+				, MsgPack::array {
+					MOTION_MICROSTEPS_PER_PRISM_ROTATION / 2
+					, 0
+				}
+			}
+			});
+	}
+
+	//----------
+	void
+		App::broadcastReset()
+	{
+		this->broadcast(MsgPack::object{
+			{
+				"reset", MsgPack()
+			}
+			});
+	}
+
+	//----------
+	void
+		App::broadcast(const msgpack11::MsgPack& message)
+	{
+		this->rs485->transmit(msgpack11::MsgPack::array{
+			-1
+			, (int8_t)0
+			, message
+		});
 	}
 
 	//----------
