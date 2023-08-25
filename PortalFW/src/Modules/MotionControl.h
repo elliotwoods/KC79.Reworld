@@ -27,6 +27,8 @@
 	/ MOTION_GEAR_DRIVE )
 
 namespace Modules {
+	class App;
+	
 	class MotionControl : public Base {
 	public:
 		struct MotionProfile {
@@ -69,6 +71,9 @@ namespace Modules {
 		void disableInterrupt();
 		void enableInterrupt();
 
+		void attachCustomInterrupt(const std::function<void()> &);
+		void disableCustomInterrupt();
+
 		Steps getPosition() const;
 
 		void setTargetPosition(Steps steps);
@@ -84,12 +89,14 @@ namespace Modules {
 		// Warning : This routine loses homing
 		Exception measureBacklashRoutine(const MeasureRoutineSettings&);
 		Exception homeRoutine(const MeasureRoutineSettings&);
+		Exception unblockRoutine(const MeasureRoutineSettings&);
 
 		void reportStatus(msgpack::Serializer&) override;
 
 		bool isBacklashCalibrated() const;
 		bool isHomeCalibrated() const;
 	protected:
+		friend App;
 		bool processIncomingByKey(const char * key, Stream &) override;
 
 		void updateStepCount();

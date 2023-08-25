@@ -4,9 +4,7 @@
 #include <msgpack.hpp>
 
 // This define will be overwritten by the python script
-#ifndef PORTAL_VERSION_STRING
-	#define PORTAL_VERSION_STRING "Portal"
-#endif
+#include "Version.h"
 
 #pragma mark Log
 
@@ -63,8 +61,52 @@ void
 Logger::setup()
 {
 	serial.begin(115200);
-	serial.println(PORTAL_VERSION_STRING);
+	::log(LogLevel::Status, PORTAL_VERSION_STRING);
 }
+
+//----------
+void
+Logger::update()
+{
+	// if anything comes in on the debug line, just dump all debug message
+	if(serial.available()) {
+		// A key is pressed - send the message outbox to terminal
+		auto & logger = Logger::X();
+
+		::log(LogMessage {
+			LogLevel::Status
+			, "---------------"
+			, false
+		});
+
+		::log(LogMessage {
+			LogLevel::Status
+			, "MESSAGE OUTBOX:"
+			, false
+		});
+
+		auto & messageOutbox = logger.messageOutbox;
+
+		for(auto logMessage : messageOutbox) {
+			logMessage.sendToServer = false;
+
+			// put it through the logger again
+			logger.log(logMessage);
+		}
+
+		::log(LogMessage {
+			LogLevel::Status
+			, "---------------"
+			, false
+		});
+
+		// read all bytes out from input
+		while(serial.available()) {
+			serial.read();
+		}
+	}
+}
+
 
 //----------
 void

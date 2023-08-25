@@ -4,6 +4,8 @@
 
 #include "Types.h"
 
+#define MOTORDRIVERSETTINGS_MAX_CURRENT 0.3f
+
 namespace Modules {
 	class MotorDriverSettings : public Base {
 	public:
@@ -23,7 +25,8 @@ namespace Modules {
 			_16 = 4,
 			_32 = 5,
 			_128 = 7,
-			_256 = 8
+			_256 = 8,
+			Default = 7
 		};
 
 		typedef float Amps;
@@ -52,7 +55,7 @@ namespace Modules {
 		bool processIncomingByKey(const char * key, Stream &) override;
 
 		struct {
-			MicrostepResolution microStepResolution = MicrostepResolution::_128;
+			MicrostepResolution microStepResolution = MicrostepResolution::Default;
 			bool sleep = false;
 			Amps current = 0.15f;
 		} state;
