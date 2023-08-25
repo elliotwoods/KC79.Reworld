@@ -158,7 +158,7 @@ namespace Modules
 
 	//----------
 	bool
-	tryNTimes(const std::function<Exception()> &action, uint8_t tryCount)
+	tryNTimes(const std::function<Exception()> &action, uint8_t tryCount, MotorDriverSettings& motorDriverSettings)
 	{
 		for (uint8_t tries = 0; tries < tryCount; tries++)
 		{
@@ -171,6 +171,23 @@ namespace Modules
 			{
 				return true;
 			}
+
+			if(tries < tries - 1) {
+				// Raise the current for next try
+				auto current = motorDriverSettings.getCurrent();
+				if(current < MOTORDRIVERSETTINGS_MAX_CURRENT) {
+					current += 0.05f;
+
+					char message[100];
+					sprintf(message, "Raising current to %d/100 A", (int) (current * 100.0f));
+					log(LogLevel::Warning, message);
+
+					motorDriverSettings.setCurrent(current);
+				}
+			}
+
+			log(LogLevel::Warning, "Raising current level to Amps:");
+
 		}
 		return false;
 	}
@@ -185,8 +202,9 @@ namespace Modules
 
 		// Walk both by 1/2 a rotation
 		success &= tryNTimes([this, &settings]()
-							 { return this->walkBackAndForthRoutine(settings); },
-							 tryCount);
+							 { return this->walkBackAndForthRoutine(settings); }
+							 , tryCount
+							 , * this->motorDriverSettings);
 
 		success &= this->calibrateRoutine(tryCount);
 
@@ -212,18 +230,22 @@ namespace Modules
 		MotionControl::MeasureRoutineSettings settings;
 
 		success &= tryNTimes([this, &settings]()
-							 { return this->motionControlA->measureBacklashRoutine(settings); },
-							 tryCount);
+							 { return this->motionControlA->measureBacklashRoutine(settings); }
+							 , tryCount
+							 , * this->motorDriverSettings);
 		success &= tryNTimes([this, &settings]()
-							 { return this->motionControlA->homeRoutine(settings); },
-							 tryCount);
+							 { return this->motionControlA->homeRoutine(settings); }
+							 , tryCount
+							 , * this->motorDriverSettings);
 
 		success &= tryNTimes([this, &settings]()
-							 { return this->motionControlB->measureBacklashRoutine(settings); },
-							 tryCount);
+							 { return this->motionControlB->measureBacklashRoutine(settings); }
+							 , tryCount
+							 , * this->motorDriverSettings);
 		success &= tryNTimes([this, &settings]()
-							 { return this->motionControlB->homeRoutine(settings); },
-							 tryCount);
+							 { return this->motionControlB->homeRoutine(settings); }
+							 , tryCount
+							 , * this->motorDriverSettings);
 
 		if (success)
 		{

@@ -61,7 +61,7 @@ void
 Logger::setup()
 {
 	serial.begin(115200);
-	serial.println(PORTAL_VERSION_STRING);
+	::log(LogLevel::Status, PORTAL_VERSION_STRING);
 }
 
 //----------
@@ -78,7 +78,7 @@ Logger::update()
 			, "---------------"
 			, false
 		});
-		
+
 		::log(LogMessage {
 			LogLevel::Status
 			, "MESSAGE OUTBOX:"
