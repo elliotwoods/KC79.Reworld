@@ -2,8 +2,7 @@
 #include <Arduino.h>
 #include <assert.h>
 #include <msgpack.hpp>
-
-// This define will be overwritten by the python script
+#include "Modules/App.h"
 #include "Version.h"
 
 #pragma mark Log
@@ -51,9 +50,7 @@ Logger::get()
 //---------
 Logger::Logger()
 {
-	assert(lwrb_init(&this->messageRingBuffer
-		, this->messageRingBufferData
-		, LOG_HISTORY_SIZE) == 1);
+
 }
 
 //----------
@@ -61,52 +58,103 @@ void
 Logger::setup()
 {
 	serial.begin(115200);
-	::log(LogLevel::Status, PORTAL_VERSION_STRING);
+	this->printVersion();
+	this->printHelp();
 }
 
 //----------
 void
 Logger::update()
 {
-	// if anything comes in on the debug line, just dump all debug message
-	if(serial.available()) {
-		// A key is pressed - send the message outbox to terminal
-		auto & logger = Logger::X();
-
-		::log(LogMessage {
-			LogLevel::Status
-			, "---------------"
-			, false
-		});
-
-		::log(LogMessage {
-			LogLevel::Status
-			, "MESSAGE OUTBOX:"
-			, false
-		});
-
-		auto & messageOutbox = logger.messageOutbox;
-
-		for(auto logMessage : messageOutbox) {
-			logMessage.sendToServer = false;
-
-			// put it through the logger again
-			logger.log(logMessage);
-		}
-
-		::log(LogMessage {
-			LogLevel::Status
-			, "---------------"
-			, false
-		});
-
-		// read all bytes out from input
+	// take commands (one per update loop)
+	{
+		char command = 0;
 		while(serial.available()) {
-			serial.read();
+			command = serial.read();
+		}
+		if(command != 0) {
+			switch(command) {
+			case 'c':
+				// Calibrate
+				Modules::App::X().routines->calibrate();
+				break;
+			case 's':
+				// Setup
+				Modules::App::X().routines->setup();
+				break;
+			case 'u':
+				// Unjam
+				Modules::App::X().routines->unjam();
+				break;
+			case 'v':
+				// Version
+				this->printVersion();
+				break;
+			case 27:
+				// Escape from routine
+				Modules::App::X().escapeFromRoutine();
+				break;
+			case 'h':
+				// Help
+				this->printHelp();
+				break;
+			default:
+				this->printOutbox();
+			}
 		}
 	}
 }
 
+//----------
+void
+Logger::printOutbox()
+{
+	::log(LogMessage {
+		LogLevel::Status
+		, "---------------"
+		, false
+	});
+
+	::log(LogMessage {
+		LogLevel::Status
+		, "MESSAGE OUTBOX:"
+		, false
+	});
+
+	auto & messageOutbox = this->messageOutbox;
+
+	for(auto logMessage : messageOutbox) {
+		logMessage.sendToServer = false;
+
+		// put it through the logger again
+		this->log(logMessage);
+	}
+
+	::log(LogMessage {
+		LogLevel::Status
+		, "---------------"
+		, false
+	});
+}
+
+//----------
+void
+Logger::printVersion()
+{
+	serial.println(PORTAL_VERSION_STRING);
+}
+
+//----------
+void
+Logger::printHelp()
+{
+	serial.println("c = calibrate");
+	serial.println("s = setup");
+	serial.println("u = unjam");
+	serial.println("v = print version");
+	serial.println("ESC = exit current routine");
+	serial.println("any other key = print the message outbox");
+}
 
 //----------
 void

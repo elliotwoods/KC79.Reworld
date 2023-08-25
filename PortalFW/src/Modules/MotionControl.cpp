@@ -15,6 +15,58 @@ namespace Modules {
 	}
 
 	//----------
+	bool
+	MotionControl::readMeasureRoutineSettings(Stream& stream, MeasureRoutineSettings& settings)
+	{
+		// Expecting Nil or array of arguments
+		msgpack::DataType dataType;
+		if(!msgpack::getNextDataType(stream, dataType)) {
+			return false;
+		}
+
+		if(dataType == msgpack::DataType::Nil) {
+			msgpack::readNil(stream);
+		}
+		else if(dataType == msgpack::DataType::Array) {
+			size_t arraySize;
+			msgpack::readArraySize(stream, arraySize);
+
+			if(arraySize >= 1) {
+				int32_t value;
+				if(!msgpack::readInt<int32_t>(stream, value)) {
+					return false;
+				}
+				settings.timeout_s = (uint8_t) value;
+			}
+			if(arraySize >= 2) {
+				if(!msgpack::readInt<int32_t>(stream, settings.slowMoveSpeed)) {
+					return false;
+				}
+			}
+			if(arraySize >= 3) {
+				if(!msgpack::readInt<int32_t>(stream, settings.backOffDistance)) {
+					return false;
+				}
+			}
+			if(arraySize >= 4) {
+				if(!msgpack::readInt<int32_t>(stream, settings.debounceDistance)) {
+					return false;
+				}
+			}
+			if(arraySize >= 5) {
+				if(!msgpack::readInt<uint8_t>(stream, settings.tryCount)) {
+					return false;
+				}
+			}
+		}
+		else {
+			return false;
+		}
+
+		return true;
+	}
+
+	//----------
 	const char *
 	MotionControl::getTypeName() const
 	{
@@ -164,6 +216,41 @@ namespace Modules {
 	MotionControl::disableCustomInterrupt()
 	{
 		this->timer.hardwareTimer->detachInterrupt();
+	}
+
+	//----------
+	void
+	MotionControl::attachSwitchesSeenInterrupt(SwitchesSeen& switchesSeen)
+	{
+		this->timer.hardwareTimer->attachInterrupt([&]() {
+			if(this->currentMotionState.direction) {
+				this->position++;
+			}
+			else {
+				this->position--;
+			}
+
+			if(!switchesSeen.forwards.seen) {
+				if (this->homeSwitch.getForwardsActive()) {
+					switchesSeen.forwards.seen = true;
+					switchesSeen.forwards.positionFirstSeen = this->position;
+				}
+			}
+
+			if(!switchesSeen.backwards.seen) {
+				if (this->homeSwitch.getBackwardsActive()) {
+					switchesSeen.backwards.seen = true;
+					switchesSeen.backwards.positionFirstSeen = this->position;
+				}
+			}
+		});
+	}
+
+	//----------
+	void
+	MotionControl::disableSwitchesSeenInterrupt()
+	{
+		this->disableCustomInterrupt();
 	}
 	
 	//----------
@@ -321,50 +408,6 @@ namespace Modules {
 
 	//----------
 	bool
-	readMeasureRoutineSettings(Stream& stream, MotionControl::MeasureRoutineSettings& settings)
-	{
-		// Expecting Nil or array of arguments
-		msgpack::DataType dataType;
-		if(!msgpack::getNextDataType(stream, dataType)) {
-			return false;
-		}
-
-		if(dataType == msgpack::DataType::Nil) {
-			msgpack::readNil(stream);
-		}
-		else if(dataType == msgpack::DataType::Array) {
-			size_t arraySize;
-			msgpack::readArraySize(stream, arraySize);
-
-			if(arraySize >= 1) {
-				int32_t value;
-				if(!msgpack::readInt<int32_t>(stream, value)) {
-					return false;
-				}
-				settings.timeout_s = (uint8_t) value;
-			}
-			if(arraySize >= 2) {
-				if(!msgpack::readInt<int32_t>(stream, settings.slowMoveSpeed)) {
-					return false;
-				}
-			}
-			if(arraySize >= 3) {
-				if(!msgpack::readInt<int32_t>(stream, settings.backOffDistance)) {
-					return false;
-				}
-			}
-			if(arraySize >= 4) {
-				if(!msgpack::readInt<int32_t>(stream, settings.debounceDistance)) {
-					return false;
-				}
-			}
-		}
-
-		return true;
-	}
-
-	//----------
-	bool
 	MotionControl::processIncomingByKey(const char * key, Stream& stream)
 	{
 		if(strcmp("zeroCurrentPosition", key) == 0) {
@@ -461,13 +504,47 @@ namespace Modules {
 
 			return true;
 		}
+		else if(strcmp(key, "unjam") == 0) {
+			// UNJAM
+			MeasureRoutineSettings settings;
+			if(!MotionControl::readMeasureRoutineSettings(stream, settings)) {
+				return false;
+			}
+			for(uint8_t i=0; i<settings.tryCount; i++) {
+				auto exception = this->unjamRoutine(settings);
+				if(exception) {
+					log(LogLevel::Error, exception.what());
+				}
+				else {
+					return true;
+				}
+			}
+			return false;
+		}
+		else if(strcmp(key, "tuneCurrent") == 0) {
+			// TUNE CURRENT
+			MeasureRoutineSettings settings;
+			if(!MotionControl::readMeasureRoutineSettings(stream, settings)) {
+				return false;
+			}
+			for(uint8_t i=0; i<settings.tryCount; i++) {
+				auto exception = this->tuneCurrentRoutine(settings);
+				if(exception) {
+					log(LogLevel::Error, exception.what());
+				}
+				else {
+					return true;
+				}
+			}
+			return false;
+		}
 		else if(strcmp(key, "measureBacklash") == 0) {
 			// MEASURE BACKLASH
 			MeasureRoutineSettings settings;
-			if(!readMeasureRoutineSettings(stream, settings)) {
+			if(!MotionControl::readMeasureRoutineSettings(stream, settings)) {
 				return false;
 			}
-			for(uint8_t i=0; i<settings.tries; i++) {
+			for(uint8_t i=0; i<settings.tryCount; i++) {
 				auto exception = this->measureBacklashRoutine(settings);
 				if(exception) {
 					log(LogLevel::Error, exception.what());
@@ -481,10 +558,10 @@ namespace Modules {
 		else if(strcmp(key, "home") == 0) {
 			// HOMING ROUTINE
 			MeasureRoutineSettings settings;
-			if(!readMeasureRoutineSettings(stream, settings)) {
+			if(!MotionControl::readMeasureRoutineSettings(stream, settings)) {
 				return false;
 			}
-			for(uint8_t i=0; i<settings.tries; i++) {
+			for(uint8_t i=0; i<settings.tryCount; i++) {
 				auto exception = this->homeRoutine(settings);
 				if(exception) {
 					log(LogLevel::Error, exception.what());
@@ -706,6 +783,219 @@ namespace Modules {
 	}
 
 	//----------
+	Exception
+	MotionControl::unjamRoutine(const MeasureRoutineSettings& settings)
+	{
+		// Stop any existing motion profile
+		this->stop();
+
+		if(!this->timer.hardwareTimer) {
+			return Exception("No hardware timer");
+		}
+
+		log(LogLevel::Status, "unjam : begin");
+
+		// Store priors for later
+		auto priorCurrent = this->motorDriverSettings.getCurrent();
+		auto priorMicrostep = this->motorDriverSettings.getMicrostepResolution();
+
+		// We won't be calibrated any more after this
+		this->homeCalibrated = false;
+
+		// Set the current to max and steps to 1
+		this->motorDriverSettings.setCurrent(MOTORDRIVERSETTINGS_MAX_CURRENT);
+		this->motorDriverSettings.setMicrostepResolution(MotorDriverSettings::MicrostepResolution::_1);
+
+		// Tone down acceleration and velocity to match full steps movement
+		auto priorMotionProfile = this->motionProfile;
+		MotionProfile unblockMotionProfile;
+		{
+			unblockMotionProfile.acceleration = 500;
+			unblockMotionProfile.maximumSpeed = 500;
+			unblockMotionProfile.minimumSpeed = 5;
+		}
+		this->setMotionProfile(unblockMotionProfile);
+
+		// Attach the switches seen interrupt
+		this->disableInterrupt();
+		SwitchesSeen switchesSeen;
+		this->attachSwitchesSeenInterrupt(switchesSeen);
+
+		// Start measuring time for timeout
+		uint32_t startTime = millis();
+		uint32_t routineDeadline = startTime + (uint32_t) settings.timeout_s * 1000U;
+
+		auto endRoutine = [&]() {
+			this->stop();
+			this->setMotionProfile(priorMotionProfile);
+			this->motorDriverSettings.setCurrent(priorCurrent);
+			this->motorDriverSettings.setMicrostepResolution(priorMicrostep);
+			this->disableSwitchesSeenInterrupt();
+			this->enableInterrupt();
+			log(LogLevel::Status, "unjam : end");
+		};
+		
+		// Set end position to be 2x complete rotation
+		auto endPosition = this->getMicrostepsPerPrismRotation();
+		this->setTargetPosition(endPosition);
+		
+		// Wait for move
+		log(LogLevel::Status, "unjam : Walk CW");
+		while (this->getPosition() < this->getTargetPosition())
+		{
+			this->update();
+			if(App::updateFromRoutine()) { endRoutine(); return Exception::Escape(); }
+			HAL_Delay(10); // longer delay because dt is otherwise too short for these steps
+
+			if (millis() > routineDeadline)
+			{
+				endRoutine();
+				return Exception::Timeout();
+			}
+		}
+
+		if(!switchesSeen.forwards.seen) {
+			endRoutine();
+			return Exception("Didn't see FW switch");
+		}
+
+		// Settle before return - seems we have issue otherwise
+		for(int i=0; i<100; i++) {
+			this->update();
+			if(App::updateFromRoutine()) { endRoutine(); return Exception::Escape(); }
+			HAL_Delay(10); // longer delay because dt is otherwise too short for these steps
+		}
+
+		// Instruct move back to 0
+		this->setTargetPosition(0);
+
+		// Wait for move
+		log(LogLevel::Status, "unjam : Walk CCW");
+		while (this->getPosition() > this->getTargetPosition())
+		{
+			this->update();
+			if(App::updateFromRoutine()) { endRoutine(); return Exception::Escape(); }
+			HAL_Delay(10); // longer delay because dt is otherwise too short for these steps
+
+			if (millis() > routineDeadline)
+			{
+				endRoutine();
+				return Exception::Timeout();
+			}
+		}
+
+		if(!switchesSeen.backwards.seen) {
+			endRoutine();
+			return Exception("Didn't see BW switch");
+		}
+
+		// Walk back onto switch
+		if(switchesSeen.forwards.seen) {
+			auto target1 = switchesSeen.forwards.positionFirstSeen;
+			auto target2 = switchesSeen.backwards.positionFirstSeen;
+			auto distanceToTarget1 = abs(this->getPosition() - target1);
+			auto distanceToTarget2 = abs(this->getPosition() - target2);
+
+			auto target = distanceToTarget1 < distanceToTarget2
+				? target1
+				: target2;
+
+			{
+				char message[100];
+				sprintf(message, "unjam : Walk back onto switch at %d", target);
+				log(LogLevel::Status, message);
+			}
+
+			this->setTargetPosition(target);
+			
+			while(abs(this->getPosition() - this->getTargetPosition()) > 5) {
+				HAL_Delay(100); // longer delay because dt is otherwise too short for these steps
+				this->update();
+				if(App::updateFromRoutine()) { endRoutine(); return Exception::Escape(); }
+			}
+		}
+		
+
+		endRoutine();
+
+		return Exception::None();
+	}
+
+	//----------
+	Exception
+	MotionControl::tuneCurrentRoutine(const MeasureRoutineSettings& settings)
+	{
+		log(LogLevel::Status, "tune : begin");
+
+		auto current = MOTORDRIVERSETTINGS_DEFAULT_CURRENT;
+		this->motorDriverSettings.setCurrent(current);
+
+		SwitchesSeen switchesSeen;
+		this->disableInterrupt();
+		this->attachSwitchesSeenInterrupt(switchesSeen);
+
+		auto endRoutine = [&]() {
+			this->disableSwitchesSeenInterrupt();
+			this->enableInterrupt();
+			log(LogLevel::Status, "tune : end");
+		};
+
+		// Start measuring time for timeout
+		uint32_t startTime = millis();
+		uint32_t timeoutTime = startTime + (uint32_t) settings.timeout_s * 1000U;
+
+		// Move off switch if already on
+		log(LogLevel::Status, "tune : Move off switch");
+		while(this->homeSwitch.getForwardsActive()) {
+			if(millis() > timeoutTime) { endRoutine(); return Exception::Timeout(); }
+			this->update();
+			if(App::updateFromRoutine()) { endRoutine(); return Exception::Escape(); }
+			HAL_Delay(1);
+		}
+
+		while(true) {
+			log(LogLevel::Status, "tune : Single rotation CW");
+			
+			// Try to move and see the switch
+			auto startPosition = this->position;
+			auto endPosition = startPosition + this->getMicrostepsPerPrismRotation() * 11 / 10;
+
+			this->setTargetPosition(endPosition);
+
+			// while moving to target
+			while(this->getTargetPosition() > this->getPosition()) {
+				if(millis() > timeoutTime) { endRoutine(); return Exception::Timeout(); }
+				this->update();
+				if(App::updateFromRoutine()) { endRoutine(); return Exception::Escape(); }
+				HAL_Delay(1);
+
+				if(switchesSeen.forwards.seen) {
+					log(LogLevel::Status, "tune : Switch seen");
+					break;
+				}
+			}
+
+			this->stop();
+
+			if(switchesSeen.forwards.seen) {
+				break;
+			}
+			else {
+				current += 0.05f;
+				if(current > MOTORDRIVERSETTINGS_MAX_CURRENT) {
+					throw(Exception("tune : Cannot raise the current higher"));
+				}
+				else {
+					this->motorDriverSettings.setCurrent(current);
+				}
+			}
+		}
+
+		endRoutine();
+		return Exception::None();
+	}
+
+	//----------
 	// ReMarkable August 2023 page 2
 	Exception
 	MotionControl::measureBacklashRoutine(const MeasureRoutineSettings& settings)
@@ -774,6 +1064,7 @@ namespace Modules {
 			this->stop();
 			this->timer.hardwareTimer->detachInterrupt();
 			this->enableInterrupt();
+			log(LogLevel::Status, "BLC : end");
 		};
 
 		// https://paper.dropbox.com/doc/KC79-Firmware-development-log--B9ww1dZ58Y0lrKt6fzBa9O8yAg-NaTWt2IkZT4ykJZeMERKP#:h2=Backlash-measure-algorithm
@@ -790,7 +1081,7 @@ namespace Modules {
 					while(this->targetPosition != this->position) {
 						if (millis() > timeoutTime) { endRoutine(); return Exception::Timeout(); }
 						this->updateMotion();
-						App::updateFromRoutine();
+						if(App::updateFromRoutine()) { endRoutine(); return Exception::Escape(); }
 						HAL_Delay(1);
 					}
 
@@ -812,7 +1103,7 @@ namespace Modules {
 				while(!switchSeen.seenPressed && this->targetPosition != this->position) {
 					if (millis() > timeoutTime) { endRoutine(); return Exception::Timeout(); }
 					this->updateMotion();
-					App::updateFromRoutine();
+					if(App::updateFromRoutine()) { endRoutine(); return Exception::Escape(); }
 					HAL_Delay(1);
 				}
 				this->stop();
@@ -837,7 +1128,7 @@ namespace Modules {
 					while(this->targetPosition != this->position) {
 						if (millis() > timeoutTime) { endRoutine(); return Exception::Timeout(); }
 						this->updateMotion();
-						App::updateFromRoutine();
+						if(App::updateFromRoutine()) { endRoutine(); return Exception::Escape(); }
 						HAL_Delay(1);
 					}
 				}
@@ -848,7 +1139,7 @@ namespace Modules {
 					while(this->targetPosition != this->position) {
 						if (millis() > timeoutTime) { endRoutine(); return Exception::Timeout(); }
 						this->updateMotion();
-						App::updateFromRoutine();
+						if(App::updateFromRoutine()) { endRoutine(); return Exception::Escape(); }
 						HAL_Delay(1);
 					}
 				}
@@ -866,7 +1157,8 @@ namespace Modules {
 				this->run(true, settings.slowMoveSpeed);
 				while(!switchSeen.seenPressed) {
 					if (millis() > timeoutTime) { endRoutine(); return Exception::Timeout(); }
-					App::updateFromRoutine();
+					if(App::updateFromRoutine()) { endRoutine(); return Exception::Escape(); }
+					HAL_Delay(1);
 				}
 				this->stop();
 			}
@@ -885,7 +1177,7 @@ namespace Modules {
 				while(this->position != this->targetPosition) {
 					if (millis() > timeoutTime) { endRoutine(); return Exception::Timeout(); }
 					this->updateMotion();
-					App::updateFromRoutine();
+					if(App::updateFromRoutine()) { endRoutine(); return Exception::Escape(); }
 					HAL_Delay(1);
 				}
 			}
@@ -907,7 +1199,8 @@ namespace Modules {
 				this->run(false, settings.slowMoveSpeed);
 				while(!switchSeen.seenNotPressed) {
 					if (millis() > timeoutTime) { endRoutine(); return Exception::Timeout(); }
-					App::updateFromRoutine();
+					if(App::updateFromRoutine()) { endRoutine(); return Exception::Escape(); }
+					HAL_Delay(1);
 				}
 				this->stop();
 			}
@@ -1015,12 +1308,13 @@ namespace Modules {
 		uint32_t startTime = millis();
 		uint32_t timeoutTime = startTime + (uint32_t) settings.timeout_s * 1000U;
 
-		log(LogLevel::Status, "Home : begin");
+		log(LogLevel::Status, "home : begin");
 
 		auto endRoutine = [this]() {
 			this->stop();
 			this->timer.hardwareTimer->detachInterrupt();
 			this->enableInterrupt();
+			log(LogLevel::Status, "home : end");
 		};
 
 		const Steps buttonClearDistance = 20000 / 128 * microStepsPerStep; // here we have a value by trial and error (at 128 microsteps)
@@ -1038,7 +1332,7 @@ namespace Modules {
 					while(this->targetPosition != this->position) {
 						if (millis() > timeoutTime) { endRoutine(); return Exception::Timeout(); }
 						this->updateMotion();
-						App::updateFromRoutine();
+						if(App::updateFromRoutine()) { endRoutine(); return Exception::Escape(); }
 						HAL_Delay(1);
 					}
 
@@ -1055,7 +1349,7 @@ namespace Modules {
 					while(this->targetPosition != this->position) {
 						if (millis() > timeoutTime) { endRoutine(); return Exception::Timeout(); }
 						this->updateMotion();
-						App::updateFromRoutine();
+						if(App::updateFromRoutine()) { endRoutine(); return Exception::Escape(); }
 						HAL_Delay(1);
 					}
 
@@ -1077,7 +1371,7 @@ namespace Modules {
 				while(!switchesSeen[0].seenPressed) {
 					if (millis() > timeoutTime) { endRoutine(); return Exception::Timeout(); }
 					this->updateMotion();
-					App::updateFromRoutine();
+					if(App::updateFromRoutine()) { endRoutine(); return Exception::Escape(); }
 					HAL_Delay(1);
 				}
 
@@ -1095,7 +1389,7 @@ namespace Modules {
 				while(this->position != this->targetPosition) {
 					if (millis() > timeoutTime) { endRoutine(); return Exception::Timeout(); }
 					this->updateMotion();
-					App::updateFromRoutine();
+					if(App::updateFromRoutine()) { endRoutine(); return Exception::Escape(); }
 					HAL_Delay(1);
 				}
 			}
@@ -1114,7 +1408,8 @@ namespace Modules {
 				this->run(true, settings.slowMoveSpeed);
 				while(!switchesSeen[0].seenPressed) {
 					if (millis() > timeoutTime) { endRoutine(); return Exception::Timeout(); }
-					App::updateFromRoutine();
+					if(App::updateFromRoutine()) { endRoutine(); return Exception::Escape(); }
+					HAL_Delay(1);
 				}
 				this->stop();
 			}
@@ -1131,7 +1426,7 @@ namespace Modules {
 				while(this->position != this->targetPosition) {
 					if (millis() > timeoutTime) { endRoutine(); return Exception::Timeout(); }
 					this->updateMotion();
-					App::updateFromRoutine();
+					if(App::updateFromRoutine()) { endRoutine(); return Exception::Escape(); }
 					HAL_Delay(1);
 				}
 			}
@@ -1150,7 +1445,8 @@ namespace Modules {
 				this->run(false, settings.slowMoveSpeed);
 				while(!switchesSeen[1].seenPressed) {
 					if (millis() > timeoutTime) { endRoutine(); return Exception::Timeout(); }
-					App::updateFromRoutine();
+					if(App::updateFromRoutine()) { endRoutine(); return Exception::Escape(); }
+					HAL_Delay(1);
 				}
 				this->stop();
 			}
@@ -1183,96 +1479,16 @@ namespace Modules {
 		return Exception::None();
 	}
 
-//----------
-	Exception
-	MotionControl::unblockRoutine(const MeasureRoutineSettings& settings)
-	{
-		// Stop any existing motion profile
-		this->stop();
-
-		if(!this->timer.hardwareTimer) {
-			return Exception("No hardware timer");
-		}
-
-		log(LogLevel::Status, "unblockRoutine : begin");
-
-		// store priors for later
-		auto priorCurrent = this->motorDriverSettings.getCurrent();
-		auto priorMicrostep = this->motorDriverSettings.getMicrostepResolution();
-
-		App::notifyUncalibrated();
-
-		this->motorDriverSettings.setCurrent(0.3f);
-		this->motorDriverSettings.setMicrostepResolution(MotorDriverSettings::MicrostepResolution::_1);
-
-		auto priorMotionProfile = this->motionProfile;
-		MotionProfile unblockMotionProfile;
-		{
-			unblockMotionProfile.acceleration = 500;
-			unblockMotionProfile.maximumSpeed = 500;
-		}
-		this->setMotionProfile(unblockMotionProfile);
-
-		// Start measuring time for timeout
-		uint32_t startTime = millis();
-		uint32_t routineDeadline = startTime + (uint32_t) settings.timeout_s * 1000U;
-
-		log(LogLevel::Status, "Home : begin");
-
-		auto endRoutine = [&]() {
-			this->setMotionProfile(priorMotionProfile);
-			this->motorDriverSettings.setCurrent(priorCurrent);
-			this->motorDriverSettings.setMicrostepResolution(priorMicrostep);
-			this->stop();
-		};
-		
-		auto endPosition = this->getMicrostepsPerPrismRotation();
-		this->setTargetPosition(endPosition);
-		
-		// Wait for move
-		log(LogLevel::Status, "Walk routine CW");
-		while (this->getPosition() < this->getTargetPosition())
-		{
-			this->update();
-			App::updateFromRoutine();
-			HAL_Delay(1);
-
-			if (millis() > routineDeadline)
-			{
-				return Exception::Timeout();
-			}
-		}
-
-		// Instruct move back to 0
-		this->setTargetPosition(0);
-
-		// Wait for move
-		log(LogLevel::Status, "Walk routine CCW");
-		while (this->getPosition() > this->getTargetPosition())
-		{
-			this->update();
-			App::updateFromRoutine();
-			HAL_Delay(1);
-
-			if (millis() > routineDeadline)
-			{
-				return Exception::Timeout();
-			}
-		}
-
-		endRoutine();
-		log(LogLevel::Status, "unblockRoutine : end");
-		return Exception::None();
-	}
-
 	//----------
 	void
 	MotionControl::reportStatus(msgpack::Serializer& serializer)
 	{
-		serializer.beginMap(2);
+		serializer.beginMap(4);
 		{
 			serializer << "position" << this->position;
 			serializer << "targetPosition" << this->targetPosition;
+			serializer << "backlashCalibrated" << this->backlashControl.backlashCalibrated;
+			serializer << "homeCalibrated" << this->homeCalibrated;
 		}
 	}
 

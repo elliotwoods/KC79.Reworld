@@ -1,4 +1,5 @@
 #include "Exception.h"
+#include "Logger.h"
 
 //-----------
 Exception::Exception(const char* message)
@@ -30,6 +31,13 @@ Exception::Timeout()
 }
 
 //-----------
+Exception
+Exception::Escape()
+{
+	return Exception("Escape");
+}
+
+//-----------
 const char *
 Exception::what() const
 {
@@ -40,6 +48,19 @@ Exception::what() const
 Exception::operator bool() const
 {
 	return !this->noException;
+}
+
+//-----------
+bool
+Exception::report() const
+{
+	if(!this->noException) {
+		log(LogLevel::Error, this->message.c_str());
+		return true;
+	}
+	else {
+		return false;
+	}
 }
 
 //-----------

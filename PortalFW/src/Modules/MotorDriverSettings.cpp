@@ -162,11 +162,19 @@ namespace Modules {
 	void
 	MotorDriverSettings::pushCurrent()
 	{
-		float voltage = this->state.current * 3.0f;
-		float pwmRatio = (voltage / 3.3f) / this->config.vrefRatio;
+		if(this->state.current > MOTORDRIVERSETTINGS_MAX_CURRENT) {
+			this->state.current = MOTORDRIVERSETTINGS_MAX_CURRENT;
+		}
+
+		const float voltageAtMotorDriver = this->state.current * 3.0f;
+		const float voltageBeforeDivider = voltageAtMotorDriver / this->config.vrefRatio;
+		float pwmRatio = (voltageBeforeDivider / 3.3f);
+
+		// Cap the ratio to 100%
 		if(pwmRatio > 1.0f) {
 			pwmRatio = 1.0f;
 		}
+
 		analogWrite(this->config.pinVREF, (uint32_t) (255.0f * pwmRatio));
 	}
 

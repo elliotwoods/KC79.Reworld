@@ -11,6 +11,7 @@
 #include "RS485.h"
 #include "HomeSwitch.h"
 #include "MotionControl.h"
+#include "Routines.h"
 
 #include <memory>
 #include <vector>
@@ -19,17 +20,18 @@ namespace Modules {
 	class App : public Base {
 	public:
 		App();
+		static App & X();
 		const char * getTypeName() const;
 
 		void setup();
 		void update();
 		void reportStatus(msgpack::Serializer&);
-		bool initRoutine(uint8_t tryCount);
-		bool calibrateRoutine(uint8_t tryCount);
-		void flashLEDsRoutine(uint16_t period, uint16_t count);
-
-		static void updateFromRoutine();
-		static void notifyUncalibrated();
+		
+		// Use this update if you're doing a routine that's blocking the mainloop
+		// e.g. to send a reboot / FW announce
+		// Returns if should escape
+		static bool updateFromRoutine();
+		void escapeFromRoutine();
 
 #ifndef GUI_DISABLED
 		GUI * gui;
@@ -47,14 +49,11 @@ namespace Modules {
 		MotionControl * motionControlA;
 		MotionControl * motionControlB;
 
-		// Use this update if you're doing a routine that's blocking the mainloop
-		// e.g. to send a reboot / FW announce
+		Routines * routines;
+		
 	protected:
 		static App * instance;
-
 		bool processIncomingByKey(const char * key, Stream &) override;
-		Exception walkBackAndForthRoutine(const MotionControl::MeasureRoutineSettings&);
-
-		bool calibrated = false;
+		bool shouldEscapeFromRoutine = false;
 	};
 }

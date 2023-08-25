@@ -4,7 +4,9 @@
 
 #include "Types.h"
 
-#define MOTORDRIVERSETTINGS_MAX_CURRENT 0.3f
+// 5V @ 20 Ohms from their spec sheet
+#define MOTORDRIVERSETTINGS_MAX_CURRENT 0.25f
+#define MOTORDRIVERSETTINGS_DEFAULT_CURRENT 0.15f
 
 namespace Modules {
 	class MotorDriverSettings : public Base {
@@ -57,7 +59,7 @@ namespace Modules {
 		struct {
 			MicrostepResolution microStepResolution = MicrostepResolution::Default;
 			bool sleep = false;
-			Amps current = 0.15f;
+			Amps current = MOTORDRIVERSETTINGS_DEFAULT_CURRENT;
 		} state;
 	};
 }

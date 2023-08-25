@@ -1,9 +1,11 @@
 #include "App.h"
 #include <Arduino.h>
+
 #include "../Version.h"
+#include "../Platform.h"
+
 #include "stm32g0xx_ll_iwdg.h"
 
-#define INDICATOR_LED PB3
 namespace Modules
 {
 	//----------
@@ -23,10 +25,17 @@ namespace Modules
 	}
 
 	//----------
+	App &
+	App::X()
+	{
+		return *App::instance;
+	}
+
+	//----------
 	void
 	App::setup()
 	{
-		Logger::setup();
+		Logger::X().setup();
 
 #ifndef GUI_DISABLED
 		this->gui = new GUI();
@@ -60,10 +69,11 @@ namespace Modules
 		this->motionControlB = new MotionControl(*this->motorDriverSettings, *this->motorDriverB, *this->homeSwitchB);
 		this->motionControlB->setup();
 
-		this->motionControlB->unblockRoutine(MotionControl::MeasureRoutineSettings());
+		this->routines = new Routines(this);
+		
 		// Calibrate self on startup
 #ifndef STARTUP_INIT_DISABLED
-		this->initRoutine(3);
+		this->routines->startup();
 #endif
 	}
 
@@ -71,7 +81,10 @@ namespace Modules
 	void
 	App::update()
 	{
-		Logger::update();
+		// reset this flag
+		this->shouldEscapeFromRoutine = false;
+
+		Logger::X().update();
 
 		this->id->update();
 		this->rs485->update();
@@ -88,25 +101,34 @@ namespace Modules
 #endif
 
 		// Heartbeat LED
-		if(this->calibrated) {
-			analogWrite(PB4, (millis() % 1000) / 64);
-		} else {
-			analogWrite(PB4, (millis() % 250) / 16);
+		{
+			auto isCalibrated = this->motionControlA->isHomeCalibrated()
+				&& this->motionControlA->isBacklashCalibrated()
+				&& this->motionControlB->isHomeCalibrated()
+				&& this->motionControlB->isBacklashCalibrated();
+			
+			if(isCalibrated) {
+				// Slow heartbeat
+				analogWrite(LED_HEARTBEAT, (millis() % 2000) / 128);
+			} else {
+				// Fast heartbeat
+				analogWrite(LED_HEARTBEAT, (millis() % 512) / 32);
+			}
 		}
 
-		// Indicate if either driver is enabled
-		digitalWrite(INDICATOR_LED, this->motorDriverA->getEnabled() || this->motorDriverB->getEnabled());
+		// Indicate if a motor driver is enabled
+		digitalWrite(LED_INDICATOR, this->motorDriverA->getEnabled() || this->motorDriverB->getEnabled());
 
 		// Refresh the watchdog counter
 		LL_IWDG_ReloadCounter(IWDG);
 	}
 
 	//---------
-	void
+	bool
 	App::updateFromRoutine()
 	{
 		// Update logger (e.g. dump messages on request)
-		Logger::update();
+		Logger::X().update();
 
 		// Process RS485 messages
 		App::instance->rs485->update();
@@ -117,17 +139,18 @@ namespace Modules
 		// Alternate flashes
 		{
 			auto state = (bool) (millis() % 500 < 250);
-			digitalWrite(PB3, state ? HIGH : LOW);
-			digitalWrite(PB4, state ? LOW : HIGH);
+			digitalWrite(LED_INDICATOR, state ? HIGH : LOW);
+			digitalWrite(LED_HEARTBEAT, state ? LOW : HIGH);
 		}
+
+		return App::X().shouldEscapeFromRoutine;
 	}
 
-	//----------
+	//---------
 	void
-	App::notifyUncalibrated()
+	App::escapeFromRoutine()
 	{
-		auto app = App::instance;
-		app->calibrated = false;
+		this->shouldEscapeFromRoutine = true;
 	}
 
 	//----------
@@ -138,11 +161,10 @@ namespace Modules
 		{
 			serializer << "app";
 			{
-				serializer.beginMap(3);
+				serializer.beginMap(2);
 				{
 					serializer << "upTime" << millis();
 					serializer << "version" << PORTAL_VERSION_STRING;
-					serializer << "calibrated" << this->calibrated;
 				}
 			}
 
@@ -154,135 +176,6 @@ namespace Modules
 
 			serializer << "logger";
 			Logger::X().reportStatus(serializer);
-		}
-	}
-
-	//----------
-	bool
-	tryNTimes(const std::function<Exception()> &action, uint8_t tryCount, MotorDriverSettings& motorDriverSettings)
-	{
-		for (uint8_t tries = 0; tries < tryCount; tries++)
-		{
-			auto result = action();
-			if (result)
-			{
-				log(LogLevel::Error, result.what());
-			}
-			else
-			{
-				return true;
-			}
-
-			if(tries < tryCount - 1) {
-				// Raise the current for next try for both axes
-				auto current = motorDriverSettings.getCurrent();
-				if(current < MOTORDRIVERSETTINGS_MAX_CURRENT) {
-					current += 0.05f;
-
-					{
-						char message[100];
-						sprintf(message, "Raising current to %d mA", (int) (current * 1000.0f));
-						log(LogLevel::Status, message);
-					}
-
-					motorDriverSettings.setCurrent(current);
-				}
-			}
-
-		}
-		return false;
-	}
-	//----------
-	bool
-	App::initRoutine(uint8_t tryCount)
-	{
-		log(LogLevel::Status, "initRoutine : begin");
-
-		bool success = true;
-
-		// Walk back and forth. If this doesn't work there's an issue
-		{
-			MotionControl::MeasureRoutineSettings settings;
-
-			success &= tryNTimes([this, settings]() {
-				return this->walkBackAndForthRoutine(settings);
-			}
-				, tryCount
-				, *this->motorDriverSettings);
-			
-			if(!success) {
-				log(LogLevel::Error, "initRoutine : fail at walk back and forth");
-				return false;
-			}
-		}
-
-		success &= this->calibrateRoutine(tryCount);
-
-		if (success)
-		{
-			log(LogLevel::Status, "initRoutine : OK");
-		}
-		else
-		{
-			log(LogLevel::Error, "initRoutine : fail");
-		}
-
-		return success;
-	}
-
-	//----------
-	bool
-	App::calibrateRoutine(uint8_t tryCount)
-	{
-		log(LogLevel::Status, "calibrateRoutine : begin");
-
-		bool success = true;
-		MotionControl::MeasureRoutineSettings settings;
-
-		success &= tryNTimes([this, &settings]()
-							 { return this->motionControlA->measureBacklashRoutine(settings); }
-							 , tryCount
-							 , * this->motorDriverSettings);
-		success &= tryNTimes([this, &settings]()
-							 { return this->motionControlA->homeRoutine(settings); }
-							 , tryCount
-							 , * this->motorDriverSettings);
-
-		success &= tryNTimes([this, &settings]()
-							 { return this->motionControlB->measureBacklashRoutine(settings); }
-							 , tryCount
-							 , * this->motorDriverSettings);
-		success &= tryNTimes([this, &settings]()
-							 { return this->motionControlB->homeRoutine(settings); }
-							 , tryCount
-							 , * this->motorDriverSettings);
-
-		if (success)
-		{
-			this->calibrated = true;
-			log(LogLevel::Status, "calibrateRoutine : OK");
-		}
-		else
-		{
-			log(LogLevel::Error, "calibrateRoutine : fail");
-		}
-
-		return success;
-	}
-
-	//----------
-	void
-	App::flashLEDsRoutine(uint16_t period, uint16_t count)
-	{
-		for (uint16_t i = 0; i < count; i++)
-		{
-			log(LogLevel::Status, "LED Flash");
-			digitalWrite(INDICATOR_LED, HIGH);
-			delay(period / 2);
-			digitalWrite(INDICATOR_LED, LOW);
-			delay(period / 2);
-
-			App::updateFromRoutine();
 		}
 	}
 
@@ -374,70 +267,39 @@ namespace Modules
 
 		else if (strcmp(key, "init") == 0)
 		{
-			msgpack::DataType dataType;
-			uint8_t tryCount = 1;
-			if (!msgpack::getNextDataType(stream, dataType))
-			{
+			MotionControl::MeasureRoutineSettings settings;
+			if(!MotionControl::readMeasureRoutineSettings(stream, settings)) {
 				return false;
 			}
-			if (dataType == msgpack::DataType::Nil)
-			{
-				msgpack::readNil(stream);
-			}
-			else if (msgpack::isInt(dataType))
-			{
-				if (!msgpack::readInt<uint8_t>(stream, tryCount))
-				{
-					return false;
-				}
-				return true;
-			}
-			else
-			{
-				return false;
-			}
+			
 			RS485::sendACKEarly(true);
-			this->initRoutine(tryCount);
+			
+			this->routines->init(settings);
 			return true;
 		}
 		else if (strcmp(key, "calibrate") == 0)
 		{
-			msgpack::DataType dataType;
-			uint8_t tryCount = 1;
-			if (!msgpack::getNextDataType(stream, dataType))
-			{
+			MotionControl::MeasureRoutineSettings settings;
+			if(!MotionControl::readMeasureRoutineSettings(stream, settings)) {
 				return false;
 			}
-			if (dataType == msgpack::DataType::Nil)
-			{
-				msgpack::readNil(stream);
-			}
-			else if (msgpack::isInt(dataType))
-			{
-				if (!msgpack::readInt<uint8_t>(stream, tryCount))
-				{
-					return false;
-				}
-				return true;
-			}
-			else
-			{
-				return false;
-			}
+			
 			RS485::sendACKEarly(true);
-			this->calibrateRoutine(tryCount);
+			
+			this->routines->calibrate(settings);
 			return true;
 		}
-		else if (strcmp(key, "unblock") == 0)
+		else if (strcmp(key, "unjam") == 0)
 		{
-			if(!msgpack::readNil(stream)) {
+			MotionControl::MeasureRoutineSettings settings;
+			if(!MotionControl::readMeasureRoutineSettings(stream, settings)) {
 				return false;
 			}
-			MotionControl::MeasureRoutineSettings settings;
-			motionControlA->unblockRoutine(settings);
-			motionControlB->unblockRoutine(settings);
+			
+			RS485::sendACKEarly(true);
+			
+			this->routines->unjam(settings);
 			return true;
-
 		}
 		if (strcmp(key, "flashLED") == 0)
 		{
@@ -482,7 +344,7 @@ namespace Modules
 				return false;
 			}
 
-			this->flashLEDsRoutine(period, count);
+			this->routines->flashLEDs(period, count);
 			return true;
 		}
 
@@ -492,128 +354,5 @@ namespace Modules
 		}
 
 		return false;
-	}
-
-	//----------
-	Exception
-	App::walkBackAndForthRoutine(const MotionControl::MeasureRoutineSettings &settings)
-	{
-		auto routineStart = millis();
-		auto routineDeadline = routineStart + (uint32_t)settings.timeout_s * 1000;
-
-		// Instruct move
-		auto moveStartA = this->motionControlA->getPosition();
-		auto moveStartB = this->motionControlB->getPosition();
-		auto movement = this->motionControlA->getMicrostepsPerPrismRotation() * 11 / 10; // 110%
-		auto moveEndA = moveStartA + movement;
-		auto moveEndB = moveStartB + movement;
-
-		this->motionControlA->setTargetPosition(moveEndA);
-		this->motionControlB->setTargetPosition(moveEndB);
-
-		// Get default values (for timeout)
-		MotionControl::MeasureRoutineSettings measureRoutineSettings;
-
-		// Change the interrupt to something that looks for switches
-		struct {
-			bool a_forwards = false;
-			bool a_backwards = false;
-			bool b_forwards = false;
-			bool b_backwards = false;
-		} switchesSeen;
-
-		{
-			motionControlA->disableInterrupt();
-			motionControlB->disableInterrupt();
-
-			motionControlA->attachCustomInterrupt([&switchesSeen, this]() {
-				switchesSeen.a_forwards |= this->homeSwitchA->getForwardsActive();
-				switchesSeen.a_backwards |= this->homeSwitchA->getBackwardsActive();
-
-				motionControlA->stepsInInterrupt++;
-			});
-
-			motionControlB->attachCustomInterrupt([&switchesSeen, this]() {
-				switchesSeen.b_forwards |= this->homeSwitchB->getForwardsActive();
-				switchesSeen.b_backwards |= this->homeSwitchB->getBackwardsActive();
-
-				motionControlB->stepsInInterrupt++;
-			});
-		}
-
-		auto endRoutine = [&]() {
-			motionControlA->disableCustomInterrupt();
-			motionControlB->disableCustomInterrupt();
-
-			motionControlA->enableInterrupt();
-			motionControlB->enableInterrupt();
-		};
-
-		// Wait for move
-		log(LogLevel::Status, "Walk routine CW");
-		while (this->motionControlA->getPosition() < this->motionControlA->getTargetPosition() || this->motionControlB->getPosition() < this->motionControlB->getTargetPosition())
-		{
-			motionControlA->update();
-			motionControlB->update();
-			App::updateFromRoutine();
-			HAL_Delay(1);
-
-			if (millis() > routineDeadline)
-			{
-				endRoutine();
-				return Exception::Timeout();
-			}
-		}
-
-		// Instruct move back to 0
-		this->motionControlA->setTargetPosition(0);
-		this->motionControlB->setTargetPosition(0);
-
-		// Wait for move
-		log(LogLevel::Status, "Walk routine CCW");
-		while (this->motionControlA->getPosition() > this->motionControlA->getTargetPosition() || this->motionControlB->getPosition() > this->motionControlB->getTargetPosition())
-		{
-			motionControlA->update();
-			motionControlB->update();
-			App::updateFromRoutine();
-			HAL_Delay(1);
-
-			if (millis() > routineDeadline)
-			{
-				endRoutine();
-				return Exception::Timeout();
-			}
-		}
-
-		// Announce switches seen
-		{
-			log(LogLevel::Status, "Switches seen:");
-			switchesSeen.a_forwards
-				? log(LogLevel::Status, "A Forwards :\t true")
-				: log(LogLevel::Error, "A Forwards :\t false");
-			switchesSeen.a_backwards
-				? log(LogLevel::Status, "A backwards :\t true")
-				: log(LogLevel::Error, "A backwards :\t false");
-			switchesSeen.b_forwards
-				? log(LogLevel::Status, "B Forwards :\t true")
-				: log(LogLevel::Error, "B Forwards :\t false");
-			switchesSeen.b_backwards
-				? log(LogLevel::Status, "B backwards :\t true")
-				: log(LogLevel::Error, "B backwards :\t false");
-		}
-		
-		endRoutine();
-
-		this->motionControlA->stop();
-		this->motionControlB->stop();
-
-		if((switchesSeen.a_forwards || switchesSeen.a_backwards)
-			&& (switchesSeen.b_forwards || switchesSeen.b_backwards))
-			{
-			return Exception::None();
-		}
-		else {
-			return Exception("Missing switches");
-		}
 	}
 }

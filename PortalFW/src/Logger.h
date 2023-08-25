@@ -36,10 +36,15 @@ public:
 
 class Logger {
 public:
-	static void setup();
-	static void update();
-
 	static Logger& X();
+
+	void setup();
+	void update();
+
+	void printVersion();
+	void printHelp();
+	void printOutbox();
+	
 	static std::shared_ptr<Logger> get();
 
 	void log(const LogMessage&);

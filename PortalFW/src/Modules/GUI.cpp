@@ -1,6 +1,6 @@
 #include "GUI.h"
 #include <u8g2hal.h>
-#include "../Platform/Platform.h"
+#include "../Platform.h"
 #include <stdlib.h>
 
 namespace Modules {

@@ -27,7 +27,7 @@
 	/ MOTION_GEAR_DRIVE )
 
 namespace Modules {
-	class App;
+	class Routines;
 	
 	class MotionControl : public Base {
 	public:
@@ -44,17 +44,29 @@ namespace Modules {
 		};
 
 		struct MeasureRoutineSettings {
-			uint8_t tries = 2;
+			// Note that not all settings are used in all routines
 			uint8_t timeout_s = 120;
 			StepsPerSecond slowMoveSpeed = 2000;
 			Steps backOffDistance = MOTION_STEPS_PER_PRISM_ROTATION / 100; // Full steps
 			Steps debounceDistance = 10; // Full steps
+			uint8_t tryCount = 3;
+		};
+
+		struct SwitchSeen {
+			bool seen = false;
+			Steps positionFirstSeen = 0;
+		};
+
+		struct SwitchesSeen {
+			SwitchSeen forwards;
+			SwitchSeen backwards;
 		};
 
 		MotionControl(MotorDriverSettings&
 			, MotorDriver&
 			, HomeSwitch&);
 
+		static bool readMeasureRoutineSettings(Stream&, MeasureRoutineSettings&);
 		const char * getTypeName() const;
 		void update();
 
@@ -74,6 +86,9 @@ namespace Modules {
 		void attachCustomInterrupt(const std::function<void()> &);
 		void disableCustomInterrupt();
 
+		void attachSwitchesSeenInterrupt(SwitchesSeen &);
+		void disableSwitchesSeenInterrupt();
+
 		Steps getPosition() const;
 
 		void setTargetPosition(Steps steps);
@@ -87,16 +102,17 @@ namespace Modules {
 		Steps getMicrostepsPerPrismRotation() const;
 
 		// Warning : This routine loses homing
+		Exception unjamRoutine(const MeasureRoutineSettings&);
+		Exception tuneCurrentRoutine(const MeasureRoutineSettings&);
 		Exception measureBacklashRoutine(const MeasureRoutineSettings&);
 		Exception homeRoutine(const MeasureRoutineSettings&);
-		Exception unblockRoutine(const MeasureRoutineSettings&);
 
 		void reportStatus(msgpack::Serializer&) override;
 
 		bool isBacklashCalibrated() const;
 		bool isHomeCalibrated() const;
 	protected:
-		friend App;
+		friend Routines;
 		bool processIncomingByKey(const char * key, Stream &) override;
 
 		void updateStepCount();
