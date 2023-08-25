@@ -86,6 +86,9 @@ namespace Modules {
 		Exception homeRoutine(const MeasureRoutineSettings&);
 
 		void reportStatus(msgpack::Serializer&) override;
+
+		bool isBacklashCalibrated() const;
+		bool isHomeCalibrated() const;
 	protected:
 		bool processIncomingByKey(const char * key, Stream &) override;
 
@@ -108,8 +111,11 @@ namespace Modules {
 
 		struct {
 			Steps systemBacklash = 1499;
+			bool backlashCalibrated = false;
 			Steps positionWithinBacklash = 0; // negative when going forwards
 		} backlashControl;
+
+		bool homeCalibrated = false;
 
 		uint32_t lastTime = 0;
 		Steps targetPosition = 0;

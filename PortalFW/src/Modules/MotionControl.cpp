@@ -916,6 +916,7 @@ namespace Modules {
 		}
 		
 		this->backlashControl.systemBacklash = backlashSize;
+		this->backlashControl.backlashCalibrated = true;
 
 		endRoutine();
 		return Exception::None();
@@ -1162,6 +1163,7 @@ namespace Modules {
 		
 		this->position -= homePosition;
 		this->targetPosition = 0;
+		this->homeCalibrated = true;
 
 		endRoutine();
 		return Exception::None();
@@ -1176,5 +1178,19 @@ namespace Modules {
 			serializer << "position" << this->position;
 			serializer << "targetPosition" << this->targetPosition;
 		}
+	}
+
+	//----------
+	bool
+	MotionControl::isBacklashCalibrated() const
+	{
+		return this->backlashControl.backlashCalibrated;
+	}
+
+	//----------
+	bool
+	MotionControl::isHomeCalibrated() const
+	{
+		return this->homeCalibrated;
 	}
 }
