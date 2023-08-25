@@ -27,6 +27,8 @@
 	/ MOTION_GEAR_DRIVE )
 
 namespace Modules {
+	class App;
+	
 	class MotionControl : public Base {
 	public:
 		struct MotionProfile {
@@ -69,6 +71,9 @@ namespace Modules {
 		void disableInterrupt();
 		void enableInterrupt();
 
+		void attachCustomInterrupt(const std::function<void()> &);
+		void disableCustomInterrupt();
+
 		Steps getPosition() const;
 
 		void setTargetPosition(Steps steps);
@@ -88,6 +93,7 @@ namespace Modules {
 
 		void reportStatus(msgpack::Serializer&) override;
 	protected:
+		friend App;
 		bool processIncomingByKey(const char * key, Stream &) override;
 
 		void updateStepCount();

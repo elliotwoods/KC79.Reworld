@@ -60,6 +60,7 @@ namespace Modules
 		this->motionControlB = new MotionControl(*this->motorDriverSettings, *this->motorDriverB, *this->homeSwitchB);
 		this->motionControlB->setup();
 
+		this->motionControlB->unblockRoutine(MotionControl::MeasureRoutineSettings());
 		// Calibrate self on startup
 #ifndef STARTUP_INIT_DISABLED
 		this->initRoutine(3);
@@ -172,21 +173,21 @@ namespace Modules
 				return true;
 			}
 
-			if(tries < tries - 1) {
-				// Raise the current for next try
+			if(tries < tryCount - 1) {
+				// Raise the current for next try for both axes
 				auto current = motorDriverSettings.getCurrent();
 				if(current < MOTORDRIVERSETTINGS_MAX_CURRENT) {
 					current += 0.05f;
 
-					char message[100];
-					sprintf(message, "Raising current to %d/100 A", (int) (current * 100.0f));
-					log(LogLevel::Warning, message);
+					{
+						char message[100];
+						sprintf(message, "Raising current to %d mA", (int) (current * 1000.0f));
+						log(LogLevel::Status, message);
+					}
 
 					motorDriverSettings.setCurrent(current);
 				}
 			}
-
-			log(LogLevel::Warning, "Raising current level to Amps:");
 
 		}
 		return false;
@@ -198,13 +199,22 @@ namespace Modules
 		log(LogLevel::Status, "initRoutine : begin");
 
 		bool success = true;
-		MotionControl::MeasureRoutineSettings settings;
 
-		// Walk both by 1/2 a rotation
-		success &= tryNTimes([this, &settings]()
-							 { return this->walkBackAndForthRoutine(settings); }
-							 , tryCount
-							 , * this->motorDriverSettings);
+		// Walk back and forth. If this doesn't work there's an issue
+		{
+			MotionControl::MeasureRoutineSettings settings;
+
+			success &= tryNTimes([this, settings]() {
+				return this->walkBackAndForthRoutine(settings);
+			}
+				, tryCount
+				, *this->motorDriverSettings);
+			
+			if(!success) {
+				log(LogLevel::Error, "initRoutine : fail at walk back and forth");
+				return false;
+			}
+		}
 
 		success &= this->calibrateRoutine(tryCount);
 
@@ -494,7 +504,7 @@ namespace Modules
 		// Instruct move
 		auto moveStartA = this->motionControlA->getPosition();
 		auto moveStartB = this->motionControlB->getPosition();
-		auto movement = this->motionControlA->getMicrostepsPerPrismRotation() / 2;
+		auto movement = this->motionControlA->getMicrostepsPerPrismRotation() * 11 / 10; // 110%
 		auto moveEndA = moveStartA + movement;
 		auto moveEndB = moveStartB + movement;
 
@@ -503,6 +513,41 @@ namespace Modules
 
 		// Get default values (for timeout)
 		MotionControl::MeasureRoutineSettings measureRoutineSettings;
+
+		// Change the interrupt to something that looks for switches
+		struct {
+			bool a_forwards = false;
+			bool a_backwards = false;
+			bool b_forwards = false;
+			bool b_backwards = false;
+		} switchesSeen;
+
+		{
+			motionControlA->disableInterrupt();
+			motionControlB->disableInterrupt();
+
+			motionControlA->attachCustomInterrupt([&switchesSeen, this]() {
+				switchesSeen.a_forwards |= this->homeSwitchA->getForwardsActive();
+				switchesSeen.a_backwards |= this->homeSwitchA->getBackwardsActive();
+
+				motionControlA->stepsInInterrupt++;
+			});
+
+			motionControlB->attachCustomInterrupt([&switchesSeen, this]() {
+				switchesSeen.b_forwards |= this->homeSwitchB->getForwardsActive();
+				switchesSeen.b_backwards |= this->homeSwitchB->getBackwardsActive();
+
+				motionControlB->stepsInInterrupt++;
+			});
+		}
+
+		auto endRoutine = [&]() {
+			motionControlA->disableCustomInterrupt();
+			motionControlB->disableCustomInterrupt();
+
+			motionControlA->enableInterrupt();
+			motionControlB->enableInterrupt();
+		};
 
 		// Wait for move
 		log(LogLevel::Status, "Walk routine CW");
@@ -515,6 +560,7 @@ namespace Modules
 
 			if (millis() > routineDeadline)
 			{
+				endRoutine();
 				return Exception::Timeout();
 			}
 		}
@@ -534,13 +580,40 @@ namespace Modules
 
 			if (millis() > routineDeadline)
 			{
+				endRoutine();
 				return Exception::Timeout();
 			}
 		}
 
+		// Announce switches seen
+		{
+			log(LogLevel::Status, "Switches seen:");
+			switchesSeen.a_forwards
+				? log(LogLevel::Status, "A Forwards :\t true")
+				: log(LogLevel::Error, "A Forwards :\t false");
+			switchesSeen.a_backwards
+				? log(LogLevel::Status, "A backwards :\t true")
+				: log(LogLevel::Error, "A backwards :\t false");
+			switchesSeen.b_forwards
+				? log(LogLevel::Status, "B Forwards :\t true")
+				: log(LogLevel::Error, "B Forwards :\t false");
+			switchesSeen.b_backwards
+				? log(LogLevel::Status, "B backwards :\t true")
+				: log(LogLevel::Error, "B backwards :\t false");
+		}
+		
+		endRoutine();
+
 		this->motionControlA->stop();
 		this->motionControlB->stop();
 
-		return Exception::None();
+		if((switchesSeen.a_forwards || switchesSeen.a_backwards)
+			&& (switchesSeen.b_forwards || switchesSeen.b_backwards))
+			{
+			return Exception::None();
+		}
+		else {
+			return Exception("Missing switches");
+		}
 	}
 }

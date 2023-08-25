@@ -153,6 +153,20 @@ namespace Modules {
 	}
 
 	//----------
+	void
+	MotionControl::attachCustomInterrupt(const std::function<void()>& action)
+	{
+		this->timer.hardwareTimer->attachInterrupt(action);
+	}
+
+	//----------
+	void
+	MotionControl::disableCustomInterrupt()
+	{
+		this->timer.hardwareTimer->detachInterrupt();
+	}
+	
+	//----------
 	Steps
 	MotionControl::getPosition() const
 	{

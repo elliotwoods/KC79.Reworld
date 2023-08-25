@@ -4,7 +4,7 @@
 
 #include "Types.h"
 
-#define MOTORDRIVERSETTINGS_MAX_CURRENT 0.3
+#define MOTORDRIVERSETTINGS_MAX_CURRENT 0.3f
 
 namespace Modules {
 	class MotorDriverSettings : public Base {
