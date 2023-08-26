@@ -33,13 +33,15 @@ namespace Modules {
 	{
 		log(LogLevel::Status, "Routines::startup : begin");
 
-		if(app->motionControlA->unjamRoutine(settings).report()) {
-			return Exception("Routines::startup : Fail on unjam A");
-		}
+		// We have issues with the unjam routine
 
-		if(app->motionControlB->unjamRoutine(settings).report()) {
-			return Exception("Routines::startup : Fail on unjam B");
-		}
+		// if(app->motionControlA->unjamRoutine(settings).report()) {
+		// 	return Exception("Routines::startup : Fail on unjam A");
+		// }
+
+		// if(app->motionControlB->unjamRoutine(settings).report()) {
+		// 	return Exception("Routines::startup : Fail on unjam B");
+		// }
 
 		if(app->motionControlA->tuneCurrentRoutine(settings).report()) {
 			return Exception("Routines::startup : Fail on tuneCurrent A");

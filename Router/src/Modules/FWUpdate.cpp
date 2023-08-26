@@ -1,6 +1,22 @@
 #include "pch_App.h"
 #include "FWUpdate.h"
 
+typedef uint16_t CRCType;
+
+//----------
+CRCType calcCheckSum(uint8_t* data, uint32_t size)
+{
+	CRCType value = 0;
+	auto wordPosition = (CRCType*)data;
+	auto dataEnd = (CRCType*)(data + size);
+
+	while (wordPosition < dataEnd) {
+		value ^= *wordPosition++;
+	}
+
+	return value;
+}
+
 namespace Modules {
 	//----------
 	FWUpdate::FWUpdate(shared_ptr<RS485> rs485)
@@ -50,20 +66,6 @@ namespace Modules {
 		inspector->addButton("Run application", [this]() {
 			this->runApplication();
 			});
-	}
-
-	//----------
-	uint16_t calcCheckSum(uint8_t* data, uint16_t size)
-	{
-		uint16_t value = 0;
-		auto wordPosition = (uint16_t*)data;
-		auto dataEnd = (uint16_t*)(data + size);
-
-		while (wordPosition < dataEnd) {
-			value ^= *wordPosition++;
-		}
-
-		return value;
 	}
 
 	//----------
@@ -157,6 +159,7 @@ namespace Modules {
 						this_thread::sleep_for(chrono::milliseconds(this->parameters.upload.waitBetweenFrames));
 					}
 					
+					
 					dataPosition += frameSize;
 					frameOffset += frameSize;
 				}
@@ -176,14 +179,9 @@ namespace Modules {
 
 		ofSleepMillis(1000);
 
-		// 4. Disable announce
+		// 4. Disable announce (eventually app will run)
 		{
 			this->parameters.announce.enabled = false;
-		}
-
-		// 5. Run application
-		{
-			this->runApplication();
 		}
 	}
 
@@ -263,8 +261,10 @@ namespace Modules {
 		auto checksum = calcCheckSum((uint8_t*) packetData, packetSize);
 		auto checksumBytes = (uint8_t*)&checksum;
 		vector<uint8_t> packetBody;
-		packetBody.push_back(checksumBytes[0]);
-		packetBody.push_back(checksumBytes[1]);
+		for (int i = 0; i < sizeof(CRCType); i++) {
+			packetBody.push_back(checksumBytes[i]);
+		}
+		
 
 		// Add the data to the packet
 		packetBody.insert(packetBody.end()
@@ -293,7 +293,12 @@ namespace Modules {
 				msgpack_pack_map(&packer, 1);
 				{
 					// Key is the packet index
-					msgpack_pack_uint32(&packer, frameOffset);
+					if (sizeof(CRCType) == 2) {
+						msgpack_pack_uint32(&packer, frameOffset);
+					}
+					else if (sizeof(CRCType) == 4) {
+						msgpack_pack_uint32(&packer, frameOffset);
+					}
 
 					// Value is the data
 					msgpack_pack_bin(&packer, packetBody.size());

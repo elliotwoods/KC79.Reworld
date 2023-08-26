@@ -824,7 +824,7 @@ namespace Modules {
 		{
 			unblockMotionProfile.acceleration = 500;
 			unblockMotionProfile.maximumSpeed = 523; // note C5
-			unblockMotionProfile.minimumSpeed = 50;
+			unblockMotionProfile.minimumSpeed = 100;
 		}
 		this->setMotionProfile(unblockMotionProfile);
 
@@ -973,7 +973,7 @@ namespace Modules {
 			else {
 				current += 0.05f;
 				if(current > MOTORDRIVERSETTINGS_MAX_CURRENT) {
-					throw(Exception("tune : Cannot raise the current higher"));
+					return Exception("tune : Cannot raise the current higher");
 				}
 				else {
 					this->motorDriverSettings.setCurrent(current);
