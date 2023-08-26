@@ -22,7 +22,14 @@ namespace Modules {
 	GUI::setup()
 	{
 		// Initialise the screen
-		u8x8_stm32_init_i2c();
+		if(!u8x8_stm32_init_i2c()) {
+			// Device does not exist
+			this->guiEnabled = false;
+			return;
+		}
+		else {
+			this->guiEnabled = true;
+		}
 
 		u8g2_Setup_ssd1306_i2c_128x64_noname_f(this->u8g2.getU8g2()
 			, U8G2_R2
@@ -40,7 +47,11 @@ namespace Modules {
 	void
 	GUI::update()
 	{
-		if(!needsUpdate) {
+		if(!this->guiEnabled) {
+			return;
+		}
+
+		if(!this->needsUpdate) {
 			return;
 		}
 

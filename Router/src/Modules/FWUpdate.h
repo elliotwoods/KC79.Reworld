@@ -20,8 +20,8 @@ namespace Modules {
 	protected:
 		void announceFirmware();
 		void eraseFirmware();
-		void uploadFirmwarePacket(uint16_t frameOffset
-			, const char* packetData
+		void uploadFirmwarePacket(uint32_t frameOffset
+			, uint8_t* packetData
 			, size_t packetSize);
 		void runApplication();
 
@@ -37,10 +37,11 @@ namespace Modules {
 			} announce;
 
 			struct : ofParameterGroup {
+				ofParameter<bool> truncate{ "Truncate", false };
 				ofParameter<int> frameSize{ "Frame size", FW_FRAME_SIZE };
-				ofParameter<int> waitBetweenFrames{ "Wait between frames [ms]", 10 };
+				ofParameter<int> waitBetweenFrames{ "Wait between frames [ms]", 5 };
 				ofParameter<int> frameRepetitions{ "Frame repetitions", 2 };
-				PARAM_DECLARE("Upload", frameSize, waitBetweenFrames, frameRepetitions);
+				PARAM_DECLARE("Upload", truncate, frameSize, waitBetweenFrames, frameRepetitions);
 			} upload;
 
 			PARAM_DECLARE("FWUpdate", announce, upload)

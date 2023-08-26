@@ -32,7 +32,7 @@ namespace Modules {
 	class MotionControl : public Base {
 	public:
 		struct MotionProfile {
-			StepsPerSecond maximumSpeed = 30000;
+			StepsPerSecond maximumSpeed = 7040 * 4; // 4 * note A8
 			StepsPerSecondPerSecond acceleration = 10000;
 			StepsPerSecond minimumSpeed = 5;
 		};
@@ -153,5 +153,6 @@ namespace Modules {
 		bool interruptEnabed = false;
 		Steps position = 0;
 		MotionState currentMotionState;
+		bool musicalMode = false;
 	};
 }

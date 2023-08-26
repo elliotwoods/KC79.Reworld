@@ -29,6 +29,11 @@ namespace Modules {
 		// A messagepack encoded message (not COBS yet)
 		typedef vector<uint8_t> MsgpackBinary;
 
+		struct Packet {
+			MsgpackBinary msgpackBinary;
+			bool needsACK;
+		};
+
 		// -1 = Everybody
 		// 0 = Host
 		// 1-127 = Clients
@@ -42,11 +47,13 @@ namespace Modules {
 		void update() override;
 		void populateInspector(ofxCvGui::InspectArguments&);
 
+		bool isConnected() const;
+
 		static MsgpackBinary makeHeader(const Target&);
 
-		void transmit(const msgpack11::MsgPack&);
-		void transmit(const msgpack_sbuffer&);
-		void transmit(const MsgpackBinary& packetContent);
+		void transmit(const msgpack11::MsgPack&, bool needsACK = true);
+		void transmit(const msgpack_sbuffer&, bool needsACK = true);
+		void transmit(const MsgpackBinary& packetContent, bool needsACK = true);
 
 		void transmitPing(const Target&);
 		void transmitMessage(const Target&, const nlohmann::json&);
@@ -74,7 +81,7 @@ namespace Modules {
 			vector<uint8_t> cobsIncoming;
 			bool isFirstIncoming = true;
 			ofThreadChannel<MsgpackBinary> inbox;
-			ofThreadChannel<MsgpackBinary> outbox;
+			ofThreadChannel<Packet> outbox;
 		};
 		shared_ptr<SerialThread> serialThread;
 

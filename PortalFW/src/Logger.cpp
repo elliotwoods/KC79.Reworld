@@ -79,12 +79,16 @@ Logger::update()
 				Modules::App::X().routines->calibrate();
 				break;
 			case 's':
-				// Setup
-				Modules::App::X().routines->setup();
+				// Startup
+				Modules::App::X().routines->startup();
 				break;
 			case 'u':
 				// Unjam
 				Modules::App::X().routines->unjam();
+				break;
+			case 'r':
+				// Reboot
+				NVIC_SystemReset();
 				break;
 			case 'v':
 				// Version
@@ -149,9 +153,10 @@ void
 Logger::printHelp()
 {
 	serial.println("c = calibrate");
-	serial.println("s = setup");
+	serial.println("s = startup");
 	serial.println("u = unjam");
 	serial.println("v = print version");
+	serial.println("r = reboot");
 	serial.println("ESC = exit current routine");
 	serial.println("any other key = print the message outbox");
 }

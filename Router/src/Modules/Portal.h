@@ -30,6 +30,7 @@ namespace Modules {
 		void initRoutine();
 		void calibrateRoutine();
 		void flashLEDsRoutine();
+		void escapeFromRoutine();
 		void reset();
 
 		Target getTarget() const;

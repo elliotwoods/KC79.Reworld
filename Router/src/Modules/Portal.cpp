@@ -110,9 +110,14 @@ namespace Modules {
 				this->flashLEDsRoutine();
 			})->setDrawGlyph(u8"\uf185");
 
+			buttonStack->addButton("Escape from routine", [this]() {
+				this->escapeFromRoutine();
+				})->setDrawGlyph(u8"\uf08b");
+
 			buttonStack->addButton("Reset", [this]() {
 				this->reset();
 				})->setDrawGlyph(u8"\uf011");
+
 		}
 
 		for (auto variable : this->reportedState.variables) {
@@ -183,7 +188,6 @@ namespace Modules {
 					"init", msgpack11::MsgPack()
 				}
 			});
-		this->lastPoll = chrono::system_clock::now();
 	}
 
 	//----------
@@ -195,7 +199,6 @@ namespace Modules {
 					"calibrate", msgpack11::MsgPack()
 				}
 			});
-		this->lastPoll = chrono::system_clock::now();
 	}
 
 	//----------
@@ -210,7 +213,17 @@ namespace Modules {
 					}
 				}
 			});
-		this->lastPoll = chrono::system_clock::now();
+	}
+
+	//----------
+	void
+		Portal::escapeFromRoutine()
+	{
+		this->sendToPortal(msgpack11::MsgPack::object{
+				{
+					"escapeFromRoutine", msgpack11::MsgPack()
+				}
+			});
 	}
 
 	//----------

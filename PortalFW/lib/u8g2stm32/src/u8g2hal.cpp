@@ -17,11 +17,21 @@ byte address = 0x3C;
 #define OLED_RST_Pin GPIO_PIN_11
 #define OLED_RST_GPIO_Port GPIOD
 
-void u8x8_stm32_init_i2c()
+bool u8x8_stm32_init_i2c()
 {
 	Wire.setSCL(PB10);
 	Wire.setSDA(PB11);
 	Wire.begin();
+
+	// Check if device exists
+	Wire.beginTransmission(address);
+	auto error = Wire.endTransmission();
+	if(error == 0) {
+		return true;
+	}
+	else {
+		return false;
+	}
 }
 
 uint8_t u8x8_stm32_gpio_and_delay(u8x8_t *u8x8, uint8_t msg, uint8_t arg_int, void *arg_ptr)

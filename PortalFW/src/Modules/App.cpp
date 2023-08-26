@@ -84,6 +84,9 @@ namespace Modules
 		// reset this flag
 		this->shouldEscapeFromRoutine = false;
 
+		// reset the indicator LED
+		digitalWrite(LED_INDICATOR, LOW);
+
 		Logger::X().update();
 
 		this->id->update();
@@ -130,6 +133,11 @@ namespace Modules
 		// Update logger (e.g. dump messages on request)
 		Logger::X().update();
 
+#ifndef GUI_DISABLED
+		// Update GUI
+		App::instance->gui->update();
+#endif
+
 		// Process RS485 messages
 		App::instance->rs485->update();
 
@@ -143,7 +151,13 @@ namespace Modules
 			digitalWrite(LED_HEARTBEAT, state ? LOW : HIGH);
 		}
 
-		return App::X().shouldEscapeFromRoutine;
+		if(App::instance->shouldEscapeFromRoutine) {
+			log(LogLevel::Status, "Exiting routine");
+			return true;
+		}
+		else {
+			return false;
+		}
 	}
 
 	//---------
@@ -345,6 +359,14 @@ namespace Modules
 			}
 
 			this->routines->flashLEDs(period, count);
+			return true;
+		}
+
+		else if (strcmp(key, "escapeFromRoutine")) {
+			if(!msgpack::readNil(stream)) {
+				return false;
+			}
+			this->escapeFromRoutine();
 			return true;
 		}
 

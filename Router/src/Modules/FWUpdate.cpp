@@ -71,16 +71,44 @@ namespace Modules {
 	void
 		FWUpdate::uploadFirmware(const string& path)
 	{
-		// Read contents from file
-		auto file = ofFile(path);
-		auto fileBuffer = file.readToBuffer();
-		file.close();
-		auto size = fileBuffer.size();
-		cout << size << endl;
+		// Check RS485 connected
+		{
+			auto rs485 = this->rs485.lock();
+			if (!rs485->isConnected()) {
+				ofSystemAlertDialog("No RS485 device connected");
+				return;
+			}
+		}
 
-		if (fileBuffer.size() == 0) {
-			ofLogError("FWUpdate") << "Couldn't read file contents";
-			return;
+		vector<uint8_t> data;
+		{
+			// Read contents from file
+			{
+				auto file = ofFile(path);
+				auto fileBuffer = file.readToBuffer();
+				file.close();
+				auto size = fileBuffer.size();
+				cout << "File size : " << size << endl;
+
+				if (fileBuffer.size() == 0) {
+					ofLogError("FWUpdate") << "Couldn't read file contents";
+					return;
+				}
+
+				auto rawData = (uint8_t*)fileBuffer.getData();
+				data.assign(rawData, rawData + fileBuffer.size());
+			}
+
+			// Truncate all 0xFFs from end of firmware
+			if(this->parameters.upload.truncate.get()) {
+				auto lastFF = data.size();
+				while (data[lastFF - 1] == 0xFF) {
+					lastFF--;
+				}
+
+				data.resize(lastFF);
+			}
+			cout << "Contents size : " << data.size() << endl;
 		}
 
 		// 1. First announce it
@@ -108,16 +136,16 @@ namespace Modules {
 		{
 			ofxCvGui::Utils::drawProcessingNotice("Uploading");
 
-			auto dataPosition = fileBuffer.getData();
-			auto dataEnd = dataPosition + size;
-			uint16_t packetIndex = 0;
+			auto dataPosition = data.data();
+			auto dataEnd = dataPosition + data.size();
+			uint32_t packetIndex = 0;
 			const auto frameSize = this->parameters.upload.frameSize;
-			auto frameOffset = 0;
+			uint32_t frameOffset = 0;
 
 			while (dataPosition < dataEnd) {
 				auto remainingSize = dataEnd - dataPosition;
 				{
-					ofxCvGui::Utils::drawProcessingNotice("Uploading : " + ofToString(remainingSize / 1000, 1) + "kB remaining");
+					ofxCvGui::Utils::drawProcessingNotice("Uploading : " + ofToString(remainingSize / 1024, 1) + "kB remaining");
 				}
 
 				
@@ -214,7 +242,7 @@ namespace Modules {
 			msgpack_pack_str_body(&packer, magicWord.c_str(), magicWord.size());
 		}
 
-		rs485->transmit(messageBuffer);
+		rs485->transmit(messageBuffer, false);
 		msgpack_sbuffer_destroy(&messageBuffer);
 
 		this->announce.lastSend = chrono::system_clock::now();
@@ -222,8 +250,8 @@ namespace Modules {
 
 	//----------
 	void
-		FWUpdate::uploadFirmwarePacket(uint16_t frameOffset
-			, const char* packetData
+		FWUpdate::uploadFirmwarePacket(uint32_t frameOffset
+			, uint8_t * packetData
 			, size_t packetSize)
 	{
 		auto rs485 = this->rs485.lock();
@@ -265,7 +293,7 @@ namespace Modules {
 				msgpack_pack_map(&packer, 1);
 				{
 					// Key is the packet index
-					msgpack_pack_uint16(&packer, frameOffset);
+					msgpack_pack_uint32(&packer, frameOffset);
 
 					// Value is the data
 					msgpack_pack_bin(&packer, packetBody.size());
@@ -274,7 +302,7 @@ namespace Modules {
 				
 			}
 
-			rs485->transmit(messageBuffer);
+			rs485->transmit(messageBuffer, false);
 			msgpack_sbuffer_destroy(&messageBuffer);
 		}
 	}

@@ -1,0 +1,10 @@
+{
+    "files.associations": {
+        "system_error": "cpp",
+        "stm32g0xx_hal.h": "c",
+        "*.tcc": "c",
+        "ostream": "c",
+        "stm32g0xx_ll_iwdg.h": "c",
+        "defines.h": "c"
+    }
+}

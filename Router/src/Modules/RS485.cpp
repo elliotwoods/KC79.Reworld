@@ -159,6 +159,14 @@ namespace Modules {
 	}
 
 	//----------
+	bool
+		RS485::isConnected() const
+	{
+		// if there's no thread then not connected
+		return (bool)this->serialThread;
+	}
+
+	//----------
 	RS485::MsgpackBinary
 		RS485::makeHeader(const Target& target)
 	{
@@ -190,34 +198,34 @@ namespace Modules {
 
 	//----------
 	void
-		RS485::transmit(const msgpack11::MsgPack& message)
+		RS485::transmit(const msgpack11::MsgPack& message, bool needsACK)
 	{
 		auto dataString = message.dump();
 		auto dataBegin = (uint8_t*)dataString.data();
 		auto dataEnd = dataBegin + dataString.size();
 		auto data = vector<uint8_t>(dataBegin, dataEnd);
-		this->transmit(data);
+		this->transmit(data, needsACK);
 	}
 
 	//----------
 	void
-		RS485::transmit(const msgpack_sbuffer& buffer)
+		RS485::transmit(const msgpack_sbuffer& buffer, bool needsACK)
 	{
 		auto data = (uint8_t*) buffer.data;
 		auto message = MsgpackBinary(data, data + buffer.size);
-		this->transmit(message);
+		this->transmit(message, needsACK);
 	}
 
 	//----------
 	void
-		RS485::transmit(const MsgpackBinary& packetContent)
+		RS485::transmit(const MsgpackBinary& packetContent, bool needsACK)
 	{
-		if (!this->serialThread) {
+		if (!this->isConnected()) {
 			ofLogError() << "Cannot transmit when serial is closed";
 			return;
 		}
 
-		this->serialThread->outbox.send(packetContent);
+		this->serialThread->outbox.send({ packetContent, needsACK });
 	}
 
 	//----------
@@ -383,8 +391,10 @@ namespace Modules {
 			return false;
 		}
 
-		MsgpackBinary msgpackBinary;
-		while (this->serialThread->outbox.tryReceive(msgpackBinary)) {
+		Packet packet;
+		while (this->serialThread->outbox.tryReceive(packet)) {
+			const auto& msgpackBinary = packet.msgpackBinary;
+
 			auto data = msgpackBinary.data();
 			auto size = msgpackBinary.size();
 
@@ -428,7 +438,7 @@ namespace Modules {
 			this_thread::sleep_for(chrono::milliseconds(this->parameters.gapBetweenSends_ms.get()));
 
 			// After we send, we try to receive for up to the duration of the response window
-			{
+			if(packet.needsACK) {
 				auto responseWindowDuration = chrono::milliseconds(this->parameters.responseWindow_ms.get());
 				auto responseWindowEnd = chrono::system_clock::now() + responseWindowDuration;
 

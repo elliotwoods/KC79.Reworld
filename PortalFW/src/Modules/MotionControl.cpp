@@ -648,6 +648,18 @@ namespace Modules {
 
 		auto motionState = this->calculateMotionState(dt);
 
+		if(this->musicalMode) {
+			// quantise to notes
+			float note = (float) motionState.speed / 262.0f;
+			auto octave = (int32_t) log2f((float) note);
+
+			// quantise to quarters
+			auto octaveQuantised = ceilf(octave * 4.0f) / 4.0f;
+			int32_t musicalSpeed = pow(2, octaveQuantised) * 262.0f;
+
+			motionState.speed = musicalSpeed;
+		}
+
 		if(!motionState.motorRunning && this->currentMotionState.motorRunning) {
 			// Stop all motion
 			this->stop();
@@ -811,8 +823,8 @@ namespace Modules {
 		MotionProfile unblockMotionProfile;
 		{
 			unblockMotionProfile.acceleration = 500;
-			unblockMotionProfile.maximumSpeed = 500;
-			unblockMotionProfile.minimumSpeed = 5;
+			unblockMotionProfile.maximumSpeed = 523; // note C5
+			unblockMotionProfile.minimumSpeed = 50;
 		}
 		this->setMotionProfile(unblockMotionProfile);
 
@@ -836,7 +848,7 @@ namespace Modules {
 		};
 		
 		// Set end position to be 2x complete rotation
-		auto endPosition = this->getMicrostepsPerPrismRotation();
+		auto endPosition = this->getMicrostepsPerPrismRotation() * 2;
 		this->setTargetPosition(endPosition);
 		
 		// Wait for move
@@ -845,7 +857,7 @@ namespace Modules {
 		{
 			this->update();
 			if(App::updateFromRoutine()) { endRoutine(); return Exception::Escape(); }
-			HAL_Delay(10); // longer delay because dt is otherwise too short for these steps
+			HAL_Delay(20); // longer delay because dt is otherwise too short for these steps
 
 			if (millis() > routineDeadline)
 			{
@@ -875,7 +887,7 @@ namespace Modules {
 		{
 			this->update();
 			if(App::updateFromRoutine()) { endRoutine(); return Exception::Escape(); }
-			HAL_Delay(10); // longer delay because dt is otherwise too short for these steps
+			HAL_Delay(20); // longer delay because dt is otherwise too short for these steps
 
 			if (millis() > routineDeadline)
 			{
@@ -888,33 +900,6 @@ namespace Modules {
 			endRoutine();
 			return Exception("Didn't see BW switch");
 		}
-
-		// Walk back onto switch
-		if(switchesSeen.forwards.seen) {
-			auto target1 = switchesSeen.forwards.positionFirstSeen;
-			auto target2 = switchesSeen.backwards.positionFirstSeen;
-			auto distanceToTarget1 = abs(this->getPosition() - target1);
-			auto distanceToTarget2 = abs(this->getPosition() - target2);
-
-			auto target = distanceToTarget1 < distanceToTarget2
-				? target1
-				: target2;
-
-			{
-				char message[100];
-				sprintf(message, "unjam : Walk back onto switch at %d", target);
-				log(LogLevel::Status, message);
-			}
-
-			this->setTargetPosition(target);
-			
-			while(abs(this->getPosition() - this->getTargetPosition()) > 5) {
-				HAL_Delay(100); // longer delay because dt is otherwise too short for these steps
-				this->update();
-				if(App::updateFromRoutine()) { endRoutine(); return Exception::Escape(); }
-			}
-		}
-		
 
 		endRoutine();
 
@@ -945,13 +930,18 @@ namespace Modules {
 		uint32_t timeoutTime = startTime + (uint32_t) settings.timeout_s * 1000U;
 
 		// Move off switch if already on
-		log(LogLevel::Status, "tune : Move off switch");
-		while(this->homeSwitch.getForwardsActive()) {
-			if(millis() > timeoutTime) { endRoutine(); return Exception::Timeout(); }
-			this->update();
-			if(App::updateFromRoutine()) { endRoutine(); return Exception::Escape(); }
-			HAL_Delay(1);
+		if(this->homeSwitch.getForwardsActive()) {
+			this->setTargetPosition(this->getPosition() + this->getMicrostepsPerPrismRotation());
+			log(LogLevel::Status, "tune : Move off switch");
+			while(this->homeSwitch.getForwardsActive()) {
+				if(millis() > timeoutTime) { endRoutine(); return Exception::Timeout(); }
+				this->update();
+				if(App::updateFromRoutine()) { endRoutine(); return Exception::Escape(); }
+				HAL_Delay(1);
+			}
+			this->stop();
 		}
+		
 
 		while(true) {
 			log(LogLevel::Status, "tune : Single rotation CW");
@@ -989,6 +979,28 @@ namespace Modules {
 					this->motorDriverSettings.setCurrent(current);
 				}
 			}
+		}
+
+		// Walk back onto switch
+		{
+			auto target = switchesSeen.forwards.positionFirstSeen;
+
+			{
+				char message[100];
+				sprintf(message, "tune : Walk back onto switch at %d", target);
+				log(LogLevel::Status, message);
+			}
+
+			this->setTargetPosition(target);
+
+			while(abs(this->getPosition() - this->getTargetPosition()) > 5) {
+				this->update();
+				if(App::updateFromRoutine()) { endRoutine(); return Exception::Escape(); }
+				HAL_Delay(1);
+			}
+
+			// Set this as new home
+			this->zeroCurrentPosition();
 		}
 
 		endRoutine();

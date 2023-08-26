@@ -27,6 +27,7 @@ namespace Modules {
 			LogMessage logMessage;
 		};
 		std::vector<LogLine> logLines;
+		bool guiEnabled = false;
 		bool needsUpdate = true;
 	};
 }
