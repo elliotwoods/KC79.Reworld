@@ -1,5 +1,6 @@
 #include "pch_App.h"
 #include "Logger.h"
+#include "../Portal.h"
 
 namespace Modules {
 	namespace PerPortal {
@@ -116,6 +117,7 @@ namespace Modules {
 			Logger::init()
 		{
 			this->onPopulateInspector += [this](ofxCvGui::InspectArguments& args) {
+				this->portal->populateInspectorPanelHeader(args);
 				this->populateInspector(args);
 			};
 		}

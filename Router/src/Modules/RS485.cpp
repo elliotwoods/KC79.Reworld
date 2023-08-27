@@ -125,6 +125,15 @@ namespace Modules {
 			return this->debug.txCount;
 			});
 
+		inspector->addLiveValue<size_t>("Outbox count", [this]() {
+			if (this->serialThread) {
+				return this->serialThread->outbox.size();
+			}
+			else {
+				return (size_t)0;
+			}
+			});
+
 		{
 			auto widget = make_shared<ofxCvGui::Widgets::Heartbeat>("Rx Error", [this]() {
 				return this->debug.isFrameNewMessageRxError.isFrameNew;

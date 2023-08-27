@@ -1,5 +1,6 @@
 #include "Exception.h"
 #include "Logger.h"
+#include "Modules/RS485.h"
 
 //-----------
 Exception::Exception(const char* message)
@@ -20,6 +21,10 @@ Exception::None()
 Exception
 Exception::MessageFormatError()
 {
+	// Message format error can occur on message collision
+	// In this case the router should just look out for lack of ACK
+	Modules::RS485::noACKRequired();
+
 	return Exception("MessageFormatError");
 }
 

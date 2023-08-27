@@ -127,29 +127,75 @@ namespace Modules {
 			}
 		}
 
-		// Actions
+		// Broadcast actions
 		{
 			inspector->addTitle("Broadcast:", ofxCvGui::Widgets::Title::Level::H3);
 
-			auto horizontalStack = inspector->addHorizontalStack();
-			horizontalStack->addButton("Initialise", [this]() {
-				this->broadcastInit();
-				})->setDrawGlyph(u8"\uf11e");
-			horizontalStack->addButton("Calibrate", [this]() {
-				this->broadcastCalibrate();
-				})->setDrawGlyph(u8"\uf545");
-			horizontalStack->addButton("Flash LED", [this]() {
-				this->broadcastFlashLED();
-				})->setDrawGlyph(u8"\uf185");
-			horizontalStack->addButton("Home", [this]() {
-				this->broadcastHome();
-				})->setDrawGlyph(u8"\uf015");
-			horizontalStack->addButton("See through", [this]() {
-				this->broadcastSeeThrough();
-				})->setDrawGlyph(u8"\uf06e");
-			horizontalStack->addButton("Reset", [this]() {
-				this->broadcastReset();
-				})->setDrawGlyph(u8"\uf011");
+			auto buttonStack = inspector->addHorizontalStack();
+
+			// Special action for poll
+			buttonStack->addButton("Poll", [this]() {
+				for(auto portal : this->portals) {
+					portal->poll();
+				}
+				}, ' ')->setDrawGlyph(u8"\uf059");
+
+			// Add actions
+			auto actions = Portal::getActions();
+			for (const auto& action : actions) {
+				auto hasHotkey = action.shortcutKey != 0;
+
+				auto buttonAction = [this, action]() {
+					this->broadcast(action.message);
+				};
+
+				auto button = hasHotkey
+					? buttonStack->addButton(action.caption, buttonAction, action.shortcutKey)
+					: buttonStack->addButton(action.caption, buttonAction);
+
+				button->setDrawGlyph(action.icon);
+			}
+
+			// Add simple pilot (draggable button
+			{
+				inspector->addTitle("Pilot all:", ofxCvGui::Widgets::Title::Level::H3);
+
+				auto pilotButton = inspector->addButton("", []() {});
+				pilotButton->setHeight(inspector->getWidth());
+
+				// Add mouse action
+				auto pilotButtonWeak = weak_ptr<ofxCvGui::Element>(pilotButton);
+				pilotButton->onMouse += [this, pilotButtonWeak](ofxCvGui::MouseArguments& args) {
+					if (this->portals.empty()) {
+						return;
+					}
+
+					auto pilotButton = pilotButtonWeak.lock();
+					if (args.isDragging(pilotButton)) {
+						auto firstPortal = this->portals.front();
+						auto firstPilot = firstPortal->getPilot();
+
+						auto position = args.localNormalized * 2.0f - 1.0f;
+						position.y *= -1.0f; // position +y is up
+
+						auto polar = firstPilot->positionToPolar(position);
+						auto axes = firstPilot->polarToAxes(position);
+
+						auto stepsA = firstPilot->axisToSteps(axes[0], 0);
+						auto stepsB = firstPilot->axisToSteps(axes[1], 1);
+
+						this->broadcast(MsgPack::object{
+							{
+								"m"
+								, MsgPack::array {
+									stepsA
+									, stepsB
+								}
+							}
+							});
+					}
+				};
+			}
 		}
 		
 	}
@@ -219,81 +265,13 @@ namespace Modules {
 
 	//----------
 	void
-		App::broadcastInit()
-	{
-		this->broadcast(MsgPack::object{
-			{ "init", MsgPack() }
-			});
-	}
-
-	//----------
-	void
-		App::broadcastCalibrate()
-	{
-		this->broadcast(MsgPack::object{
-			{ "calibrate", MsgPack() }
-			});
-	}
-
-	//----------
-	void
-		App::broadcastFlashLED()
-	{
-		this->broadcast(MsgPack::object{
-			{ "flashLED", MsgPack() }
-			});
-	}
-
-	//----------
-	void
-		App::broadcastHome()
-	{
-		this->broadcast(MsgPack::object{
-			{
-				"m"
-				, MsgPack::array {
-					0
-					, 0
-				}
-			}
-			});
-	}
-	
-	//----------
-	void
-		App::broadcastSeeThrough()
-	{
-		this->broadcast(MsgPack::object{
-			{
-				"m"
-				, MsgPack::array {
-					MOTION_MICROSTEPS_PER_PRISM_ROTATION / 2
-					, 0
-				}
-			}
-			});
-	}
-
-	//----------
-	void
-		App::broadcastReset()
-	{
-		this->broadcast(MsgPack::object{
-			{
-				"reset", MsgPack()
-			}
-			});
-	}
-
-	//----------
-	void
 		App::broadcast(const msgpack11::MsgPack& message)
 	{
 		this->rs485->transmit(msgpack11::MsgPack::array{
 			-1
 			, (int8_t)0
 			, message
-		});
+		}, false);
 	}
 
 	//----------

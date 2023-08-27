@@ -41,6 +41,7 @@ namespace Modules {
 			Axis::init()
 		{
 			this->onPopulateInspector += [this](ofxCvGui::InspectArguments& args) {
+				this->portal->populateInspectorPanelHeader(args);
 				this->populateInspector(args);
 			};
 

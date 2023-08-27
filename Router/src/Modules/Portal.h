@@ -16,6 +16,15 @@ namespace Modules {
 	public:
 		typedef uint8_t Target;
 
+		struct Action {
+			string caption;
+			string icon;
+			msgpack11::MsgPack message;
+			char shortcutKey = 0;
+		};
+
+		static vector<Action> getActions();
+
 		Portal(shared_ptr<RS485>, int Target);
 		string getTypeName() const override;
 		string getGlyph() const override;
@@ -23,15 +32,11 @@ namespace Modules {
 		void init() override;
 		void update() override;
 
+		void poll();
+
+		void populateInspectorPanelHeader(ofxCvGui::InspectArguments&);
 		void populateInspector(ofxCvGui::InspectArguments&);
 		void processIncoming(const nlohmann::json&) override;
-
-		void poll();
-		void initRoutine();
-		void calibrateRoutine();
-		void flashLEDsRoutine();
-		void escapeFromRoutine();
-		void reset();
 
 		Target getTarget() const;
 		void setTarget(Target);
@@ -42,6 +47,7 @@ namespace Modules {
 		shared_ptr<PerPortal::MotorDriverSettings> getMotorDriverSettings();
 		shared_ptr<PerPortal::Axis> getAxis(int axis);
 		shared_ptr<PerPortal::Pilot> getPilot();
+
 
 		ofxLiquidEvent<Target> onTargetChange;
 	protected:
@@ -63,13 +69,7 @@ namespace Modules {
 				PARAM_DECLARE("Poll", regularly, interval);
 			} poll;
 
-			struct : ofParameterGroup {
-				ofParameter<int> period{ "Period [ms]", 500 };
-				ofParameter<int> count{ "Count", 5 };
-				PARAM_DECLARE("Flash", period, count);
-			} flash;
-
-			PARAM_DECLARE("Portal", targetID, poll, flash);
+			PARAM_DECLARE("Portal", targetID, poll);
 		} parameters;
 
 		struct {

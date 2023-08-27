@@ -23,10 +23,14 @@ namespace Utils{
 	shared_ptr<ofxCvGui::Widgets::Button>
 		makeButton(shared_ptr<Modules::Portal> portal)
 	{
-		auto button = make_shared<ofxCvGui::Widgets::Button>(ofToString((int) portal->getTarget()), [portal]() {
+		auto action = [portal]() {
 			ofxCvGui::inspect(portal);
-			});
-
+		};
+		auto numberString = ofToString((int)portal->getTarget());
+		auto button = (int)portal->getTarget() < 10
+			? make_shared<ofxCvGui::Widgets::Button>(numberString, action, numberString[0])
+			: make_shared<ofxCvGui::Widgets::Button>(numberString, action);
+		
 		return button;
 	}
 

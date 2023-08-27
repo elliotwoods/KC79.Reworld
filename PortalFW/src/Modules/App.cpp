@@ -133,13 +133,11 @@ namespace Modules
 		// Update logger (e.g. dump messages on request)
 		Logger::X().update();
 
-#ifndef GUI_DISABLED
-		// Update GUI
-		App::instance->gui->update();
-#endif
-
 		// Process RS485 messages
 		App::instance->rs485->update();
+
+		// Perform ID updates
+		App::instance->id->update();
 
 		// Feed the watchdog
 		LL_IWDG_ReloadCounter(IWDG);
@@ -150,6 +148,11 @@ namespace Modules
 			digitalWrite(LED_INDICATOR, state ? HIGH : LOW);
 			digitalWrite(LED_HEARTBEAT, state ? LOW : HIGH);
 		}
+
+#ifndef GUI_DISABLED
+		// Update GUI
+		App::instance->gui->update();
+#endif
 
 		if(App::instance->shouldEscapeFromRoutine) {
 			log(LogLevel::Status, "Exiting routine");
@@ -362,7 +365,7 @@ namespace Modules
 			return true;
 		}
 
-		else if (strcmp(key, "escapeFromRoutine")) {
+		else if (strcmp(key, "escapeFromRoutine") == 0) {
 			if(!msgpack::readNil(stream)) {
 				return false;
 			}

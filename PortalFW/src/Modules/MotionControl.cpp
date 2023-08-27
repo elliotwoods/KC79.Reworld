@@ -725,6 +725,16 @@ namespace Modules {
 						, directionToTarget
 					};
 				}
+				else if (speed < this->motionProfile.minimumSpeed) {
+					// decellerated into minimum speed region and need to switch direction
+
+					// switch to minimum speed in opposite direction
+					return MotionState {
+						true
+						, this->motionProfile.minimumSpeed
+						, directionToTarget
+					};
+				}
 				else {
 					// still moving in same direction, but deccelerating to change direction
 					return MotionState {
@@ -976,6 +986,11 @@ namespace Modules {
 					return Exception("tune : Cannot raise the current higher");
 				}
 				else {
+					{
+						char message[100];
+						sprintf(message, "tune : Increasing current to %dmA", (int) (current * 1000.0f));
+						log(LogLevel::Status, message);
+					}
 					this->motorDriverSettings.setCurrent(current);
 				}
 			}

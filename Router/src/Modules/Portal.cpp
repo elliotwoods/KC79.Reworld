@@ -1,7 +1,88 @@
 #include "pch_App.h"
 #include "Portal.h"
 
+using namespace msgpack11;
+
 namespace Modules {
+	//----------
+	vector<Portal::Action>
+	Portal::getActions()
+	{
+		return {
+			{
+				"Initialise routine"
+				, u8"\uf11e"
+				, msgpack11::MsgPack::object {
+					{
+						"init", msgpack11::MsgPack()
+					}
+				}
+			}
+			, {
+				"Calibrate routine"
+				, u8"\uf545"
+				, msgpack11::MsgPack::object {
+					{
+						"calibrate", msgpack11::MsgPack()
+					}
+				}
+			}
+			, {
+				"Flash lights"
+				, u8"\uf185"
+				, msgpack11::MsgPack::object {
+					{
+						"flashLED", msgpack11::MsgPack()
+					}
+				}
+			}
+			, {
+				"Home"
+				, u8"\uf015"
+				, msgpack11::MsgPack::object {
+					{
+						"m"
+						, MsgPack::array {
+							0
+							, 0
+						}
+					}
+				}
+			}
+			, {
+				"See through"
+				, u8"\uf06e"
+				, msgpack11::MsgPack::object {
+					{
+						"m"
+						, MsgPack::array {
+							MOTION_MICROSTEPS_PER_PRISM_ROTATION / 2
+							, 0
+						}
+					}
+				}
+			}
+			, {
+				"Escape from routine"
+				, u8"\uf2f5"
+				, msgpack11::MsgPack::object {
+					{
+						"escapeFromRoutine", msgpack11::MsgPack()
+					}
+				}
+			}
+			, {
+				"Reboot"
+				, u8"\uf011"
+				, msgpack11::MsgPack::object {
+					{
+						"reset", msgpack11::MsgPack()
+					}
+				}
+			}
+		};
+	}
+
 	//----------
 	Portal::Portal(shared_ptr<RS485> rs485, int targetID)
 		: rs485(rs485)
@@ -68,9 +149,45 @@ namespace Modules {
 
 	//----------
 	void
+		Portal::populateInspectorPanelHeader(ofxCvGui::InspectArguments& args)
+	{
+		auto inspector = args.inspector;
+
+		auto buttonStack = inspector->addHorizontalStack();
+
+		// Add title number for portal ID
+		buttonStack->add(make_shared<ofxCvGui::Widgets::Title>("#" + ofToString((int) this->getTarget())));
+
+		// Add actions
+		auto actions = Portal::getActions();
+
+		// Special action for poll
+		buttonStack->addButton("Poll", [this]() {
+			this->poll();
+			}, ' ')->setDrawGlyph(u8"\uf059");
+
+
+		for (const auto& action : actions) {
+			auto hasHotkey = action.shortcutKey != 0;
+			auto buttonAction = [this, action]() {
+				this->sendToPortal(action.message);
+			};
+
+			auto button = hasHotkey
+				? buttonStack->addButton(action.caption, buttonAction, action.shortcutKey)
+				: buttonStack->addButton(action.caption, buttonAction);
+
+			button->setDrawGlyph(action.icon);
+		}
+	}
+
+	//----------
+	void
 		Portal::populateInspector(ofxCvGui::InspectArguments& args)
 	{
 		auto inspector = args.inspector;
+
+		this->populateInspectorPanelHeader(args);
 
 		for (auto submodule : this->submodules) {
 			submodule->addSubMenuToInsecptor(inspector, submodule);
@@ -91,34 +208,6 @@ namespace Modules {
 				return message->message;
 			}
 			});
-
-		auto buttonStack = inspector->addHorizontalStack();
-		{
-			buttonStack->addButton("Poll", [this]() {
-				this->poll();
-			}, ' ')->setDrawGlyph(u8"\uf059");
-
-			buttonStack->addButton("Initialise routine", [this]() {
-				this->initRoutine();
-			})->setDrawGlyph(u8"\uf11e");
-
-			buttonStack->addButton("Calibrate routine", [this]() {
-				this->calibrateRoutine();
-				})->setDrawGlyph(u8"\uf545");
-
-			buttonStack->addButton("Flash lights", [this]() {
-				this->flashLEDsRoutine();
-			})->setDrawGlyph(u8"\uf185");
-
-			buttonStack->addButton("Escape from routine", [this]() {
-				this->escapeFromRoutine();
-				})->setDrawGlyph(u8"\uf08b");
-
-			buttonStack->addButton("Reset", [this]() {
-				this->reset();
-				})->setDrawGlyph(u8"\uf011");
-
-		}
 
 		for (auto variable : this->reportedState.variables) {
 			inspector->add(Utils::makeGUIElement(variable));
@@ -177,64 +266,6 @@ namespace Modules {
 				}
 			});
 		this->lastPoll = chrono::system_clock::now();
-	}
-
-	//----------
-	void
-		Portal::initRoutine()
-	{
-		this->sendToPortal(msgpack11::MsgPack::object{
-				{
-					"init", msgpack11::MsgPack()
-				}
-			});
-	}
-
-	//----------
-	void
-		Portal::calibrateRoutine()
-	{
-		this->sendToPortal(msgpack11::MsgPack::object{
-				{
-					"calibrate", msgpack11::MsgPack()
-				}
-			});
-	}
-
-	//----------
-	void
-		Portal::flashLEDsRoutine()
-	{
-		this->sendToPortal(msgpack11::MsgPack::object{
-				{
-					"flashLED", msgpack11::MsgPack::array {
-						(uint16_t)this->parameters.flash.period.get()
-						, (uint16_t)this->parameters.flash.count.get()
-					}
-				}
-			});
-	}
-
-	//----------
-	void
-		Portal::escapeFromRoutine()
-	{
-		this->sendToPortal(msgpack11::MsgPack::object{
-				{
-					"escapeFromRoutine", msgpack11::MsgPack()
-				}
-			});
-	}
-
-	//----------
-	void
-		Portal::reset()
-	{
-		this->sendToPortal(msgpack11::MsgPack::object{
-				{
-					"reset", msgpack11::MsgPack()
-				}
-			});
 	}
 
 	//----------

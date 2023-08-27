@@ -31,6 +31,7 @@ namespace Modules {
 		void broadcastFlashLED();
 		void broadcastHome();
 		void broadcastSeeThrough();
+		void broadcastEscapeFromRoutine();
 		void broadcastReset();
 		void broadcast(const msgpack11::MsgPack&);
 

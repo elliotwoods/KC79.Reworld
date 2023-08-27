@@ -30,6 +30,7 @@ namespace Modules {
 		// Use this update if you're doing a routine that's blocking the mainloop
 		// e.g. to send a reboot / FW announce
 		// Returns if should escape
+		// This doesn't do anything with motors, switches
 		static bool updateFromRoutine();
 		void escapeFromRoutine();
 
