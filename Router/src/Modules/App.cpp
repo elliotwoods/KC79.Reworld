@@ -272,11 +272,14 @@ namespace Modules {
 	void
 		App::broadcast(const msgpack11::MsgPack& message)
 	{
-		this->rs485->transmit(msgpack11::MsgPack::array{
-			-1
-			, (int8_t)0
-			, message
-		}, false);
+		auto packet = RS485::Packet(
+			msgpack11::MsgPack::array{
+				-1
+				, (int8_t)0
+				, message
+			});
+		packet.needsACK = false;
+		this->rs485->transmit(packet);
 	}
 
 	//----------

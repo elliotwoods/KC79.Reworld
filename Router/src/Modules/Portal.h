@@ -2,6 +2,7 @@
 
 #include "Base.h"
 #include "RS485.h"
+#include "Utils.h"
 
 #include "PerPortal/MotorDriverSettings.h"
 #include "PerPortal/Axis.h"
@@ -82,6 +83,16 @@ namespace Modules {
 				, & calibrated
 			};
 		} reportedState;
+
+		struct {
+			Utils::IsFrameNew rx;
+			Utils::IsFrameNew tx;
+		} isFrameNew;
+
+		struct {
+			shared_ptr<ofxCvGui::Widgets::Heartbeat> rxHeartbeat;
+			shared_ptr<ofxCvGui::Widgets::Heartbeat> txHeartbeat;
+		} storedWidgets; // These are not rebuilt
 
 		chrono::system_clock::time_point lastPoll = chrono::system_clock::now();
 		chrono::system_clock::time_point lastIncoming = chrono::system_clock::now();

@@ -15,6 +15,37 @@ void printChar(int byte) {
 };
 
 namespace Modules {
+#pragma mark Packet
+	//----------
+	RS485::Packet::Packet()
+	{
+
+	}
+
+	//----------
+	RS485::Packet::Packet(const MsgpackBinary& msgpackBinary)
+		: msgpackBinary(msgpackBinary)
+	{
+
+	}
+
+	//----------
+	RS485::Packet::Packet(const msgpack11::MsgPack& message)
+	{
+		auto dataString = message.dump();
+		auto dataBegin = (uint8_t*)dataString.data();
+		auto dataEnd = dataBegin + dataString.size();
+		this->msgpackBinary.assign(dataBegin, dataEnd);
+	}
+
+	//----------
+	RS485::Packet::Packet(const msgpack_sbuffer& buffer)
+	{
+		auto data = (uint8_t*)buffer.data;
+		this->msgpackBinary.assign(data, data + buffer.size);
+	}
+
+#pragma mark RS485
 	//----------
 	RS485::RS485(App * app)
 		: app(app)
@@ -207,46 +238,28 @@ namespace Modules {
 
 	//----------
 	void
-		RS485::transmit(const msgpack11::MsgPack& message, bool needsACK)
-	{
-		auto dataString = message.dump();
-		auto dataBegin = (uint8_t*)dataString.data();
-		auto dataEnd = dataBegin + dataString.size();
-		auto data = vector<uint8_t>(dataBegin, dataEnd);
-		this->transmit(data, needsACK);
-	}
-
-	//----------
-	void
-		RS485::transmit(const msgpack_sbuffer& buffer, bool needsACK)
-	{
-		auto data = (uint8_t*) buffer.data;
-		auto message = MsgpackBinary(data, data + buffer.size);
-		this->transmit(message, needsACK);
-	}
-
-	//----------
-	void
-		RS485::transmit(const MsgpackBinary& packetContent, bool needsACK)
+		RS485::transmit(const Packet& packet)
 	{
 		if (!this->isConnected()) {
 			ofLogError() << "Cannot transmit when serial is closed";
 			return;
 		}
 
-		this->serialThread->outbox.send({ packetContent, needsACK });
+		this->serialThread->outbox.send(packet);
 	}
 
 	//----------
 	void
 		RS485::transmitPing(const Target& target)
 	{
-		this->transmit(msgpack11::MsgPack::array{
-			(int8_t)target
-			, (int8_t)0
-			, msgpack11::MsgPack()
-			});
-	}
+		this->transmit(Packet(
+			msgpack11::MsgPack::array{
+				(int8_t)target
+				, (int8_t)0
+				, msgpack11::MsgPack()
+				}
+			));
+		}
 
 	//----------
 	void
@@ -443,9 +456,6 @@ namespace Modules {
 			this->debug.isFrameNewMessageTx.notify();
 			this->debug.txCount++;
 
-			// Wait for 10ms after each send
-			this_thread::sleep_for(chrono::milliseconds(this->parameters.gapBetweenSends_ms.get()));
-
 			// After we send, we try to receive for up to the duration of the response window
 			if(packet.needsACK) {
 				auto responseWindowDuration = chrono::milliseconds(this->parameters.responseWindow_ms.get());
@@ -463,6 +473,24 @@ namespace Modules {
 
 				if (timeOut) {
 					ofLogError("RS485") << "Timeout waiting for response";
+				}
+			}
+			else if (packet.customWaitTime_ms == -1) {
+				// This is likely a broadcast packet, and we need to wait after sending
+				this_thread::sleep_for(chrono::milliseconds(this->parameters.gapBetweenBroadcastSends_ms.get()));
+			}
+			else if(packet.customWaitTime_ms == 0) {
+				// No wait by desire
+			}
+			else {
+				// Custom wait time
+				this_thread::sleep_for(chrono::milliseconds(packet.customWaitTime_ms));
+			}
+
+			// Notify any listeners
+			{
+				if (packet.onSent) {
+					packet.onSent();
 				}
 			}
 		}

@@ -11,6 +11,18 @@ namespace Utils {
 	std::string getAxisLetter(int axisIndex);
 	shared_ptr<ofxCvGui::Widgets::Button> makeButton(shared_ptr<Modules::Portal>);
 
+	struct IsFrameNew {
+		void notify() {
+			this->notifyFrameNew = true;
+		}
+		void update() {
+			this->isFrameNew = this->notifyFrameNew;
+			this->notifyFrameNew = false;
+		}
+		bool isFrameNew = false;
+		bool notifyFrameNew = false;
+	};
+
 	struct IReportedState {
 		IReportedState(const string& name);
 		virtual void processIncoming(const nlohmann::json&) = 0;

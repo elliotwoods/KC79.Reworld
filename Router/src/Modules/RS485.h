@@ -3,19 +3,8 @@
 #include "ofSerial.h"
 #include "ofxCvGui.h"
 #include "Base.h"
+#include "Utils.h"
 #include "../msgpack11/msgpack11.hpp"
-
-struct IsFrameNew {
-	void notify() {
-		this->notifyFrameNew = true;
-	}
-	void update() {
-		this->isFrameNew = this->notifyFrameNew;
-		this->notifyFrameNew = false;
-	}
-	bool isFrameNew = false;
-	bool notifyFrameNew = false;
-};
 
 namespace Modules {
 	class App;
@@ -30,8 +19,16 @@ namespace Modules {
 		typedef vector<uint8_t> MsgpackBinary;
 
 		struct Packet {
+			Packet();
+			Packet(const MsgpackBinary&);
+			Packet(const msgpack11::MsgPack&);
+			Packet(const msgpack_sbuffer&);
+
 			MsgpackBinary msgpackBinary;
-			bool needsACK;
+			bool needsACK = true;
+			int32_t customWaitTime_ms = -1;
+
+			std::function<void()> onSent;
 		};
 
 		// -1 = Everybody
@@ -51,9 +48,7 @@ namespace Modules {
 
 		static MsgpackBinary makeHeader(const Target&);
 
-		void transmit(const msgpack11::MsgPack&, bool needsACK = true);
-		void transmit(const msgpack_sbuffer&, bool needsACK = true);
-		void transmit(const MsgpackBinary& packetContent, bool needsACK = true);
+		void transmit(const Packet&);
 
 		void transmitPing(const Target&);
 		void transmitMessage(const Target&, const nlohmann::json&);
@@ -94,7 +89,7 @@ namespace Modules {
 		struct : ofParameterGroup {
 			ofParameter<int> baudRate{ "Baud rate", 115200 };
 			ofParameter<int> responseWindow_ms{ "Response window [ms]", 500 };
-			ofParameter<int> gapBetweenSends_ms{ "Gap between sends [ms]",  10 };
+			ofParameter<int> gapBetweenBroadcastSends_ms{ "Gap between broadcast sends [ms]",  100 };
 
 			struct : ofParameterGroup {
 				ofParameter<bool> printResponses{ "Print responses", false };
@@ -103,7 +98,7 @@ namespace Modules {
 			} debug;
 
 			
-			PARAM_DECLARE("RS485", baudRate, responseWindow_ms, gapBetweenSends_ms, debug);
+			PARAM_DECLARE("RS485", baudRate, responseWindow_ms, gapBetweenBroadcastSends_ms, debug);
 		} parameters;
 
 		struct {
@@ -112,12 +107,12 @@ namespace Modules {
 			/// </summary>
 			vector<uint8_t> lastMessagePackTx;
 
-			IsFrameNew isFrameNewMessageRx;
-			IsFrameNew isFrameNewMessageTx;
-			IsFrameNew isFrameNewMessageRxError;
-			IsFrameNew isFrameNewDeviceRxSuccess;
-			IsFrameNew isFrameNewDeviceRxFail;
-			IsFrameNew isFrameNewDeviceError;
+			Utils::IsFrameNew isFrameNewMessageRx;
+			Utils::IsFrameNew isFrameNewMessageTx;
+			Utils::IsFrameNew isFrameNewMessageRxError;
+			Utils::IsFrameNew isFrameNewDeviceRxSuccess;
+			Utils::IsFrameNew isFrameNewDeviceRxFail;
+			Utils::IsFrameNew isFrameNewDeviceError;
 
 			size_t rxCount = 0;
 			size_t txCount = 0;

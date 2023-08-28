@@ -874,6 +874,7 @@ namespace Modules {
 
 				if(switchesSeen.forwards.seen && !switchAnnounced) {
 					log(LogLevel::Status, "unjam : FW switch seen");
+					switchAnnounced = true;
 				}
 
 				if (millis() > routineDeadline)
@@ -902,8 +903,9 @@ namespace Modules {
 				if(App::updateFromRoutine()) { endRoutine(); return Exception::Escape(); }
 				HAL_Delay(20); // longer delay because dt is otherwise too short for these steps
 
-				if(switchesSeen.forwards.seen && !switchAnnounced) {
-					log(LogLevel::Status, "unjam : FW switch seen");
+				if(switchesSeen.backwards.seen && !switchAnnounced) {
+					log(LogLevel::Status, "unjam : BW switch seen");
+					switchAnnounced = true;
 				}
 				
 				if (millis() > routineDeadline)

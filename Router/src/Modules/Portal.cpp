@@ -139,6 +139,15 @@ namespace Modules {
 		for (auto submodule : submodules) {
 			submodule->init();
 		}
+
+		{
+			this->storedWidgets.rxHeartbeat = make_shared<ofxCvGui::Widgets::Heartbeat>("Rx", [this]() {
+				return this->isFrameNew.rx.isFrameNew;
+				});
+			this->storedWidgets.txHeartbeat = make_shared<ofxCvGui::Widgets::Heartbeat>("Tx", [this]() {
+				return this->isFrameNew.tx.isFrameNew;
+				});
+		}
 	}
 
 	//----------
@@ -147,6 +156,11 @@ namespace Modules {
 	{
 		for (auto submodule : this->submodules) {
 			submodule->update();
+		}
+
+		{
+			this->isFrameNew.rx.update();
+			this->isFrameNew.tx.update();
 		}
 
 		if (this->parameters.poll.regularly) {
@@ -162,31 +176,62 @@ namespace Modules {
 	{
 		auto inspector = args.inspector;
 
-		auto buttonStack = inspector->addHorizontalStack();
+		// Horizontal stack for status
+		{
+			auto stack = inspector->addHorizontalStack();
 
-		// Add title number for portal ID
-		buttonStack->add(make_shared<ofxCvGui::Widgets::Title>("#" + ofToString((int) this->getTarget())));
+			{
 
-		// Add actions
-		auto actions = Portal::getActions();
+				// Add title number for portal ID
+				stack->add(make_shared<ofxCvGui::Widgets::Title>("#" + ofToString((int)this->getTarget())));
 
-		// Special action for poll
-		buttonStack->addButton("Poll", [this]() {
-			this->poll();
-			}, ' ')->setDrawGlyph(u8"\uf059");
+				// Time since last message
+				stack->add(make_shared<ofxCvGui::Widgets::LiveValueHistory>("Time since last message", [this]() {
+					return (float)chrono::duration_cast<chrono::milliseconds>(chrono::system_clock::now() - this->lastIncoming).count() / 1000.0f;
+					}));
+
+				// Heartbeats
+				stack->add(this->storedWidgets.rxHeartbeat);
+				stack->add(this->storedWidgets.txHeartbeat);
+
+				// Last log message
+				stack->add(make_shared<ofxCvGui::Widgets::LiveValue<string>>("Last log message", [this]() {
+					auto message = this->logger->getLatestMessage();
+					if (!message) {
+						return string("");
+					}
+					else {
+						return message->message;
+					}
+					}));
+			}
+		}
+
+		// Button stack of actions
+		{
+			auto buttonStack = inspector->addHorizontalStack();
+
+			// Add actions
+			auto actions = Portal::getActions();
+
+			// Special action for poll
+			buttonStack->addButton("Poll", [this]() {
+				this->poll();
+				}, ' ')->setDrawGlyph(u8"\uf059");
 
 
-		for (const auto& action : actions) {
-			auto hasHotkey = action.shortcutKey != 0;
-			auto buttonAction = [this, action]() {
-				this->sendToPortal(action.message);
-			};
+				for (const auto& action : actions) {
+					auto hasHotkey = action.shortcutKey != 0;
+					auto buttonAction = [this, action]() {
+						this->sendToPortal(action.message);
+					};
 
-			auto button = hasHotkey
-				? buttonStack->addButton(action.caption, buttonAction, action.shortcutKey)
-				: buttonStack->addButton(action.caption, buttonAction);
+					auto button = hasHotkey
+						? buttonStack->addButton(action.caption, buttonAction, action.shortcutKey)
+						: buttonStack->addButton(action.caption, buttonAction);
 
-			button->setDrawGlyph(action.icon);
+					button->setDrawGlyph(action.icon);
+				}
 		}
 	}
 
@@ -204,20 +249,6 @@ namespace Modules {
 
 		inspector->addSpacer();
 
-		inspector->addLiveValueHistory("Time since last message", [this]() {
-			return (float) chrono::duration_cast<chrono::milliseconds>(chrono::system_clock::now() - this->lastIncoming).count() / 1000.0f;
-			});
-
-		inspector->addLiveValue<string>("Last log message", [this]() {
-			auto message = this->logger->getLatestMessage();
-			if (!message) {
-				return string("");
-			}
-			else {
-				return message->message;
-			}
-			});
-
 		for (auto variable : this->reportedState.variables) {
 			inspector->add(Utils::makeGUIElement(variable));
 		}
@@ -230,6 +261,7 @@ namespace Modules {
 		Portal::processIncoming(const nlohmann::json& json)
 	{
 		this->lastIncoming = chrono::system_clock::now();
+		this->isFrameNew.rx.notify();
 
 		if (json.contains("mca")) {
 			this->axis[0]->getMotionControl()->processIncoming(json["mca"]);
@@ -295,12 +327,20 @@ namespace Modules {
 	void
 		Portal::sendToPortal(const msgpack11::MsgPack& message)
 	{
-		// Format as array [targetID, sourceID, message]
-		this->rs485->transmit(msgpack11::MsgPack::array{
-			(int8_t)this->parameters.targetID.get()
-			, (int8_t) 0
-			, message
-			});
+		// [target, source, message]
+		auto packet = RS485::Packet(
+			msgpack11::MsgPack::array{
+				(int8_t)this->parameters.targetID.get()
+				, (int8_t)0
+				, message
+			}
+		);
+
+		packet.onSent = [this]() {
+			this->isFrameNew.tx.notify();
+		};
+
+		this->rs485->transmit(packet);
 	}
 
 	//----------

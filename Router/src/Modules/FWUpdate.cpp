@@ -240,7 +240,14 @@ namespace Modules {
 			msgpack_pack_str_body(&packer, magicWord.c_str(), magicWord.size());
 		}
 
-		rs485->transmit(messageBuffer, false);
+		// Send packet
+		{
+			auto packet = RS485::Packet(messageBuffer);
+			packet.needsACK = false;
+			packet.customWaitTime_ms = this->parameters.upload.waitBetweenFrames.get();
+			rs485->transmit(packet);
+		}
+
 		msgpack_sbuffer_destroy(&messageBuffer);
 
 		this->announce.lastSend = chrono::system_clock::now();
@@ -307,7 +314,14 @@ namespace Modules {
 				
 			}
 
-			rs485->transmit(messageBuffer, false);
+			// Send packet
+			{
+				auto packet = RS485::Packet(messageBuffer);
+				packet.needsACK = false;
+				packet.customWaitTime_ms = this->parameters.upload.waitBetweenFrames.get();
+				rs485->transmit(packet);
+			}
+
 			msgpack_sbuffer_destroy(&messageBuffer);
 		}
 	}
