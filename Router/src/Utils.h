@@ -9,7 +9,6 @@ namespace Modules {
 
 namespace Utils {
 	std::string getAxisLetter(int axisIndex);
-	shared_ptr<ofxCvGui::Widgets::Button> makeButton(shared_ptr<Modules::Portal>);
 
 	struct IsFrameNew {
 		void notify() {

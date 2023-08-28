@@ -120,7 +120,7 @@ namespace Modules {
 				if (widgetRows.find(rowIndex) == widgetRows.end()) {
 					widgetRows.emplace(rowIndex, make_shared<ofxCvGui::Widgets::HorizontalStack>());
 				}
-				widgetRows[rowIndex]->add(Utils::makeButton(portal));
+				widgetRows[rowIndex]->add(Portal::makeButton(portal));
 			}
 			for (auto it = widgetRows.rbegin(); it != widgetRows.rend(); it++) {
 				inspector->add(it->second);

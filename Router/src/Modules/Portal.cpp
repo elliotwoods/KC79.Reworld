@@ -115,6 +115,37 @@ namespace Modules {
 	}
 
 	//----------
+	shared_ptr<ofxCvGui::Widgets::Button>
+		Portal::makeButton(shared_ptr<Modules::Portal> portal)
+	{
+		auto action = [portal]() {
+			ofxCvGui::inspect(portal);
+		};
+		auto numberString = ofToString((int)portal->getTarget());
+
+		// With or without hotkey
+		auto button = (int)portal->getTarget() < 10
+			? make_shared<ofxCvGui::Widgets::Button>(numberString, action, numberString[0])
+			: make_shared<ofxCvGui::Widgets::Button>(numberString, action);
+
+		// Add sub-widgets
+		{
+			button->addChild(portal->storedWidgets.rxHeartbeat);
+			button->addChild(portal->storedWidgets.txHeartbeat);
+
+			button->onBoundsChange += [portal](ofxCvGui::BoundsChangeArguments& args) {
+				auto width = args.localBounds.width / 3.0f;
+				portal->storedWidgets.rxHeartbeat->setWidth(width);
+				portal->storedWidgets.rxHeartbeat->setPosition({ 0, 0 });
+				portal->storedWidgets.txHeartbeat->setWidth(width);
+				portal->storedWidgets.txHeartbeat->setPosition({ 0, args.localBounds.height / 2.0f });
+			};
+		}
+
+		return button;
+	}
+
+	//----------
 	void
 		Portal::init()
 	{

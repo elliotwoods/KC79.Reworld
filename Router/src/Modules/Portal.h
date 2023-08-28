@@ -30,6 +30,8 @@ namespace Modules {
 		string getTypeName() const override;
 		string getGlyph() const override;
 
+		static shared_ptr<ofxCvGui::Widgets::Button> makeButton(shared_ptr<Modules::Portal> portal);
+
 		void init() override;
 		void update() override;
 
