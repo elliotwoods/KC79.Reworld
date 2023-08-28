@@ -81,6 +81,14 @@ namespace Modules {
 		for (auto portal : this->portals) {
 			portal->update();
 		}
+
+		if (this->parameters.scheduledPoll.enabled) {
+			auto now = chrono::system_clock::now();
+			auto deadline = this->lastPollAll + chrono::milliseconds((int)(this->parameters.scheduledPoll.period_s.get() * 1000.0f));
+			if (now >= deadline) {
+				this->pollAll();
+			}
+		}
 	}
 
 	//----------
@@ -135,9 +143,7 @@ namespace Modules {
 
 			// Special action for poll
 			buttonStack->addButton("Poll", [this]() {
-				for(auto portal : this->portals) {
-					portal->poll();
-				}
+				this->pollAll();
 				}, ' ')->setDrawGlyph(u8"\uf059");
 
 			// Add actions
@@ -155,6 +161,8 @@ namespace Modules {
 
 				button->setDrawGlyph(action.icon);
 			}
+
+			inspector->addParameterGroup(this->parameters);
 
 			// Add simple pilot (draggable button
 			{
@@ -201,8 +209,7 @@ namespace Modules {
 					}
 				};
 			}
-		}
-		
+		}		
 	}
 
 	//----------
@@ -266,6 +273,16 @@ namespace Modules {
 		else {
 			return findPortal->second;
 		}
+	}
+
+	//----------
+	void
+		App::pollAll()
+	{
+		for (auto portal : this->portals) {
+			portal->poll();
+		}
+		this->lastPollAll = chrono::system_clock::now();
 	}
 
 	//----------

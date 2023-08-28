@@ -39,7 +39,7 @@ namespace Modules {
 			struct : ofParameterGroup {
 				ofParameter<bool> truncate{ "Truncate", false };
 				ofParameter<int> frameSize{ "Frame size", FW_FRAME_SIZE };
-				ofParameter<int> waitBetweenFrames{ "Wait between frames [ms]", 10 };
+				ofParameter<int> waitBetweenFrames{ "Wait between frames [ms]", 15 };
 				ofParameter<int> frameRepetitions{ "Frame repetitions", 1 };
 				PARAM_DECLARE("Upload", truncate, frameSize, waitBetweenFrames, frameRepetitions);
 			} upload;

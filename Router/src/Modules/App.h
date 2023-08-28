@@ -26,6 +26,9 @@ namespace Modules {
 		void buildPanels(size_t panelCount);
 		shared_ptr<Portal> getPortalByTargetID(Portal::Target);
 
+		void pollAll();
+
+		void broadcast(const msgpack11::MsgPack&);
 		void broadcastInit();
 		void broadcastCalibrate();
 		void broadcastFlashLED();
@@ -33,7 +36,6 @@ namespace Modules {
 		void broadcastSeeThrough();
 		void broadcastEscapeFromRoutine();
 		void broadcastReset();
-		void broadcast(const msgpack11::MsgPack&);
 
 	protected:
 		void refreshPortalsByID();
@@ -51,5 +53,16 @@ namespace Modules {
 
 		crow::SimpleApp crow;
 		std::future<void> crowRun;
+
+		struct : ofParameterGroup {
+			struct : ofParameterGroup {
+				ofParameter<bool> enabled{ "Enabled", false };
+				ofParameter<float> period_s{ "Period [s]", 5.0f, 0.01f, 100.0f };
+				PARAM_DECLARE("Scheduled poll", enabled, period_s);
+			} scheduledPoll;
+			PARAM_DECLARE("App", scheduledPoll);
+		} parameters;
+
+		chrono::system_clock::time_point lastPollAll = chrono::system_clock::now();
 	};
 }
