@@ -171,12 +171,17 @@ namespace Modules {
 					}
 
 					auto pilotButton = pilotButtonWeak.lock();
-					if (args.isDragging(pilotButton)) {
+					if (pilotButton->isMouseDown()) {
 						auto firstPortal = this->portals.front();
 						auto firstPilot = firstPortal->getPilot();
 
 						auto position = args.localNormalized * 2.0f - 1.0f;
 						position.y *= -1.0f; // position +y is up
+
+						// clamp to r<=1
+						if (glm::length(position) > 1.0f) {
+							position /= glm::length(position);
+						}
 
 						auto polar = firstPilot->positionToPolar(position);
 						auto axes = firstPilot->polarToAxes(position);
@@ -363,7 +368,7 @@ namespace Modules {
 			}
 			});
 
-		CROW_ROUTE(crow, "/<int>/<int>/poll")([this](int col, int module) {
+		CROW_ROUTE(crow, "/<int>/<int>/pollPosition")([this](int col, int module) {
 			// for now we ignore the column
 
 			// Get the portal
@@ -372,7 +377,7 @@ namespace Modules {
 				return crow::response(500, "Portal not found");
 			}
 
-			portal->getPilot()->poll();
+			portal->getPilot()->pollPosition();
 
 			return crow::response(200, "true");
 			});

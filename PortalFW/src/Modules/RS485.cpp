@@ -95,6 +95,9 @@ namespace Modules {
 	void
 	RS485::sendPositions()
 	{
+		// If we're doing this in response to a message, then no other ACK is required
+		RS485::noACKRequired();
+
 		this->beginTransmission();
 
 		const auto ourID = this->app->id->get();
@@ -136,7 +139,14 @@ namespace Modules {
 	void
 	RS485::noACKRequired()
 	{
-		RS485::instance->sentACKEarly = true;
+		RS485::instance->disableACK = true;
+	}
+
+	//---------
+	bool
+	RS485::replyAllowed()
+	{
+		return !RS485::instance->disableACK && !RS485::instance->sentACKEarly;
 	}
 
 	//---------
@@ -158,17 +168,18 @@ namespace Modules {
 			this->disableACK = false;
 
 			// this will be raised inside processCOBSPacket if packet is for us exclusively
-			bool packetNeedsACK = false;
+			bool isForUs = false;
 
 			// Message that we've got something
 			log(LogLevel::Status, "RS485 Rx");
 
-			auto exception = this->processCOBSPacket(packetNeedsACK);
+			auto exception = this->processCOBSPacket(isForUs);
 			if(exception) {
 				log(LogLevel::Error, exception.what());
 			}
 
-			if(packetNeedsACK) {
+			// disable ACK is handled inside sendACK function
+			if(isForUs) {
 				if(exception) {
 					this->sendACK(false);
 				}
@@ -183,7 +194,7 @@ namespace Modules {
 
 	//---------
 	Exception
-	RS485::processCOBSPacket(bool & packetNeedsACK)
+	RS485::processCOBSPacket(bool & isForUs)
 	{
 		// Check it's a message for us
 		bool weShouldProcess = false;
@@ -210,14 +221,14 @@ namespace Modules {
 				}
 
 				if(targetAddress == this->app->id->get()) {
- 					weShouldProcess = true;
-					packetNeedsACK = true;
+					isForUs = true;
 				}
 
 				// An address of -1 means it's addressed to all devices
 				// We process but we don't ACK
 				if(targetAddress == -1) {
- 					weShouldProcess = true;
+					isForUs = true;
+					this->disableACK = true;
 				}
 			}
 
@@ -229,7 +240,7 @@ namespace Modules {
 				}
 			}
 
-			if(weShouldProcess) {
+			if(isForUs) {
 				// We should process this packet
 				// There are different types of packet:
 
@@ -288,7 +299,7 @@ namespace Modules {
 	void
 	RS485::sendACK(bool success)
 	{
-		if(this->disableACK || this->sentACKEarly) {
+		if(!this->replyAllowed()) {
 			return;
 		}
 

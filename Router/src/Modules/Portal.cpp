@@ -29,7 +29,7 @@ namespace Modules {
 			}
 			, {
 				"Flash lights"
-				, u8"\uf185"
+				, u8"\uf0eb"
 				, msgpack11::MsgPack::object {
 					{
 						"flashLED", msgpack11::MsgPack()
@@ -59,6 +59,15 @@ namespace Modules {
 							MOTION_MICROSTEPS_PER_PRISM_ROTATION / 2
 							, 0
 						}
+					}
+				}
+			}
+			, {
+				"Unjam"
+				, u8"\uf6e3"
+				, msgpack11::MsgPack::object {
+					{
+						"unjam", msgpack11::MsgPack()
 					}
 				}
 			}

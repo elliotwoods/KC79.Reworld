@@ -45,7 +45,7 @@ namespace Modules {
 			float stepsToAxis(Steps, int axisIndex) const;
 
 			void push();
-			void poll();
+			void pollPosition();
 
 			glm::vec2 getLivePosition() const;
 			glm::vec2 getLiveTargetPosition() const;

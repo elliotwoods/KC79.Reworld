@@ -857,22 +857,30 @@ namespace Modules {
 			log(LogLevel::Status, "unjam : end");
 		};
 		
-		// Set end position to be 2x complete rotation
-		auto endPosition = this->getMicrostepsPerPrismRotation() * 2;
+		// Set end position to be 1x complete rotation
+		auto startPosition = this->getPosition();
+		auto endPosition = startPosition + MOTION_STEPS_PER_PRISM_ROTATION * 3 / 2;
 		this->setTargetPosition(endPosition);
 		
 		// Wait for move
 		log(LogLevel::Status, "unjam : Walk CW");
-		while (this->getPosition() < this->getTargetPosition())
 		{
-			this->update();
-			if(App::updateFromRoutine()) { endRoutine(); return Exception::Escape(); }
-			HAL_Delay(20); // longer delay because dt is otherwise too short for these steps
-
-			if (millis() > routineDeadline)
+			bool switchAnnounced = false;
+			while (this->getPosition() < this->getTargetPosition())
 			{
-				endRoutine();
-				return Exception::Timeout();
+				this->update();
+				if(App::updateFromRoutine()) { endRoutine(); return Exception::Escape(); }
+				HAL_Delay(20); // longer delay because dt is otherwise too short for these steps
+
+				if(switchesSeen.forwards.seen && !switchAnnounced) {
+					log(LogLevel::Status, "unjam : FW switch seen");
+				}
+
+				if (millis() > routineDeadline)
+				{
+					endRoutine();
+					return Exception::Timeout();
+				}
 			}
 		}
 
@@ -881,28 +889,28 @@ namespace Modules {
 			return Exception("Didn't see FW switch");
 		}
 
-		// Settle before return - seems we have issue otherwise
-		for(int i=0; i<100; i++) {
-			this->update();
-			if(App::updateFromRoutine()) { endRoutine(); return Exception::Escape(); }
-			HAL_Delay(10); // longer delay because dt is otherwise too short for these steps
-		}
-
 		// Instruct move back to 0
-		this->setTargetPosition(0);
+		this->setTargetPosition(startPosition);
 
 		// Wait for move
 		log(LogLevel::Status, "unjam : Walk CCW");
-		while (this->getPosition() > this->getTargetPosition())
 		{
-			this->update();
-			if(App::updateFromRoutine()) { endRoutine(); return Exception::Escape(); }
-			HAL_Delay(20); // longer delay because dt is otherwise too short for these steps
-
-			if (millis() > routineDeadline)
+			bool switchAnnounced = false;
+			while (this->getPosition() > this->getTargetPosition())
 			{
-				endRoutine();
-				return Exception::Timeout();
+				this->update();
+				if(App::updateFromRoutine()) { endRoutine(); return Exception::Escape(); }
+				HAL_Delay(20); // longer delay because dt is otherwise too short for these steps
+
+				if(switchesSeen.forwards.seen && !switchAnnounced) {
+					log(LogLevel::Status, "unjam : FW switch seen");
+				}
+				
+				if (millis() > routineDeadline)
+				{
+					endRoutine();
+					return Exception::Timeout();
+				}
 			}
 		}
 

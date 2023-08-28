@@ -176,10 +176,10 @@ namespace Modules {
 				}, 'r');
 			inspector->addButton("Push", [this]() {
 				this->push();
+				}, 'm');
+			inspector->addButton("Poll position", [this]() {
+				this->pollPosition();
 				}, 'p');
-			inspector->addButton("Poll", [this]() {
-				this->portal->poll();
-				}, ' ');
 			inspector->addParameterGroup(this->parameters);
 		}
 
@@ -737,7 +737,7 @@ namespace Modules {
 
 		//----------
 		void
-			Pilot::poll()
+			Pilot::pollPosition()
 		{
 			auto message = MsgPack::object{
 				{

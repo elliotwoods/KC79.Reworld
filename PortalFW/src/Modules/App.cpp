@@ -200,7 +200,22 @@ namespace Modules
 	bool
 	App::processIncomingByKey(const char *key, Stream &stream)
 	{
-		if (strcmp(key, "m") == 0)
+		if (strcmp(key, "poll") == 0)
+		{
+			if (!msgpack::readNil(stream))
+			{
+				return false;
+			}
+
+			// Now it's the end of the input stream and we're ready to write
+
+			if(RS485::replyAllowed()) {
+				rs485->sendStatusReport();
+			}
+			return true;
+		}
+
+		else if (strcmp(key, "m") == 0)
 		{
 			// Special 2-axis move message
 			size_t arraySize;
@@ -225,6 +240,10 @@ namespace Modules
 					return false;
 				}
 				this->motionControlB->setTargetPosition(position);
+			}
+
+			if(RS485::replyAllowed()) {
+				rs485->sendPositions();
 			}
 			return true;
 		}
@@ -257,18 +276,6 @@ namespace Modules
 			return this->motionControlB->processIncoming(stream);
 		}
 
-		else if (strcmp(key, "poll") == 0)
-		{
-			if (!msgpack::readNil(stream))
-			{
-				return false;
-			}
-
-			// Now it's the end of the input stream and we're ready to write
-
-			rs485->sendStatusReport();
-			return true;
-		}
 		else if (strcmp(key, "p") == 0)
 		{
 			// Miniature poll (positions only)
@@ -278,7 +285,10 @@ namespace Modules
 				return false;
 			}
 
-			rs485->sendPositions();
+			if(RS485::replyAllowed()) {
+				rs485->sendPositions();
+			}
+
 			return true;
 		}
 

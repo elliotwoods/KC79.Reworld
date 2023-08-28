@@ -19,15 +19,19 @@ namespace Modules {
 		// e.g. if the message starts a routine which takes time (init/home/etc)
 		static void sendACKEarly(bool success);
 
-		// Use this in case where your message response will be sent manually
-		// e.g. for poll requests
+		// Use this to set disableACK to true for this receive frame
+		// e.g. for when you manually give a response
+		// Returns false if already no ACK was required
 		static void noACKRequired();
+
+		// Are you allowed to reply to a message?
+		static bool replyAllowed();
 	protected:
 		App * app;
 		static RS485 * instance;
 
 		void processIncoming();
-		Exception processCOBSPacket(bool & packetNeedsACK);
+		Exception processCOBSPacket(bool & isForUs);
 
 		void beginTransmission();
 		void endTransmission();
