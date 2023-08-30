@@ -379,6 +379,8 @@ namespace Modules {
 			}
 		);
 
+		packet.target = this->parameters.targetID.get();
+
 		packet.onSent = [this]() {
 			this->isFrameNew.tx.notify();
 		};

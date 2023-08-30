@@ -29,6 +29,7 @@ namespace Modules {
 			MsgpackBinary msgpackBinary;
 			bool needsACK = true;
 			int32_t customWaitTime_ms = -1;
+			int target = -1;
 
 			std::function<void()> onSent;
 		};
@@ -122,5 +123,7 @@ namespace Modules {
 			size_t rxCount = 0;
 			size_t txCount = 0;
 		} debug;
+
+		ofThreadChannel<int> repliesSeenFrom; // the ID of the sender
 	}; 
 }

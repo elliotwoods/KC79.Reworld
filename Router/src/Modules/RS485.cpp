@@ -472,6 +472,12 @@ namespace Modules {
 			// add a zero on the end
 			binaryCOBS.push_back(0);
 
+			// Clear the incoming ACKs
+			{
+				int _;
+				while (this->repliesSeenFrom.tryReceive(_)) {}
+			}
+
 			// Send the data to serial
 			auto bytesWritten = this->serialThread->serialDevice->transmit(binaryCOBS);
 
@@ -506,42 +512,51 @@ namespace Modules {
 			this->debug.isFrameNewMessageTx.notify();
 			this->debug.txCount++;
 
-			// After we send, we try to receive for up to the duration of the response window
-			if(packet.needsACK) {
-				auto responseWindowDuration = chrono::milliseconds(this->parameters.responseWindow_ms.get());
-				auto responseWindowEnd = chrono::system_clock::now() + responseWindowDuration;
-
-				bool timeOut = true;
-				while (chrono::system_clock::now() < responseWindowEnd) {
-					if (this->serialThreadReceive()) {
-						// break on first response
-						timeOut = false;
-						break;
-					}
-					this_thread::sleep_for(chrono::milliseconds(1));
-				}
-
-				if (timeOut) {
-					ofLogError("RS485") << "Timeout waiting for response";
-				}
-			}
-			else if (packet.customWaitTime_ms == -1) {
-				// This is likely a broadcast packet, and we need to wait after sending
-				this_thread::sleep_for(chrono::milliseconds(this->parameters.gapBetweenBroadcastSends_ms.get()));
-			}
-			else if(packet.customWaitTime_ms == 0) {
-				// No wait by desire
-			}
-			else {
-				// Custom wait time
-				this_thread::sleep_for(chrono::milliseconds(packet.customWaitTime_ms));
-			}
-
 			// Notify any listeners
 			{
 				if (packet.onSent) {
 					packet.onSent();
 				}
+			}
+
+			// Function to wait to receive an ACK
+			auto waitForReceive = [this](int senderID, std::chrono::milliseconds& duration) {
+				auto responseWindowEnd = chrono::system_clock::now() + duration;
+				while (chrono::system_clock::now() < responseWindowEnd) {
+					this->serialThreadReceive();
+
+					// see if we got a message
+					{
+						int receivedMessageFrom;
+						bool seen = false;
+						while (this->repliesSeenFrom.tryReceive(receivedMessageFrom)) {
+							if (receivedMessageFrom == senderID) {
+								return true;
+							}
+						}
+
+						this_thread::sleep_for(chrono::milliseconds(1));
+					}
+				}
+
+				return false;
+			};
+
+			// After we send, we try to receive for up to the duration of the response window
+			if (packet.needsACK) {
+				auto waitDuration = packet.customWaitTime_ms > 0
+					? chrono::milliseconds(packet.customWaitTime_ms)
+					: chrono::milliseconds(this->parameters.responseWindow_ms.get());
+
+				if (!waitForReceive(packet.target, waitDuration)) {
+					ofLogError() << "ACK not seen from " << packet.target;
+				}
+				cout << "normal ACK" << endl;
+			}
+			else {
+				// This is likely a broadcast packet, and we need to wait after sending
+				this_thread::sleep_for(chrono::milliseconds(this->parameters.gapBetweenBroadcastSends_ms.get()));
+					cout << "broadcast ACK" << endl;
 			}
 		}
 
