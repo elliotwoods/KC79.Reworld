@@ -80,7 +80,7 @@ namespace Modules {
 
 			vector<uint8_t> cobsIncoming;
 			bool isFirstIncoming = true;
-			ofThreadChannel<MsgpackBinary> inbox;
+			ofThreadChannel<nlohmann::json> inbox;
 			ofThreadChannel<Packet> outbox;
 		};
 		shared_ptr<SerialThread> serialThread;
@@ -100,8 +100,9 @@ namespace Modules {
 				ofParameter<bool> printTx{ "Print Tx", false };
 				ofParameter<bool> printRx{ "Print Rx", false };
 				ofParameter<bool> printBrokenMsgpack{ "Print broken msgpack", false };
+				ofParameter<bool> printACKTime{ "Print ACK time", false };
 				ofParameter<int> targetID{ "Target ID", 1 };
-				PARAM_DECLARE("Debug", printTx, printRx, targetID);
+				PARAM_DECLARE("Debug", printTx, printRx, printACKTime, targetID);
 			} debug;
 			
 			PARAM_DECLARE("RS485", responseWindow_ms, gapBetweenBroadcastSends_ms, gapAfterLastRx_ms, debug);
@@ -124,6 +125,6 @@ namespace Modules {
 			size_t txCount = 0;
 		} debug;
 
-		ofThreadChannel<int> repliesSeenFrom; // the ID of the sender
+		vector<int> repliesSeenFrom; // the ID of the sender
 	}; 
 }

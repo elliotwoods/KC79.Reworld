@@ -425,7 +425,33 @@ namespace Modules {
 					cout << endl;
 				}
 
-				this->serialThread->inbox.send(binaryMessagePack);
+				// Decode messagepack
+				nlohmann::json json;
+				try {
+					json = nlohmann::json::from_msgpack(binaryMessagePack);
+
+					if (json.size() >= 3) {
+						// note who has replied
+						this->repliesSeenFrom.push_back((int) json[1]);
+					}
+				}
+				catch (const std::exception& e) {
+					ofLogError("LaserSystem") << "msgpack deserialize error : " << e.what();
+
+					if (this->parameters.debug.printBrokenMsgpack.get()) {
+						cout << "msgpack : ";
+						for (const auto& byte : binaryMessagePack) {
+							printChar(byte);
+						}
+						cout << endl;
+					}
+
+					this->debug.isFrameNewMessageRxError.notify();
+
+					continue;
+				}
+
+				this->serialThread->inbox.send(json);
 			}
 			// Continuation of COB packet
 			else {
@@ -474,8 +500,7 @@ namespace Modules {
 
 			// Clear the incoming ACKs
 			{
-				int _;
-				while (this->repliesSeenFrom.tryReceive(_)) {}
+				this->repliesSeenFrom.clear();
 			}
 
 			// Send the data to serial
@@ -521,21 +546,25 @@ namespace Modules {
 
 			// Function to wait to receive an ACK
 			auto waitForReceive = [this](int senderID, std::chrono::milliseconds& duration) {
-				auto responseWindowEnd = chrono::system_clock::now() + duration;
+				auto startTime = chrono::system_clock::now();
+				auto responseWindowEnd = startTime + duration;
 				while (chrono::system_clock::now() < responseWindowEnd) {
 					this->serialThreadReceive();
 
 					// see if we got a message
 					{
-						int receivedMessageFrom;
-						bool seen = false;
-						while (this->repliesSeenFrom.tryReceive(receivedMessageFrom)) {
+						for(const auto receivedMessageFrom : this->repliesSeenFrom) {
 							if (receivedMessageFrom == senderID) {
+								if (this->parameters.debug.printACKTime.get()) {
+									auto duration = chrono::system_clock::now() - startTime;
+									auto ms = chrono::duration_cast<chrono::milliseconds>(duration).count();
+									cout << "ACK received in " << ms << "ms" << endl;
+								}
 								return true;
 							}
 						}
 
-						this_thread::sleep_for(chrono::milliseconds(1));
+						this_thread::sleep_for(chrono::microseconds(100));
 					}
 				}
 
@@ -551,12 +580,10 @@ namespace Modules {
 				if (!waitForReceive(packet.target, waitDuration)) {
 					ofLogError() << "ACK not seen from " << packet.target;
 				}
-				cout << "normal ACK" << endl;
 			}
 			else {
 				// This is likely a broadcast packet, and we need to wait after sending
 				this_thread::sleep_for(chrono::milliseconds(this->parameters.gapBetweenBroadcastSends_ms.get()));
-					cout << "broadcast ACK" << endl;
 			}
 		}
 
@@ -571,30 +598,9 @@ namespace Modules {
 			return;
 		}
 
-		MsgpackBinary msgpackBinary;
+		nlohmann::json json;
 
-		while (this->serialThread->inbox.tryReceive(msgpackBinary)) {
-			// Decode messagepack
-			nlohmann::json json;
-			try {
-				json = nlohmann::json::from_msgpack(msgpackBinary);
-			}
-			catch (const std::exception& e) {
-				ofLogError("LaserSystem") << "msgpack deserialize error : " << e.what();
-
-				if (this->parameters.debug.printBrokenMsgpack.get()) {
-					cout << "msgpack : ";
-					for (const auto& byte : msgpackBinary) {
-						printChar(byte);
-					}
-					cout << endl;
-				}
-
-				this->debug.isFrameNewMessageRxError.notify();
-
-				continue;
-			}
-
+		while (this->serialThread->inbox.tryReceive(json)) {
 			// Perform deserialize on json
 			try {
 				this->processIncoming(json);
