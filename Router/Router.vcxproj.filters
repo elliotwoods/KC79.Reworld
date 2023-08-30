@@ -52,6 +52,30 @@
     <ClCompile Include="src\Modules\PerPortal\Logger.cpp">
       <Filter>src\Modules\PerPortal</Filter>
     </ClCompile>
+    <ClCompile Include="src\SerialDevices\Serial.cpp">
+      <Filter>src\SerialDevices</Filter>
+    </ClCompile>
+    <ClCompile Include="src\SerialDevices\listDevices.cpp">
+      <Filter>src\SerialDevices</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\addons\ofxNetwork\src\ofxTCPManager.cpp">
+      <Filter>addons\ofxNetwork\src</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\addons\ofxNetwork\src\ofxTCPServer.cpp">
+      <Filter>addons\ofxNetwork\src</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\addons\ofxNetwork\src\ofxUDPManager.cpp">
+      <Filter>addons\ofxNetwork\src</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\addons\ofxNetwork\src\ofxNetworkUtils.cpp">
+      <Filter>addons\ofxNetwork\src</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\addons\ofxNetwork\src\ofxTCPClient.cpp">
+      <Filter>addons\ofxNetwork\src</Filter>
+    </ClCompile>
+    <ClCompile Include="src\SerialDevices\TCP.cpp">
+      <Filter>src\SerialDevices</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <Filter Include="src">
@@ -86,6 +110,18 @@
     </Filter>
     <Filter Include="src\boost\algorithm\string\detail">
       <UniqueIdentifier>{f152f41e-52f8-4282-a21a-84144a2361fb}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\SerialDevices">
+      <UniqueIdentifier>{25512120-a784-43e2-bc7a-9df8659eedef}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="addons">
+      <UniqueIdentifier>{dca0abb0-6ab7-441e-b92f-c98c5bb514ee}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="addons\ofxNetwork">
+      <UniqueIdentifier>{6c656a2e-3ee0-447d-97aa-7158390f2931}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="addons\ofxNetwork\src">
+      <UniqueIdentifier>{23d4777f-6d37-43b0-81a7-3018ba253a3e}</UniqueIdentifier>
     </Filter>
   </ItemGroup>
   <ItemGroup>
@@ -232,6 +268,45 @@
     </ClInclude>
     <ClInclude Include="src\boost\algorithm\string\detail\predicate.hpp">
       <Filter>src\boost\algorithm\string\detail</Filter>
+    </ClInclude>
+    <ClInclude Include="src\SerialDevices\IDevice.h">
+      <Filter>src\SerialDevices</Filter>
+    </ClInclude>
+    <ClInclude Include="src\SerialDevices\listDevices.h">
+      <Filter>src\SerialDevices</Filter>
+    </ClInclude>
+    <ClInclude Include="src\SerialDevices\ListedDevice.h">
+      <Filter>src\SerialDevices</Filter>
+    </ClInclude>
+    <ClInclude Include="src\SerialDevices\Serial.h">
+      <Filter>src\SerialDevices</Filter>
+    </ClInclude>
+    <ClInclude Include="src\SerialDevices\TCP.h">
+      <Filter>src\SerialDevices</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\addons\ofxNetwork\src\ofxTCPClient.h">
+      <Filter>addons\ofxNetwork\src</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\addons\ofxNetwork\src\ofxTCPManager.h">
+      <Filter>addons\ofxNetwork\src</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\addons\ofxNetwork\src\ofxTCPServer.h">
+      <Filter>addons\ofxNetwork\src</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\addons\ofxNetwork\src\ofxTCPSettings.h">
+      <Filter>addons\ofxNetwork\src</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\addons\ofxNetwork\src\ofxUDPManager.h">
+      <Filter>addons\ofxNetwork\src</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\addons\ofxNetwork\src\ofxUDPSettings.h">
+      <Filter>addons\ofxNetwork\src</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\addons\ofxNetwork\src\ofxNetwork.h">
+      <Filter>addons\ofxNetwork\src</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\addons\ofxNetwork\src\ofxNetworkUtils.h">
+      <Filter>addons\ofxNetwork\src</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>

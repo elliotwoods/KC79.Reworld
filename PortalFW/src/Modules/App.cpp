@@ -202,6 +202,7 @@ namespace Modules
 	{
 		if (strcmp(key, "poll") == 0)
 		{
+			// Fully read the input stream
 			if (!msgpack::readNil(stream))
 			{
 				return false;

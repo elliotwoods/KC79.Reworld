@@ -5,6 +5,8 @@
 #include "Base.h"
 #include "Utils.h"
 #include "../msgpack11/msgpack11.hpp"
+#include "../SerialDevices/IDevice.h"
+#include "../SerialDevices/ListedDevice.h"
 
 namespace Modules {
 	class App;
@@ -59,7 +61,7 @@ namespace Modules {
 	protected:
 		App * app;
 
-		void openSerial(int deviceID);
+		void openSerial(const SerialDevices::ListedDevice&);
 		void closeSerial();
 
 		void serialThreadedFunction();
@@ -72,7 +74,9 @@ namespace Modules {
 			std::thread thread;
 
 			bool joining = false;
-			ofSerial serial;
+			shared_ptr<SerialDevices::IDevice> serialDevice;
+			std::chrono::system_clock::time_point lastRxTime = chrono::system_clock::now();
+
 			vector<uint8_t> cobsIncoming;
 			bool isFirstIncoming = true;
 			ofThreadChannel<MsgpackBinary> inbox;
@@ -87,18 +91,19 @@ namespace Modules {
 		std::chrono::system_clock::time_point lastIncomingMessageTime = std::chrono::system_clock::now();
 
 		struct : ofParameterGroup {
-			ofParameter<int> baudRate{ "Baud rate", 115200 };
 			ofParameter<int> responseWindow_ms{ "Response window [ms]", 500 };
 			ofParameter<int> gapBetweenBroadcastSends_ms{ "Gap between broadcast sends [ms]",  100 };
+			ofParameter<int> gapAfterLastRx_ms{ "Gap after last rx [ms]",  5 };
 
 			struct : ofParameterGroup {
-				ofParameter<bool> printResponses{ "Print responses", false };
+				ofParameter<bool> printTx{ "Print Tx", false };
+				ofParameter<bool> printRx{ "Print Rx", false };
+				ofParameter<bool> printBrokenMsgpack{ "Print broken msgpack", false };
 				ofParameter<int> targetID{ "Target ID", 1 };
-				PARAM_DECLARE("Debug", printResponses, targetID);
+				PARAM_DECLARE("Debug", printTx, printRx, targetID);
 			} debug;
-
 			
-			PARAM_DECLARE("RS485", baudRate, responseWindow_ms, gapBetweenBroadcastSends_ms, debug);
+			PARAM_DECLARE("RS485", responseWindow_ms, gapBetweenBroadcastSends_ms, gapAfterLastRx_ms, debug);
 		} parameters;
 
 		struct {

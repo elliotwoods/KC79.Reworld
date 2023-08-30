@@ -35,6 +35,7 @@ namespace Modules {
 		void init() override;
 		void update() override;
 
+		void ping();
 		void poll();
 
 		void populateInspectorPanelHeader(ofxCvGui::InspectArguments&);
@@ -50,7 +51,6 @@ namespace Modules {
 		shared_ptr<PerPortal::MotorDriverSettings> getMotorDriverSettings();
 		shared_ptr<PerPortal::Axis> getAxis(int axis);
 		shared_ptr<PerPortal::Pilot> getPilot();
-
 
 		ofxLiquidEvent<Target> onTargetChange;
 	protected:

@@ -10,6 +10,11 @@ namespace Modules {
 	{
 		return {
 			{
+				"Ping"
+				, u8"\uf45d"
+				, msgpack11::MsgPack()
+			}
+			, {
 				"Initialise routine"
 				, u8"\uf11e"
 				, msgpack11::MsgPack::object {
@@ -251,18 +256,18 @@ namespace Modules {
 				}, ' ')->setDrawGlyph(u8"\uf059");
 
 
-				for (const auto& action : actions) {
-					auto hasHotkey = action.shortcutKey != 0;
-					auto buttonAction = [this, action]() {
-						this->sendToPortal(action.message);
-					};
+			for (const auto& action : actions) {
+				auto hasHotkey = action.shortcutKey != 0;
+				auto buttonAction = [this, action]() {
+					this->sendToPortal(action.message);
+				};
 
-					auto button = hasHotkey
-						? buttonStack->addButton(action.caption, buttonAction, action.shortcutKey)
-						: buttonStack->addButton(action.caption, buttonAction);
+				auto button = hasHotkey
+					? buttonStack->addButton(action.caption, buttonAction, action.shortcutKey)
+					: buttonStack->addButton(action.caption, buttonAction);
 
-					button->setDrawGlyph(action.icon);
-				}
+				button->setDrawGlyph(action.icon);
+			}
 		}
 	}
 
@@ -326,6 +331,13 @@ namespace Modules {
 				motionControlB->setReportedTargetPosition(json["p"][3]);
 			}
 		}
+	}
+
+	//----------
+	void
+		Portal::ping()
+	{
+		this->sendToPortal(msgpack11::MsgPack());
 	}
 
 	//----------

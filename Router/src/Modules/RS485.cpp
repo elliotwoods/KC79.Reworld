@@ -1,6 +1,7 @@
 #include "pch_App.h"
 #include "RS485.h"
 #include "App.h"
+#include "../SerialDevices/listDevices.h"
 
 #include "../cobs-c/cobs.h"
 #include "msgpack.h"
@@ -101,19 +102,25 @@ namespace Modules {
 		inspector->addIndicatorBool("Connected", [this]() {
 			return (bool) this->serialThread;
 			});
+
+		// If we don't have a device, create a list of options
 		if (!this->serialThread) {
 
 			inspector->addTitle("Connect to", ofxCvGui::Widgets::Title::Level::H2);
 
-			ofSerial serialEnumerator;
-			auto devices = serialEnumerator.getDeviceList();
+			auto devices = SerialDevices::listDevices();
+
+			string currentDeviceType = "";
 			for (auto device : devices) {
-				auto deviceName = device.getDeviceName();
-				auto deviceID = device.getDeviceID();
-				inspector->addButton(deviceName, [this, deviceID]() {
-					this->openSerial(deviceID);
+				if (device.type != currentDeviceType) {
+					inspector->addTitle(device.type, ofxCvGui::Widgets::Title::Level::H3);
+					currentDeviceType = device.type;
+				}
+
+				inspector->addButton(device.name + "\n" + device.address, [this, device]() {
+					this->openSerial(device);
 					ofxCvGui::refreshInspector(this);
-					});
+					})->setHeight(70.0f);
 			}
 		}
 		else {
@@ -296,7 +303,7 @@ namespace Modules {
 	void
 		RS485::processIncoming(const nlohmann::json& json)
 	{
-		if (this->parameters.debug.printResponses.get()) {
+		if (this->parameters.debug.printRx.get()) {
 			cout << "Rx : " << json.dump(4) << endl;
 		}
 
@@ -305,18 +312,22 @@ namespace Modules {
 
 	//----------
 	void
-		RS485::openSerial(int deviceID)
+		RS485::openSerial(const SerialDevices::ListedDevice& listedDevice)
 	{
 		if (this->serialThread) {
 			this->closeSerial();
 		}
-		auto serialThread = make_shared<SerialThread>();
 
-		serialThread->serial.setup(deviceID, this->parameters.baudRate.get());
-		if (!serialThread->serial.isInitialized()) {
-			// could also throw an exception at this point
+		auto serialDevice = listedDevice.createDevice();
+
+		if (!serialDevice) {
+			ofLogError() << "Could not open serial device " + listedDevice.type + "::" + listedDevice.name;
 			return;
 		}
+
+		auto serialThread = make_shared<SerialThread>();
+
+		serialThread->serialDevice = serialDevice;
 
 		serialThread->thread = std::thread([this]() {
 			this->serialThreadedFunction();
@@ -337,7 +348,7 @@ namespace Modules {
 		this->serialThread->inbox.close();
 		this->serialThread->outbox.close();
 		this->serialThread->thread.join();
-		this->serialThread->serial.close();
+		this->serialThread->serialDevice->close();
 		this->serialThread.reset();
 	}
 
@@ -347,7 +358,19 @@ namespace Modules {
 	{
 		while (!this->serialThread->joining) {
 			auto didRx = this->serialThreadReceive();
-			auto didTx = this->serialThreadSend();
+			if (didRx) {
+				this->serialThread->lastRxTime = chrono::system_clock::now();
+			}
+
+			bool didTx = false;
+			
+			// check deadtime between last rx before we allow next tx
+			if (!didRx) {
+				auto timeSinceLastRx = chrono::system_clock::now() - this->serialThread->lastRxTime;
+				if (timeSinceLastRx > chrono::milliseconds(this->parameters.gapAfterLastRx_ms.get())) {
+					didTx = this->serialThreadSend();
+				}
+			}
 
 			// Sleep if we didn't do any work this loop
 			if (!didRx || didTx) {
@@ -361,13 +384,13 @@ namespace Modules {
 	bool
 		RS485::serialThreadReceive()
 	{
-		if (!this->serialThread->serial.available()) {
+		auto rxData = this->serialThread->serialDevice->receiveBytes();
+
+		if (rxData.empty()) {
 			return false;
 		}
 
-		while (this->serialThread->serial.available()) {
-			auto word = this->serialThread->serial.readByte();
-
+		for(auto word : rxData) {
 			// If end of COB packet
 			if (word == 0) {
 				// If there's nothing to decode, don't do anything
@@ -393,6 +416,14 @@ namespace Modules {
 					continue;
 				}
 				binaryMessagePack.resize(decodeResult.out_len);
+
+				if (this->parameters.debug.printRx.get()) {
+					cout << "Rx : ";
+					for (const auto& byte : binaryMessagePack) {
+						printChar(byte);
+					}
+					cout << endl;
+				}
 
 				this->serialThread->inbox.send(binaryMessagePack);
 			}
@@ -438,17 +469,36 @@ namespace Modules {
 			// Crop the message to the correct number of bytes
 			binaryCOBS.resize(encodeResult.out_len);
 
+			// add a zero on the end
+			binaryCOBS.push_back(0);
+
 			// Send the data to serial
-			auto bytesWritten = this->serialThread->serial.writeBytes(binaryCOBS.data()
-				, binaryCOBS.size());
+			auto bytesWritten = this->serialThread->serialDevice->transmit(binaryCOBS);
+
+			{
+				if (this->parameters.debug.printTx.get()) {
+					{
+						cout << "Tx COBS : ";
+						for (const auto& byte : binaryCOBS) {
+							printChar(byte);
+						}
+						cout << endl;
+					}
+
+					{
+						cout << "Tx msgpack : ";
+						for (const auto& byte : msgpackBinary) {
+							printChar(byte);
+						}
+						cout << endl;
+					}
+				}
+			}
 
 			// Check that all bytes were sent
 			if (bytesWritten != binaryCOBS.size()) {
 				ofLogError("RS485") << "Failed to write all " << binaryCOBS.size() << " bytes to stream";
 			}
-
-			// Send the EOP (this doesn't come with cobs-c
-			this->serialThread->serial.writeByte((unsigned char)0);
 
 			// Store the messagepack representation in case the user wants to debug it
 			this->debug.lastMessagePackTx.assign(data, data + size);
@@ -517,15 +567,12 @@ namespace Modules {
 			catch (const std::exception& e) {
 				ofLogError("LaserSystem") << "msgpack deserialize error : " << e.what();
 
-				{
-					const bool debugBrokenMessagePack = this->parameters.debug.printResponses.get();
-					if (debugBrokenMessagePack) {
-						cout << "msgpack : ";
-						for (const auto& byte : msgpackBinary) {
-							printChar(byte);
-						}
-						cout << endl;
+				if (this->parameters.debug.printBrokenMsgpack.get()) {
+					cout << "msgpack : ";
+					for (const auto& byte : msgpackBinary) {
+						printChar(byte);
 					}
+					cout << endl;
 				}
 
 				this->debug.isFrameNewMessageRxError.notify();
