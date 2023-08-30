@@ -52,6 +52,8 @@
         "list": "cpp",
         "map": "cpp",
         "unordered_set": "cpp",
-        "iomanip": "cpp"
+        "iomanip": "cpp",
+        "stdio.h": "c",
+        "string.h": "c"
     }
 }

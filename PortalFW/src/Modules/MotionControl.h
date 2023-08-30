@@ -153,6 +153,5 @@ namespace Modules {
 		bool interruptEnabed = false;
 		Steps position = 0;
 		MotionState currentMotionState;
-		bool musicalMode = false;
 	};
 }

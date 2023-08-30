@@ -89,6 +89,7 @@ namespace Modules
 
 		Logger::X().update();
 
+#ifndef UPDATE_DISABLED
 		this->id->update();
 		this->rs485->update();
 		this->motorDriverSettings->update();
@@ -98,6 +99,7 @@ namespace Modules
 		this->homeSwitchB->update();
 		this->motionControlA->update();
 		this->motionControlB->update();
+#endif
 
 #ifndef GUI_DISABLED
 		this->gui->update();
@@ -210,9 +212,11 @@ namespace Modules
 
 			// Now it's the end of the input stream and we're ready to write
 
+#ifndef POLL_DISABLED
 			if(RS485::replyAllowed()) {
 				rs485->sendStatusReport();
 			}
+#endif
 			return true;
 		}
 

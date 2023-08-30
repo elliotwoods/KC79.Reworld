@@ -648,18 +648,6 @@ namespace Modules {
 
 		auto motionState = this->calculateMotionState(dt);
 
-		if(this->musicalMode) {
-			// quantise to notes
-			float note = (float) motionState.speed / 262.0f;
-			auto octave = (int32_t) log2f((float) note);
-
-			// quantise to quarters
-			auto octaveQuantised = ceilf(octave * 4.0f) / 4.0f;
-			int32_t musicalSpeed = pow(2, octaveQuantised) * 262.0f;
-
-			motionState.speed = musicalSpeed;
-		}
-
 		if(!motionState.motorRunning && this->currentMotionState.motorRunning) {
 			// Stop all motion
 			this->stop();
@@ -808,6 +796,7 @@ namespace Modules {
 	Exception
 	MotionControl::unjamRoutine(const MeasureRoutineSettings& settings)
 	{
+#ifndef UNJAM_DISABLED
 		// Stop any existing motion profile
 		this->stop();
 
@@ -923,6 +912,7 @@ namespace Modules {
 
 		endRoutine();
 
+#endif
 		return Exception::None();
 	}
 
@@ -930,6 +920,7 @@ namespace Modules {
 	Exception
 	MotionControl::tuneCurrentRoutine(const MeasureRoutineSettings& settings)
 	{
+#ifndef TUNE_CURRENT_DISABLED
 		log(LogLevel::Status, "tune : begin");
 
 		auto current = MOTORDRIVERSETTINGS_DEFAULT_CURRENT;
@@ -1029,6 +1020,7 @@ namespace Modules {
 		}
 
 		endRoutine();
+#endif
 		return Exception::None();
 	}
 
