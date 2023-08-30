@@ -156,7 +156,6 @@ namespace Modules {
 						uploadFirmwarePacket(frameOffset
 							, dataPosition
 							, FW_FRAME_SIZE);
-						this_thread::sleep_for(chrono::milliseconds(this->parameters.upload.waitBetweenFrames));
 					}
 					
 					
@@ -168,7 +167,6 @@ namespace Modules {
 						uploadFirmwarePacket(frameOffset
 							, dataPosition
 							, remainingSize);
-						this_thread::sleep_for(chrono::milliseconds(this->parameters.upload.waitBetweenFrames));
 					}
 					dataPosition += remainingSize;
 					frameOffset += remainingSize;
@@ -245,7 +243,18 @@ namespace Modules {
 			auto packet = RS485::Packet(messageBuffer);
 			packet.needsACK = false;
 			packet.customWaitTime_ms = this->parameters.upload.waitBetweenFrames.get();
-			rs485->transmit(packet);
+
+			// send and wait for complete
+			{
+				std::promise<void> promise;
+				packet.onSent = [&promise]() {
+					promise.set_value();
+				};
+				rs485->transmit(packet);
+
+				// wait for packet to be sent
+				promise.get_future().get();
+			}
 		}
 
 		msgpack_sbuffer_destroy(&messageBuffer);
@@ -319,7 +328,17 @@ namespace Modules {
 				auto packet = RS485::Packet(messageBuffer);
 				packet.needsACK = false;
 				packet.customWaitTime_ms = this->parameters.upload.waitBetweenFrames.get();
+				packet.collateable = false;
+
+				// send and wait for complete
+				std::promise<void> promise;
+				packet.onSent = [&promise]() {
+					promise.set_value();
+				};
 				rs485->transmit(packet);
+
+				// wait for packet to be sent
+				promise.get_future().get();
 			}
 
 			msgpack_sbuffer_destroy(&messageBuffer);

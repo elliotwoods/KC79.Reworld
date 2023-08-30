@@ -30,6 +30,8 @@ namespace Modules {
 			bool needsACK = true;
 			int32_t customWaitTime_ms = -1;
 			int target = -1;
+			string address;
+			bool collateable = true;
 
 			std::function<void()> onSent;
 		};
@@ -59,6 +61,8 @@ namespace Modules {
 			, const MsgpackBinary& body);
 
 		void processIncoming(const nlohmann::json&);
+
+		vector<Packet> collatePackets(const vector<Packet>&);
 	protected:
 		App * app;
 
@@ -95,6 +99,7 @@ namespace Modules {
 			ofParameter<int> responseWindow_ms{ "Response window [ms]", 500 };
 			ofParameter<int> gapBetweenBroadcastSends_ms{ "Gap between broadcast sends [ms]",  100 };
 			ofParameter<int> gapAfterLastRx_ms{ "Gap after last rx [ms]",  5 };
+			ofParameter<bool> collatePackets{ "Collate packets",  true };
 
 			struct : ofParameterGroup {
 				ofParameter<bool> printTx{ "Print Tx", false };
@@ -105,7 +110,7 @@ namespace Modules {
 				PARAM_DECLARE("Debug", printTx, printRx, printACKTime, targetID);
 			} debug;
 			
-			PARAM_DECLARE("RS485", responseWindow_ms, gapBetweenBroadcastSends_ms, gapAfterLastRx_ms, debug);
+			PARAM_DECLARE("RS485", responseWindow_ms, gapBetweenBroadcastSends_ms, gapAfterLastRx_ms, collatePackets, debug);
 		} parameters;
 
 		struct {

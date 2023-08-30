@@ -184,7 +184,6 @@ namespace Modules {
 						auto firstPilot = firstPortal->getPilot();
 
 						auto position = args.localNormalized * 2.0f - 1.0f;
-						position.y *= -1.0f; // position +y is up
 
 						// clamp to r<=1
 						if (glm::length(position) > 1.0f) {

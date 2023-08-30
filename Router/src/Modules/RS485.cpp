@@ -311,6 +311,35 @@ namespace Modules {
 	}
 
 	//----------
+	vector<RS485::Packet>
+		RS485::collatePackets(const vector<RS485::Packet>& allPackets)
+	{
+		vector<RS485::Packet> filteredPackets;
+
+		for (const auto& packet : allPackets) {
+			bool foundMatch = false;
+			for (auto& existingPacket : filteredPackets) {
+				if (packet.collateable
+					&& existingPacket.collateable
+					&& existingPacket.address == packet.address
+					&& existingPacket.target == packet.target)
+				{
+					// overwrite the packet
+					existingPacket = packet;
+					foundMatch = true;
+					break;
+				}
+			}
+			if (!foundMatch) {
+				// add the packet
+				filteredPackets.push_back(packet);
+			}
+		}
+
+		return filteredPackets;
+	}
+
+	//----------
 	void
 		RS485::openSerial(const SerialDevices::ListedDevice& listedDevice)
 	{
@@ -470,8 +499,22 @@ namespace Modules {
 			return false;
 		}
 
-		Packet packet;
-		while (this->serialThread->outbox.tryReceive(packet)) {
+		// Gather all packets into this thread
+		vector<Packet> packets;
+		{
+			Packet packet;
+			while (this->serialThread->outbox.tryReceive(packet)) {
+				packets.push_back(packet);
+			}
+		}
+
+		// Collate packets
+		if (this->parameters.collatePackets) {
+			packets = RS485::collatePackets(packets);
+		}
+
+		// Send packets
+		for(const auto& packet : packets) {
 			const auto& msgpackBinary = packet.msgpackBinary;
 
 			auto data = msgpackBinary.data();
@@ -581,9 +624,16 @@ namespace Modules {
 					ofLogError() << "ACK not seen from " << packet.target;
 				}
 			}
-			else {
-				// This is likely a broadcast packet, and we need to wait after sending
-				this_thread::sleep_for(chrono::milliseconds(this->parameters.gapBetweenBroadcastSends_ms.get()));
+			else if (packet.customWaitTime_ms == 0)
+			{
+				// don't wait
+			} else {
+				// We just always wait in this case
+				auto waitDuration = packet.customWaitTime_ms >= 0
+					? chrono::milliseconds(packet.customWaitTime_ms)
+					: chrono::milliseconds(this->parameters.gapBetweenBroadcastSends_ms.get());
+
+				this_thread::sleep_for(waitDuration);
 			}
 		}
 
