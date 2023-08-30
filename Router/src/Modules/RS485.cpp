@@ -1,7 +1,8 @@
 #include "pch_App.h"
 #include "RS485.h"
-#include "App.h"
+#include "Column.h"
 #include "../SerialDevices/listDevices.h"
+#include "../SerialDevices/Factory.h"
 
 #include "../cobs-c/cobs.h"
 #include "msgpack.h"
@@ -48,8 +49,8 @@ namespace Modules {
 
 #pragma mark RS485
 	//----------
-	RS485::RS485(App * app)
-		: app(app)
+	RS485::RS485(Column* column)
+		: column(column)
 	{
 
 	}
@@ -74,6 +75,13 @@ namespace Modules {
 		this->onPopulateInspector += [this](ofxCvGui::InspectArguments& args) {
 			this->populateInspector(args);
 		};
+	}
+
+	//----------
+	void
+		RS485::setup(const nlohmann::json& json)
+	{
+		this->openSerial(json);
 	}
 
 	//----------
@@ -307,7 +315,7 @@ namespace Modules {
 			cout << "Rx : " << json.dump(4) << endl;
 		}
 
-		this->app->processIncoming(json);
+		this->column->processIncoming(json);
 	}
 
 	//----------
@@ -343,15 +351,34 @@ namespace Modules {
 	void
 		RS485::openSerial(const SerialDevices::ListedDevice& listedDevice)
 	{
-		if (this->serialThread) {
-			this->closeSerial();
-		}
-
 		auto serialDevice = listedDevice.createDevice();
-
 		if (!serialDevice) {
 			ofLogError() << "Could not open serial device " + listedDevice.type + "::" + listedDevice.name;
 			return;
+		}
+
+		this->openSerial(serialDevice);
+	}
+
+	//----------
+	void
+		RS485::openSerial(const nlohmann::json& json)
+	{
+		auto serialDevice = SerialDevices::createFromJson(json);
+		if (!serialDevice) {
+			ofLogError() << "Could not open serial device from json : " + json.dump(4);
+			return;
+		}
+
+		this->openSerial(serialDevice);
+	}
+
+	//----------
+	void
+		RS485::openSerial(shared_ptr<SerialDevices::IDevice> serialDevice)
+	{
+		if (this->serialThread) {
+			this->closeSerial();
 		}
 
 		auto serialThread = make_shared<SerialThread>();
@@ -627,7 +654,8 @@ namespace Modules {
 			else if (packet.customWaitTime_ms == 0)
 			{
 				// don't wait
-			} else {
+			}
+			else {
 				// We just always wait in this case
 				auto waitDuration = packet.customWaitTime_ms >= 0
 					? chrono::milliseconds(packet.customWaitTime_ms)

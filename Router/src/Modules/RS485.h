@@ -9,7 +9,7 @@
 #include "../SerialDevices/ListedDevice.h"
 
 namespace Modules {
-	class App;
+	class Column;
 
 	class RS485 : public Base {
 	public:
@@ -41,11 +41,12 @@ namespace Modules {
 		// 1-127 = Clients
 		typedef int8_t Target;
 
-		RS485(App*);
+		RS485(Column*);
 		~RS485();
 
 		string getTypeName() const override;
 		void init() override;
+		void setup(const nlohmann::json&) override;
 		void update() override;
 		void populateInspector(ofxCvGui::InspectArguments&);
 
@@ -64,9 +65,11 @@ namespace Modules {
 
 		vector<Packet> collatePackets(const vector<Packet>&);
 	protected:
-		App * app;
+		Column* column;
 
+		void openSerial(const nlohmann::json&);
 		void openSerial(const SerialDevices::ListedDevice&);
+		void openSerial(shared_ptr<SerialDevices::IDevice>);
 		void closeSerial();
 
 		void serialThreadedFunction();
@@ -96,7 +99,7 @@ namespace Modules {
 		std::chrono::system_clock::time_point lastIncomingMessageTime = std::chrono::system_clock::now();
 
 		struct : ofParameterGroup {
-			ofParameter<int> responseWindow_ms{ "Response window [ms]", 500 };
+			ofParameter<int> responseWindow_ms{ "Response window [ms]", 300 };
 			ofParameter<int> gapBetweenBroadcastSends_ms{ "Gap between broadcast sends [ms]",  100 };
 			ofParameter<int> gapAfterLastRx_ms{ "Gap after last rx [ms]",  5 };
 			ofParameter<bool> collatePackets{ "Collate packets",  true };

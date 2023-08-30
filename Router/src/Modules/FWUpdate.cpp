@@ -60,12 +60,24 @@ namespace Modules {
 	{
 		auto inspector = args.inspector;
 		inspector->addParameterGroup(this->parameters);
+
+		{
+			auto button = inspector->addButton("Upload files", [this]() {
+				auto result = ofSystemLoadDialog("Select application.bin file");
+				if (result.bSuccess) {
+					this->uploadFirmware(result.filePath);
+				}
+				});
+			button->setHeight(150.0f);
+		}
+
 		inspector->addButton("Erase flash", [this]() {
 			this->eraseFirmware();
 			});
 		inspector->addButton("Run application", [this]() {
 			this->runApplication();
 			});
+
 	}
 
 	//----------

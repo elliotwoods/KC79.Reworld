@@ -133,6 +133,7 @@
     <ClCompile Include="src\main.cpp" />
     <ClCompile Include="src\Modules\App.cpp" />
     <ClCompile Include="src\Modules\Base.cpp" />
+    <ClCompile Include="src\Modules\Column.cpp" />
     <ClCompile Include="src\Modules\FWUpdate.cpp" />
     <ClCompile Include="src\Modules\PerPortal\Axis.cpp" />
     <ClCompile Include="src\Modules\PerPortal\Logger.cpp" />
@@ -151,6 +152,7 @@
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Create</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Create</PrecompiledHeader>
     </ClCompile>
+    <ClCompile Include="src\SerialDevices\Factory.cpp" />
     <ClCompile Include="src\SerialDevices\listDevices.cpp" />
     <ClCompile Include="src\SerialDevices\Serial.cpp" />
     <ClCompile Include="src\SerialDevices\TCP.cpp" />
@@ -199,6 +201,7 @@
     <ClInclude Include="src\crow\crow\websocket.h" />
     <ClInclude Include="src\Modules\App.h" />
     <ClInclude Include="src\Modules\Base.h" />
+    <ClInclude Include="src\Modules\Column.h" />
     <ClInclude Include="src\Modules\FWUpdate.h" />
     <ClInclude Include="src\Modules\PerPortal\Axis.h" />
     <ClInclude Include="src\Modules\PerPortal\Constants.h" />
@@ -212,6 +215,7 @@
     <ClInclude Include="src\msgpack11\msgpack11.hpp" />
     <ClInclude Include="src\ofApp.h" />
     <ClInclude Include="src\pch_App.h" />
+    <ClInclude Include="src\SerialDevices\Factory.h" />
     <ClInclude Include="src\SerialDevices\IDevice.h" />
     <ClInclude Include="src\SerialDevices\listDevices.h" />
     <ClInclude Include="src\SerialDevices\ListedDevice.h" />

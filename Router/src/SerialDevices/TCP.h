@@ -4,6 +4,8 @@
 #include "ListedDevice.h"
 #include "ofxNetwork.h"
 
+#define TCP_DEFAULT_PORT 4196
+
 namespace SerialDevices {
 	class TCP : public IDevice
 	{

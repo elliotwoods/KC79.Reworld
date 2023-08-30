@@ -21,9 +21,16 @@ namespace SerialDevices {
 	bool
 		TCP::open(const nlohmann::json& json)
 	{
-		if (json.contains("address") && json.contains("port")) {
+		// address is required
+		if (json.contains("address")) {
 			auto address = (string)json["address"];
-			auto port = (int)json["port"];
+
+			// port is optional
+			int port = TCP_DEFAULT_PORT;
+			if (json.contains("port")) {
+				port = (int)json["port"];
+			}
+
 			return this->open(address, port);
 		}
 		else {
@@ -92,7 +99,7 @@ namespace SerialDevices {
 
 		// Default devices
 		{
-			int port = 4196;
+			int port = TCP_DEFAULT_PORT;
 			{
 				string address = "192.168.1.201";
 

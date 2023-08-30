@@ -76,6 +76,12 @@
     <ClCompile Include="src\SerialDevices\TCP.cpp">
       <Filter>src\SerialDevices</Filter>
     </ClCompile>
+    <ClCompile Include="src\Modules\Column.cpp">
+      <Filter>src\Modules</Filter>
+    </ClCompile>
+    <ClCompile Include="src\SerialDevices\Factory.cpp">
+      <Filter>src\SerialDevices</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <Filter Include="src">
@@ -307,6 +313,12 @@
     </ClInclude>
     <ClInclude Include="..\..\..\addons\ofxNetwork\src\ofxNetworkUtils.h">
       <Filter>addons\ofxNetwork\src</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Modules\Column.h">
+      <Filter>src\Modules</Filter>
+    </ClInclude>
+    <ClInclude Include="src\SerialDevices\Factory.h">
+      <Filter>src\SerialDevices</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>

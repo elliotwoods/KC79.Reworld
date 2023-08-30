@@ -1,5 +1,6 @@
 #include "pch_App.h"
 #include "ofApp.h"
+#include "SerialDevices/Factory.h"
 
 //--------------------------------------------------------------
 void ofApp::setup(){
@@ -8,6 +9,9 @@ void ofApp::setup(){
 	gui.init();
 	gui.addInspector()->setCaption("Router");
 	
+	// Register factories
+	SerialDevices::registerFactories();
+
 	this->app = make_shared<Modules::App>();
 	this->app->init();
 

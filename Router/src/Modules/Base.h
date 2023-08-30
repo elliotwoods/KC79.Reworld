@@ -18,6 +18,7 @@ namespace Modules {
 			return "";
 		}
 		virtual void init() = 0;
+		virtual void setup(const nlohmann::json&) {};
 		virtual void update() = 0;
 		
 		virtual void processIncoming(const nlohmann::json&) {
