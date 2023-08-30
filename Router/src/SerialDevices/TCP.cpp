@@ -70,16 +70,16 @@ namespace SerialDevices {
 		TCP::receiveBytes()
 	{
 		Buffer buffer;
+		buffer.resize(256);
 
-		auto bytesAvailable = this->tcpClient.getNumReceivedBytes();
-		if (bytesAvailable > 0) {
-			buffer.resize(bytesAvailable);
-			this->tcpClient.receiveRawBytes((char * )buffer.data()
-				, bytesAvailable);
+		auto bytesReceived = this->tcpClient.receiveRawBytes((char*)buffer.data(), buffer.size());
+		if (bytesReceived < 0) {
+			return Buffer();
+		}
+		else {
+			buffer.resize(bytesReceived);
 			return buffer;
 		}
-
-		return buffer;
 	}
 
 	//----------
@@ -108,6 +108,7 @@ namespace SerialDevices {
 						return shared_ptr<IDevice>();
 					};
 				}
+				listedDevices.push_back(listedDevice);
 			}
 
 			{
@@ -125,6 +126,7 @@ namespace SerialDevices {
 						return shared_ptr<IDevice>();
 					};
 				}
+				listedDevices.push_back(listedDevice);
 			}
 		}
 		// Custom device

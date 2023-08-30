@@ -122,6 +122,7 @@ namespace SerialDevices {
 						return shared_ptr<IDevice>();
 					}
 				};
+				listedDevices.push_back(listedDevice);
 			}
 		}
 		return listedDevices;
