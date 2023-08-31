@@ -4,6 +4,7 @@
 #include "crow/crow.h"
 
 #include "Column.h"
+#include "ofxOsc.h"
 
 namespace Modules {
 	class App : public Base
@@ -26,5 +27,16 @@ namespace Modules {
 		std::future<void> crowRun;
 
 		map<int, shared_ptr<Column>> columns;
+
+		struct : ofParameterGroup {
+			struct : ofParameterGroup {
+				ofParameter<bool> enabled{ "Enabled", true };
+				ofParameter<int> port{ "Port", 4000 };
+				PARAM_DECLARE("App", enabled, port);
+			} osc;
+			PARAM_DECLARE("OSC", osc);
+		} parameters;
+
+		shared_ptr<ofxOscReceiver> oscReceiver;
 	};
 }

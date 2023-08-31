@@ -1,6 +1,7 @@
 #include "pch_App.h"
 #include "App.h"
 #include "../Utils.h"
+#include "../OSC/Routes.h"
 
 using namespace msgpack11;
 
@@ -72,7 +73,7 @@ namespace Modules {
 			}
 			else {
 				// create a blank column
-				auto column = make_shared<Column>();
+				auto column = make_shared<Column>(0);
 				column->init();
 				this->columns.emplace(1, column);
 				column->init();
@@ -87,6 +88,39 @@ namespace Modules {
 		for (const auto& column : this->columns) {
 			column.second->update();
 		}
+
+		// OSC
+		{
+			// Check if should close 
+			if (this->oscReceiver && !this->parameters.osc.enabled) {
+				this->oscReceiver.reset();
+			}
+
+			// Check settings
+			if (this->oscReceiver) {
+				if (this->oscReceiver->getPort() != this->parameters.osc.port) {
+					this->oscReceiver.reset();
+				}
+			}
+
+			// Open the device
+			if (!this->oscReceiver && this->parameters.osc.enabled) {
+				this->oscReceiver = make_shared<ofxOscReceiver>();
+				this->oscReceiver->setup(this->parameters.osc.port);
+				if (!this->oscReceiver->isListening()) {
+					this->oscReceiver.reset();
+				}
+			}
+
+			// Perform updates
+			if (this->oscReceiver) {
+				ofxOscMessage message;
+				while (this->oscReceiver->getNextMessage(&message)) {
+					OSC::handleRoute(message);
+				}
+			}
+		}
+		
 	}
 
 	//----------

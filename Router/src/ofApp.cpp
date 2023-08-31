@@ -1,6 +1,8 @@
 #include "pch_App.h"
 #include "ofApp.h"
+
 #include "SerialDevices/Factory.h"
+#include "OSC/Routes.h"
 
 //--------------------------------------------------------------
 void ofApp::setup(){
@@ -14,6 +16,9 @@ void ofApp::setup(){
 
 	this->app = make_shared<Modules::App>();
 	this->app->init();
+
+	// Register OSC routes
+	OSC::initRoutes(this->app.get());
 
 	ofxCvGui::inspect(this->app);
 }
