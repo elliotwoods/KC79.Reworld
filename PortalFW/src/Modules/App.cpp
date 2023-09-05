@@ -73,12 +73,7 @@ namespace Modules
 		
 		// Calibrate self on startup
 #ifndef STARTUP_INIT_DISABLED
-		// HACK
-		// Hack : for testing on site - they don't want this
-		//this->routines->startup();
-
-		// Hack : they want only this!
-		this->routines->unjam();
+		this->routines->startup();
 #endif
 	}
 
@@ -257,7 +252,7 @@ namespace Modules
 				{
 					return false;
 				}
-				this->motionControlA->setTargetPosition(position);
+				this->motionControlA->setTargetPositionWithMotionFiltering(position);
 			}
 			if (arraySize >= 2)
 			{
@@ -266,7 +261,7 @@ namespace Modules
 				{
 					return false;
 				}
-				this->motionControlB->setTargetPosition(position);
+				this->motionControlB->setTargetPositionWithMotionFiltering(position);
 			}
 
 			if(RS485::replyAllowed()) {

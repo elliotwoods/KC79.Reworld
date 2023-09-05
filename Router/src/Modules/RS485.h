@@ -63,10 +63,14 @@ namespace Modules {
 
 		size_t getOutboxCount() const;
 		void clearOutbox();
+		
+		void clearCounters();
 
 		void processIncoming(const nlohmann::json&);
 
-		vector<Packet> collatePackets(const vector<Packet>&);
+		vector<ofxCvGui::ElementPtr> getWidgets();
+
+		void collateOutboxPackets();
 	protected:
 		Column* column;
 
@@ -101,8 +105,6 @@ namespace Modules {
 			const std::chrono::milliseconds retryPeriod{ 20000 };
 		} initilialisation;
 
-		std::string connectedPortName; // only valid whilst initialised
-
 		std::chrono::system_clock::time_point lastPoll;
 		std::chrono::system_clock::time_point lastKeepAlive;
 		std::chrono::system_clock::time_point lastIncomingMessageTime = std::chrono::system_clock::now();
@@ -118,8 +120,9 @@ namespace Modules {
 				ofParameter<bool> printRx{ "Print Rx", false };
 				ofParameter<bool> printBrokenMsgpack{ "Print broken msgpack", false };
 				ofParameter<bool> printACKTime{ "Print ACK time", false };
+				ofParameter<bool> printMessageErrors{ "Print message errors",  false };
 				ofParameter<int> targetID{ "Target ID", 1 };
-				PARAM_DECLARE("Debug", printTx, printRx, printACKTime, targetID);
+				PARAM_DECLARE("Debug", printTx, printRx, printACKTime, printMessageErrors, targetID);
 			} debug;
 			
 			PARAM_DECLARE("RS485", responseWindow_ms, gapBetweenBroadcastSends_ms, gapAfterLastRx_ms, collatePackets, debug);
@@ -144,5 +147,6 @@ namespace Modules {
 
 		vector<int> repliesSeenFrom; // the ID of the sender
 		ofThreadChannel<std::function<void()>> serialThreadActions;
+		ofThreadChannel<std::promise<void>*> clearOutboxNotify;
 	}; 
 }

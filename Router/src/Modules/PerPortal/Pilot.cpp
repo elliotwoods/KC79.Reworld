@@ -47,60 +47,86 @@ namespace Modules {
 			case LeadingControl::Position:
 			{
 				auto position = this->getPosition();
+
+				// position to polar
 				auto polar = this->positionToPolar(position);
-
-				// clamp max r value
-				if (polar[0] > 1.0f) {
-					polar[0] = 1.0f;
-					position = this->polarToPosition({ polar[0], polar[1] });
-					this->setPosition(position);
-				}
-
-				// cyclical
-				if (this->parameters.polar.cyclic) {
-					polar = this->findClosestCycle(polar);
-				}
-
 				{
-					this->parameters.polar.r.set(polar[0]);
-					this->parameters.polar.theta.set(polar[1]);
+					// clamp max r value
+					if (polar[0] > 1.0f) {
+						polar[0] = 1.0f;
+						position = this->polarToPosition({ polar[0], polar[1] });
+						this->setPosition(position);
+					}
+
+					{
+						this->parameters.polar.r.set(polar[0]);
+						this->parameters.polar.theta.set(polar[1]);
+					}
 				}
 
-				auto axes = this->polarToAxes(polar);
+				// polar to axes
 				{
-					this->parameters.axes.a.set(axes[0]);
-					this->parameters.axes.b.set(axes[1]);
+					auto axes = this->polarToAxes(polar);
+
+					// cyclical
+					if (this->parameters.axes.cyclic) {
+						axes = this->findClosestAxesCycle(axes);
+					}
+
+					{
+						this->parameters.axes.a.set(axes[0]);
+						this->parameters.axes.b.set(axes[1]);
+					}
 				}
 				break;
 			}
 			case LeadingControl::Polar:
 			{
 				auto polar = this->getPolar();
-				auto position = this->polarToPosition(polar);
+
+				// polar to position
 				{
-					this->parameters.position.x.set(position[0]);
-					this->parameters.position.y.set(position[1]);
+					auto position = this->polarToPosition(polar);
+					{
+						this->parameters.position.x.set(position[0]);
+						this->parameters.position.y.set(position[1]);
+					}
 				}
-				auto axes = this->polarToAxes(polar);
+
+				// polar to axes
 				{
-					this->parameters.axes.a.set(axes[0]);
-					this->parameters.axes.b.set(axes[1]);
+					auto axes = this->polarToAxes(polar);
+
+					// cyclical
+					if (this->parameters.axes.cyclic) {
+						axes = this->findClosestAxesCycle(axes);
+					}
+
+					{
+						this->parameters.axes.a.set(axes[0]);
+						this->parameters.axes.b.set(axes[1]);
+					}
 				}
 				break;
 			}
 			case LeadingControl::Axes:
 			{
 				auto axes = this->getAxes();
+
+				// axes to polar
 				auto polar = this->axesToPolar(axes);
 				{
 					this->parameters.polar.r.set(polar[0]);
 					this->parameters.polar.theta.set(polar[1]);
 				}
+
+				// polar to position
 				auto position = this->polarToPosition(polar);
 				{
 					this->parameters.position.x.set(position[0]);
 					this->parameters.position.y.set(position[1]);
 				}
+
 				break;
 			}
 			default:
@@ -466,12 +492,26 @@ namespace Modules {
 									ofPopStyle();
 									ofDrawLine(panelCenter, drawPosition);
 
+									ofPushStyle();
 									{
+										// Axis label in the center
 										ofRectangle textBounds(panelCenter - glm::vec2(20, 20), 40, 40);
 										ofxCvGui::Utils::drawText(axis.getName(), textBounds);
 
+										// Target position TL
 										ofxCvGui::Utils::drawText(ofToString(axis.get(), 3), 20, 20);
+
+										// Current position
+										ofxCvGui::Utils::drawText(ofToString(this->liveAxisValues[axisIndex], 3)
+											, 20
+											, 40
+											, true
+											, 15
+											, 100
+											, false
+											, ofColor(100, 100, 200));
 									}
+									ofPopStyle();
 								}
 							};
 							panel->onMouse += [this, panel, &axis](ofxCvGui::MouseArguments& args)
@@ -618,15 +658,21 @@ namespace Modules {
 		void
 			Pilot::unwind()
 		{
-			auto polar = this->getPolar();
-			auto & theta = polar[1];
-			while (theta > PI) {
-				theta -= TWO_PI;
+			auto axes = this->getPolar();
+			if (axes[0] > 0) {
+				axes[0] -= ceil(axes[0]);
 			}
-			while (theta < -PI) {
-				theta += TWO_PI;
+			else {
+				axes[0] += ceil(-axes[0]);
 			}
-			this->setPolar(polar);
+			if (axes[1] > 0) {
+				axes[1] -= ceil(axes[1]);
+			}
+			else {
+				axes[1] += ceil(-axes[1]);
+			}
+
+			this->setAxes(axes);
 		}
 
 		//----------
@@ -716,24 +762,28 @@ namespace Modules {
 		}
 
 		//----------
-		// https://www.wolframalpha.com/input?i=systems+of+equations+calculator&assumption=%7B%22F%22%2C+%22SolveSystemOf2EquationsCalculator%22%2C+%22equation1%22%7D+-%3E%22a+%3D+t+-+%281-r%29*0.25+%2B+0.5%22&assumption=%22FSelect%22+-%3E+%7B%7B%22SolveSystemOf2EquationsCalculator%22%7D%7D&assumption=%7B%22F%22%2C+%22SolveSystemOf2EquationsCalculator%22%2C+%22equation2%22%7D+-%3E%22b+%3D+t+%2B+%281-r%29*0.25+%2B+0.5%22
 		glm::vec2
-			Pilot::findClosestCycle(const glm::vec2& polar) const
+			Pilot::findClosestAxesCycle(const glm::vec2& newAxes) const
 		{
-			const auto currentPolar = this->getPolar();
-			const auto currentTheta = currentPolar[1];
-			auto theta = polar[1];
-			while (theta < currentTheta - PI) {
-				theta += TWO_PI ;
+			const auto currentAxes = this->getAxes();
+			
+			auto deltaAxes = newAxes - currentAxes;
+
+			while (deltaAxes[0] > 0.5) {
+				deltaAxes[0] -= 1.0f;
 			}
-			while (theta > currentTheta + PI) {
-				theta -= TWO_PI;
+			while (deltaAxes[0] < -0.5) {
+				deltaAxes[0] += 1.0f;
 			}
 
-			return {
-				polar[0]
-				, theta
-			};
+			while (deltaAxes[1] > 0.5) {
+				deltaAxes[1] -= 1.0f;
+			}
+			while (deltaAxes[1] < -0.5) {
+				deltaAxes[1] += 1.0f;
+			}
+			
+			return currentAxes + deltaAxes;
 		}
 
 		//----------

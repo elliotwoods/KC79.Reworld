@@ -110,6 +110,11 @@ namespace Modules {
 		// Pull and process the inbox
 		this->updateInbox();
 
+		// Collate packets in the outbox
+		if (this->parameters.collatePackets) {
+			this->collateOutboxPackets();
+		}
+
 		// Update indicators
 		{
 			this->debug.isFrameNewMessageRx.update();
@@ -153,11 +158,17 @@ namespace Modules {
 			}
 		}
 		else {
-			inspector->addLiveValue<string>("Device name", [this]() {
-				return this->connectedPortName;
+			inspector->addLiveValue<string>("Serial device", [this]() {
+				if (this->serialThread) {
+					return this->serialThread->serialDevice->getTypeName();
+				}
+				else {
+					return string("None");
+				}
 				});
 			inspector->addButton("Disconnect", [this]() {
 				this->closeSerial();
+				this->initilialisation.settings = nlohmann::json(); // clear settings so don't auto-init
 				ofxCvGui::refreshInspector(this);
 				});
 		}
@@ -171,33 +182,18 @@ namespace Modules {
 		}
 
 		{
-			auto widget = make_shared<ofxCvGui::Widgets::Heartbeat>("Rx", [this]() {
-				return this->debug.isFrameNewMessageRx.isFrameNew;
-				});
-			inspector->add(widget);
+			auto widgets = this->getWidgets();
+			for (auto widget : widgets) {
+				inspector->add(widget);
+			}
 		}
-
-		inspector->addLiveValue<size_t>("Rx count", [this]() {
-			return this->debug.rxCount;
-			});
-
-		{
-			auto widget = make_shared<ofxCvGui::Widgets::Heartbeat>("Tx", [this]() {
-				return this->debug.isFrameNewMessageTx.isFrameNew;
-				});
-			inspector->add(widget);
-		}
-
-		inspector->addLiveValue<size_t>("Tx count", [this]() {
-			return this->debug.txCount;
-			});
-
-		inspector->addLiveValue<size_t>("Outbox count", [this]() {
-			return this->getOutboxCount();
-			});
 
 		inspector->addButton("Clear outbox", [this]() {
 			this->clearOutbox();
+			});
+
+		inspector->addButton("Clear counters", [this]() {
+			this->clearCounters();
 			});
 
 		{
@@ -342,13 +338,23 @@ namespace Modules {
 	void
 		RS485::clearOutbox()
 	{
-		this->serialThreadActions.send([this]() {
-			Packet _;
-			while (this->serialThread->outbox.tryReceive(_)) {
+		if (!this->isConnected()) {
+			return;
+		}
 
-			}
-			});
+		// just receive all the packets here
+		Packet _;
+		while (this->serialThread->outbox.tryReceive(_)) {
+			// do nothing with these messages, just clear them out
+		}
+	}
 
+	//----------
+	void
+		RS485::clearCounters()
+	{
+		this->debug.rxCount = 0;
+		this->debug.txCount = 0;
 	}
 
 	//----------
@@ -363,9 +369,45 @@ namespace Modules {
 	}
 
 	//----------
-	vector<RS485::Packet>
-		RS485::collatePackets(const vector<RS485::Packet>& allPackets)
+	vector<ofxCvGui::ElementPtr>
+		RS485::getWidgets()
 	{
+		return {
+			make_shared<ofxCvGui::Widgets::Heartbeat>("Rx", [this]() {
+				return this->debug.isFrameNewMessageRx.isFrameNew;
+				})
+			, make_shared<ofxCvGui::Widgets::LiveValue<size_t>>("Rx count", [this]() {
+				return this->debug.rxCount;
+			})
+			, make_shared<ofxCvGui::Widgets::Heartbeat>("Tx", [this]() {
+				return this->debug.isFrameNewMessageTx.isFrameNew;
+			})
+			, make_shared<ofxCvGui::Widgets::LiveValue<size_t>>("Tx count", [this]() {
+				return this->debug.txCount;
+			})
+			, make_shared<ofxCvGui::Widgets::LiveValue<size_t>>("Outbox count", [this]() {
+				return this->getOutboxCount();
+			})
+		};
+	}
+
+
+	//----------
+	void
+		RS485::collateOutboxPackets()
+	{
+		if (!this->serialThread) {
+			return;
+		}
+
+		vector<RS485::Packet> allPackets;
+		{
+			Packet packet;
+			while (this->serialThread->outbox.tryReceive(packet)) {
+				allPackets.push_back(packet);
+			}
+		}
+		
 		vector<RS485::Packet> filteredPackets;
 
 		for (const auto& packet : allPackets) {
@@ -388,7 +430,9 @@ namespace Modules {
 			}
 		}
 
-		return filteredPackets;
+		for (const auto& packet : filteredPackets) {
+			this->serialThread->outbox.send(packet);
+		}
 	}
 
 	//----------
@@ -485,7 +529,6 @@ namespace Modules {
 				std::this_thread::sleep_for(std::chrono::milliseconds(1));
 			}
 		}
-
 	}
 
 	//-----------
@@ -518,7 +561,8 @@ namespace Modules {
 					copyOfIncoming.size());
 
 				// Check if decoded OK (should predictably be true)
-				if (decodeResult.status != COBS_DECODE_OK) {
+				if (decodeResult.status != COBS_DECODE_OK
+					&& this->parameters.debug.printMessageErrors) {
 					ofLogError("LaserSystem") << "COBS decode error " << (int)decodeResult.status;
 					this->debug.isFrameNewDeviceRxFail.notify();
 					continue;
@@ -578,22 +622,13 @@ namespace Modules {
 			return false;
 		}
 
-		// Gather all packets into this thread
-		vector<Packet> packets;
-		{
-			Packet packet;
-			while (this->serialThread->outbox.tryReceive(packet)) {
-				packets.push_back(packet);
-			}
-		}
-
-		// Collate packets
-		if (this->parameters.collatePackets) {
-			packets = RS485::collatePackets(packets);
-		}
-
 		// Send packets
-		for(const auto& packet : packets) {
+		Packet packet;
+		while (this->serialThread->outbox.tryReceive(packet)) {
+			if (this->serialThread->joining) {
+				// if we're exiting, just ignore rest of packets in outbox
+				break;
+			}
 			const auto& msgpackBinary = packet.msgpackBinary;
 
 			auto data = msgpackBinary.data();
@@ -699,7 +734,8 @@ namespace Modules {
 					? chrono::milliseconds(packet.customWaitTime_ms)
 					: chrono::milliseconds(this->parameters.responseWindow_ms.get());
 
-				if (!waitForReceive(packet.target, waitDuration)) {
+				if (!waitForReceive(packet.target, waitDuration)
+					&& this->parameters.debug.printMessageErrors) {
 					ofLogError() << "ACK not seen from " << packet.target;
 				}
 			}

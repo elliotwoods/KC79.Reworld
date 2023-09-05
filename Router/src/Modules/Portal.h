@@ -53,7 +53,10 @@ namespace Modules {
 		shared_ptr<PerPortal::Axis> getAxis(int axis);
 		shared_ptr<PerPortal::Pilot> getPilot();
 
+		vector<ofxCvGui::ElementPtr> getWidgets();
+
 		ofxLiquidEvent<Target> onTargetChange;
+
 	protected:
 		shared_ptr<RS485> rs485;
 		
@@ -77,7 +80,9 @@ namespace Modules {
 		} parameters;
 
 		struct {
-			Utils::ReportedState<uint32_t> upTime{ "upTime" };
+			Utils::ReportedState<uint32_t> upTime{ "upTime", [](uint32_t millis) {
+				return Utils::millisToString(millis);
+			}};
 			Utils::ReportedState<string> version{ "version" };
 			Utils::ReportedState<bool> calibrated{ "calibrated" };
 			vector<Utils::IReportedState*> variables{

@@ -94,6 +94,8 @@ namespace Modules {
 		void setTargetPosition(Steps steps);
 		Steps getTargetPosition() const;
 
+		void setTargetPositionWithMotionFiltering(Steps);
+
 		const MotionProfile & getMotionProfile() const;
 		void setMotionProfile(const MotionProfile&);
 		
@@ -116,6 +118,7 @@ namespace Modules {
 		bool processIncomingByKey(const char * key, Stream &) override;
 
 		void updateStepCount();
+		void updateFilteredMotion();
 		void updateMotion();
 
 		MotionState calculateMotionState(unsigned long dt_us) const;
@@ -137,6 +140,22 @@ namespace Modules {
 			bool backlashCalibrated = false;
 			Steps positionWithinBacklash = 0; // negative when going forwards
 		} backlashControl;
+
+		// This is used to smooth out motion between packets
+		struct {
+			bool enabled = true;
+			uint32_t lastMoveMessageTime = 0;
+			const uint32_t allowedDuration = 1000;
+
+			bool initialised = false;
+			Steps velocity;
+			Steps lastPosition;
+
+			bool active = false;
+
+			// Moves larger than this amount don't perform motion prediction
+			int32_t activeRegion = 100000;
+		} motionFiltering;
 
 		bool homeCalibrated = false;
 

@@ -67,7 +67,7 @@ namespace Modules {
 				if (result.bSuccess) {
 					this->uploadFirmware(result.filePath);
 				}
-				});
+				}, OF_KEY_RETURN);
 			button->setHeight(150.0f);
 		}
 
@@ -76,7 +76,7 @@ namespace Modules {
 			});
 		inspector->addButton("Run application", [this]() {
 			this->runApplication();
-			});
+			}, 'r');
 
 	}
 
@@ -86,8 +86,8 @@ namespace Modules {
 		FWUpdate::uploadFirmware(const string& path)
 	{
 		// Check RS485 connected
+		auto rs485 = this->rs485.lock();
 		{
-			auto rs485 = this->rs485.lock();
 			if (!rs485->isConnected()) {
 				ofSystemAlertDialog("No RS485 device connected");
 				return;
@@ -123,6 +123,11 @@ namespace Modules {
 				data.resize(lastFF);
 			}
 			cout << "Contents size : " << data.size() << endl;
+		}
+
+		// 0. Clear any existing messages in outbox
+		{
+			rs485->clearOutbox();
 		}
 
 		// 1. First announce it
@@ -223,6 +228,10 @@ namespace Modules {
 		auto rs485 = this->rs485.lock();
 		if (!rs485) {
 			ofLogError("No RS485");
+			return;
+		}
+		if (!rs485->isConnected()) {
+			// No connection
 			return;
 		}
 

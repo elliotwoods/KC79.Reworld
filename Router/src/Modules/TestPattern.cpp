@@ -73,6 +73,9 @@ namespace Modules {
 	{
 		auto inspector = args.inspector;
 		inspector->addParameterGroup(this->parameters);
+		inspector->addButton("Unwind", [this]() {
+			this->unwind();
+			});
 	}
 
 	//----------

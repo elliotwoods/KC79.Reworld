@@ -13,6 +13,8 @@ namespace SerialDevices {
 	public:
 		~TCP();
 		string getTypeName() const override;
+		string getAddressString() override;
+
 		bool open(const nlohmann::json&) override;
 		bool open(string address, int port, int timeout_s);
 		void close() override;

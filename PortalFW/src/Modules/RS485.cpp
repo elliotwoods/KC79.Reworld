@@ -182,7 +182,7 @@ namespace Modules {
 				log(LogLevel::Error, exception.what());
 			}
 			else {
-				
+				this->anySignalReceived = true;
 			}
 
 			// disable ACK is handled inside sendACK function

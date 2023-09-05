@@ -9,6 +9,8 @@ namespace SerialDevices {
 	public:
 		~Serial();
 		string getTypeName() const override;
+		string getAddressString() override;
+
 		bool open(const nlohmann::json&) override;
 		bool open(string portAddress);
 		void close() override;
@@ -22,5 +24,6 @@ namespace SerialDevices {
 		static vector<ListedDevice> listDevices();
 	protected:
 		ofSerial serial;
+		string addressString;
 	};
 }

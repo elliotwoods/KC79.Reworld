@@ -18,6 +18,13 @@ namespace SerialDevices {
 	}
 
 	//----------
+	string
+		TCP::getAddressString()
+	{
+		return this->tcpClient.getIP();
+	}
+
+	//----------
 	bool
 		TCP::open(const nlohmann::json& json)
 	{

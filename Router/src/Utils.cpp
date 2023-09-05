@@ -88,4 +88,43 @@ namespace Utils{
 		{ auto castVariable = dynamic_cast<ReportedState<bool>*>(variable); if (castVariable) return makeGUIElementTyped(castVariable); }
 		{ auto castVariable = dynamic_cast<ReportedState<string>*>(variable); if (castVariable) return makeGUIElementTyped(castVariable); }
 	}
+
+	//----------
+	string
+		millisToString(uint32_t millis)
+	{
+		const uint32_t ms_per_s = 1000;
+		const uint32_t ms_per_m = 60 * ms_per_s;
+		const uint32_t ms_per_h = 60 * ms_per_m;
+		const uint32_t ms_per_d = 24 * ms_per_h;
+
+		auto days = millis / ms_per_d;
+		millis %= ms_per_d;
+
+		auto hours = millis / ms_per_h;
+		millis %= ms_per_h;
+
+		auto minutes = millis / ms_per_m;
+		millis %= ms_per_m;
+
+		auto seconds = millis / ms_per_s;
+		millis %= ms_per_s;
+
+		stringstream ss;
+		if (days > 0) {
+			ss << days << "d ";
+		}
+		if (hours > 0) {
+			ss << hours << "h ";
+		}
+		if (minutes > 0) {
+			ss << minutes << "m ";
+		}
+		if (seconds > 0) {
+			ss << seconds << "s ";
+		}
+		ss << millis << "ms";
+
+		return ss.str();
+	}
 }

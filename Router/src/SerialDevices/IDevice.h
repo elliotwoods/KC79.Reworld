@@ -12,7 +12,8 @@ namespace SerialDevices {
 	{
 	public:
 		virtual string getTypeName() const = 0;
-		
+		virtual string getAddressString() = 0;
+
 		virtual bool open(const nlohmann::json&) = 0;
 		virtual void close() = 0;
 		virtual bool isConnected() = 0;
@@ -23,5 +24,6 @@ namespace SerialDevices {
 
 		// Note that messages may be partial and need packetising
 		virtual Buffer receiveBytes() = 0;
+
 	};
 }

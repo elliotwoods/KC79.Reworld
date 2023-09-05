@@ -224,6 +224,15 @@ namespace Modules {
 						height += element->getHeight();
 					}
 
+					// Tx and Rx heartbeats
+					{
+						auto widgets = column->getRS485()->getWidgets();
+						for (auto widget : widgets) {
+							verticalStack->add(widget);
+							height += widget->getHeight();
+						}
+					}
+
 					// Spacer at bottom
 					{
 						auto element = make_shared<ofxCvGui::Widgets::Spacer>();

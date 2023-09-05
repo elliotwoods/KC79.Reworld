@@ -208,19 +208,34 @@ namespace Modules {
 
 						ofPushStyle();
 						{
+							// grid
 							ofNoFill();
 							ofSetColor(100);
 							ofDrawCircle(0, 0, r);
 							ofDrawLine(-r, 0, r, 0);
 							ofDrawLine(0, -r, 0, r);
 
-							ofSetColor(255);
 							ofFill();
-							auto position = this->getPilot()->getPosition();
-							ofDrawCircle({
-								position.x * r
-								, position.y * r
-								}, 2.0f);
+
+							// live position
+							{
+								ofSetColor(100, 100, 200);
+								auto position = this->getPilot()->getLivePosition();
+								ofDrawCircle({
+									position.x * r
+									, position.y * r
+									}, 2.0f);
+							}
+
+							// target position (local)
+							{
+								ofSetColor(255);
+								auto position = this->getPilot()->getPosition();
+								ofDrawCircle({
+									position.x * r
+									, position.y * r
+									}, 2.0f);
+							}
 						}
 						ofPopStyle();
 					}
@@ -273,6 +288,7 @@ namespace Modules {
 				// Heartbeats
 				stack->add(this->storedWidgets.rxHeartbeat);
 				stack->add(this->storedWidgets.txHeartbeat);
+				stack->add(Utils::makeGUIElement(&this->reportedState.upTime));
 
 				// Last log message
 				stack->add(make_shared<ofxCvGui::Widgets::LiveValue<string>>("Last log message", [this]() {
@@ -452,4 +468,15 @@ namespace Modules {
 	{
 		return this->pilot;
 	}
+
+	//----------
+	vector<ofxCvGui::ElementPtr>
+		Portal::getWidgets()
+	{
+		return {
+			this->storedWidgets.rxHeartbeat
+			, this->storedWidgets.txHeartbeat
+		};
+	}
+
 }

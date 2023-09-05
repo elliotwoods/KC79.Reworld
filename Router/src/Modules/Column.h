@@ -57,8 +57,8 @@ namespace Modules {
 
 		struct : ofParameterGroup {
 			struct : ofParameterGroup {
-				ofParameter<bool> enabled{ "Enabled", false };
-				ofParameter<float> period_s{ "Period [s]", 5.0f, 0.01f, 100.0f };
+				ofParameter<bool> enabled{ "Enabled", true };
+				ofParameter<float> period_s{ "Period [s]", 60.0f, 0.01f, 100.0f };
 				PARAM_DECLARE("Scheduled poll", enabled, period_s);
 			} scheduledPoll;
 			PARAM_DECLARE("App", scheduledPoll);

@@ -38,7 +38,7 @@ namespace Modules {
 				ofParameter<float> period{ "Period", 120 };
 				ofParameter<float> width{ "Width", 1.5f, 0.0f, 10.0f };
 				ofParameter<float> height{ "Height", 3.0f, 0.0f, 10.0f };
-				ofParameter<float> amplitude{ "Amplitude", 1.5f, 0.0f, 10.0f };
+				ofParameter<float> amplitude{ "Amplitude", 1.0f, 0.0f, 10.0f };
 				PARAM_DECLARE("Wave", period, width, height, amplitude);
 			} wave;
 
@@ -51,6 +51,6 @@ namespace Modules {
 			PARAM_DECLARE("TestPattern", enabled, everyNFrames, wave, unwind);
 		} parameters;
 
-		chrono::system_clock::time_point lastUnwind;
+		chrono::system_clock::time_point lastUnwind = chrono::system_clock::now();
 	};
 }

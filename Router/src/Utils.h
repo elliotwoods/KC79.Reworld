@@ -38,6 +38,13 @@ namespace Utils {
 
 		}
 
+		ReportedState(const string& name, function<string(T)> toStringFunction)
+			: IReportedState(name)
+			, toStringFunction(toStringFunction)
+		{
+
+		}
+
 		T value;
 
 		void processIncoming(const nlohmann::json& json) override
@@ -54,9 +61,16 @@ namespace Utils {
 				return "[unknown]";
 			}
 			else {
-				return ofToString(this->value);
+				if (this->toStringFunction) {
+					return this->toStringFunction(this->value);
+				}
+				else {
+					return ofToString(this->value);
+				}
 			}
 		}
+
+		function<string(T)> toStringFunction;
 	};
 
 	ofxCvGui::ElementPtr makeGUIElementTyped(ReportedState<bool> *);
@@ -73,4 +87,6 @@ namespace Utils {
 	}
 
 	ofxCvGui::ElementPtr makeGUIElement(IReportedState* variable);
+
+	string millisToString(uint32_t millis);
 }

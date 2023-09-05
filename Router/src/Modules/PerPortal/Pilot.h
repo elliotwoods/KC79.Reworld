@@ -44,7 +44,7 @@ namespace Modules {
 			glm::vec2 polarToAxes(const glm::vec2&) const;
 			glm::vec2 axesToPolar(const glm::vec2&) const;
 
-			glm::vec2 findClosestCycle(const glm::vec2&) const;
+			glm::vec2 findClosestAxesCycle(const glm::vec2&) const;
 
 			Steps axisToSteps(float, int axisIndex) const;
 			float stepsToAxis(Steps, int axisIndex) const;
@@ -61,7 +61,7 @@ namespace Modules {
 			Portal * portal;
 
 			struct : ofParameterGroup {
-				ofParameter<LeadingControl> leadingControl{ "Leading control", LeadingControl::Position };
+				ofParameter<LeadingControl> leadingControl{ "Leading control", LeadingControl::Axes };
 
 				struct : ofParameterGroup {
 					ofParameter<float> x{ "X", 0, -1, 1 };
@@ -72,17 +72,17 @@ namespace Modules {
 				struct : ofParameterGroup {
 					ofParameter<float> r{ "r", 0, -1, 1 };
 					ofParameter<float> theta{ "Theta", 0, -acos(0) * 2, acos(0) * 2 };
-					ofParameter<bool> cyclic{ "Cyclic", true };
-					PARAM_DECLARE("Polar", r, theta, cyclic);
+					PARAM_DECLARE("Polar", r, theta);
 				} polar;
 
 				struct : ofParameterGroup {
 					ofParameter<float> a{ "A", 0, 0, 1 };
 					ofParameter<float> b{ "B", 0, 0, 1 };
+					ofParameter<bool> cyclic{ "Cyclic", true };
 					ofParameter<float> offset{ "Offset", 0, -0.25, 0.25 };
 					ofParameter<int> microstepsPerPrismRotation{ "Microsteps per prism rotation", MOTION_MICROSTEPS_PER_PRISM_ROTATION };
 					ofParameter<bool> sendPeriodically{ "Send periodically", false };
-					PARAM_DECLARE("Axes", a, b, offset, microstepsPerPrismRotation, sendPeriodically);
+					PARAM_DECLARE("Axes", a, b, cyclic, offset, microstepsPerPrismRotation, sendPeriodically);
 				} axes;
 				PARAM_DECLARE("PortalPilot", leadingControl, position, polar, axes);
 			} parameters;

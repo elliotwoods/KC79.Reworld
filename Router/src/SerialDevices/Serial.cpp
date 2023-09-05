@@ -18,6 +18,13 @@ namespace SerialDevices {
 	}
 
 	//----------
+	string
+		Serial::getAddressString()
+	{
+		return this->addressString;
+	}
+
+	//----------
 	bool
 		Serial::open(const nlohmann::json& json)
 	{
@@ -35,6 +42,7 @@ namespace SerialDevices {
 		Serial::open(string portAddress)
 	{
 		return this->serial.setup(portAddress, BAUD_RATE);
+		this->addressString = portAddress;
 	}
 
 	//----------

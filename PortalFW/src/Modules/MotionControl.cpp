@@ -274,6 +274,28 @@ namespace Modules {
 		return this->targetPosition;
 	}
 
+		//----------
+	void
+	MotionControl::setTargetPositionWithMotionFiltering(Steps value)
+	{
+		auto now = millis();
+
+		if(!this->motionFiltering.initialised) {
+			this->motionFiltering.active = false;
+		}
+		else {
+			this->motionFiltering.active = true;
+			auto timeSinceLastMove = now - this->motionFiltering.lastMoveMessageTime;
+			auto dsSinceLastMove = value - this->motionFiltering.lastPosition;
+			this->motionFiltering.velocity = dsSinceLastMove * 1000 / timeSinceLastMove; // Hz
+		}
+		
+		this->motionFiltering.lastMoveMessageTime = now;
+		this->motionFiltering.lastPosition = value;
+
+		this->targetPosition = value;
+	}
+
 	//----------
 	const MotionControl::MotionProfile &
 	MotionControl::getMotionProfile() const
@@ -593,6 +615,13 @@ namespace Modules {
 			this->testTimer();
 			return true;
 		}
+		else if(strcmp(key, "motionFilteringEnabled") == 0) {
+			bool value;
+			if(!msgpack::readBool(stream, value)) {
+				return false;
+			}
+			this->motionFiltering.enabled = value;
+		}
 		return false;
 	}
 
@@ -634,6 +663,33 @@ namespace Modules {
 			this->stepsInInterrupt = 0;
 		}
 		
+	}
+
+	//----------
+	void
+	MotionControl::updateFilteredMotion()
+	{
+		if(this->motionFiltering.active) {
+			const auto now = millis();
+			const auto timeSinceLastMessage = now - this->motionFiltering.lastMoveMessageTime;
+			
+			// check if we've expired the motion filtering time window (stale data)
+			if(timeSinceLastMessage > this->motionFiltering.allowedDuration) {
+				this->motionFiltering.active = false;
+				return;
+			}
+
+			// calculate a target position based on motion filtering
+			const auto targetPosition = this->motionFiltering.lastPosition
+				+ timeSinceLastMessage * this->motionFiltering.velocity / 1000;
+			this->setTargetPosition(targetPosition);
+
+			{
+				char message[100];
+				sprintf(message, "%d", targetPosition);
+				log(LogLevel::Status, message);
+			}
+		}
 	}
 
 	//----------
