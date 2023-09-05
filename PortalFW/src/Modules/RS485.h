@@ -26,6 +26,8 @@ namespace Modules {
 
 		// Are you allowed to reply to a message?
 		static bool replyAllowed();
+
+		bool hasAnySignalBeenReceived() const;
 	protected:
 		App * app;
 		static RS485 * instance;
@@ -40,5 +42,7 @@ namespace Modules {
 
 		bool disableACK = false;
 		bool sentACKEarly = false;
+
+		bool anySignalReceived = false;
 	};
 }

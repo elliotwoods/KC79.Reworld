@@ -55,6 +55,8 @@ namespace Modules {
 	protected:
 		static App * instance;
 		bool processIncomingByKey(const char * key, Stream &) override;
+		bool isInsideRoutine = true;
 		bool shouldEscapeFromRoutine = false;
+		bool motorIndicatorEnabled = true;
 	};
 }

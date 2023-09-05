@@ -73,7 +73,12 @@ namespace Modules
 		
 		// Calibrate self on startup
 #ifndef STARTUP_INIT_DISABLED
-		this->routines->startup();
+		// HACK
+		// Hack : for testing on site - they don't want this
+		//this->routines->startup();
+
+		// Hack : they want only this!
+		this->routines->unjam();
 #endif
 	}
 
@@ -81,7 +86,8 @@ namespace Modules
 	void
 	App::update()
 	{
-		// reset this flag
+		// reset these flags
+		this->isInsideRoutine = false;
 		this->shouldEscapeFromRoutine = false;
 
 		// reset the indicator LED
@@ -122,16 +128,27 @@ namespace Modules
 		}
 
 		// Indicate if a motor driver is enabled
-		digitalWrite(LED_INDICATOR, this->motorDriverA->getEnabled() || this->motorDriverB->getEnabled());
+		if(this->motorIndicatorEnabled) {
+			digitalWrite(LED_INDICATOR, this->motorDriverA->getEnabled() || this->motorDriverB->getEnabled());
+		}		
 
 		// Refresh the watchdog counter
 		LL_IWDG_ReloadCounter(IWDG);
+
+		// set distant target if no signal received
+		if(!this->rs485->hasAnySignalBeenReceived()) {
+			this->motionControlA->setTargetPosition(this->motionControlA->getMicrostepsPerPrismRotation() * 1000);
+			this->motionControlB->setTargetPosition(this->motionControlA->getMicrostepsPerPrismRotation() * 1000);
+		}
 	}
 
 	//---------
 	bool
 	App::updateFromRoutine()
 	{
+		// Make sure we know we're inside a routine
+		App::instance->isInsideRoutine = true;
+
 		// Update logger (e.g. dump messages on request)
 		Logger::X().update();
 
@@ -222,6 +239,12 @@ namespace Modules
 
 		else if (strcmp(key, "m") == 0)
 		{
+			// Can't do whilst already inside routine
+			if(this->isInsideRoutine) {
+				// Don't report a malformed message, but rest of message will be ignored
+				return true;
+			}
+
 			// Special 2-axis move message
 			size_t arraySize;
 			if (!msgpack::readArraySize(stream, arraySize))
@@ -380,6 +403,14 @@ namespace Modules
 			return true;
 		}
 
+		else if (strcmp(key, "motorIndicatorEnabled") == 0) {
+			bool value;
+			if(!msgpack::readBool(stream, value)) {
+				return false;
+			}
+			this->motorIndicatorEnabled = value;
+			return true;
+		}
 		else if (strcmp(key, "escapeFromRoutine") == 0) {
 			if(!msgpack::readNil(stream)) {
 				return false;

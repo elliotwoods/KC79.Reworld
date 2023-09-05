@@ -150,6 +150,13 @@ namespace Modules {
 	}
 
 	//---------
+	bool
+	RS485::hasAnySignalBeenReceived() const
+	{
+		return this->anySignalReceived;
+	}
+
+	//---------
 	void
 	RS485::processIncoming()
 	{
@@ -170,12 +177,12 @@ namespace Modules {
 			// this will be raised inside processCOBSPacket if packet is for us exclusively
 			bool isForUs = false;
 
-			// Message that we've got something
-			log(LogLevel::Status, "RS485 Rx");
-
 			auto exception = this->processCOBSPacket(isForUs);
 			if(exception) {
 				log(LogLevel::Error, exception.what());
+			}
+			else {
+				
 			}
 
 			// disable ACK is handled inside sendACK function
