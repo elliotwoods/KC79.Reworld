@@ -287,6 +287,72 @@ namespace Modules {
 
 		//----------
 		void
+			MotionControl::pushMotionProfile(int maxVelocity)
+		{
+			auto message = MsgPack::object{
+			{
+				this->getFWModuleName() , MsgPack::object{
+					{
+						"motionProfile"
+						, MsgPack::array {
+							maxVelocity
+						}
+					}
+				}
+			}
+			};
+			this->portal->sendToPortal(message);
+			this->cachedSentParameters.maxVelocity = maxVelocity;
+		}
+
+		//----------
+		void
+			MotionControl::pushMotionProfile(int maxVelocity, int acceleration)
+		{
+			auto message = MsgPack::object{
+			{
+				this->getFWModuleName() , MsgPack::object{
+					{
+						"motionProfile"
+						, MsgPack::array {
+							(int32_t) maxVelocity
+							, (int32_t) acceleration
+						}
+					}
+				}
+			}
+			};
+			this->portal->sendToPortal(message);
+			this->cachedSentParameters.maxVelocity = maxVelocity;
+			this->cachedSentParameters.acceleration = acceleration;
+		}
+
+		//----------
+		void
+			MotionControl::pushMotionProfile(int maxVelocity, int acceleration, int minVelocity)
+		{
+			auto message = MsgPack::object{
+			{
+				this->getFWModuleName() , MsgPack::object{
+					{
+						"motionProfile"
+						, MsgPack::array {
+							(int32_t) maxVelocity
+							, (int32_t) acceleration
+							, (int32_t) minVelocity
+						}
+					}
+				}
+			}
+			};
+			this->portal->sendToPortal(message);
+			this->cachedSentParameters.maxVelocity = maxVelocity;
+			this->cachedSentParameters.acceleration = acceleration;
+			this->cachedSentParameters.minVelocity = minVelocity;
+		}
+
+		//----------
+		void
 			MotionControl::testTimer()
 		{
 			auto message = MsgPack::object{

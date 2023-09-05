@@ -44,6 +44,11 @@ namespace Modules {
 			void setReportedCurrentPosition(Steps);
 			void setReportedTargetPosition(Steps);
 
+			// actions to directly push sub-motion profiles
+			void pushMotionProfile(int maxVelocity);
+			void pushMotionProfile(int maxVelocity, int acceleration);
+			void pushMotionProfile(int maxVelocity, int acceleration, int minVelocity);
+
 			void testTimer();
 			void deinitTimer();
 			void initTimer();

@@ -36,10 +36,15 @@ namespace Modules {
 			void setPolar(const glm::vec2&);
 			void setAxes(const glm::vec2&);
 
+			void resetPosition();
+			void unwind();
+
 			glm::vec2 positionToPolar(const glm::vec2&) const;
 			glm::vec2 polarToPosition(const glm::vec2&) const;
 			glm::vec2 polarToAxes(const glm::vec2&) const;
 			glm::vec2 axesToPolar(const glm::vec2&) const;
+
+			glm::vec2 findClosestCycle(const glm::vec2&) const;
 
 			Steps axisToSteps(float, int axisIndex) const;
 			float stepsToAxis(Steps, int axisIndex) const;
@@ -67,7 +72,8 @@ namespace Modules {
 				struct : ofParameterGroup {
 					ofParameter<float> r{ "r", 0, -1, 1 };
 					ofParameter<float> theta{ "Theta", 0, -acos(0) * 2, acos(0) * 2 };
-					PARAM_DECLARE("Polar", r, theta);
+					ofParameter<bool> cyclic{ "Cyclic", true };
+					PARAM_DECLARE("Polar", r, theta, cyclic);
 				} polar;
 
 				struct : ofParameterGroup {

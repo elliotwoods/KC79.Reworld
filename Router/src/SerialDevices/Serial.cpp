@@ -45,6 +45,13 @@ namespace SerialDevices {
 	}
 
 	//----------
+	bool
+		Serial::isConnected()
+	{
+		return this->serial.isInitialized();
+	}
+
+	//----------
 	size_t
 		Serial::transmit(const Buffer & buffer)
 	{

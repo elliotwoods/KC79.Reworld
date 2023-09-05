@@ -15,6 +15,7 @@ namespace SerialDevices {
 		
 		virtual bool open(const nlohmann::json&) = 0;
 		virtual void close() = 0;
+		virtual bool isConnected() = 0;
 
 		virtual size_t transmit(const Buffer&) = 0;
 

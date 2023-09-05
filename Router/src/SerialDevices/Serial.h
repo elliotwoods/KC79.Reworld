@@ -12,6 +12,7 @@ namespace SerialDevices {
 		bool open(const nlohmann::json&) override;
 		bool open(string portAddress);
 		void close() override;
+		bool isConnected() override;
 
 		size_t transmit(const Buffer&) override;
 

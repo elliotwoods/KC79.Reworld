@@ -82,14 +82,35 @@ namespace Modules {
 		RS485::setup(const nlohmann::json& json)
 	{
 		this->openSerial(json);
+		this->initilialisation.settings = json;
+		this->initilialisation.lastConnectionAttempt = chrono::system_clock::now();
 	}
 
 	//----------
 	void
 		RS485::update()
 	{
+		// Check connection
+		{
+			// Close serial if disconnected
+			if (this->serialThread) {
+				if (!this->serialThread->serialDevice->isConnected()) {
+					this->closeSerial();
+				}
+			}
+
+			// Check if can reconnect
+			if (!this->serialThread
+				&& !this->initilialisation.settings.empty()
+				&& chrono::system_clock::now() - this->initilialisation.lastConnectionAttempt > this->initilialisation.retryPeriod) {
+				this->setup(this->initilialisation.settings);
+			}
+		}
+
+		// Pull and process the inbox
 		this->updateInbox();
 
+		// Update indicators
 		{
 			this->debug.isFrameNewMessageRx.update();
 			this->debug.isFrameNewMessageTx.update();
@@ -172,12 +193,11 @@ namespace Modules {
 			});
 
 		inspector->addLiveValue<size_t>("Outbox count", [this]() {
-			if (this->serialThread) {
-				return this->serialThread->outbox.size();
-			}
-			else {
-				return (size_t)0;
-			}
+			return this->getOutboxCount();
+			});
+
+		inspector->addButton("Clear outbox", [this]() {
+			this->clearOutbox();
 			});
 
 		{
@@ -308,6 +328,30 @@ namespace Modules {
 	}
 
 	//----------
+	size_t RS485::getOutboxCount() const
+	{
+		if (this->serialThread) {
+			return this->serialThread->outbox.size();
+		}
+		else {
+			return (size_t)0;
+		}
+	}
+
+	//----------
+	void
+		RS485::clearOutbox()
+	{
+		this->serialThreadActions.send([this]() {
+			Packet _;
+			while (this->serialThread->outbox.tryReceive(_)) {
+
+			}
+			});
+
+	}
+
+	//----------
 	void
 		RS485::processIncoming(const nlohmann::json& json)
 	{
@@ -413,6 +457,14 @@ namespace Modules {
 		RS485::serialThreadedFunction()
 	{
 		while (!this->serialThread->joining) {
+			// Perform any actions that should happen in serialThread
+			{
+				std::function<void()> action;
+				while (this->serialThreadActions.tryReceive(action)) {
+					action();
+				}
+			}
+
 			auto didRx = this->serialThreadReceive();
 			if (didRx) {
 				this->serialThread->lastRxTime = chrono::system_clock::now();

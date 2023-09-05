@@ -56,5 +56,6 @@ namespace Modules {
 		static App * instance;
 		bool processIncomingByKey(const char * key, Stream &) override;
 		bool shouldEscapeFromRoutine = false;
+		bool motorDriverIndicatorEnabled = false;
 	};
 }

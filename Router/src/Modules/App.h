@@ -4,7 +4,10 @@
 #include "crow/crow.h"
 
 #include "Column.h"
+#include "TestPattern.h"
+
 #include "ofxOsc.h"
+#include "ofxNetwork.h"
 
 namespace Modules {
 	class App : public Base
@@ -18,15 +21,21 @@ namespace Modules {
 		void update() override;
 		void populateInspector(ofxCvGui::InspectArguments& args);
 
+		vector<shared_ptr<Column>> getAllColumns() const;
 		shared_ptr<Column> getColumnByID(int) const;
 
-		void dragEvent(const ofDragInfo&);
+		glm::tvec2<size_t> getSize() const;
+		void moveGrid(const vector<glm::vec2>& positions);
+		void moveGridRow(const vector<glm::vec2>& positions, int rowIndex);
 	protected:
 		void setupCrowRoutes();
 		crow::SimpleApp crow;
 		std::future<void> crowRun;
 
 		map<int, shared_ptr<Column>> columns;
+
+		shared_ptr<TestPattern> testPattern;
+		vector<shared_ptr<Base>> modules;
 
 		struct : ofParameterGroup {
 			struct : ofParameterGroup {
@@ -38,5 +47,6 @@ namespace Modules {
 		} parameters;
 
 		shared_ptr<ofxOscReceiver> oscReceiver;
+		ofxTCPServer tcpServer;
 	};
 }

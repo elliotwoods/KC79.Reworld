@@ -13,6 +13,7 @@ namespace Modules {
 				"Ping"
 				, u8"\uf45d"
 				, msgpack11::MsgPack()
+				, "/ping"
 			}
 			, {
 				"Initialise routine"
@@ -22,6 +23,8 @@ namespace Modules {
 						"init", msgpack11::MsgPack()
 					}
 				}
+				, "/init"
+			,
 			}
 			, {
 				"Calibrate routine"
@@ -31,6 +34,7 @@ namespace Modules {
 						"calibrate", msgpack11::MsgPack()
 					}
 				}
+				, "/calibrate"
 			}
 			, {
 				"Flash lights"
@@ -40,6 +44,7 @@ namespace Modules {
 						"flashLED", msgpack11::MsgPack()
 					}
 				}
+				, "/flashLEDs"
 			}
 			, {
 				"Home"
@@ -53,6 +58,7 @@ namespace Modules {
 						}
 					}
 				}
+				, "/home"
 			}
 			, {
 				"See through"
@@ -66,6 +72,7 @@ namespace Modules {
 						}
 					}
 				}
+				, "/seeThrough"
 			}
 			, {
 				"Unjam"
@@ -75,6 +82,7 @@ namespace Modules {
 						"unjam", msgpack11::MsgPack()
 					}
 				}
+				, "/unjam"
 			}
 			, {
 				"Escape from routine"
@@ -84,6 +92,7 @@ namespace Modules {
 						"escapeFromRoutine", msgpack11::MsgPack()
 					}
 				}
+				, "/escapeFromRoutine"
 			}
 			, {
 				"Reboot"
@@ -93,6 +102,7 @@ namespace Modules {
 						"reset", msgpack11::MsgPack()
 					}
 				}
+				, "/reboot"
 			}
 		};
 	}
@@ -137,6 +147,7 @@ namespace Modules {
 		{
 			button->addChild(portal->storedWidgets.rxHeartbeat);
 			button->addChild(portal->storedWidgets.txHeartbeat);
+			button->addChild(portal->storedWidgets.position);
 
 			button->onBoundsChange += [portal](ofxCvGui::BoundsChangeArguments& args) {
 				auto width = args.localBounds.width / 3.0f;
@@ -144,6 +155,7 @@ namespace Modules {
 				portal->storedWidgets.rxHeartbeat->setPosition({ 0, 0 });
 				portal->storedWidgets.txHeartbeat->setWidth(width);
 				portal->storedWidgets.txHeartbeat->setPosition({ 0, args.localBounds.height / 2.0f });
+				portal->storedWidgets.position->setBounds(ofRectangle{ width * 2, 0, width, args.localBounds.height });
 			};
 		}
 
@@ -183,6 +195,38 @@ namespace Modules {
 			this->storedWidgets.txHeartbeat = make_shared<ofxCvGui::Widgets::Heartbeat>("Tx", [this]() {
 				return this->isFrameNew.tx.isFrameNew;
 				});
+
+			this->storedWidgets.position = ofxCvGui::makeElement();
+			{
+				this->storedWidgets.position->onDraw += [this](ofxCvGui::DrawArguments& args) {
+
+					auto r = min(args.localBounds.width, args.localBounds.height) / 2.0f;
+
+					ofPushMatrix();
+					{
+						ofTranslate(args.localBounds.getCenter());
+
+						ofPushStyle();
+						{
+							ofNoFill();
+							ofSetColor(100);
+							ofDrawCircle(0, 0, r);
+							ofDrawLine(-r, 0, r, 0);
+							ofDrawLine(0, -r, 0, r);
+
+							ofSetColor(255);
+							ofFill();
+							auto position = this->getPilot()->getPosition();
+							ofDrawCircle({
+								position.x * r
+								, position.y * r
+								}, 2.0f);
+						}
+						ofPopStyle();
+					}
+					ofPopMatrix();
+				};
+			}
 		}
 	}
 

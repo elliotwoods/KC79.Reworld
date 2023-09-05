@@ -191,6 +191,7 @@
     <ClCompile Include="src\Modules\PerPortal\Pilot.cpp" />
     <ClCompile Include="src\Modules\Portal.cpp" />
     <ClCompile Include="src\Modules\RS485.cpp" />
+    <ClCompile Include="src\Modules\TestPattern.cpp" />
     <ClCompile Include="src\msgpack11\msgpack11.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">NotUsing</PrecompiledHeader>
@@ -281,6 +282,7 @@
     <ClInclude Include="src\Modules\PerPortal\Pilot.h" />
     <ClInclude Include="src\Modules\Portal.h" />
     <ClInclude Include="src\Modules\RS485.h" />
+    <ClInclude Include="src\Modules\TestPattern.h" />
     <ClInclude Include="src\msgpack11\msgpack11.hpp" />
     <ClInclude Include="src\ofApp.h" />
     <ClInclude Include="src\OSC\Routes.h" />

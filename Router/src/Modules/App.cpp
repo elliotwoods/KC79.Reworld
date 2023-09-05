@@ -14,6 +14,13 @@ namespace Modules {
 			this->crowRun = this->crow.port(8080).multithreaded().run_async();
 			this->crow.loglevel(crow::LogLevel::Warning);
 		}
+
+		{
+			this->testPattern = make_shared<TestPattern>(this);
+			this->modules.push_back(this->testPattern);
+		}
+
+		this->tcpServer.setup(4444);
 	}
 
 	//----------
@@ -79,12 +86,22 @@ namespace Modules {
 				column->init();
 			}
 		}
+
+		// Initialise modules
+		for(const auto& module : this->modules) {
+			module->init();
+		}
 	}
 
 	//----------
 	void
 		App::update()
 	{
+		// update modules
+		for (const auto& module : this->modules) {
+			module->update();
+		}
+
 		for (const auto& column : this->columns) {
 			column.second->update();
 		}
@@ -119,8 +136,7 @@ namespace Modules {
 					OSC::handleRoute(message);
 				}
 			}
-		}
-		
+		}		
 	}
 
 	//----------
@@ -131,10 +147,112 @@ namespace Modules {
 
 		inspector->addFps();
 
-		// Add columns
-		for (const auto & column : this->columns) {
-			column.second->addSubMenuToInsecptor(inspector, column.second);
+		inspector->addParameterGroup(this->parameters);
+		inspector->addIndicatorBool("OSC receiver open", [this]() {
+			return (bool)this->oscReceiver;
+			});
+
+		inspector->addSpacer();
+
+		// Add modules
+		for (const auto& module : this->modules) {
+			module->addSubMenuToInsecptor(inspector, module);
 		}
+
+		inspector->addSpacer();
+
+		// Add columns
+		{
+			auto stack = inspector->addHorizontalStack();
+			float colHeight = 10.0f;
+			for (const auto& it : this->columns) {
+				const auto& column = it.second;
+				auto columnWeak = weak_ptr<Column>(column);
+				auto button = make_shared<ofxCvGui::Widgets::SubMenuInspectable>("", column);
+				
+				// Custom draw
+				{
+					button->onDraw += [columnWeak](ofxCvGui::DrawArguments& args) {
+					};
+				}
+
+				// Vertical stack of elements in the button
+				float height = 0.0f;
+				{
+
+					auto verticalStack = make_shared<ofxCvGui::Widgets::VerticalStack>(ofxCvGui::Widgets::VerticalStack::Layout::UseElementHeight);
+					{
+						button->addChild(verticalStack);
+						auto verticalStackWeak = weak_ptr<ofxCvGui::Element>(verticalStack);
+						button->onBoundsChange += [verticalStackWeak](ofxCvGui::BoundsChangeArguments& args) {
+							auto verticalStack = verticalStackWeak.lock();
+							auto bounds = args.localBounds;
+							bounds.width -= 60.0f;
+							verticalStack->setBounds(bounds);
+						};
+					}
+
+					// Title
+					{
+						auto element = make_shared<ofxCvGui::Widgets::Title>(column->getName());
+						verticalStack->add(element);
+						height += element->getHeight();
+					}
+
+					// RS485 connected
+					{
+						auto element = make_shared<ofxCvGui::Widgets::Indicator>("RS485", [columnWeak]() {
+							auto column = columnWeak.lock();
+							if (column->getRS485()->isConnected()) {
+								return ofxCvGui::Widgets::Indicator::Status::Good;
+							}
+							else {
+								return ofxCvGui::Widgets::Indicator::Status::Warning;
+							}
+							});
+						verticalStack->add(element);
+						height += element->getHeight();
+					}
+
+					// Outbox size
+					{
+						auto element = make_shared<ofxCvGui::Widgets::LiveValue<size_t>>("Outbox size", [columnWeak]() {
+							auto column = columnWeak.lock();
+							return column->getRS485()->getOutboxCount();
+							});
+						verticalStack->add(element);
+						height += element->getHeight();
+					}
+
+					// Spacer at bottom
+					{
+						auto element = make_shared<ofxCvGui::Widgets::Spacer>();
+						verticalStack->add(element);
+						height += element->getHeight();
+					}
+				}
+				button->setHeight(height);
+				colHeight = height;
+
+				stack->add(button);
+			}
+
+			stack->setHeight(colHeight);
+		}
+		
+		
+	}
+
+	//----------
+	vector<shared_ptr<Column>>
+		App::getAllColumns() const
+	{
+		vector<shared_ptr<Column>> columns;
+		for (const auto& it : this->columns) {
+			columns.push_back(it.second);
+		}
+
+		return columns;
 	}
 
 	//----------
@@ -150,12 +268,81 @@ namespace Modules {
 	}
 
 	//----------
-	void
-		App::dragEvent(const ofDragInfo& dragInfo)
+	glm::tvec2<size_t>
+		App::getSize() const
 	{
+		auto allColumns = this->getAllColumns();
+		auto testColumn = allColumns.front();
+		auto testPortals = testColumn->getAllPortals();
 
+		return {
+			this->columns.size() * 3
+			, testPortals.size() / 3
+		};
 	}
 
+
+	//----------
+	void
+		App::moveGrid(const vector<glm::vec2>& positions)
+	{
+		auto allColumns = this->getAllColumns();
+
+		auto size = this->getSize();
+		auto& width = size[0];
+		auto& height = size[1];
+
+		auto count = min(width * height, positions.size());
+		for (int i = 0; i < count; i++) {
+			auto x = i % width;
+			auto y = i / width;
+
+			auto column = allColumns[x / 3];
+			auto portal_index = x % 3 + y * 3 + 1;
+
+			auto portal = column->getPortalByTargetID(portal_index);
+			if (!portal) {
+				ofLogError("App::moveGrid") << "Couldn't get portal" << portal_index;
+				continue;
+			}
+
+			const auto& position = positions[i];
+			portal->getPilot()->setPosition(position);
+		}
+	}
+
+	//----------
+	void
+		App::moveGridRow(const vector<glm::vec2>& positions, int rowIndex)
+	{
+		if (this->columns.empty()) {
+			ofLogError("App::moveGrid") << "No column to test with";
+		}
+		auto allColumns = this->getAllColumns();
+		auto testColumn = allColumns.front();
+		auto testPortals = testColumn->getAllPortals();
+
+		auto width = this->columns.size() * 3;
+		auto height = testPortals.size() / 3;
+
+		auto count = min(width, positions.size());
+
+		for (int i = 0; i < count; i++) {
+			auto x = i;
+			auto y = rowIndex;
+
+			auto column = allColumns[x / 3];
+			auto portal_index = x % 3 + y * 3 + 1;
+
+			auto portal = column->getPortalByTargetID(portal_index);
+			if (!portal) {
+				ofLogError("App::moveGrid") << "Couldn't get portal" << portal_index;
+				continue;
+			}
+
+			portal->getPilot()->setPosition(positions[i]);
+		}
+	}
 
 	//----------
 	void

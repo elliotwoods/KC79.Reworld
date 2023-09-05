@@ -923,7 +923,7 @@ namespace Modules {
 #ifndef TUNE_CURRENT_DISABLED
 		log(LogLevel::Status, "tune : begin");
 
-		auto current = MOTORDRIVERSETTINGS_DEFAULT_CURRENT;
+		MotorDriverSettings::Amps current = MOTORDRIVERSETTINGS_DEFAULT_CURRENT;
 		this->motorDriverSettings.setCurrent(current);
 
 		SwitchesSeen switchesSeen;
@@ -982,14 +982,14 @@ namespace Modules {
 				break;
 			}
 			else {
-				current += 0.05f;
+				current += 200;
 				if(current > MOTORDRIVERSETTINGS_MAX_CURRENT) {
 					return Exception("tune : Cannot raise the current higher");
 				}
 				else {
 					{
 						char message[100];
-						sprintf(message, "tune : Increasing current to %dmA", (int) (current * 1000.0f));
+						sprintf(message, "tune : Increasing current to %dmA", (int) (current));
 						log(LogLevel::Status, message);
 					}
 					this->motorDriverSettings.setCurrent(current);
@@ -1512,12 +1512,16 @@ namespace Modules {
 	void
 	MotionControl::reportStatus(msgpack::Serializer& serializer)
 	{
-		serializer.beginMap(4);
+		serializer.beginMap(7);
 		{
 			serializer << "position" << this->position;
 			serializer << "targetPosition" << this->targetPosition;
 			serializer << "backlashCalibrated" << this->backlashControl.backlashCalibrated;
 			serializer << "homeCalibrated" << this->homeCalibrated;
+
+			serializer << "maximumSpeed" << this->motionProfile.maximumSpeed;
+			serializer << "acceleration" << this->motionProfile.acceleration;
+			serializer << "minimumSpeed" << this->motionProfile.minimumSpeed;
 		}
 	}
 

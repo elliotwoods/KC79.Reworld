@@ -24,7 +24,12 @@ namespace Modules {
 		void dragEvent(const ofDragInfo&);
 
 		void buildPanels(size_t panelCount);
+
+		vector<shared_ptr<Portal>> getAllPortals() const;
 		shared_ptr<Portal> getPortalByTargetID(Portal::Target);
+
+		shared_ptr<RS485> getRS485();
+		shared_ptr<FWUpdate> getFWUpdate();
 
 		void pollAll();
 

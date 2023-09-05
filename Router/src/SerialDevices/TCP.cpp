@@ -31,7 +31,12 @@ namespace SerialDevices {
 				port = (int)json["port"];
 			}
 
-			return this->open(address, port);
+			int timeout_s = TCP_DEFAULT_TIMEOUT_S;
+			if (json.contains("timeout_s")) {
+				timeout_s = (int)json["timeout_s"];
+			}
+
+			return this->open(address, port, timeout_s);
 		}
 		else {
 			return false;
@@ -40,8 +45,9 @@ namespace SerialDevices {
 
 	//----------
 	bool
-		TCP::open(string address, int port)
+		TCP::open(string address, int port, int timeout_s)
 	{
+		this->tcpClient.getTCPManager().SetTimeoutConnect(timeout_s);
 		return this->tcpClient.setup(address, port);
 	}
 
@@ -50,6 +56,13 @@ namespace SerialDevices {
 		TCP::close()
 	{
 		this->tcpClient.close();
+	}
+
+	//----------
+	bool
+		TCP::isConnected()
+	{
+		return this->tcpClient.isConnected();
 	}
 
 	//----------
@@ -109,7 +122,7 @@ namespace SerialDevices {
 					listedDevice.name = address;
 					listedDevice.createDevice = [address, port]() {
 						auto device = make_shared<TCP>();
-						if (device->open(address, port)) {
+						if (device->open(address, port, TCP_DEFAULT_TIMEOUT_S)) {
 							return static_pointer_cast<IDevice>(device);
 						}
 						return shared_ptr<IDevice>();
@@ -127,7 +140,7 @@ namespace SerialDevices {
 					listedDevice.name = address;
 					listedDevice.createDevice = [address, port]() {
 						auto device = make_shared<TCP>();
-						if (device->open(address, port)) {
+						if (device->open(address, port, TCP_DEFAULT_TIMEOUT_S)) {
 							return static_pointer_cast<IDevice>(device);
 						}
 						return shared_ptr<IDevice>();
@@ -151,7 +164,16 @@ namespace SerialDevices {
 						auto port = ofToInt(responseSplit[1]);
 
 						auto device = make_shared<TCP>();
-						if (device->open(address, port)) {
+						if (device->open(address, port, 1)) {
+							return static_pointer_cast<IDevice>(device);
+						}
+					}
+					else {
+						auto address = responseSplit[0];
+						auto port = TCP_DEFAULT_PORT;
+
+						auto device = make_shared<TCP>();
+						if (device->open(address, port, TCP_DEFAULT_TIMEOUT_S)) {
 							return static_pointer_cast<IDevice>(device);
 						}
 					}
@@ -159,6 +181,7 @@ namespace SerialDevices {
 					return shared_ptr<IDevice>();
 				};
 			}
+			listedDevices.push_back(listedDevice);
 		}
 		return listedDevices;
 	}

@@ -30,5 +30,5 @@ void ofApp::update(){
 
 //--------------------------------------------------------------
 void ofApp::dragEvent(ofDragInfo dragInfo) {
-	this->app->dragEvent(dragInfo);
+
 }

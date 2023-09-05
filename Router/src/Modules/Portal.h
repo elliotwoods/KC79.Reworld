@@ -21,6 +21,7 @@ namespace Modules {
 			string caption;
 			string icon;
 			msgpack11::MsgPack message;
+			string oscAddress;
 			char shortcutKey = 0;
 		};
 
@@ -94,6 +95,7 @@ namespace Modules {
 		struct {
 			shared_ptr<ofxCvGui::Widgets::Heartbeat> rxHeartbeat;
 			shared_ptr<ofxCvGui::Widgets::Heartbeat> txHeartbeat;
+			ofxCvGui::ElementPtr position;
 		} storedWidgets; // These are not rebuilt
 
 		chrono::system_clock::time_point lastPoll = chrono::system_clock::now();
