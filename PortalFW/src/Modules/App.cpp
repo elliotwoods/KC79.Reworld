@@ -131,7 +131,6 @@ namespace Modules
 		if(this->motorIndicatorEnabled) {
 			digitalWrite(LED_INDICATOR, this->motorDriverA->getEnabled() || this->motorDriverB->getEnabled());
 		}		
-
 		// Refresh the watchdog counter
 		LL_IWDG_ReloadCounter(IWDG);
 
@@ -416,6 +415,15 @@ namespace Modules
 				return false;
 			}
 			this->escapeFromRoutine();
+			return true;
+		}
+
+		else if (strcmp(key, "motorDriverIndicator") == 0) {
+			bool value;
+			if(!msgpack::readBool(stream, value)) {
+				return false;
+			}
+			this->motorIndicatorEnabled = value;
 			return true;
 		}
 

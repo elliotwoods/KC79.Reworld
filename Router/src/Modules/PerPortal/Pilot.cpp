@@ -8,7 +8,7 @@ using namespace msgpack11;
 namespace Modules {
 	namespace PerPortal {
 		//----------
-		Pilot::Pilot(Portal * portal)
+		Pilot::Pilot(Portal* portal)
 			: portal(portal)
 		{
 			this->onPopulateInspector += [this](ofxCvGui::InspectArguments& args) {
@@ -54,6 +54,11 @@ namespace Modules {
 					polar[0] = 1.0f;
 					position = this->polarToPosition({ polar[0], polar[1] });
 					this->setPosition(position);
+				}
+
+				// cyclical
+				if (this->parameters.polar.cyclic) {
+					polar = this->findClosestCycle(polar);
 				}
 
 				{
@@ -111,7 +116,7 @@ namespace Modules {
 							, 0
 						)
 						, 0)
-					);
+				);
 
 				this->parameters.axes.b.set(
 					this->stepsToAxis(
@@ -120,7 +125,7 @@ namespace Modules {
 							, 1
 						)
 						, 1)
-					);
+				);
 			}
 
 			// Check if needs push
@@ -173,8 +178,11 @@ namespace Modules {
 
 			inspector->add(this->getPanel());
 			inspector->addButton("Reset position", [this]() {
-				this->setPosition({ 0.0f, 0.0f });
+				this->resetPosition();
 				}, 'r');
+			inspector->addButton("Unwind", [this]() {
+				this->unwind();
+				}, 'u');
 			inspector->addButton("Push", [this]() {
 				this->push();
 				}, 'm');
@@ -364,7 +372,7 @@ namespace Modules {
 				{
 					auto makeAxisControlPanel = [this](ofParameter<float>& axis, int axisIndex) {
 						auto horizontalStrip = ofxCvGui::Panels::Groups::makeStrip(ofxCvGui::Panels::Groups::Strip::Direction::Horizontal);
-						horizontalStrip->setCellSizes({ -1, 80});
+						horizontalStrip->setCellSizes({ -1, 80 });
 						{
 							auto panel = ofxCvGui::Panels::makeBlank();
 							panel->setWidth(100.0f);
@@ -461,7 +469,7 @@ namespace Modules {
 									{
 										ofRectangle textBounds(panelCenter - glm::vec2(20, 20), 40, 40);
 										ofxCvGui::Utils::drawText(axis.getName(), textBounds);
-										
+
 										ofxCvGui::Utils::drawText(ofToString(axis.get(), 3), 20, 20);
 									}
 								}
@@ -596,6 +604,32 @@ namespace Modules {
 		}
 
 		//----------
+		void
+			Pilot::resetPosition()
+		{
+			// Zero the polar for the sake of the cyclcical function
+			this->setPolar({ 0.0f, 0.0f });
+
+			// Reset the position
+			this->setPosition({ 0.0f, 0.0f });
+		}
+
+		//----------
+		void
+			Pilot::unwind()
+		{
+			auto polar = this->getPolar();
+			auto & theta = polar[1];
+			while (theta > PI) {
+				theta -= TWO_PI;
+			}
+			while (theta < -PI) {
+				theta += TWO_PI;
+			}
+			this->setPolar(polar);
+		}
+
+		//----------
 		glm::vec2
 			Pilot::positionToPolar(const glm::vec2& position) const
 		{
@@ -677,6 +711,27 @@ namespace Modules {
 
 			return {
 				r
+				, theta
+			};
+		}
+
+		//----------
+		// https://www.wolframalpha.com/input?i=systems+of+equations+calculator&assumption=%7B%22F%22%2C+%22SolveSystemOf2EquationsCalculator%22%2C+%22equation1%22%7D+-%3E%22a+%3D+t+-+%281-r%29*0.25+%2B+0.5%22&assumption=%22FSelect%22+-%3E+%7B%7B%22SolveSystemOf2EquationsCalculator%22%7D%7D&assumption=%7B%22F%22%2C+%22SolveSystemOf2EquationsCalculator%22%2C+%22equation2%22%7D+-%3E%22b+%3D+t+%2B+%281-r%29*0.25+%2B+0.5%22
+		glm::vec2
+			Pilot::findClosestCycle(const glm::vec2& polar) const
+		{
+			const auto currentPolar = this->getPolar();
+			const auto currentTheta = currentPolar[1];
+			auto theta = polar[1];
+			while (theta < currentTheta - PI) {
+				theta += TWO_PI ;
+			}
+			while (theta > currentTheta + PI) {
+				theta -= TWO_PI;
+			}
+
+			return {
+				polar[0]
 				, theta
 			};
 		}

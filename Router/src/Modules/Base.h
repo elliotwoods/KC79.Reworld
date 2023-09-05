@@ -24,6 +24,7 @@ namespace Modules {
 		virtual void processIncoming(const nlohmann::json&) {
 		}
 
-		void addSubMenuToInsecptor(shared_ptr<ofxCvGui::Panels::Inspector>, shared_ptr<IInspectable>);
+		void addSubMenuToInsecptor(shared_ptr<ofxCvGui::Panels::Inspector> inspector
+			, shared_ptr<ofxCvGui::IInspectable> inspectable);
 	};
 }

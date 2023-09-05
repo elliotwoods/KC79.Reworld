@@ -61,6 +61,9 @@ namespace Modules {
 		void transmitHeaderAndBody(const MsgpackBinary& header
 			, const MsgpackBinary& body);
 
+		size_t getOutboxCount() const;
+		void clearOutbox();
+
 		void processIncoming(const nlohmann::json&);
 
 		vector<Packet> collatePackets(const vector<Packet>&);
@@ -91,6 +94,12 @@ namespace Modules {
 			ofThreadChannel<Packet> outbox;
 		};
 		shared_ptr<SerialThread> serialThread;
+
+		struct {
+			nlohmann::json settings;
+			std::chrono::system_clock::time_point lastConnectionAttempt = chrono::system_clock::now();
+			const std::chrono::milliseconds retryPeriod{ 20000 };
+		} initilialisation;
 
 		std::string connectedPortName; // only valid whilst initialised
 
@@ -134,5 +143,6 @@ namespace Modules {
 		} debug;
 
 		vector<int> repliesSeenFrom; // the ID of the sender
+		ofThreadChannel<std::function<void()>> serialThreadActions;
 	}; 
 }

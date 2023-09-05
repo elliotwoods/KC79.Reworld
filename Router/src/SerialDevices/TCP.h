@@ -5,6 +5,7 @@
 #include "ofxNetwork.h"
 
 #define TCP_DEFAULT_PORT 4196
+#define TCP_DEFAULT_TIMEOUT_S 1
 
 namespace SerialDevices {
 	class TCP : public IDevice
@@ -13,8 +14,9 @@ namespace SerialDevices {
 		~TCP();
 		string getTypeName() const override;
 		bool open(const nlohmann::json&) override;
-		bool open(string address, int port);
+		bool open(string address, int port, int timeout_s);
 		void close() override;
+		bool isConnected() override;
 
 		size_t transmit(const Buffer&) override;
 

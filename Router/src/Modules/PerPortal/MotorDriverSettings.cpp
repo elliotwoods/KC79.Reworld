@@ -109,5 +109,13 @@ namespace Modules {
 		{
 			return this->parameters.microstepResolution.get();
 		}
+
+		//---------
+		void
+			MotorDriverSettings::setCurrent(float current)
+		{
+			this->parameters.current.set(current);
+			this->pushCurrent();
+		}
 	}
 }

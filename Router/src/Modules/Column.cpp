@@ -266,6 +266,13 @@ namespace Modules {
 	}
 
 	//----------
+	vector<shared_ptr<Portal>>
+		Column::getAllPortals() const
+	{
+		return this->portals;
+	}
+
+	//----------
 	shared_ptr<Portal>
 		Column::getPortalByTargetID(Portal::Target targetID)
 	{
@@ -277,6 +284,20 @@ namespace Modules {
 		else {
 			return findPortal->second;
 		}
+	}
+
+	//----------
+	shared_ptr<RS485>
+		Column::getRS485()
+	{
+		return this->rs485;
+	}
+
+	//----------
+	shared_ptr<FWUpdate>
+		Column::getFWUpdate()
+	{
+		return this->fwUpdate;
 	}
 
 	//----------

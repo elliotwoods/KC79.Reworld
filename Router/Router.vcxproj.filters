@@ -121,6 +121,9 @@
     <ClCompile Include="src\OSC\Routes.cpp">
       <Filter>src\Modules\OSC</Filter>
     </ClCompile>
+    <ClCompile Include="src\Modules\TestPattern.cpp">
+      <Filter>src\Modules</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <Filter Include="src">
@@ -448,6 +451,9 @@
     </ClInclude>
     <ClInclude Include="src\OSC\Routes.h">
       <Filter>src\Modules\OSC</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Modules\TestPattern.h">
+      <Filter>src\Modules</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>

@@ -23,12 +23,14 @@ namespace Modules {
 
 			Steps getMicrostep() const;
 
+			void setCurrent(float milliAmps);
+
 		protected:
 			Portal * portal;
 
 			struct : ofParameterGroup {
 				ofParameter<bool> autoPush{ "Auto push", true };
-				ofParameter<float> current{ "Current", 0.15f, 0.0f, 0.3f };
+				ofParameter<float> current{ "Current [A]", 0.150, 0, 0.300 };
 				ofParameter<int> microstepResolution{ "Microstep resolution", 128, 1, 256 };
 				PARAM_DECLARE("MotorDriverSettings", autoPush, current, microstepResolution);
 			} parameters;
