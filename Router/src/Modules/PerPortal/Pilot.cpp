@@ -168,7 +168,7 @@ namespace Modules {
 				if (needsSend
 					|| this->parameters.axes.a != this->cachedSentValues.a
 					|| this->parameters.axes.b != this->cachedSentValues.b) {
-					this->push();
+					this->pushLazy();
 				}
 			}
 
@@ -211,10 +211,16 @@ namespace Modules {
 				}, 'u');
 			inspector->addButton("Push", [this]() {
 				this->push();
+				});
+			inspector->addButton("Push lazy", [this]() {
+				this->pushLazy();
 				}, 'm');
 			inspector->addButton("Poll position", [this]() {
 				this->pollPosition();
 				}, 'p');
+			inspector->addButton("Take current position", [this]() {
+				this->takeCurrentPosition();
+				}, 't');
 			inspector->addParameterGroup(this->parameters);
 		}
 
@@ -834,11 +840,37 @@ namespace Modules {
 				}
 			};
 
-			this->portal->sendToPortal(message);
+			this->portal->sendToPortal(message, "m");
 
 			this->cachedSentValues.a = this->parameters.axes.a.get();
 			this->cachedSentValues.b = this->parameters.axes.b.get();
 			this->cachedSentValues.lastUpdateRequest = chrono::system_clock::now();
+		}
+
+		//----------
+		void
+			Pilot::pushLazy()
+		{
+			this->portal->sendToPortal([this]() {
+				Steps stepsA = this->axisToSteps(this->parameters.axes.a.get(), 0);
+				Steps stepsB = this->axisToSteps(this->parameters.axes.b.get(), 1);
+
+				auto message = MsgPack::object{
+					{
+						"m"
+						, MsgPack::array{
+							(int32_t)stepsA
+							, (int32_t)stepsB
+						}
+					}
+				};
+
+				this->cachedSentValues.a = this->parameters.axes.a.get();
+				this->cachedSentValues.b = this->parameters.axes.b.get();
+				this->cachedSentValues.lastUpdateRequest = chrono::system_clock::now();
+
+				return message;
+			}, "m");
 		}
 
 		//----------
@@ -852,7 +884,7 @@ namespace Modules {
 				}
 			};
 
-			this->portal->sendToPortal(message);
+			this->portal->sendToPortal(message, "p");
 		}
 
 		//----------
@@ -893,6 +925,13 @@ namespace Modules {
 				&& this->axisToSteps(this->liveAxisTargetValues[1], 1) == this->axisToSteps(this->liveAxisValues[1], 1)
 				&& this->axisToSteps(this->parameters.axes.a.get(), 0) == this->axisToSteps(this->liveAxisValues[0], 0)
 				&& this->axisToSteps(this->parameters.axes.b.get(), 1) == this->axisToSteps(this->liveAxisValues[1], 1);
+		}
+
+		//----------
+		void
+			Pilot::takeCurrentPosition()
+		{
+			this->setAxes(this->liveAxisValues);
 		}
 	}
 }

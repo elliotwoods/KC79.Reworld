@@ -47,6 +47,26 @@ namespace Modules {
 		this->msgpackBinary.assign(data, data + buffer.size);
 	}
 
+	//----------
+	RS485::Packet::Packet(const function<msgpack11::MsgPack()>& lazyMessageRenderer)
+		: lazyMessageRenderer(lazyMessageRenderer)
+	{
+
+	}
+
+	//----------
+	void
+		RS485::Packet::render()
+	{
+		if (this->lazyMessageRenderer) {
+			auto message = this->lazyMessageRenderer();
+			auto dataString = message.dump();
+			auto dataBegin = (uint8_t*)dataString.data();
+			auto dataEnd = dataBegin + dataString.size();
+			this->msgpackBinary.assign(dataBegin, dataEnd);
+		}
+	}
+
 #pragma mark RS485
 	//----------
 	RS485::RS485(Column* column)
@@ -629,6 +649,10 @@ namespace Modules {
 				// if we're exiting, just ignore rest of packets in outbox
 				break;
 			}
+
+			// For lazy packets
+			packet.render();
+
 			const auto& msgpackBinary = packet.msgpackBinary;
 
 			auto data = msgpackBinary.data();

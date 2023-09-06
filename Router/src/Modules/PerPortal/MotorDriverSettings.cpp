@@ -81,7 +81,7 @@ namespace Modules {
 					}
 				}
 			};
-			this->portal->sendToPortal(message);
+			this->portal->sendToPortal(message, "motorDriverSettings/setCurrent");
 			this->cachedSentValues.current = value;
 
 		}
@@ -99,7 +99,7 @@ namespace Modules {
 					}
 				}
 			};
-			this->portal->sendToPortal(message);
+			this->portal->sendToPortal(message, "motorDriverSettings/setMicrostepResolution");
 			this->cachedSentValues.microstepResolution = this->parameters.microstepResolution.get();
 		}
 

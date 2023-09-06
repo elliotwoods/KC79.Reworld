@@ -161,6 +161,34 @@ namespace Modules {
 
 		inspector->addSpacer();
 
+		// Actions
+
+		{
+			auto buttonStack = inspector->addHorizontalStack();
+			// Special action for poll
+			buttonStack->addButton("Poll", [this]() {
+				this->pollAll();
+				}, ' ')->setDrawGlyph(u8"\uf059");
+
+			// Add actions
+			auto actions = Portal::getActions();
+			for (const auto& action : actions) {
+				auto hasHotkey = action.shortcutKey != 0;
+
+				auto buttonAction = [this, action]() {
+					this->broadcast(action.message);
+				};
+
+				auto button = hasHotkey
+					? buttonStack->addButton(action.caption, buttonAction, action.shortcutKey)
+					: buttonStack->addButton(action.caption, buttonAction);
+
+				button->setDrawGlyph(action.icon);
+			}
+		}
+
+		inspector->addSpacer();
+
 		// Add columns
 		{
 			auto stack = inspector->addHorizontalStack();
@@ -350,6 +378,26 @@ namespace Modules {
 			}
 
 			portal->getPilot()->setPosition(positions[i]);
+		}
+	}
+
+	//----------
+	void
+		App::pollAll()
+	{
+		for (const auto& it : this->columns) {
+			auto column = it.second;
+			column->pollAll();
+		}
+	}
+
+	//----------
+	void
+		App::broadcast(const msgpack11::MsgPack& message)
+	{
+		for (const auto& it : this->columns) {
+			auto column = it.second;
+			column->broadcast(message);
 		}
 	}
 

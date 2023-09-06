@@ -47,7 +47,8 @@ namespace Modules {
 		void setTarget(Target);
 
 		// Used by PerPortal classes to send out from module to RS485
-		void sendToPortal(const msgpack11::MsgPack&);
+		void sendToPortal(const msgpack11::MsgPack&, const string& addressForCollate);
+		void sendToPortal(const function<msgpack11::MsgPack()>&, const string& addressForCollate);
 
 		shared_ptr<PerPortal::MotorDriverSettings> getMotorDriverSettings();
 		shared_ptr<PerPortal::Axis> getAxis(int axis);

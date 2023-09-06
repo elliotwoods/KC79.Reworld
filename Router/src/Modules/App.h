@@ -27,6 +27,9 @@ namespace Modules {
 		glm::tvec2<size_t> getSize() const;
 		void moveGrid(const vector<glm::vec2>& positions);
 		void moveGridRow(const vector<glm::vec2>& positions, int rowIndex);
+
+		void pollAll();
+		void broadcast(const msgpack11::MsgPack&);
 	protected:
 		void setupCrowRoutes();
 		crow::SimpleApp crow;

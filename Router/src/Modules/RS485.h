@@ -25,6 +25,9 @@ namespace Modules {
 			Packet(const MsgpackBinary&);
 			Packet(const msgpack11::MsgPack&);
 			Packet(const msgpack_sbuffer&);
+			Packet(const function<msgpack11::MsgPack()>&);
+
+			void render();
 
 			MsgpackBinary msgpackBinary;
 			bool needsACK = true;
@@ -32,6 +35,8 @@ namespace Modules {
 			int target = -1;
 			string address;
 			bool collateable = true;
+
+			function<msgpack11::MsgPack()> lazyMessageRenderer;
 
 			std::function<void()> onSent;
 		};

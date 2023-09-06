@@ -145,16 +145,13 @@ namespace Modules {
 		struct {
 			bool enabled = true;
 			uint32_t lastMoveMessageTime = 0;
-			const uint32_t allowedDuration = 1000;
+			const uint32_t allowedDuration = 2000;
 
 			bool initialised = false;
 			Steps velocity;
 			Steps lastPosition;
 
 			bool active = false;
-
-			// Moves larger than this amount don't perform motion prediction
-			int32_t activeRegion = 100000;
 		} motionFiltering;
 
 		bool homeCalibrated = false;
@@ -164,10 +161,6 @@ namespace Modules {
 
 		// Count steps happening in interrupt
 		Steps stepsInInterrupt = 0;
-		uint32_t lastStepDetectedOrRunStart = 0;
-		const uint32_t maxTimeWithoutSteps = 1000;
-		uint8_t stepWatchdogResetCount = 0;
-		const uint32_t maxStepWatchdogResets = 16;
 
 		bool interruptEnabed = false;
 		Steps position = 0;

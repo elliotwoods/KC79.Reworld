@@ -75,6 +75,26 @@ namespace Modules {
 				, "/seeThrough"
 			}
 			, {
+				"Disable motor lights"
+				, u8"\uf042"
+				, msgpack11::MsgPack::object {
+					{
+						"motorIndicatorEnabled", false
+					}
+				}
+				, "/disableMotorLights"
+			}
+			, {
+				"Enable motor lights"
+				, u8"\uf111"
+				, msgpack11::MsgPack::object {
+					{
+						"motorIndicatorEnabled", true
+					}
+				}
+				, "/enableMotorLights"
+			}
+			, {
 				"Unjam"
 				, u8"\uf6e3"
 				, msgpack11::MsgPack::object {
@@ -319,7 +339,7 @@ namespace Modules {
 			for (const auto& action : actions) {
 				auto hasHotkey = action.shortcutKey != 0;
 				auto buttonAction = [this, action]() {
-					this->sendToPortal(action.message);
+					this->sendToPortal(action.message, "");
 				};
 
 				auto button = hasHotkey
@@ -397,7 +417,7 @@ namespace Modules {
 	void
 		Portal::ping()
 	{
-		this->sendToPortal(msgpack11::MsgPack());
+		this->sendToPortal(msgpack11::MsgPack(), "");
 	}
 
 	//----------
@@ -408,7 +428,7 @@ namespace Modules {
 				{
 					"poll", msgpack11::MsgPack()
 				}
-			});
+			}, "poll");
 		this->lastPoll = chrono::system_clock::now();
 	}
 
@@ -428,7 +448,7 @@ namespace Modules {
 
 	//----------
 	void
-		Portal::sendToPortal(const msgpack11::MsgPack& message)
+		Portal::sendToPortal(const msgpack11::MsgPack& message, const string& address)
 	{
 		// [target, source, message]
 		auto packet = RS485::Packet(
@@ -439,7 +459,34 @@ namespace Modules {
 			}
 		);
 
+		// Info for collate
 		packet.target = this->parameters.targetID.get();
+		packet.address = address;
+
+		packet.onSent = [this]() {
+			this->isFrameNew.tx.notify();
+		};
+
+
+		this->rs485->transmit(packet);
+	}
+
+	//----------
+	void
+		Portal::sendToPortal(const function<msgpack11::MsgPack()>& lazyMessageRenderer, const string& address)
+	{
+		// [target, source, message]
+		auto packet = RS485::Packet([lazyMessageRenderer, this]() {
+			return msgpack11::MsgPack::array{
+				(int8_t)this->parameters.targetID.get()
+				, (int8_t)0
+				, lazyMessageRenderer()
+			};
+		});
+
+		// Info for collate
+		packet.target = this->parameters.targetID.get();
+		packet.address = address;
 
 		packet.onSent = [this]() {
 			this->isFrameNew.tx.notify();

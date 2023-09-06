@@ -74,7 +74,7 @@ namespace Modules {
 					}
 				}
 			};
-			this->portal->sendToPortal(message);
+			this->portal->sendToPortal(message, "motorDriver/testRoutine");
 		}
 
 		//----------
@@ -102,7 +102,7 @@ namespace Modules {
 					}
 				}
 			};
-			this->portal->sendToPortal(message);
+			this->portal->sendToPortal(message, "motorDriver/testTimer");
 		}
 	}
 }

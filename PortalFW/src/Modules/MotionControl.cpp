@@ -82,6 +82,9 @@ namespace Modules {
 		if(this->motionProfile.maximumSpeed > MOTION_MAX_SPEED) {
 			this->motionProfile.maximumSpeed = MOTION_MAX_SPEED;
 		}
+
+		this->updateFilteredMotion();
+
 		this->updateMotion();
 	}
 
@@ -280,16 +283,27 @@ namespace Modules {
 	{
 		auto now = millis();
 
+		// check that the messages are arriving frequently enough
+		auto timeSinceLastPacket = now - this->motionFiltering.lastMoveMessageTime;
+		if(timeSinceLastPacket > this->motionFiltering.allowedDuration) {
+			// This is useful because a 'new movement' will need entirely new filtering
+			this->motionFiltering.initialised = false;
+		}
+
 		if(!this->motionFiltering.initialised) {
 			this->motionFiltering.active = false;
+			this->motionFiltering.initialised = true;
+			log(LogLevel::Status, "init motion filtering");
 		}
 		else {
 			this->motionFiltering.active = true;
 			auto timeSinceLastMove = now - this->motionFiltering.lastMoveMessageTime;
 			auto dsSinceLastMove = value - this->motionFiltering.lastPosition;
 			this->motionFiltering.velocity = dsSinceLastMove * 1000 / timeSinceLastMove; // Hz
+			log(LogLevel::Status, "use motion filtering");
 		}
 		
+		// We will always exit this function with initialised = true, so set these for next use
 		this->motionFiltering.lastMoveMessageTime = now;
 		this->motionFiltering.lastPosition = value;
 
@@ -364,32 +378,10 @@ namespace Modules {
 			return;
 		}
 
-		// Reset the watchdog for steps
-		if(!this->currentMotionState.motorRunning) {
-			this->lastStepDetectedOrRunStart = millis();
-		}
-
 		// Check minimum speed
 		if(speed < this->motionProfile.minimumSpeed) {
 			speed = this->motionProfile.minimumSpeed;
 		}
-
-		// Watchdog for no steps detected
-		// if(millis() - this->lastStepDetectedOrRunStart > this->maxTimeWithoutSteps) {
-		// 	// The timer might have crashed. We see this occasionally on B
-		// 	if(this->stepWatchdogResetCount >= this->maxStepWatchdogResets) {
-		// 		// System reset in this case
-		// 		log(LogLevel::Error, "Steps Watchdog timed out too many time - rebooting");
-		// 		NVIC_SystemReset();
-		// 	}
-
-		// 	log(LogLevel::Error, "Steps Watchdog timed out");
-		// 	this->deinitTimer();
-		// 	this->initTimer();
-		// 	this->stepWatchdogResetCount++;
-
-		// 	this->lastStepDetectedOrRunStart = millis();
-		// }
 
 		// Run the motor
 		this->motorDriver.setEnabled(true);
@@ -629,12 +621,6 @@ namespace Modules {
 	void
 	MotionControl::updateStepCount()
 	{
-		if(this->stepsInInterrupt > 0) {
-			// Reset this watchdog
-			this->lastStepDetectedOrRunStart = millis();
-			this->stepWatchdogResetCount = 0;
-		}
-
 		if(this->currentMotionState.direction) {
 
 			// Forwards
@@ -670,12 +656,14 @@ namespace Modules {
 	MotionControl::updateFilteredMotion()
 	{
 		if(this->motionFiltering.active) {
+
 			const auto now = millis();
 			const auto timeSinceLastMessage = now - this->motionFiltering.lastMoveMessageTime;
 			
 			// check if we've expired the motion filtering time window (stale data)
 			if(timeSinceLastMessage > this->motionFiltering.allowedDuration) {
 				this->motionFiltering.active = false;
+				this->setTargetPosition(this->motionFiltering.lastPosition);
 				return;
 			}
 
