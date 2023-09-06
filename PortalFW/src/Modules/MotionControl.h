@@ -123,6 +123,9 @@ namespace Modules {
 
 		MotionState calculateMotionState(unsigned long dt_us) const;
 
+		void homeWhilstRunningForwards(Steps position);
+		void homeWhilstRunningBackwards(Steps position);
+
 		MotorDriverSettings& motorDriverSettings;
 		MotorDriver& motorDriver;
 		HomeSwitch& homeSwitch;
@@ -140,6 +143,11 @@ namespace Modules {
 			bool backlashCalibrated = false;
 			Steps positionWithinBacklash = 0; // negative when going forwards
 		} backlashControl;
+
+		struct {
+			bool liveHomingEnabled = false;
+			Steps switchSize = 0; // size between forwards and backwards start engagement
+		} homing;
 
 		// This is used to smooth out motion between packets
 		struct {
@@ -160,7 +168,10 @@ namespace Modules {
 		Steps targetPosition = 0;
 
 		// Count steps happening in interrupt
-		Steps stepsInInterrupt = 0;
+		struct {
+			Steps steps = 0;
+			SwitchesSeen switchesSeen;
+		} inInterrupt;
 
 		bool interruptEnabed = false;
 		Steps position = 0;

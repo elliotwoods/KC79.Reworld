@@ -201,7 +201,20 @@ namespace Modules {
 
 		// Setup the interrupt
 		this->timer.hardwareTimer->attachInterrupt([this]() {
-			this->stepsInInterrupt++;
+			this->inInterrupt.steps++;
+
+			if(!this->inInterrupt.switchesSeen.forwards.seen) {
+				if(this->homeSwitch.getForwardsActive()) {
+					this->inInterrupt.switchesSeen.forwards.seen = true;
+					this->inInterrupt.switchesSeen.forwards.positionFirstSeen = this->inInterrupt.steps;
+				}
+			}
+			if(!this->inInterrupt.switchesSeen.backwards.seen) {
+				if(this->homeSwitch.getBackwardsActive()) {
+					this->inInterrupt.switchesSeen.backwards.seen = true;
+					this->inInterrupt.switchesSeen.backwards.positionFirstSeen = this->inInterrupt.steps;
+				}
+			}
 		});
 
 		this->interruptEnabed = true;
@@ -293,14 +306,12 @@ namespace Modules {
 		if(!this->motionFiltering.initialised) {
 			this->motionFiltering.active = false;
 			this->motionFiltering.initialised = true;
-			log(LogLevel::Status, "init motion filtering");
 		}
 		else {
 			this->motionFiltering.active = true;
 			auto timeSinceLastMove = now - this->motionFiltering.lastMoveMessageTime;
 			auto dsSinceLastMove = value - this->motionFiltering.lastPosition;
-			this->motionFiltering.velocity = dsSinceLastMove * 1000 / timeSinceLastMove; // Hz
-			log(LogLevel::Status, "use motion filtering");
+			this->motionFiltering.velocity = (Steps) dsSinceLastMove * 1000 / (Steps) timeSinceLastMove; // Hz
 		}
 		
 		// We will always exit this function with initialised = true, so set these for next use
@@ -621,34 +632,54 @@ namespace Modules {
 	void
 	MotionControl::updateStepCount()
 	{
-		if(this->currentMotionState.direction) {
+		bool hadBacklash = false;
 
+		if(this->currentMotionState.direction) {
 			// Forwards
 
 			if(this->backlashControl.positionWithinBacklash < 0) {
 				// Within backlash region
-				auto stepsMovedInBacklash = min(this->stepsInInterrupt, -this->backlashControl.positionWithinBacklash);
+				auto stepsMovedInBacklash = min(this->inInterrupt.steps, -this->backlashControl.positionWithinBacklash);
 				this->backlashControl.positionWithinBacklash += stepsMovedInBacklash;
-				this->stepsInInterrupt -= stepsMovedInBacklash;
+				this->inInterrupt.steps -= stepsMovedInBacklash;
+				hadBacklash = true;
+			}
+
+			if(this->homing.liveHomingEnabled && !hadBacklash) {
+				if(this->inInterrupt.switchesSeen.forwards.seen
+					&& this->inInterrupt.switchesSeen.forwards.positionFirstSeen > 1) { // ignore early steps since it means already was active on start
+					this->homeWhilstRunningForwards(this->position + this->inInterrupt.switchesSeen.forwards.positionFirstSeen);
+				}
 			}
 			
-			this->position += this->stepsInInterrupt;
-			this->stepsInInterrupt = 0;
+			this->position += this->inInterrupt.steps;
+			this->inInterrupt.steps = 0;
 		}
 		else {
 			// Backwards
 
-			if(this->backlashControl.positionWithinBacklash > 0) {
+			if(this->backlashControl.positionWithinBacklash > 0
+				&& this->inInterrupt.switchesSeen.backwards.positionFirstSeen > 1) { // ignore early steps since it means already was active on start) {
 				// Within backlash region
-				auto stepsMovedInBacklash = min(this->stepsInInterrupt, this->backlashControl.positionWithinBacklash);
+				auto stepsMovedInBacklash = min(this->inInterrupt.steps, this->backlashControl.positionWithinBacklash);
 				this->backlashControl.positionWithinBacklash -= stepsMovedInBacklash;
-				this->stepsInInterrupt -= stepsMovedInBacklash;
+				this->inInterrupt.steps -= stepsMovedInBacklash;
+				hadBacklash = true;
 			}
 
-			this->position -= this->stepsInInterrupt;
-			this->stepsInInterrupt = 0;
+			if(this->homing.liveHomingEnabled && !hadBacklash) {
+				if(this->inInterrupt.switchesSeen.backwards.seen) {
+					this->homeWhilstRunningBackwards(this->position - this->inInterrupt.switchesSeen.backwards.positionFirstSeen);
+				}
+			}
+
+			this->position -= this->inInterrupt.steps;
+			this->inInterrupt.steps = 0;
 		}
 		
+		// clear switches seen
+		this->inInterrupt.switchesSeen.forwards.seen = false;
+		this->inInterrupt.switchesSeen.backwards.seen = false;
 	}
 
 	//----------
@@ -669,14 +700,8 @@ namespace Modules {
 
 			// calculate a target position based on motion filtering
 			const auto targetPosition = this->motionFiltering.lastPosition
-				+ timeSinceLastMessage * this->motionFiltering.velocity / 1000;
+				+ (Steps) timeSinceLastMessage * this->motionFiltering.velocity / 1000;
 			this->setTargetPosition(targetPosition);
-
-			{
-				char message[100];
-				sprintf(message, "%d", targetPosition);
-				log(LogLevel::Status, message);
-			}
 		}
 	}
 
@@ -834,6 +859,39 @@ namespace Modules {
 				, directionToTarget
 			};
 		}
+	}
+
+	//----------
+	void
+	MotionControl::homeWhilstRunningForwards(Steps position)
+	{
+		const auto microstepsPerPrismRotation = this->getMicrostepsPerPrismRotation();
+
+		auto totalTurns = position / microstepsPerPrismRotation;
+
+		// different math for positive and negative
+		if(position > 0) {
+			auto positionWithinTurn = position % microstepsPerPrismRotation;
+			auto homeCenterPositionWithinTurn = positionWithinTurn + this->homing.switchSize / 2;
+			if(homeCenterPositionWithinTurn > microstepsPerPrismRotation / 2) {
+				// home is close to next turn
+				this->position = this->position - homeCenterPositionWithinTurn + microstepsPerPrismRotation;
+			}
+			else {
+				this->position = this->position - homeCenterPositionWithinTurn;
+			}
+			log(LogLevel::Status, "homeWhilstRunningForwards");
+		}
+		else {
+			// not implemented
+		}
+	}
+
+	//----------
+	void
+	MotionControl::homeWhilstRunningBackwards(Steps position)
+	{
+		// not implemented
 	}
 
 	//----------
@@ -1530,7 +1588,8 @@ namespace Modules {
 			// * We're moving backward
 			// * We are outisde of backlash region (since we did actually move)
 			// * We had backlash control on in the interrupt, so should be already backlash corrected
-			homePosition = (positionForwardSwitchAccurate + positionForwardSwitchAccurate) / 2;
+			homePosition = (positionForwardSwitchAccurate + positionReverseSwitchAccurate) / 2;
+			this->homing.switchSize = positionForwardSwitchAccurate - positionReverseSwitchAccurate;
 		}
 			
 		// Measure the current position at end of sequence
