@@ -37,8 +37,8 @@ namespace Modules {
 
 			struct : ofParameterGroup {
 				ofParameter<float> period{ "Period", 120 };
-				ofParameter<float> width{ "Width", 1.5f, 0.0f, 10.0f };
-				ofParameter<float> height{ "Height", 3.0f, 0.0f, 10.0f };
+				ofParameter<float> width{ "Width", 4.0f, 0.0f, 10.0f };
+				ofParameter<float> height{ "Height", 2.0f, 0.0f, 10.0f };
 				ofParameter<float> amplitude{ "Amplitude", 1.0f, 0.0f, 10.0f };
 				PARAM_DECLARE("Wave", period, width, height, amplitude);
 			} wave;
@@ -54,8 +54,15 @@ namespace Modules {
 				struct : ofParameterGroup {
 					ofParameter<bool> enabled{ "Enabled", true };
 					ofParameter<float> duration_s{ "Duration [s]", 60, 1, 120 };
-					ofParameter<float> period_m{ "Period [m]", 60, 1, 120 };
-					PARAM_DECLARE("Timer", enabled, duration_s, period_m);
+					ofParameter<float> period_m{ "Period [m]", 5, 1, 120 };
+					
+					struct : ofParameterGroup {
+						ofParameter<bool> enabled{ "Enabled", true };
+						ofParameter<float> maximum{ "Maximum", 1.0f };
+						PARAM_DECLARE("Ramp amplitude", enabled, maximum);
+					} rampAmplitude;
+
+					PARAM_DECLARE("Timer", enabled, duration_s, period_m, rampAmplitude);
 				} timer;
 				PARAM_DECLARE("Home and zero", active, timer);
 			} homeAndZero;

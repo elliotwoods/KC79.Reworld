@@ -77,6 +77,14 @@ namespace Modules {
 					this->lastHomeAndZeroActiveStart = now;
 				}
 			}
+
+			if (this->parameters.homeAndZero.timer.rampAmplitude.enabled) {
+				auto timeSinceLastActiveStart_ms = chrono::duration_cast<chrono::milliseconds>(timeSinceLastActiveStart).count();
+				auto period_ms = chrono::duration_cast<chrono::milliseconds>(period).count();
+				auto timeWithinPeriodNorm = (float)timeSinceLastActiveStart_ms / (float)period_ms;
+				auto amplitude = timeWithinPeriodNorm * this->parameters.homeAndZero.timer.rampAmplitude.maximum.get();
+				this->parameters.wave.amplitude.set(amplitude);
+			}
 		}
 
 		if (this->parameters.homeAndZero.active) {
