@@ -316,6 +316,12 @@ namespace Modules
 
 		else if (strcmp(key, "init") == 0)
 		{
+			// Can't do whilst already inside routine
+			if(this->isInsideRoutine) {
+				// Don't report a malformed message, but rest of message will be ignored
+				return true;
+			}
+
 			MotionControl::MeasureRoutineSettings settings;
 			if(!MotionControl::readMeasureRoutineSettings(stream, settings)) {
 				return false;
@@ -328,6 +334,12 @@ namespace Modules
 		}
 		else if (strcmp(key, "calibrate") == 0)
 		{
+			// Can't do whilst already inside routine
+			if(this->isInsideRoutine) {
+				// Don't report a malformed message, but rest of message will be ignored
+				return true;
+			}
+
 			MotionControl::MeasureRoutineSettings settings;
 			if(!MotionControl::readMeasureRoutineSettings(stream, settings)) {
 				return false;
@@ -338,8 +350,32 @@ namespace Modules
 			this->routines->calibrate(settings);
 			return true;
 		}
+		else if (strcmp(key, "home") == 0)
+		{
+			// Can't do whilst already inside routine
+			if(this->isInsideRoutine) {
+				// Don't report a malformed message, but rest of message will be ignored
+				return true;
+			}
+
+			MotionControl::MeasureRoutineSettings settings;
+			if(!MotionControl::readMeasureRoutineSettings(stream, settings)) {
+				return false;
+			}
+			
+			RS485::sendACKEarly(true);
+			
+			this->routines->home(settings);
+			return true;
+		}
 		else if (strcmp(key, "unjam") == 0)
 		{
+			// Can't do whilst already inside routine
+			if(this->isInsideRoutine) {
+				// Don't report a malformed message, but rest of message will be ignored
+				return true;
+			}
+
 			MotionControl::MeasureRoutineSettings settings;
 			if(!MotionControl::readMeasureRoutineSettings(stream, settings)) {
 				return false;

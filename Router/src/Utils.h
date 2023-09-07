@@ -89,4 +89,5 @@ namespace Utils {
 	ofxCvGui::ElementPtr makeGUIElement(IReportedState* variable);
 
 	string millisToString(uint32_t millis);
+	string durationToString(const chrono::system_clock::duration&);
 }

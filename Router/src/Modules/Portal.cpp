@@ -37,6 +37,16 @@ namespace Modules {
 				, "/calibrate"
 			}
 			, {
+				"Home routine"
+				, u8"\ue066"
+				, msgpack11::MsgPack::object {
+					{
+						"home", msgpack11::MsgPack()
+					}
+				}
+				, "/home"
+			}
+			, {
 				"Flash lights"
 				, u8"\uf0eb"
 				, msgpack11::MsgPack::object {
@@ -47,7 +57,7 @@ namespace Modules {
 				, "/flashLEDs"
 			}
 			, {
-				"Home"
+				"Go Home"
 				, u8"\uf015"
 				, msgpack11::MsgPack::object {
 					{
@@ -58,7 +68,7 @@ namespace Modules {
 						}
 					}
 				}
-				, "/home"
+				, "/goHome"
 			}
 			, {
 				"See through"

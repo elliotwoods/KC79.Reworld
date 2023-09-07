@@ -274,6 +274,7 @@ namespace Modules {
 			Logger::clear()
 		{
 			this->logMessages.clear();
+			this->refreshPanels();
 		}
 		
 		//----------

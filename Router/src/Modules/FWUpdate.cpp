@@ -83,13 +83,20 @@ namespace Modules {
 	//----------
 	// sequence : https://paper.dropbox.com/doc/KC79-Firmware-development-log--B~RnAsj4dL_fF81TgG7UhvbbAg-NaTWt2IkZT4ykJZeMERKP#:uid=689242674973595348642171&h2=Sequence
 	void
-		FWUpdate::uploadFirmware(const string& path)
+		FWUpdate::uploadFirmware(const string& path, const function<void(const string &)> & onProgress)
 	{
+		// Make an onProgress if there isn't one
+		auto progressAction = onProgress
+			? onProgress
+			: [](string notice) {
+				ofxCvGui::Utils::drawProcessingNotice(notice);
+			};
+
 		// Check RS485 connected
 		auto rs485 = this->rs485.lock();
 		{
 			if (!rs485->isConnected()) {
-				ofSystemAlertDialog("No RS485 device connected");
+				progressAction("No RS485 device connected");
 				return;
 			}
 		}
@@ -102,7 +109,6 @@ namespace Modules {
 				auto fileBuffer = file.readToBuffer();
 				file.close();
 				auto size = fileBuffer.size();
-				cout << "File size : " << size << endl;
 
 				if (fileBuffer.size() == 0) {
 					ofLogError("FWUpdate") << "Couldn't read file contents";
@@ -122,7 +128,6 @@ namespace Modules {
 
 				data.resize(lastFF);
 			}
-			cout << "Contents size : " << data.size() << endl;
 		}
 
 		// 0. Clear any existing messages in outbox
@@ -132,7 +137,7 @@ namespace Modules {
 
 		// 1. First announce it
 		{
-			ofxCvGui::Utils::drawProcessingNotice("Announcing firmware");
+			progressAction("Announcing firmware");
 			for (int i = 0; i < 50; i++) {
 				this->announceFirmware();
 				ofSleepMillis(100);
@@ -141,7 +146,7 @@ namespace Modules {
 
 		// 2. Erase the existing firmware (required before uploading)
 		{
-			ofxCvGui::Utils::drawProcessingNotice("Erasing flash");
+			progressAction("Erasing flash");
 			this->eraseFirmware();
 			
 			// Send announcements whilst we're waiting for erase to finish
@@ -153,7 +158,7 @@ namespace Modules {
 
 		// 3. Upload
 		{
-			ofxCvGui::Utils::drawProcessingNotice("Uploading");
+			progressAction("Uploading");
 
 			auto dataPosition = data.data();
 			auto dataEnd = dataPosition + data.size();
@@ -164,7 +169,7 @@ namespace Modules {
 			while (dataPosition < dataEnd) {
 				auto remainingSize = dataEnd - dataPosition;
 				{
-					ofxCvGui::Utils::drawProcessingNotice("Uploading : " + ofToString(remainingSize / 1024, 1) + "kB remaining");
+					progressAction("Uploading : " + ofToString(remainingSize / 1024, 1) + "kB remaining");
 				}
 
 				

@@ -127,4 +127,12 @@ namespace Utils{
 
 		return ss.str();
 	}
+
+	//----------
+	string
+		durationToString(const chrono::system_clock::duration& duration)
+	{
+		auto millis = chrono::duration_cast<chrono::milliseconds>(duration);
+		return millisToString(millis.count());
+	}
 }

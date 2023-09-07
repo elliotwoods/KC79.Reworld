@@ -187,6 +187,13 @@ namespace Modules {
 			}
 		}
 
+		inspector->addButton("FW update...", [this]() {
+			auto result = ofSystemLoadDialog("Load application.bin");
+			if (result.bSuccess) {
+				this->uploadFWAll(result.filePath);
+			}
+			});
+
 		inspector->addSpacer();
 
 		// Add columns
@@ -398,6 +405,29 @@ namespace Modules {
 		for (const auto& it : this->columns) {
 			auto column = it.second;
 			column->broadcast(message);
+		}
+	}
+
+	//----------
+	void
+		App::uploadFWAll(const string& path)
+	{
+		vector<std::future<void>> columnWaits;
+
+		auto callback = [](const string& message) {
+			cout << message;
+		};
+
+		for (const auto& it : this->columns) {
+			auto column = it.second;
+			columnWaits.push_back(async([column, path, &callback](){
+				column->getFWUpdate()->uploadFirmware(path, callback);
+				}
+			));
+		}
+
+		for (auto& columnWait : columnWaits) {
+			columnWait.wait();
 		}
 	}
 

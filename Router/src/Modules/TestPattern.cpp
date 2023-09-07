@@ -54,15 +54,46 @@ namespace Modules {
 			}
 		}
 
-		// wave
-		this->wave();
-
-		// unwind
-		if (this->parameters.unwind.enabled) {
+		// Check the home timer
+		if (this->parameters.homeAndZero.timer.enabled) {
 			auto now = chrono::system_clock::now();
-			auto period = std::chrono::milliseconds((int)(this->parameters.unwind.period * 1000.0f));
-			if (this->lastUnwind - now > period) {
-				this->unwind();
+			const auto period = chrono::milliseconds((uint32_t)(this->parameters.homeAndZero.timer.period_m.get() * 60.0f * 1000.0f));
+			const auto duration = chrono::milliseconds((uint32_t)(this->parameters.homeAndZero.timer.duration_s.get() * 1000.0f));
+			auto timeSinceLastActiveStart = now - this->lastHomeAndZeroActiveStart;
+
+			if (this->parameters.homeAndZero.active) {
+				// Is active, check if we want to de-activate
+				auto timeSinceLastActiveStart = now - this->lastHomeAndZeroActiveStart;
+				if (timeSinceLastActiveStart >= duration) {
+					// deactivate
+					this->parameters.homeAndZero.active.set(false);
+				}
+			}
+			else {
+				// Is inactive, see if we want to activate
+				if (timeSinceLastActiveStart >= period) {
+					// deactivate
+					this->parameters.homeAndZero.active.set(true);
+					this->lastHomeAndZeroActiveStart = now;
+				}
+			}
+		}
+
+		if (this->parameters.homeAndZero.active) {
+			// Only do home and zero
+			this->homeAndZero();
+		}
+		else {
+			// wave
+			this->wave();
+
+			// unwind
+			if (this->parameters.unwind.enabled) {
+				auto now = chrono::system_clock::now();
+				auto period = std::chrono::milliseconds((int)(this->parameters.unwind.period * 1000.0f));
+				if (this->lastUnwind - now > period) {
+					this->unwind();
+				}
 			}
 		}
 	}
@@ -75,6 +106,9 @@ namespace Modules {
 		inspector->addParameterGroup(this->parameters);
 		inspector->addButton("Unwind", [this]() {
 			this->unwind();
+			});
+		inspector->addLiveValue<string>("Time since last home and zero active start", [this]() {
+			return Utils::durationToString(chrono::system_clock::now() - this->lastHomeAndZeroActiveStart);
 			});
 	}
 
@@ -138,6 +172,23 @@ namespace Modules {
 			auto portals = column->getAllPortals();
 			for (auto portal : portals) {
 				portal->getPilot()->unwind();
+			}
+		}
+
+		this->lastUnwind = chrono::system_clock::now();
+	}
+
+	//----------
+	void
+		TestPattern::homeAndZero()
+	{
+		auto columns = app->getAllColumns();
+		for (auto column : columns) {
+			column->broadcastHome();
+
+			auto portals = column->getAllPortals();
+			for (auto portal : portals) {
+				portal->getPilot()->setAxes({ 0, 0 });
 			}
 		}
 

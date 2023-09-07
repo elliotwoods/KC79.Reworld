@@ -16,6 +16,7 @@ namespace Modules {
 		Exception init(const MotionControl::MeasureRoutineSettings& = MotionControl::MeasureRoutineSettings());
 		Exception unjam(const MotionControl::MeasureRoutineSettings& = MotionControl::MeasureRoutineSettings());
 		Exception calibrate(const MotionControl::MeasureRoutineSettings& = MotionControl::MeasureRoutineSettings());
+		Exception home(const MotionControl::MeasureRoutineSettings& = MotionControl::MeasureRoutineSettings());
 		Exception walkBackAndForth(const MotionControl::MeasureRoutineSettings& = MotionControl::MeasureRoutineSettings());
 
 		void flashLEDs(uint16_t period, uint16_t count);

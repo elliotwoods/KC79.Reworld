@@ -326,6 +326,17 @@ namespace Modules {
 
 	//----------
 	void
+		Column::broadcastHome()
+	{
+		this->broadcast(msgpack11::MsgPack::object{
+					{
+						"home", msgpack11::MsgPack()
+					}
+			});
+	}
+
+	//----------
+	void
 		Column::refreshPortalsByID()
 	{
 		this->portalsByID.clear();

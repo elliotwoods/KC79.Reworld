@@ -28,6 +28,7 @@ namespace Modules {
 	protected:
 		void wave();
 		void unwind();
+		void homeAndZero();
 		App* app;
 		
 		struct : ofParameterGroup {
@@ -43,14 +44,26 @@ namespace Modules {
 			} wave;
 
 			struct : ofParameterGroup {
-				ofParameter<bool> enabled{ "Enabled", true };
+				ofParameter<bool> enabled{ "Enabled", false };
 				ofParameter<float> period{ "Period", 5 * 60 };
 				PARAM_DECLARE("Unwind", enabled, period);
 			} unwind;
 
-			PARAM_DECLARE("TestPattern", enabled, everyNFrames, wave, unwind);
+			struct : ofParameterGroup {
+				ofParameter<bool> active{ "Active", false };
+				struct : ofParameterGroup {
+					ofParameter<bool> enabled{ "Enabled", true };
+					ofParameter<float> duration_s{ "Duration [s]", 60, 1, 120 };
+					ofParameter<float> period_m{ "Period [m]", 60, 1, 120 };
+					PARAM_DECLARE("Timer", enabled, duration_s, period_m);
+				} timer;
+				PARAM_DECLARE("Home and zero", active, timer);
+			} homeAndZero;
+
+			PARAM_DECLARE("TestPattern", enabled, everyNFrames, wave, unwind, homeAndZero);
 		} parameters;
 
 		chrono::system_clock::time_point lastUnwind = chrono::system_clock::now();
+		chrono::system_clock::time_point lastHomeAndZeroActiveStart = chrono::system_clock::now();
 	};
 }

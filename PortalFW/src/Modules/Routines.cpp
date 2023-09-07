@@ -102,6 +102,24 @@ namespace Modules {
 		return Exception::None();
 	}
 
+		//----------
+	Exception
+	Routines::home(const MotionControl::MeasureRoutineSettings & settings)
+	{
+		log(LogLevel::Status, "Routines::home : begin");
+
+		if(app->motionControlA->homeRoutine(settings).report()) {
+			return Exception("Routines::home : Fail on home A");
+		}
+		if(app->motionControlB->homeRoutine(settings).report()) {
+			return Exception("Routines::home : Fail on home B");
+		}
+
+		log(LogLevel::Status, "Routines::home : end");
+
+		return Exception::None();
+	}
+
 	//----------
 	Exception
 	Routines::walkBackAndForth(const MotionControl::MeasureRoutineSettings &settings)
@@ -147,14 +165,14 @@ namespace Modules {
 				switchesSeen.a_forwards |= homeSwitchA->getForwardsActive();
 				switchesSeen.a_backwards |= homeSwitchA->getBackwardsActive();
 
-				motionControlA->stepsInInterrupt++;
+				motionControlA->inInterrupt.steps++;
 			});
 
 			motionControlB->attachCustomInterrupt([&]() {
 				switchesSeen.b_forwards |= homeSwitchB->getForwardsActive();
 				switchesSeen.b_backwards |= homeSwitchB->getBackwardsActive();
 
-				motionControlB->stepsInInterrupt++;
+				motionControlB->inInterrupt.steps++;
 			});
 		}
 

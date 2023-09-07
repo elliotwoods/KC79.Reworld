@@ -30,6 +30,7 @@ namespace Modules {
 
 		void pollAll();
 		void broadcast(const msgpack11::MsgPack&);
+		void uploadFWAll(const string& path);
 	protected:
 		void setupCrowRoutes();
 		crow::SimpleApp crow;

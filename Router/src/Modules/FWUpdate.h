@@ -16,7 +16,7 @@ namespace Modules {
 		void update() override;
 
 		void populateInspector(ofxCvGui::InspectArguments&);
-		void uploadFirmware(const string& path);
+		void uploadFirmware(const string& path, const function<void(const string&)> & onProgress = nullptr);
 	protected:
 		void announceFirmware();
 		void eraseFirmware();
