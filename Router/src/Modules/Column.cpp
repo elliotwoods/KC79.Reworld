@@ -5,47 +5,23 @@ using namespace msgpack11;
 
 namespace Modules {
 	//----------
-	Column::Column(const nlohmann::json& json)
+	Column::Column()
 	{
+		// RS485
 		{
 			this->rs485 = make_shared<RS485>(this);
 			this->modules.push_back(this->rs485);
 		}
 
+		// FWUpdate
 		{
 			this->fwUpdate = make_shared<FWUpdate>(this->rs485);
 			this->modules.push_back(this->fwUpdate);
 		}
 
-		// Build columns
-		{
-			if (json.contains("panelCount")) {
-				auto panelCount = (int)json["panelCount"];
-				this->buildPanels(panelCount);
-			}
-			else {
-				this->buildPanels(1);
-			}
-		}
-
 		// Init modules
 		for (auto module : this->modules) {
 			module->init();
-		}
-
-		// Setup modules with json 
-		for (auto module : this->modules) {
-			auto typeName = ofToLower(module->getTypeName());
-			if (json.contains(typeName)) {
-				module->setup(json[typeName]);
-			}
-		}
-
-		// Set our name to be our index
-		{
-			if (json.contains("index")) {
-				this->name = ofToString((int)json["index"]);
-			}
 		}
 
 		this->onPopulateInspector += [this](ofxCvGui::InspectArguments& args) {
@@ -69,6 +45,37 @@ namespace Modules {
 		}
 		else {
 			return this->getTypeName();
+		}
+	}
+	
+	//----------
+	void
+		Column::deserialise(const nlohmann::json& json)
+	{
+		// Build columns
+		{
+			if (json.contains("panelCount")) {
+				auto panelCount = (int)json["panelCount"];
+				this->buildPanels(panelCount);
+			}
+			else {
+				this->buildPanels(1);
+			}
+		}
+
+		// Deserialise all submodules with json 
+		for (auto module : this->modules) {
+			auto typeName = ofToLower(module->getTypeName());
+			if (json.contains(typeName)) {
+				module->deserialise(json[typeName]);
+			}
+		}
+
+		// Set our name to be our index
+		{
+			if (json.contains("index")) {
+				this->name = ofToString((int)json["index"]);
+			}
 		}
 	}
 
@@ -250,6 +257,9 @@ namespace Modules {
 	void
 		Column::buildPanels(size_t panelCount)
 	{
+		this->portals.clear();
+		this->portalsByID.clear();
+
 		auto rows = panelCount * 3;
 		for (int j = 0; j < rows; j++) {
 			for (int i = 0; i < 3; i++) {

@@ -38,7 +38,7 @@ namespace Modules {
 			}
 			, {
 				"Home routine"
-				, u8"\ue066"
+				, u8"\uf3fd"
 				, msgpack11::MsgPack::object {
 					{
 						"home", msgpack11::MsgPack()

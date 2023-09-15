@@ -21,6 +21,8 @@ namespace Modules {
 		string getTypeName() const override;
 		string getGlyph() const override;
 
+		void deserialise(const nlohmann::json&) override;
+
 		void init() override;
 		void update() override;
 

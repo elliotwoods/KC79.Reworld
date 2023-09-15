@@ -18,11 +18,10 @@ namespace Modules {
 			return "";
 		}
 		virtual void init() = 0;
-		virtual void setup(const nlohmann::json&) {};
+		virtual void deserialise(const nlohmann::json&) { };
 		virtual void update() = 0;
 		
-		virtual void processIncoming(const nlohmann::json&) {
-		}
+		virtual void processIncoming(const nlohmann::json&) { }
 
 		void addSubMenuToInsecptor(shared_ptr<ofxCvGui::Panels::Inspector> inspector
 			, shared_ptr<ofxCvGui::IInspectable> inspectable);

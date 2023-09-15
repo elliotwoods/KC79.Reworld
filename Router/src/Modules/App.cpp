@@ -58,34 +58,7 @@ namespace Modules {
 		};
 
 		// Load the config.json file
-		{
-			auto file = ofFile("config.json");
-			if (file.exists()) {
-				auto buffer = file.readToBuffer();
-				auto json = nlohmann::json::parse(buffer);
-
-				if (json.contains("columns")) {
-					const auto& jsonColumns = json["columns"];
-					for (const auto& jsonColumn : jsonColumns) {
-						auto column = make_shared<Column>(jsonColumn);
-						if (jsonColumn.contains("index")) {
-							this->columns.emplace((int)jsonColumn["index"], column);
-							column->init();
-						}
-						else {
-							ofLogError("config.json") << "Config file needs to set an index for each column";
-						}
-					}
-				}
-			}
-			else {
-				// create a blank column
-				auto column = make_shared<Column>(0);
-				column->init();
-				this->columns.emplace(1, column);
-				column->init();
-			}
-		}
+		this->load();
 
 		// Initialise modules
 		for(const auto& module : this->modules) {
@@ -136,7 +109,94 @@ namespace Modules {
 					OSC::handleRoute(message);
 				}
 			}
-		}		
+		}
+
+		// Flash screen if no Rx on all columns
+		{
+			// store the background color if first frame
+			if (ofGetFrameNum() < 10) {
+				this->flashScreenSettings.normal = ofGetBackgroundColor();
+			}
+			else {
+				// Check if has Rx on All columns
+				bool hasRxOnAll = true;
+				for (const auto& column : this->columns) {
+					if (!column.second->getRS485()->hasRxBeenReceived()) {
+						hasRxOnAll = false;
+						break;
+					}
+				}
+
+				if (!hasRxOnAll) {
+					auto second = (int)ofGetElapsedTimef();
+					ofSetBackgroundColor(
+						second % 2 == 0
+						? this->flashScreenSettings.normal
+						: this->flashScreenSettings.flash
+					);
+				}
+				else {
+					ofSetBackgroundColor(this->flashScreenSettings.normal);
+				}
+			}
+		}
+	}
+
+	//----------
+	void
+		App::load()
+	{
+		nlohmann::json json;
+
+		// Load the file
+		{
+			auto file = ofFile("config.json");
+			if (file.exists()) {
+				auto buffer = file.readToBuffer();
+				json = nlohmann::json::parse(buffer);
+			}
+		}
+
+		// Deserialise
+		this->deserialise(json);
+	}
+
+	//----------
+	void
+		App::deserialise(const nlohmann::json& json)
+	{
+		this->columns.clear();
+		
+		if (json.contains("columns")) {
+			// Build up the columns
+			const auto& jsonColumns = json["columns"];
+			for (const auto& jsonColumn : jsonColumns) {
+				auto column = make_shared<Column>();
+				if (jsonColumn.contains("index")) {
+					this->columns.emplace((int)jsonColumn["index"], column);
+					column->deserialise(jsonColumn);
+					column->init();
+				}
+				else {
+					ofLogError("deserialise") << "Config json needs to set an index for each column";
+				}
+			}
+
+			// Deserialise modules
+			for (auto module : this->modules) {
+				if (json.contains(module->getName())) {
+					module->deserialise(json[module->getName()]);
+				}
+			}
+		}
+		else {
+			// create a blank column
+			auto column = make_shared<Column>();
+			this->columns.emplace(1, column);
+			column->init();
+		}
+
+		ofxCvGui::refreshInspector(this);
 	}
 
 	//----------
@@ -146,18 +206,6 @@ namespace Modules {
 		auto inspector = args.inspector;
 
 		inspector->addFps();
-
-		inspector->addParameterGroup(this->parameters);
-		inspector->addIndicatorBool("OSC receiver open", [this]() {
-			return (bool)this->oscReceiver;
-			});
-
-		inspector->addSpacer();
-
-		// Add modules
-		for (const auto& module : this->modules) {
-			module->addSubMenuToInsecptor(inspector, module);
-		}
 
 		inspector->addSpacer();
 
@@ -284,7 +332,20 @@ namespace Modules {
 			stack->setHeight(colHeight);
 		}
 		
-		
+		inspector->addIndicatorBool("OSC receiver open", [this]() {
+			return (bool)this->oscReceiver;
+			});
+
+
+		// Add modules
+		for (const auto& module : this->modules) {
+			module->addSubMenuToInsecptor(inspector, module);
+		}
+
+		inspector->addSpacer();
+
+		inspector->addParameterGroup(this->parameters);
+
 	}
 
 	//----------

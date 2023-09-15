@@ -26,6 +26,15 @@ namespace Modules {
 
 	//----------
 	void
+		TestPattern::deserialise(const nlohmann::json& json)
+	{
+		if (json.contains("Enabled")) {
+			this->parameters.enabled.set((bool)json["Enabled"]);
+		}
+	}
+
+	//----------
+	void
 		TestPattern::init()
 	{
 		this->onPopulateInspector += [this](ofxCvGui::InspectArguments& args) {

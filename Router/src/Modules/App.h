@@ -21,6 +21,9 @@ namespace Modules {
 		void update() override;
 		void populateInspector(ofxCvGui::InspectArguments& args);
 
+		void load();
+		void deserialise(const nlohmann::json&);
+
 		vector<shared_ptr<Column>> getAllColumns() const;
 		shared_ptr<Column> getColumnByID(int) const;
 
@@ -45,12 +48,18 @@ namespace Modules {
 			struct : ofParameterGroup {
 				ofParameter<bool> enabled{ "Enabled", true };
 				ofParameter<int> port{ "Port", 4000 };
-				PARAM_DECLARE("App", enabled, port);
+				PARAM_DECLARE("OSC", enabled, port);
 			} osc;
-			PARAM_DECLARE("OSC", osc);
+			PARAM_DECLARE("App", osc);
 		} parameters;
 
 		shared_ptr<ofxOscReceiver> oscReceiver;
 		ofxTCPServer tcpServer;
+
+
+		struct {
+			ofColor normal;
+			ofColor flash{ 200, 200, 200 };
+		} flashScreenSettings;
 	};
 }

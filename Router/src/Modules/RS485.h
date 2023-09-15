@@ -51,9 +51,12 @@ namespace Modules {
 
 		string getTypeName() const override;
 		void init() override;
-		void setup(const nlohmann::json&) override;
+
+		void deserialise(const nlohmann::json&) override;
+
 		void update() override;
 		void populateInspector(ofxCvGui::InspectArguments&);
+
 
 		bool isConnected() const;
 
@@ -76,6 +79,12 @@ namespace Modules {
 		vector<ofxCvGui::ElementPtr> getWidgets();
 
 		void collateOutboxPackets();
+
+		/// <summary>
+		/// Check if any packet has been received at all on this serial device
+		/// </summary>
+		/// <returns>true = any rx packet has been received</returns>
+		bool hasRxBeenReceived() const;
 	protected:
 		Column* column;
 
@@ -148,6 +157,7 @@ namespace Modules {
 
 			size_t rxCount = 0;
 			size_t txCount = 0;
+			bool hasRxBeenReceived = false;
 		} debug;
 
 		vector<int> repliesSeenFrom; // the ID of the sender

@@ -99,7 +99,7 @@ namespace Modules {
 
 	//----------
 	void
-		RS485::setup(const nlohmann::json& json)
+		RS485::deserialise(const nlohmann::json& json)
 	{
 		this->openSerial(json);
 		this->initilialisation.settings = json;
@@ -123,7 +123,8 @@ namespace Modules {
 			if (!this->serialThread
 				&& !this->initilialisation.settings.empty()
 				&& chrono::system_clock::now() - this->initilialisation.lastConnectionAttempt > this->initilialisation.retryPeriod) {
-				this->setup(this->initilialisation.settings);
+				this->openSerial(this->initilialisation.settings);
+				this->initilialisation.lastConnectionAttempt = chrono::system_clock::now();
 			}
 		}
 
@@ -178,14 +179,31 @@ namespace Modules {
 			}
 		}
 		else {
-			inspector->addLiveValue<string>("Serial device", [this]() {
-				if (this->serialThread) {
-					return this->serialThread->serialDevice->getTypeName();
+			{
+				auto stack = inspector->addHorizontalStack();
+				{
+					auto widget = make_shared<ofxCvGui::Widgets::LiveValue<string>>("Serial device type", [this]() {
+						if (this->serialThread) {
+							return this->serialThread->serialDevice->getTypeName();
+						}
+						else {
+							return string("None");
+						}
+						});
+					stack->add(widget);
 				}
-				else {
-					return string("None");
+				{
+					auto widget = make_shared<ofxCvGui::Widgets::LiveValue<string>>("Serial device address", [this]() {
+						if (this->serialThread) {
+							return this->serialThread->serialDevice->getAddressString();
+						}
+						else {
+							return string("");
+						}
+						});
+					stack->add(widget);
 				}
-				});
+			}
 			inspector->addButton("Disconnect", [this]() {
 				this->closeSerial();
 				this->initilialisation.settings = nlohmann::json(); // clear settings so don't auto-init
@@ -453,6 +471,13 @@ namespace Modules {
 		for (const auto& packet : filteredPackets) {
 			this->serialThread->outbox.send(packet);
 		}
+	}
+
+	//----------
+	bool
+		RS485::hasRxBeenReceived() const
+	{
+		return this->debug.hasRxBeenReceived;
 	}
 
 	//----------
@@ -807,6 +832,7 @@ namespace Modules {
 			this->lastIncomingMessageTime = std::chrono::system_clock::now();
 			this->debug.isFrameNewMessageRx.notify();
 			this->debug.rxCount++;
+			this->debug.hasRxBeenReceived = true;
 		}
 	}
 }

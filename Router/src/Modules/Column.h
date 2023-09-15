@@ -10,10 +10,12 @@ namespace Modules {
 	class Column : public Base
 	{
 	public:
-		Column(const nlohmann::json&);
+		Column();
 
 		string getTypeName() const override;
 		string getName() const override;
+
+		void deserialise(const nlohmann::json&) override;
 
 		void init() override;
 		void update() override;
