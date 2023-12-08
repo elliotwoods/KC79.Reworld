@@ -294,22 +294,6 @@ namespace Modules {
 						};
 					};
 
-					// Draw current position (presumes known)
-					{
-						auto currentPolar = this->axesToPolar(this->liveAxisValues);
-						auto currentPositionInView = polarToView(currentPolar);
-						ofPushMatrix();
-						ofPushStyle();
-						{
-							ofTranslate(currentPositionInView);
-							ofSetColor(100, 100, 200);
-							ofDrawLine(-15, 0, 15, 0);
-							ofDrawLine(0, -15, 0, 15);
-						}
-						ofPopStyle();
-						ofPopMatrix();
-					}
-
 					// Draw cursor
 					ofPushStyle();
 					{
@@ -323,6 +307,30 @@ namespace Modules {
 					}
 					ofPopStyle();
 
+					// Draw current position (presumes known)
+					{
+						auto currentPolar = this->axesToPolar(this->liveAxisValues);
+						auto currentPositionInView = polarToView(currentPolar);
+						ofPushStyle();
+						{
+							ofSetColor(100, 100, 200);
+							ofDrawCircle(currentPositionInView, 5);
+						}
+						ofPopStyle();
+					}
+
+					// Draw current target position (presumes known)
+					{
+						auto currentPolar = this->axesToPolar(this->liveAxisTargetValues);
+						auto currentPositionInView = polarToView(currentPolar);
+						ofPushStyle();
+						{
+							ofSetColor(100, 100, 200);
+							ofNoFill();
+							ofDrawCircle(currentPositionInView, 8);
+						}
+						ofPopStyle();
+					}
 				};
 				panel->onMouse += [this, panelWeak, power](ofxCvGui::MouseArguments& args)
 				{
@@ -456,30 +464,6 @@ namespace Modules {
 									};
 								};
 
-								// Draw current value
-								{
-									auto drawPosition = axisValueToPanelPosition(this->liveAxisValues[axisIndex], 0.5f);
-									ofPushStyle();
-									{
-										ofSetColor(100, 100, 200);
-										ofDrawLine(panelCenter, { drawPosition.x, drawPosition.y });
-										ofDrawCircle({ drawPosition.x, drawPosition.y }, 5.0f);
-									}
-									ofPopStyle();
-								}
-
-								// Draw current target value
-								{
-									auto drawPosition = axisValueToPanelPosition(this->liveAxisTargetValues[axisIndex], 0.5f);
-									ofPushStyle();
-									{
-										ofNoFill();
-										ofSetColor(100, 100, 200);
-										ofDrawCircle({ drawPosition.x, drawPosition.y }, 8.0f);
-									}
-									ofPopStyle();
-								}
-
 								// Draw line and circle
 								{
 
@@ -516,6 +500,30 @@ namespace Modules {
 											, 100
 											, false
 											, ofColor(100, 100, 200));
+									}
+									ofPopStyle();
+								}
+
+								// Draw current value
+								{
+									auto drawPosition = axisValueToPanelPosition(this->liveAxisValues[axisIndex], 0.5f);
+									ofPushStyle();
+									{
+										ofSetColor(100, 100, 200);
+										ofDrawLine(panelCenter, { drawPosition.x, drawPosition.y });
+										ofDrawCircle({ drawPosition.x, drawPosition.y }, 5.0f);
+									}
+									ofPopStyle();
+								}
+
+								// Draw current target value
+								{
+									auto drawPosition = axisValueToPanelPosition(this->liveAxisTargetValues[axisIndex], 0.5f);
+									ofPushStyle();
+									{
+										ofNoFill();
+										ofSetColor(100, 100, 200);
+										ofDrawCircle({ drawPosition.x, drawPosition.y }, 8.0f);
 									}
 									ofPopStyle();
 								}

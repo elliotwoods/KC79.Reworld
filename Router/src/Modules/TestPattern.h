@@ -74,5 +74,9 @@ namespace Modules {
 
 		chrono::system_clock::time_point lastUnwind = chrono::system_clock::now();
 		chrono::system_clock::time_point lastHomeAndZeroActiveStart = chrono::system_clock::now();
+
+		struct {
+			float phase = 0.0f;
+		} waveData;
 	};
 }

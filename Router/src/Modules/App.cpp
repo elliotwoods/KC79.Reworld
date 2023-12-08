@@ -184,8 +184,9 @@ namespace Modules {
 
 			// Deserialise modules
 			for (auto module : this->modules) {
-				if (json.contains(module->getName())) {
-					module->deserialise(json[module->getName()]);
+				auto moduleName = ofToLower(module->getName());
+				if (json.contains(moduleName)) {
+					module->deserialise(json[moduleName]);
 				}
 			}
 		}

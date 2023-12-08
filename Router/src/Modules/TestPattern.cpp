@@ -28,8 +28,8 @@ namespace Modules {
 	void
 		TestPattern::deserialise(const nlohmann::json& json)
 	{
-		if (json.contains("Enabled")) {
-			this->parameters.enabled.set((bool)json["Enabled"]);
+		if (json.contains("enabled")) {
+			this->parameters.enabled.set((bool)json["enabled"]);
 		}
 	}
 
@@ -133,6 +133,7 @@ namespace Modules {
 	void
 		TestPattern::wave()
 	{
+		this->waveData.phase += ofGetLastFrameTime() / this->parameters.wave.period.get() * TWO_PI;
 
 		// function to calculate values
 		auto calcPosition = [this](glm::vec2 portalGridPosSNorm) {
@@ -146,8 +147,7 @@ namespace Modules {
 			x /= width;
 			y /= height;
 
-			auto t = ofGetElapsedTimef();
-			auto phase = t / this->parameters.wave.period.get() * TWO_PI;
+			auto phase = this->waveData.phase;
 
 			auto value = cos(x * PI) * cos(y * PI + phase);
 
