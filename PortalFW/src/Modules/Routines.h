@@ -17,12 +17,11 @@ namespace Modules {
 		Exception unjam(const MotionControl::MeasureRoutineSettings& = MotionControl::MeasureRoutineSettings());
 		Exception calibrate(const MotionControl::MeasureRoutineSettings& = MotionControl::MeasureRoutineSettings());
 		Exception home(const MotionControl::MeasureRoutineSettings& = MotionControl::MeasureRoutineSettings());
-		Exception walkBackAndForth(const MotionControl::MeasureRoutineSettings& = MotionControl::MeasureRoutineSettings());
 
 		void flashLEDs(uint16_t period, uint16_t count);
 
 		// return false if already at max current
-		bool setupUpCurrent();
+		bool stepUpCurrent();
 	protected:
 		App * app;
 	};

@@ -11,6 +11,24 @@ Exception::Exception(const char* message)
 }
 
 //-----------
+Exception::Exception(const Exception& other)
+: message(other.message)
+, noException(other.noException)
+{
+	
+}
+
+//-----------
+Exception &
+Exception::operator=(const Exception& other)
+{
+	this->noException = other.noException;
+	this->message = other.message;
+
+	return * this;
+}
+
+//-----------
 Exception
 Exception::None()
 {
@@ -41,6 +59,21 @@ Exception::Escape()
 {
 	return Exception("Escape");
 }
+
+//-----------
+Exception
+Exception::SwitchNotSeen()
+{
+	return Exception("Switch not seen");
+}
+
+//-----------
+Exception
+Exception::SwitchSeen()
+{
+	return Exception("Switch seen");
+}
+
 
 //-----------
 const char *

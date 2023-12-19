@@ -48,6 +48,7 @@ public:
 	static std::shared_ptr<Logger> get();
 
 	void log(const LogMessage&);
+	void printRaw(const char *);
 
 	void reportStatus(msgpack::Serializer&);
 

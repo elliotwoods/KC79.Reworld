@@ -98,8 +98,8 @@ namespace Modules {
 	MotorDriver::step(uint16_t stepHalfCycleTime_us) const
 	{
 		digitalWrite(this->config.Step, HIGH);
-		digitalWrite(this->config.Step, LOW);
 		delayMicroseconds(stepHalfCycleTime_us);
+		digitalWrite(this->config.Step, LOW);
 	}
 
 	//----------

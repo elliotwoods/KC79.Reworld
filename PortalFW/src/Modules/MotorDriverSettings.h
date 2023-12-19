@@ -28,7 +28,7 @@ namespace Modules {
 			_32 = 5,
 			_128 = 7,
 			_256 = 8,
-			Default = 7
+			Default = 5
 		};
 
 		typedef float Amps;
@@ -59,7 +59,7 @@ namespace Modules {
 		struct {
 			MicrostepResolution microStepResolution = MicrostepResolution::Default;
 			bool sleep = false;
-			Amps current = MOTORDRIVERSETTINGS_DEFAULT_CURRENT;
+			Amps current = 0.1f;
 		} state;
 	};
 }

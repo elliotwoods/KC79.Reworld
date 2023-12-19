@@ -108,17 +108,45 @@ namespace Modules
 
 		// Heartbeat LED
 		{
-			auto isCalibrated = this->motionControlA->isHomeCalibrated()
-				&& this->motionControlA->isBacklashCalibrated()
-				&& this->motionControlB->isHomeCalibrated()
-				&& this->motionControlB->isBacklashCalibrated();
+			const auto & healthStatusA = this->motionControlA->getHealthStatus();
+			const auto & healthStatusB = this->motionControlB->getHealthStatus();
+
+			auto isCalibrated = healthStatusA.switchesOK && healthStatusA.backlashOK && healthStatusA.homeOK
+				&& healthStatusB.switchesOK && healthStatusB.backlashOK && healthStatusB.homeOK;
 			
 			if(isCalibrated) {
 				// Slow heartbeat
 				analogWrite(LED_HEARTBEAT, (millis() % 2000) / 128);
 			} else {
-				// Fast heartbeat
-				analogWrite(LED_HEARTBEAT, (millis() % 512) / 32);
+				// Write a debug sequence out
+
+				int sequence = 0b111;
+				int pos = 6;
+				sequence |= healthStatusA.switchesOK * (1 << pos++);
+				pos++;
+
+				sequence |= healthStatusA.backlashOK * (1 << pos++);
+				pos++;
+
+				sequence |= healthStatusA.homeOK * (1 << pos++);
+				pos++;
+
+				pos++;
+
+				sequence |= healthStatusB.switchesOK * (1 << pos++);
+				pos++;
+
+				sequence |= healthStatusB.backlashOK * (1 << pos++);
+				pos++;
+
+				sequence |= healthStatusB.homeOK * (1 << pos++);
+				pos++;
+
+				pos += 4; // some blank positions at end
+
+				int positionInSequence = (millis() / 200) % pos;
+				auto value = (sequence >> positionInSequence) & 1;
+				digitalWrite(LED_HEARTBEAT, value);
 			}
 		}
 
@@ -131,8 +159,8 @@ namespace Modules
 
 		// set distant target if no signal received
 		if(!this->rs485->hasAnySignalBeenReceived()) {
-			this->motionControlA->setTargetPosition(this->motionControlA->getMicrostepsPerPrismRotation() * 1000);
-			this->motionControlB->setTargetPosition(this->motionControlA->getMicrostepsPerPrismRotation() * 1000);
+			this->motionControlA->setTargetPosition(this->motionControlA->getMicrostepsPerPrismRotation() * 1024 * 8);
+			this->motionControlB->setTargetPosition(this->motionControlA->getMicrostepsPerPrismRotation() * 1024 * 8);
 		}
 	}
 

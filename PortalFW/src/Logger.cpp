@@ -58,6 +58,7 @@ void
 Logger::setup()
 {
 	serial.begin(115200);
+	serial.println();
 	this->printVersion();
 	this->printHelp();
 }
@@ -77,6 +78,10 @@ Logger::update()
 			case 'c':
 				// Calibrate
 				Modules::App::X().routines->calibrate();
+				break;
+			case 'h':
+				// Home routine
+				Modules::App::X().routines->home();
 				break;
 			case 's':
 				// Startup
@@ -98,7 +103,7 @@ Logger::update()
 				// Escape from routine
 				Modules::App::X().escapeFromRoutine();
 				break;
-			case 'h':
+			case '?':
 				// Help
 				this->printHelp();
 				break;
@@ -127,7 +132,11 @@ Logger::printOutbox()
 
 	auto & messageOutbox = this->messageOutbox;
 
+	// Cycle through the current message outbox
 	for(auto logMessage : messageOutbox) {
+		// We make a local copy of each log message
+
+		// Don't log these messages to server (because they're already in outbox)
 		logMessage.sendToServer = false;
 
 		// put it through the logger again
@@ -153,9 +162,11 @@ void
 Logger::printHelp()
 {
 	serial.println("c = calibrate");
+	serial.println("h = home routine");
 	serial.println("s = startup");
 	serial.println("u = unjam");
 	serial.println("v = print version");
+	serial.println("? = print help");
 	serial.println("r = reboot");
 	serial.println("ESC = exit current routine");
 	serial.println("any other key = print the message outbox");
@@ -189,6 +200,13 @@ Logger::log(const LogMessage& logMessage)
 			this->messageOutbox.pop_front();
 		}
 	}
+}
+
+//----------
+void
+Logger::printRaw(const char * message)
+{
+	serial.print(message);
 }
 
 //----------

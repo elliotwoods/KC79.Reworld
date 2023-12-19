@@ -41,8 +41,14 @@ namespace SerialDevices {
 	bool
 		Serial::open(string portAddress)
 	{
-		return this->serial.setup(portAddress, BAUD_RATE);
-		this->addressString = portAddress;
+		auto success = this->serial.setup(portAddress, BAUD_RATE);
+		if (success) {
+			this->addressString = portAddress;
+			return true;
+		}
+		else {
+			return false;
+		}
 	}
 
 	//----------
