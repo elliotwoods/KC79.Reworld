@@ -5,6 +5,7 @@
 
 #include "Column.h"
 #include "TestPattern.h"
+#include "PatternPlayer.h"
 
 #include "ofxOsc.h"
 #include "ofxNetwork.h"
@@ -12,8 +13,9 @@
 namespace Modules {
 	class App : public Base
 	{
-	public:
 		App();
+	public:
+		static shared_ptr<App> X();
 		~App();
 		
 		string getTypeName() const override;
@@ -34,7 +36,11 @@ namespace Modules {
 		void pollAll();
 		void broadcast(const msgpack11::MsgPack&);
 		void uploadFWAll(const string& path);
+
+		ofxCvGui::ElementPtr getPositionsPreview();
 	protected:
+		static shared_ptr<App> instance;
+
 		void setupCrowRoutes();
 		crow::SimpleApp crow;
 		std::future<void> crowRun;
@@ -42,6 +48,7 @@ namespace Modules {
 		map<int, shared_ptr<Column>> columns;
 
 		shared_ptr<TestPattern> testPattern;
+		shared_ptr<PatternPlayer> patternPlayer;
 		vector<shared_ptr<Base>> modules;
 
 		struct : ofParameterGroup {

@@ -7,6 +7,9 @@ using namespace msgpack11;
 
 namespace Modules {
 	//----------
+	shared_ptr<App> App::instance = nullptr;
+
+	//----------
 	App::App()
 	{
 		{
@@ -20,7 +23,22 @@ namespace Modules {
 			this->modules.push_back(this->testPattern);
 		}
 
+		{
+			this->patternPlayer = make_shared<PatternPlayer>(this);
+			this->modules.push_back(this->patternPlayer);
+		}
+
 		this->tcpServer.setup(4444);
+	}
+
+	//----------
+	shared_ptr<App>
+		App::X()
+	{
+		if (!App::instance) {
+			App::instance = shared_ptr<App>(new App());
+		}
+		return App::instance;
 	}
 
 	//----------
@@ -110,36 +128,6 @@ namespace Modules {
 				}
 			}
 		}
-
-		// Flash screen if no Rx on all columns
-		{
-			// store the background color if first frame
-			if (ofGetFrameNum() < 10) {
-				this->flashScreenSettings.normal = ofGetBackgroundColor();
-			}
-			else {
-				// Check if has Rx on All columns
-				bool hasRxOnAll = true;
-				for (const auto& column : this->columns) {
-					if (!column.second->getRS485()->hasRxBeenReceived()) {
-						hasRxOnAll = false;
-						break;
-					}
-				}
-
-				if (!hasRxOnAll) {
-					auto second = (int)ofGetElapsedTimef();
-					ofSetBackgroundColor(
-						second % 2 == 0
-						? this->flashScreenSettings.normal
-						: this->flashScreenSettings.flash
-					);
-				}
-				else {
-					ofSetBackgroundColor(this->flashScreenSettings.normal);
-				}
-			}
-		}
 	}
 
 	//----------
@@ -169,8 +157,15 @@ namespace Modules {
 		
 		if (json.contains("columns")) {
 			// Build up the columns
-			const auto& jsonColumns = json["columns"];
-			for (const auto& jsonColumn : jsonColumns) {
+			auto jsonColumns = json["columns"];
+
+			for (auto jsonColumn : jsonColumns) {
+				// Berge in the commmon settings
+				if (json.contains("columnCommonSettings")) {
+					const auto& jsonColumnSettings = json["columnCommonSettings"];
+					jsonColumn.update(jsonColumnSettings);
+				}
+
 				auto column = make_shared<Column>();
 				if (jsonColumn.contains("index")) {
 					this->columns.emplace((int)jsonColumn["index"], column);
@@ -315,6 +310,13 @@ namespace Modules {
 							verticalStack->add(widget);
 							height += widget->getHeight();
 						}
+					}
+
+					// Preview of all elements
+					{
+						auto element = column->getMiniView(ofGetWidth() / this->columns.size() - 20.0f);
+						verticalStack->add(element);
+						height += element->getHeight();
 					}
 
 					// Spacer at bottom
@@ -491,6 +493,23 @@ namespace Modules {
 		for (auto& columnWait : columnWaits) {
 			columnWait.wait();
 		}
+	}
+
+	//----------
+	ofxCvGui::ElementPtr
+		App::getPositionsPreview()
+	{
+		auto stack = make_shared<ofxCvGui::Widgets::HorizontalStack>();
+		{
+			auto colWidth = ofGetWidth() / this->columns.size();
+			auto allColumns = this->getAllColumns();
+			for (auto column : allColumns) {
+				auto colView = column->getMiniView(colWidth);
+				stack->add(colView);
+				stack->setHeight(colView->getHeight());
+			}
+		}
+		return stack;
 	}
 
 	//----------

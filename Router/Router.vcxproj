@@ -183,6 +183,10 @@
     <ClCompile Include="src\Modules\Base.cpp" />
     <ClCompile Include="src\Modules\Column.cpp" />
     <ClCompile Include="src\Modules\FWUpdate.cpp" />
+    <ClCompile Include="src\Modules\PatternPlayer.cpp" />
+    <ClCompile Include="src\Modules\Patterns\Base.cpp" />
+    <ClCompile Include="src\Modules\Patterns\Lens.cpp" />
+    <ClCompile Include="src\Modules\Patterns\Swing.cpp" />
     <ClCompile Include="src\Modules\PerPortal\Axis.cpp" />
     <ClCompile Include="src\Modules\PerPortal\Logger.cpp" />
     <ClCompile Include="src\Modules\PerPortal\MotionControl.cpp" />
@@ -273,6 +277,10 @@
     <ClInclude Include="src\Modules\Base.h" />
     <ClInclude Include="src\Modules\Column.h" />
     <ClInclude Include="src\Modules\FWUpdate.h" />
+    <ClInclude Include="src\Modules\PatternPlayer.h" />
+    <ClInclude Include="src\Modules\Patterns\Base.h" />
+    <ClInclude Include="src\Modules\Patterns\Lens.h" />
+    <ClInclude Include="src\Modules\Patterns\Swing.h" />
     <ClInclude Include="src\Modules\PerPortal\Axis.h" />
     <ClInclude Include="src\Modules\PerPortal\Constants.h" />
     <ClInclude Include="src\Modules\PerPortal\Logger.h" />

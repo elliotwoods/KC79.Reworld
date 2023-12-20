@@ -77,6 +77,17 @@ namespace Modules {
 				this->name = ofToString((int)json["index"]);
 			}
 		}
+
+		// Physical properties
+		{
+			if (json.contains("physical")) {
+				const auto& jsonPhysical = json["physical"];
+
+				if (jsonPhysical.contains("flipped")) {
+					this->parameters.physical.flipped = (bool)jsonPhysical["flipped"];
+				}
+			}
+		}
 	}
 
 	//----------
@@ -140,16 +151,40 @@ namespace Modules {
 		// Add portals
 		{
 			map<int, shared_ptr<ofxCvGui::Widgets::HorizontalStack>> widgetRows;
-			for (const auto& it : this->portalsByID) {
-				auto target = it.first;
-				auto portal = it.second;
-				auto rowIndex = (target - 1) / 3;
+			if (!this->parameters.physical.flipped) {
+				// Draw right way up
+				for (const auto& it : this->portalsByID) {
+					auto target = it.first;
+					auto portal = it.second;
+					auto rowIndex = (target - 1) / 3;
 
-				if (widgetRows.find(rowIndex) == widgetRows.end()) {
-					widgetRows.emplace(rowIndex, make_shared<ofxCvGui::Widgets::HorizontalStack>());
+					// make a new row if we're on last
+					if (widgetRows.find(rowIndex) == widgetRows.end()) {
+						widgetRows.emplace(rowIndex, make_shared<ofxCvGui::Widgets::HorizontalStack>());
+					}
+
+					widgetRows[rowIndex]->add(Portal::makeButton(portal));
 				}
-				widgetRows[rowIndex]->add(Portal::makeButton(portal));
 			}
+			else {
+				// Draw upside-down
+				int index = 0;
+				for (auto it = this->portalsByID.rbegin(); it != this->portalsByID.rend(); it++) {
+					auto target = it->first;
+					auto portal = it->second;
+					auto rowIndex = index / 3;
+
+					// make a new row if we're on last
+					if (widgetRows.find(rowIndex) == widgetRows.end()) {
+						widgetRows.emplace(rowIndex, make_shared<ofxCvGui::Widgets::HorizontalStack>());
+					}
+
+					widgetRows[rowIndex]->add(Portal::makeButton(portal));
+
+					index++;
+				}
+			}
+			
 			for (auto it = widgetRows.rbegin(); it != widgetRows.rend(); it++) {
 				inspector->add(it->second);
 			}
@@ -343,6 +378,77 @@ namespace Modules {
 						"home", msgpack11::MsgPack()
 					}
 			});
+	}
+
+	//----------
+	ofxCvGui::ElementPtr
+		Column::getMiniView(float width)
+	{
+		auto element = ofxCvGui::makeElement();
+		const auto cellSize = width / 3.0f;
+		element->setWidth(cellSize * 3.0f);
+		auto portals = this->getAllPortals();
+		element->setHeight(portals.size() / 3 * cellSize);
+		element->onDraw += [this](ofxCvGui::DrawArguments& args) {
+			const auto cellSize = args.localBounds.width / 3.0f;
+
+			auto portals = this->getAllPortals();
+
+			float y = cellSize * (portals.size() / 3);
+			float x = 0.0f;
+			int index = 0;
+			const auto radius = cellSize / 2.0f - 3.0f;
+
+			ofPushMatrix();
+			{
+				if (this->parameters.physical.flipped.get()) {
+					auto height = cellSize * (portals.size() / 3);
+					auto width = cellSize * 3;
+					ofTranslate(width, height);
+					ofRotateDeg(180.0f);
+				}
+
+				for (auto portal : portals) {
+					auto pilot = portal->getPilot();
+					const auto targetPosition = pilot->getPosition();
+					const auto livePosition = pilot->getLivePosition();
+					ofPushMatrix();
+					{
+						ofTranslate(x + cellSize / 2.0f, y + cellSize / 2.0f);
+						ofPushStyle();
+						{
+							ofSetColor(100.0f);
+							ofNoFill();
+							ofDrawCircle(0, 0, radius);
+							ofDrawLine(-radius, 0, radius, 0);
+							ofDrawLine(0, -radius, 0, radius);
+
+							ofSetColor(255.0f);
+							ofFill();
+							ofDrawCircle(radius * targetPosition.x, radius * targetPosition.y, 4.0f);
+
+							ofSetColor(100, 100, 200);
+							ofDrawCircle(radius * livePosition.x, radius * livePosition.y, 2.0f);
+						}
+						ofPopStyle();
+					}
+					ofPopMatrix();
+
+
+					index++;
+
+					if (index % 3 == 0) {
+						y -= cellSize;
+						x = 0.0f;
+					}
+					else {
+						x += cellSize;
+					}
+				}
+			}
+			ofPopMatrix();
+		};
+		return element;
 	}
 
 	//----------

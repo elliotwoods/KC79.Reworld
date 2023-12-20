@@ -44,6 +44,8 @@ namespace Modules {
 		void broadcastEscapeFromRoutine();
 		void broadcastReset();
 
+		ofxCvGui::ElementPtr getMiniView(float width);
+
 	protected:
 		void refreshPortalsByID();
 
@@ -59,11 +61,17 @@ namespace Modules {
 
 		struct : ofParameterGroup {
 			struct : ofParameterGroup {
+				ofParameter<bool> flipped{ "Flipped", true };
+				PARAM_DECLARE("Physical", flipped);
+			} physical;
+
+			struct : ofParameterGroup {
 				ofParameter<bool> enabled{ "Enabled", true };
 				ofParameter<float> period_s{ "Period [s]", 60.0f, 0.01f, 100.0f };
 				PARAM_DECLARE("Scheduled poll", enabled, period_s);
 			} scheduledPoll;
-			PARAM_DECLARE("App", scheduledPoll);
+
+			PARAM_DECLARE("Column", physical, scheduledPoll);
 		} parameters;
 
 		chrono::system_clock::time_point lastPollAll = chrono::system_clock::now();

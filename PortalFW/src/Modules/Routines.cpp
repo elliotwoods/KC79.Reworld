@@ -36,13 +36,13 @@ namespace Modules {
 		app->motionControlA->stop();
 		app->motionControlB->stop();
 
-		// if(app->motionControlA->unjamRoutine(settings).report()) {
-		// 	return Exception("Routines::startup : Fail on unjam A");
-		// }
+		if(app->motionControlA->unjamRoutine(settings).report()) {
+			return Exception("Routines::startup : Fail on unjam A");
+		}
 
-		// if(app->motionControlB->unjamRoutine(settings).report()) {
-		// 	return Exception("Routines::startup : Fail on unjam B");
-		// }
+		if(app->motionControlB->unjamRoutine(settings).report()) {
+			return Exception("Routines::startup : Fail on unjam B");
+		}
 
 		// if(app->motionControlA->tuneCurrentRoutine(settings).report()) {
 		// 	return Exception("Routines::startup : Fail on tuneCurrent A");

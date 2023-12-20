@@ -935,7 +935,7 @@ namespace Modules {
 		
 		// Set end position to be 1.5x complete rotation
 		auto startPosition = this->getPosition();
-		auto endPosition = startPosition + MOTION_STEPS_PER_PRISM_ROTATION * 3 / 2;
+		auto endPosition = startPosition + MOTION_STEPS_PER_PRISM_ROTATION * 4 / 3;
 		this->setTargetPosition(endPosition);
 
 		// Log if we ever see the switches (for safety sake)
@@ -1490,7 +1490,7 @@ namespace Modules {
 	void
 	MotionControl::reportStatus(msgpack::Serializer& serializer)
 	{
-		serializer.beginMap(7);
+		serializer.beginMap(6);
 		{
 			serializer << "position" << this->position;
 			serializer << "targetPosition" << this->targetPosition;

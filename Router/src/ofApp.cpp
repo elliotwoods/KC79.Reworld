@@ -14,7 +14,7 @@ void ofApp::setup(){
 	// Register factories
 	SerialDevices::registerFactories();
 
-	this->app = make_shared<Modules::App>();
+	this->app = Modules::App::X();
 	this->app->init();
 
 	// Register OSC routes

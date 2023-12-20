@@ -124,6 +124,18 @@
     <ClCompile Include="src\Modules\TestPattern.cpp">
       <Filter>src\Modules</Filter>
     </ClCompile>
+    <ClCompile Include="src\Modules\PatternPlayer.cpp">
+      <Filter>src\Modules</Filter>
+    </ClCompile>
+    <ClCompile Include="src\Modules\Patterns\Base.cpp">
+      <Filter>src\Modules\Patterns</Filter>
+    </ClCompile>
+    <ClCompile Include="src\Modules\Patterns\Swing.cpp">
+      <Filter>src\Modules\Patterns</Filter>
+    </ClCompile>
+    <ClCompile Include="src\Modules\Patterns\Lens.cpp">
+      <Filter>src\Modules\Patterns</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <Filter Include="src">
@@ -197,6 +209,9 @@
     </Filter>
     <Filter Include="src\Modules\OSC">
       <UniqueIdentifier>{ec9aa7a7-b176-4f2e-a636-1d555198794a}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\Modules\Patterns">
+      <UniqueIdentifier>{90543735-314b-43c7-984d-2fa34418eae9}</UniqueIdentifier>
     </Filter>
   </ItemGroup>
   <ItemGroup>
@@ -454,6 +469,18 @@
     </ClInclude>
     <ClInclude Include="src\Modules\TestPattern.h">
       <Filter>src\Modules</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Modules\PatternPlayer.h">
+      <Filter>src\Modules</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Modules\Patterns\Base.h">
+      <Filter>src\Modules\Patterns</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Modules\Patterns\Swing.h">
+      <Filter>src\Modules\Patterns</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Modules\Patterns\Lens.h">
+      <Filter>src\Modules\Patterns</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
