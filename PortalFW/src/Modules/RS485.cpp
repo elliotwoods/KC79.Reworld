@@ -179,7 +179,7 @@ namespace Modules {
 
 			auto exception = this->processCOBSPacket(isForUs);
 			if(exception) {
-				log(LogLevel::Error, exception.what());
+				log(exception);
 			}
 			else {
 				this->anySignalReceived = true;
@@ -203,6 +203,10 @@ namespace Modules {
 	Exception
 	RS485::processCOBSPacket(bool & isForUs)
 	{
+		// create a moduleName
+		char moduleName[100];
+		sprintf(moduleName, "%s.processCOBSPacket", this->getName());
+
 		// Check it's a message for us
 		bool weShouldProcess = false;
 		{
@@ -213,10 +217,10 @@ namespace Modules {
 				// from other modules at the same time.
 				size_t arraySize;
 				if(!msgpack::readArraySize(cobsStream, arraySize)) {
-					return Exception::MessageFormatError();
+					return Exception::MessageFormatError(moduleName);
 				};
 				if(arraySize < 3) {
-					return Exception::MessageFormatError();
+					return Exception::MessageFormatError(moduleName);
 				}
 			}
 
@@ -224,7 +228,7 @@ namespace Modules {
 			int8_t targetAddress;
 			{
 				if(!msgpack::readInt<int8_t>(cobsStream, targetAddress)) {
-					return Exception::MessageFormatError();
+					return Exception::MessageFormatError(moduleName);
 				}
 
 				if(targetAddress == this->app->id->get()) {
@@ -243,7 +247,7 @@ namespace Modules {
 			{
 				int8_t _;
 				if(!msgpack::readInt<int8_t>(cobsStream, _)) {
-					return Exception::MessageFormatError();
+					return Exception::MessageFormatError(moduleName);
 				}
 			}
 
@@ -254,7 +258,7 @@ namespace Modules {
 				if(msgpack::nextDataTypeIs(cobsStream, msgpack::DataType::Nil)) {
 					// If it's a Nil, then it's a ping
 					if(!msgpack::readNil(cobsStream)) {
-						return Exception::MessageFormatError();
+						return Exception::MessageFormatError(moduleName);
 					}
 					// Will result in an ACK being sent (the ping reply)
 				}
@@ -263,12 +267,12 @@ namespace Modules {
 					char word[64];
 					uint8_t wordSize;
 					if(!msgpack::readString5(cobsStream, word, 64, wordSize)) {
-						return Exception::MessageFormatError();
+						return Exception::MessageFormatError(moduleName);
 					}
 					if(word[0] == 'F' && word[1] == 'W') {
 						// Firmware announce packet
 						// Reset into the bootloader
-						log(LogLevel::Status, "Firmware announced, rebooting...");
+						log(LogLevel::Status, moduleName, "Firmware announced, rebooting...");
 						HAL_Delay(500);
 						NVIC_SystemReset();
 					}
@@ -277,7 +281,7 @@ namespace Modules {
 					// If it's a map, it's a message for the app
 					auto success = app->processIncoming(cobsStream);
 					if(!success) {
-						return Exception::MessageFormatError();
+						return Exception::MessageFormatError(moduleName);
 					}
 				}
 			}

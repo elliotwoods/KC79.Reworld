@@ -3,19 +3,21 @@
 #include "Modules/RS485.h"
 
 //-----------
-Exception::Exception(const char* message)
-: message(message)
+Exception::Exception(const char* module, const char* message)
+: module(module)
+, message(message)
 , noException(false)
 {
-	
+
 }
 
 //-----------
 Exception::Exception(const Exception& other)
-: message(other.message)
+: module(other.module)
+, message(other.message)
 , noException(other.noException)
 {
-	
+
 }
 
 //-----------
@@ -23,9 +25,17 @@ Exception &
 Exception::operator=(const Exception& other)
 {
 	this->noException = other.noException;
+	this->module = other.module;
 	this->message = other.message;
 
 	return * this;
+}
+
+//-----------
+void
+Exception::setModuleName(const char * module)
+{
+	this->module = module;
 }
 
 //-----------
@@ -37,41 +47,41 @@ Exception::None()
 
 //-----------
 Exception
-Exception::MessageFormatError()
+Exception::MessageFormatError(const char * module)
 {
 	// Message format error can occur on message collision
 	// In this case the router should just look out for lack of ACK
 	Modules::RS485::noACKRequired();
 
-	return Exception("MessageFormatError");
+	return Exception(module, "MessageFormatError");
 }
 
 //-----------
 Exception
-Exception::Timeout()
+Exception::Timeout(const char * module)
 {
-	return Exception("Timeout");
+	return Exception(module, "Timeout");
 }
 
 //-----------
 Exception
-Exception::Escape()
+Exception::Escape(const char * module)
 {
-	return Exception("Escape");
+	return Exception(module, "Escape");
 }
 
 //-----------
 Exception
-Exception::SwitchNotSeen()
+Exception::SwitchNotSeen(const char * module)
 {
-	return Exception("Switch not seen");
+	return Exception(module, "Switch not seen");
 }
 
 //-----------
 Exception
-Exception::SwitchSeen()
+Exception::SwitchSeen(const char * module)
 {
-	return Exception("Switch seen");
+	return Exception(module, "Switch seen");
 }
 
 
@@ -80,6 +90,20 @@ const char *
 Exception::what() const
 {
 	return this->message.c_str();
+}
+
+//-----------
+const std::string&
+Exception::getModule() const
+{
+	return this->module;
+}
+
+//-----------
+const std::string&
+Exception::getMessage() const
+{
+	return this->message;
 }
 
 //-----------
@@ -93,7 +117,7 @@ bool
 Exception::report() const
 {
 	if(!this->noException) {
-		log(LogLevel::Error, this->message.c_str());
+		log(LogLevel::Error, this->module.c_str(), this->message.c_str());
 		return true;
 	}
 	else {

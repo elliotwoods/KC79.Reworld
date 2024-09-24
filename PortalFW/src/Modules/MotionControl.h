@@ -88,7 +88,9 @@ namespace Modules {
 			, HomeSwitch&);
 
 		static bool readMeasureRoutineSettings(Stream&, MeasureRoutineSettings&);
-		const char * getTypeName() const;
+		const char * getTypeName() const override;
+		const char * getName() const override;
+
 		void update();
 		const FrameSwitchEvents & getFrameSwitchEvents() const;
 
@@ -158,6 +160,8 @@ namespace Modules {
 		void homeWhilstRunningForwards(Steps position);
 		void homeWhilstRunningBackwards(Steps position);
 
+		char name[15];
+		
 		MotorDriverSettings& motorDriverSettings;
 		MotorDriver& motorDriver;
 		HomeSwitch& homeSwitch;

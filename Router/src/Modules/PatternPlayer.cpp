@@ -50,6 +50,10 @@ namespace Modules {
 	void
 		PatternPlayer::update()
 	{
+		if (!this->parameters.enabled) {
+			return;
+		}
+
 		// Accumulate active patterns
 		auto activePatterns = this->getActivePatterns();
 

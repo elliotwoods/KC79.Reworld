@@ -42,6 +42,8 @@ namespace Modules {
 	MotorDriver::MotorDriver(const Config& config)
 	: config(config)
 	{
+		sprintf(this->name, "MotorDriver_%c", this->config.AxisLabel);
+
 		pinMode(this->config.Fault, INPUT);
 		pinMode(this->config.Enable, OUTPUT);
 		pinMode(this->config.Direction, OUTPUT);
@@ -54,6 +56,13 @@ namespace Modules {
 	MotorDriver::getTypeName() const
 	{
 		return "MotorDriver";
+	}
+
+		//----------
+	const char *
+	MotorDriver::getName() const
+	{
+		return this->name;
 	}
 
 	//----------
@@ -125,7 +134,12 @@ namespace Modules {
 		int slowest = 50;
 		int count = 100000;
 
-		log(LogLevel::Status, "Test routine CCW");
+		// Create a moduleName
+		char moduleName[100];
+		sprintf(moduleName, "%s.testRoutine", this->getName());
+
+
+		log(LogLevel::Status, moduleName, "CCW");
 		{
 			this->setDirection(false);
 			int i=slowest;
@@ -139,7 +153,7 @@ namespace Modules {
 
 		delay(100);
 
-		log(LogLevel::Status, "Test routine CW");
+		log(LogLevel::Status, moduleName, "CW");
 		{
 			this->setDirection(true);
 			int i=slowest;
@@ -153,7 +167,7 @@ namespace Modules {
 
 		delay(100);
 
-		log(LogLevel::Status, "Test routine complete");
+		log(LogLevel::Status, moduleName, "complete");
 
 		this->setEnabled(false);
 	}
@@ -162,6 +176,10 @@ namespace Modules {
 	void
 	MotorDriver::testTimer(uint32_t period_us, uint32_t target_count)
 	{
+		// Create moduleName
+		char moduleName[100];
+		sprintf(moduleName, "%s.testTimer", this->getName());
+		
 		// Clamp the period for safety
 		if(period_us < 20 ){
 			period_us = 20;
@@ -188,7 +206,7 @@ namespace Modules {
 		});
 		this->timer.hardwareTimer->resume();
 
-		log(LogLevel::Status, "Test begin");
+		log(LogLevel::Status, moduleName, "begin");
 
 		do {
 			HAL_Delay(10);
@@ -200,11 +218,11 @@ namespace Modules {
 					, (int) this->timer.currentCount
 					, (int) target_count
 					, (int) period_us);
-				log(LogLevel::Status, message);
+				log(LogLevel::Status, moduleName, message);
 			}
 		} while (this->timer.currentCount < target_count);
 
-		log(LogLevel::Status, "Test end");
+		log(LogLevel::Status, moduleName, "end");
 		this->timer.hardwareTimer->pause();
 
 		// destroy it for now (so that we can call multiple times)

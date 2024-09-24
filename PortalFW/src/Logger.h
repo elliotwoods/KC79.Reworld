@@ -1,6 +1,7 @@
 #pragma once
 
 #include "HardwareSerial.h"
+#include "Exception.h"
 
 #include <sstream>
 #include <memory>
@@ -21,13 +22,17 @@ enum LogLevel : uint8_t {
 
 struct LogMessage {
 	LogLevel level;
+	std::string module;
 	std::string message;
 	bool sendToServer;
 	uint32_t timestamp_ms;
 };
 
-void log(const LogLevel&, const char* message, bool sendToServer = true);
+void log(const LogLevel&, const char* module, const char* message, bool sendToServer = true);
 void log(const LogMessage&);
+void log(const Exception&);
+
+void print(const LogMessage&);
 
 class ILogListener {
 public:

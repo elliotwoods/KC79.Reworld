@@ -23,7 +23,8 @@ namespace Modules {
 
 		MotorDriver(const Config&);
 
-		const char * getTypeName() const;
+		const char * getTypeName() const override;
+		const char * getName() const override;
 
 		const Config& getConfig() const;
 
@@ -48,6 +49,7 @@ namespace Modules {
 		bool processIncomingByKey(const char * key, Stream &) override;
 		
 		const Config config;
+		char name[15];
 
 		struct {
 			bool enabled = false;

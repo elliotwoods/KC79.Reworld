@@ -13,10 +13,11 @@ HardwareSerial serial(PB7, PB6);
 
 //----------
 void
-log(const LogLevel& level, const char* message, bool sendToServer)
+log(const LogLevel& level, const char* module, const char* message, bool sendToServer)
 {
 	log((LogMessage) {
 		level
+		, module
 		, message
 		, sendToServer
 		, millis()
@@ -28,6 +29,48 @@ void
 log(const LogMessage& message)
 {
 	Logger::X().log(message);
+}
+
+//----------
+void
+log(const Exception& exception)
+{
+	log((LogMessage) {
+		LogLevel::Error
+		, exception.getModule()
+		, exception.getMessage()
+		, true
+		, millis()
+		});
+}
+
+//----------
+void
+print(const LogMessage& logMessage)
+{
+	// Header section
+	{
+		serial.print("[");
+		switch(logMessage.level) {
+		case LogLevel::Status:
+			break;
+		case LogLevel::Warning:
+			serial.print("W ");
+			break;
+		case LogLevel::Error:
+			serial.print("E ");
+			break;
+		default:
+			break;
+		}
+
+		serial.print(logMessage.module.c_str());
+
+		serial.print("] ");
+	}
+
+	serial.print(logMessage.message.c_str());
+	serial.println("");
 }
 
 #pragma mark Logger
@@ -118,17 +161,10 @@ Logger::update()
 void
 Logger::printOutbox()
 {
-	::log(LogMessage {
-		LogLevel::Status
-		, "---------------"
-		, false
-	});
-
-	::log(LogMessage {
-		LogLevel::Status
-		, "MESSAGE OUTBOX:"
-		, false
-	});
+	serial.println("---------------");
+	serial.println("MESSAGE OUTBOX:");
+	serial.println("---------------");
+	serial.println("--");
 
 	auto & messageOutbox = this->messageOutbox;
 
@@ -143,11 +179,9 @@ Logger::printOutbox()
 		this->log(logMessage);
 	}
 
-	::log(LogMessage {
-		LogLevel::Status
-		, "---------------"
-		, false
-	});
+	serial.println("--");
+	serial.println("---------------");
+	serial.println();
 }
 
 //----------
@@ -176,24 +210,15 @@ Logger::printHelp()
 void
 Logger::log(const LogMessage& logMessage)
 {
-	switch(logMessage.level) {
-	case LogLevel::Status:
-		break;
-	case LogLevel::Warning:
-		serial.print("[W] ");
-		break;
-	case LogLevel::Error:
-		serial.print("[E] ");
-		break;
-	default:
-		break;
-	}
+	// Print to serial
+	::print(logMessage);
 
-	serial.println(logMessage.message.c_str());
+	// Notify all log listeners
 	for(auto logListener : this->logListeners) {
 		logListener->onLogMessage(logMessage);
 	}
 
+	// Add it to the outbox to the server
 	if(logMessage.sendToServer) {
 		this->messageOutbox.push_back(logMessage);
 		while(this->messageOutbox.size() > LOG_HISTORY_SIZE) {

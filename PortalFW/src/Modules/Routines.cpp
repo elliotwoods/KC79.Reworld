@@ -21,9 +21,9 @@ namespace Modules {
 	void
 	Routines::startup()
 	{
-		auto error = this->init(MotionControl::MeasureRoutineSettings());
-		if(error) {
-			log(LogLevel::Error, error.what());
+		auto exception = this->init(MotionControl::MeasureRoutineSettings());
+		if(exception) {
+			log(exception);
 		}
 	}
 
@@ -31,32 +31,36 @@ namespace Modules {
 	Exception
 	Routines::init(const MotionControl::MeasureRoutineSettings & settings)
 	{
-		log(LogLevel::Status, "Routines::startup : begin");
+		// create moduleName
+		char moduleName[100];
+		sprintf(moduleName, "%s.init", this->getName());
+
+		log(LogLevel::Status, moduleName, "begin");
 
 		app->motionControlA->stop();
 		app->motionControlB->stop();
 
 		if(app->motionControlA->unjamRoutine(settings).report()) {
-			return Exception("Routines::startup : Fail on unjam A");
+			return Exception(moduleName, "Fail on unjam A");
 		}
 
 		if(app->motionControlB->unjamRoutine(settings).report()) {
-			return Exception("Routines::startup : Fail on unjam B");
+			return Exception(moduleName, "Fail on unjam B");
 		}
 
 		// if(app->motionControlA->tuneCurrentRoutine(settings).report()) {
-		// 	return Exception("Routines::startup : Fail on tuneCurrent A");
+		// 	return Exception(moduleName, "Fail on tuneCurrent A");
 		// }
 
 		// if(app->motionControlB->tuneCurrentRoutine(settings).report()) {
-		// 	return Exception("Routines::startup : Fail on tuneCurrent B");
+		// 	return Exception(moduleName, "Fail on tuneCurrent B");
 		// }
 
 		if(this->calibrate(settings).report()) {
-			return Exception("Routines::startup : Fail on calibrate");
+			return Exception(moduleName, "Fail on calibrate");
 		}
 
-		log(LogLevel::Status, "Routines::startup : end");
+		log(LogLevel::Status, moduleName, "end");
 
 		return Exception::None();
 	}
@@ -65,20 +69,24 @@ namespace Modules {
 	Exception
 	Routines::unjam(const MotionControl::MeasureRoutineSettings & settings)
 	{
-		log(LogLevel::Status, "Routines::unjam : begin");
+				// create moduleName
+		char moduleName[100];
+		sprintf(moduleName, "%s.unjam", this->getName());
+
+		log(LogLevel::Status, moduleName, "begin");
 
 		app->motionControlA->stop();
 		app->motionControlB->stop();
 
 		if(app->motionControlA->unjamRoutine(settings).report()) {
-			return Exception("Routines::unjam : Fail on unjam A");
+			return Exception(moduleName, "Fail on unjam A");
 		}
 
 		if(app->motionControlB->unjamRoutine(settings).report()) {
-			return Exception("Routines::unjam : Fail on unjam B");
+			return Exception(moduleName, "Fail on unjam B");
 		}
 
-		log(LogLevel::Status, "Routines::unjam : end");
+		log(LogLevel::Status, moduleName, "end");
 
 		return Exception::None();
 	}
@@ -87,26 +95,30 @@ namespace Modules {
 	Exception
 	Routines::calibrate(const MotionControl::MeasureRoutineSettings & settings)
 	{
-		log(LogLevel::Status, "Routines::calibrate : begin");
+		// create moduleName
+		char moduleName[100];
+		sprintf(moduleName, "%s.calibrate", this->getName());
+
+		log(LogLevel::Status, moduleName, "begin");
 
 		app->motionControlA->stop();
 		app->motionControlB->stop();
 
 		if(app->motionControlA->measureBacklashRoutine(settings).report()) {
-			return Exception("Routines::calibrate : Fail on measure backlash A");
+			return Exception(moduleName, "Fail on measure backlash A");
 		}
 		if(app->motionControlA->homeRoutine(settings).report()) {
-			return Exception("Routines::calibrate : Fail on home A");
+			return Exception(moduleName, "Fail on home A");
 		}
 
 		if(app->motionControlB->measureBacklashRoutine(settings).report()) {
-			return Exception("Routines::calibrate : Fail on measure backlash B");
+			return Exception(moduleName, "Fail on measure backlash B");
 		}
 		if(app->motionControlB->homeRoutine(settings).report()) {
-			return Exception("Routines::calibrate : Fail on home B");
+			return Exception(moduleName, "Fail on home B");
 		}
 
-		log(LogLevel::Status, "Routines::calibrate : end");
+		log(LogLevel::Status, moduleName, "end");
 
 		return Exception::None();
 	}
@@ -115,19 +127,23 @@ namespace Modules {
 	Exception
 	Routines::home(const MotionControl::MeasureRoutineSettings & settings)
 	{
-		log(LogLevel::Status, "Routines::home : begin");
+		// create a moduleName
+		char moduleName[100];
+		sprintf(moduleName, "%s.home", this->getName());
+
+		log(LogLevel::Status, moduleName, "begin");
 
 		app->motionControlA->stop();
 		app->motionControlB->stop();
 
 		if(app->motionControlA->homeRoutine(settings).report()) {
-			return Exception("Routines::home : Fail on home A");
+			return Exception(moduleName, "Fail on home A");
 		}
 		if(app->motionControlB->homeRoutine(settings).report()) {
-			return Exception("Routines::home : Fail on home B");
+			return Exception(moduleName, "Fail on home B");
 		}
 
-		log(LogLevel::Status, "Routines::home : end");
+		log(LogLevel::Status, moduleName, "end");
 
 		return Exception::None();
 	}
@@ -138,7 +154,7 @@ namespace Modules {
 	{
 		for (uint16_t i = 0; i < count; i++)
 		{
-			log(LogLevel::Status, "LED Flash");
+			log(LogLevel::Status, this->getName(), "LED Flash");
 			digitalWrite(LED_INDICATOR, HIGH);
 			digitalWrite(LED_HEARTBEAT, HIGH);
 			delay(period / 2);

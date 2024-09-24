@@ -11,6 +11,9 @@ namespace Modules {
 	, motorDriver(motorDriver)
 	, homeSwitch(homeSwitch)
 	{
+		// Set the name to the axis label
+		sprintf(this->name, "MotionControl_%c", motorDriver.getConfig().AxisLabel);
+
 		this->initTimer();
 	}
 
@@ -74,6 +77,13 @@ namespace Modules {
 	}
 
 	//----------
+	const char *
+	MotionControl::getName() const
+	{
+		return this->name;
+	}
+
+	//----------
 	void
 	MotionControl::update()
 	{
@@ -116,7 +126,11 @@ namespace Modules {
 		this->motorDriver.setEnabled(true);
 		this->timer.hardwareTimer->resume();
 
-		log(LogLevel::Status, "Test begin");
+		// create moduleName
+		char moduleName[100];
+		sprintf(moduleName, "%s.testTimer", this->getName());
+
+		log(LogLevel::Status, moduleName, "Test begin");
 
 		do {
 			HAL_Delay(10);
@@ -128,11 +142,11 @@ namespace Modules {
 					, (int) currentCount
 					, (int) target_count
 					, (int) period_us);
-				log(LogLevel::Status, message);
+				log(LogLevel::Status, moduleName, message);
 			}
 		} while (currentCount < target_count);
 
-		log(LogLevel::Status, "Test end");
+		log(LogLevel::Status, moduleName, "Test end");
 		// this->timer.hardwareTimer->pause();
 
 		// // destroy it for now (so that we can call multiple times)
@@ -505,7 +519,7 @@ namespace Modules {
 			for(uint8_t i=0; i<settings.tryCount; i++) {
 				auto exception = this->unjamRoutine(settings);
 				if(exception) {
-					log(LogLevel::Error, exception.what());
+					log(exception);
 				}
 				else {
 					return true;
@@ -522,7 +536,7 @@ namespace Modules {
 			for(uint8_t i=0; i<settings.tryCount; i++) {
 				auto exception = this->tuneCurrentRoutine(settings);
 				if(exception) {
-					log(LogLevel::Error, exception.what());
+					log(exception);
 				}
 				else {
 					return true;
@@ -539,7 +553,7 @@ namespace Modules {
 			for(uint8_t i=0; i<settings.tryCount; i++) {
 				auto exception = this->measureBacklashRoutine(settings);
 				if(exception) {
-					log(LogLevel::Error, exception.what());
+					log(exception);
 				}
 				else {
 					return true;
@@ -556,7 +570,7 @@ namespace Modules {
 			for(uint8_t i=0; i<settings.tryCount; i++) {
 				auto exception = this->homeRoutine(settings);
 				if(exception) {
-					log(LogLevel::Error, exception.what());
+					log(exception);
 				}
 				else {
 					return true;
@@ -889,11 +903,15 @@ namespace Modules {
 		// Stop any existing motion profile
 		this->stop();
 
+		// Create a string for the module name
+		char moduleName[100];
+		sprintf(moduleName, "%s.unjamRoutine", this->getName());
+
 		if(!this->timer.hardwareTimer) {
-			return Exception("No hardware timer");
+			return Exception(moduleName, "No hardware timer");
 		}
 
-		log(LogLevel::Status, "unjam : begin");
+		log(LogLevel::Status, moduleName, "begin");
 
 		// Store priors for later
 		auto priorCurrent = this->motorDriverSettings.getCurrent();
@@ -930,7 +948,7 @@ namespace Modules {
 			this->motorDriverSettings.setCurrent(priorCurrent);
 			this->motorDriverSettings.setMicrostepResolution(priorMicrostep);
 			this->switchesArmed = false;
-			log(LogLevel::Status, "unjam : end");
+			log(LogLevel::Status, moduleName, "end");
 		};
 		
 		// Set end position to be 1.5x complete rotation
@@ -942,60 +960,60 @@ namespace Modules {
 		bool switchesSeen[2] { false, false};
 
 		// Wait for move
-		log(LogLevel::Status, "unjam : Walk CW");
+		log(LogLevel::Status, moduleName, "Walk CW");
 		{
 			while (this->getPosition() < this->getTargetPosition())
 			{
 				this->update();
-				if(App::updateFromRoutine()) { endRoutine(); return Exception::Escape(); }
+				if(App::updateFromRoutine()) { endRoutine(); return Exception::Escape(moduleName); }
 				HAL_Delay(20); // longer delay because dt is otherwise too short for these steps
 
 				if(this->frameSwitchEvents.forwards.seen && !switchesSeen[0]) {
-					log(LogLevel::Status, "unjam : FW switch seen");
+					log(LogLevel::Status, moduleName, "FW switch seen");
 					switchesSeen[0] = true;
 				}
 
 				if (millis() > routineDeadline)
 				{
 					endRoutine();
-					return Exception::Timeout();
+					return Exception::Timeout(moduleName);
 				}
 			}
 		}
 
 		if(!switchesSeen[0]) {
 			endRoutine();
-			return Exception("Didn't see FW switch");
+			return Exception(moduleName, "Didn't see FW switch");
 		}
 
 		// Instruct move back to 0
 		this->setTargetPosition(startPosition);
 
 		// Wait for move
-		log(LogLevel::Status, "unjam : Walk CCW");
+		log(LogLevel::Status, moduleName, "Walk CCW");
 		{
 			while (this->getPosition() > this->getTargetPosition())
 			{
 				this->update();
-				if(App::updateFromRoutine()) { endRoutine(); return Exception::Escape(); }
+				if(App::updateFromRoutine()) { endRoutine(); return Exception::Escape(moduleName); }
 				HAL_Delay(20); // longer delay because dt is otherwise too short for these steps
 
 				if(this->frameSwitchEvents.backwards.seen && !switchesSeen[1]) {
-					log(LogLevel::Status, "unjam : BW switch seen");
+					log(LogLevel::Status, moduleName, "BW switch seen");
 					switchesSeen[1] = true;
 				}
 				
 				if (millis() > routineDeadline)
 				{
 					endRoutine();
-					return Exception::Timeout();
+					return Exception::Timeout(moduleName);
 				}
 			}
 		}
 
 		if(!switchesSeen[1]) {
 			endRoutine();
-			return Exception("Didn't see BW switch");
+			return Exception(moduleName, "Didn't see BW switch");
 		}
 
 		endRoutine();
@@ -1011,7 +1029,11 @@ namespace Modules {
 	MotionControl::tuneCurrentRoutine(const MeasureRoutineSettings& settings)
 	{
 #ifndef TUNE_CURRENT_DISABLED
-		log(LogLevel::Status, "tune : begin");
+		// Create a module name
+		char moduleName[100];
+		sprintf(moduleName, "%s.tuneCurrentRoutine", this->getName());
+
+		log(LogLevel::Status, moduleName, "begin");
 
 		MotorDriverSettings::Amps current = MOTORDRIVERSETTINGS_DEFAULT_CURRENT;
 		this->motorDriverSettings.setCurrent(current);
@@ -1020,7 +1042,7 @@ namespace Modules {
 
 		auto endRoutine = [&]() {
 			this->switchesArmed = false;
-			log(LogLevel::Status, "tune : end");
+			log(LogLevel::Status, moduleName, "end");
 		};
 
 		// Start measuring time for timeout
@@ -1034,14 +1056,14 @@ namespace Modules {
 			// Set the target to be +1 rotation cycle
 			this->setTargetPosition(this->getPosition() + this->getMicrostepsPerPrismRotation());
 
-			log(LogLevel::Status, "tune : Move off switch");
+			log(LogLevel::Status, moduleName, "Move off switch");
 
 			// Keep walking whilst we're on the switch
 			while(this->homeSwitch.getForwardsActive()) {
 				HAL_Delay(1);
 				this->update();
-				if(millis() > timeoutTime) { endRoutine(); return Exception::Timeout(); }
-				if(App::updateFromRoutine()) { endRoutine(); return Exception::Escape(); }
+				if(millis() > timeoutTime) { endRoutine(); return Exception::Timeout(moduleName); }
+				if(App::updateFromRoutine()) { endRoutine(); return Exception::Escape(moduleName); }
 			}
 
 			// Stop once we're off the switch
@@ -1051,7 +1073,7 @@ namespace Modules {
 		Steps forwardsSwitchPosition;
 
 		while(true) {
-			log(LogLevel::Status, "tune : Single rotation CW");
+			log(LogLevel::Status, moduleName, "Single rotation CW");
 			
 			// Try to move and see the switch
 			auto startPosition = this->position;
@@ -1063,24 +1085,25 @@ namespace Modules {
 
 			if(result.exception) {
 				endRoutine();
+				result.exception.setModuleName(moduleName);
 				return result.exception;
 			}
 
 			if(result.frameSwitchEvents.forwards.seen) {
-				log(LogLevel::Status, "tune : Switch seen");
+				log(LogLevel::Status, moduleName, "Switch seen");
 				break;
 			}
 			else {
 				// We didn't see the switch even though we performed enough steps
 				current += 0.2f;
 				if(current > MOTORDRIVERSETTINGS_MAX_CURRENT) {
-					return Exception("tune : Cannot raise the current higher");
+					return Exception(moduleName, "Cannot raise the current higher");
 				}
 				else {
 					{
 						char message[100];
-						sprintf(message, "tune : Increasing current to %dmA", (int) (current * 1000.0f));
-						log(LogLevel::Status, message);
+						sprintf(message, "Increasing current to %dmA", (int) (current * 1000.0f));
+						log(LogLevel::Status, moduleName, message);
 					}
 					this->motorDriverSettings.setCurrent(current);
 				}
@@ -1097,8 +1120,12 @@ namespace Modules {
 	Exception
 	MotionControl::measureBacklashRoutine(const MeasureRoutineSettings& settings)
 	{
+		// Create a module name
+		char moduleName[100];
+		sprintf(moduleName, "%s.measureBacklashRoutine", this->getName());
+
 		if(!this->timer.hardwareTimer) {
-			return Exception("No hardware timer");
+			return Exception(moduleName, "No hardware timer");
 		}
 
 		// Stop any existing motion profile
@@ -1118,13 +1145,13 @@ namespace Modules {
 		// This will be used in the update cycle, so we want to clear it out whilst taking measurements
 		this->backlashControl.systemBacklash = 0;
 
-		log(LogLevel::Status, "BLC : begin");
+		log(LogLevel::Status, moduleName, "begin");
 
-		auto endRoutine = [this]() {
+		auto endRoutine = [this, &moduleName]() {
 			this->inInterrupt.invertSwitches = false;
 			this->stop();
 			this->switchesArmed = false;
-			log(LogLevel::Status, "BLC : end");
+			log(LogLevel::Status, moduleName, "end");
 		};
 
 		// https://paper.dropbox.com/doc/KC79-Firmware-development-log--B9ww1dZ58Y0lrKt6fzBa9O8yAg-NaTWt2IkZT4ykJZeMERKP#:h2=Backlash-measure-algorithm
@@ -1134,7 +1161,7 @@ namespace Modules {
 			// If we're already on the backwards switch then..
 
 			// (1) Walk off the back switch
-			log(LogLevel::Status, "BLC 1: walk back off the bw switch");
+			log(LogLevel::Status, moduleName, "1: Walk back off the bw switch");
 			{
 				if(homeSwitch.getBackwardsActive()) {
 					//Move backwards by clearance distance
@@ -1144,13 +1171,14 @@ namespace Modules {
 
 					if(result.exception) {
 						endRoutine();
+						result.exception.setModuleName(moduleName);
 						return result.exception;
 					}
 				}
 			}
 
 			// (2) Fast step until we're on the forwards switch (ok if we're already on forwards switch)
-			log(LogLevel::Status, "BLC 2: fast find fw switch");
+			log(LogLevel::Status, moduleName, "2: Fast find fw switch");
 			Steps positionForwardSwitchRough;
 			if(!homeSwitch.getForwardsActive()) {
 				//Move forward by one prism rotation
@@ -1160,6 +1188,7 @@ namespace Modules {
 
 				if(result.exception) {
 					endRoutine();
+					result.exception.setModuleName(moduleName);
 					return result.exception;
 				}
 
@@ -1168,7 +1197,7 @@ namespace Modules {
 
 			// (3) Back off the switch completely so we can approach again slowly
 			{
-				log(LogLevel::Status, "BLC 3: back off switch and push past backlash size");
+				log(LogLevel::Status, moduleName, "3: Back off switch and push past backlash size");
 
 				auto backOffPosition = positionForwardSwitchRough - settings.backOffDistance * microStepsPerStep;
 				auto backOffPlusClearBacklashPosition = backOffPosition - MOTION_CLEAR_BACKLASH_STEPS * microStepsPerStep / 128;
@@ -1179,6 +1208,7 @@ namespace Modules {
 
 					if(result.exception) {
 						endRoutine();
+						result.exception.setModuleName(moduleName);
 						return result.exception;
 					}
 				}
@@ -1189,13 +1219,14 @@ namespace Modules {
 
 					if(result.exception) {
 						endRoutine();
+						result.exception.setModuleName(moduleName);
 						return result.exception;
 					}
 				}
 			}
 			
 			// (4) Walk up slowly to find exact button start
-			log(LogLevel::Status, "BLC 4: find switch again");
+			log(LogLevel::Status, moduleName, "4: Find switch again");
 			Steps postitionFWSwitchAccurate;
 			{
 				auto result = this->routineMoveToFindSwitch(true
@@ -1205,6 +1236,7 @@ namespace Modules {
 
 				if(result.exception) {
 					endRoutine();
+					result.exception.setModuleName(moduleName);
 					return result.exception;
 				}
 
@@ -1214,7 +1246,7 @@ namespace Modules {
 			HAL_Delay(500);
 
 			// (5) Walk forward N steps into switch for debouncing
-			log(LogLevel::Status, "BLC 5: walk into switch (debounce)");
+			log(LogLevel::Status, moduleName, "5: Walk into switch (debounce)");
 			{
 				auto targetPosition = postitionFWSwitchAccurate + settings.debounceDistance * microStepsPerStep;
 				
@@ -1222,18 +1254,19 @@ namespace Modules {
 
 				if(result.exception) {
 					endRoutine();
+					result.exception.setModuleName(moduleName);
 					return result.exception;
 				}
 
 				// Check that forwards is still active (in debounce)
 				if(!this->homeSwitch.getForwardsActive()) {
 					endRoutine();
-					return Exception("BLC Debounce error");
+					return Exception(moduleName, "BLC Debounce error");
 				}
 			}
 
 			// (6) Walk backwards slowly until button de-presses
-			log(LogLevel::Status, "BLC 6: back off to find backlash");
+			log(LogLevel::Status, moduleName, "6: Back off to find backlash");
 			Steps disengagePosition;
 			{
 				// Look for when switches drop low
@@ -1249,6 +1282,7 @@ namespace Modules {
 				
 				if(result.exception) {
 					endRoutine();
+					result.exception.setModuleName(moduleName);
 					return result.exception;
 				}
 
@@ -1268,7 +1302,7 @@ namespace Modules {
 				, "Backlash = %d (%d/10 degrees)"
 				, backlashSize
 				, (int) (backlashInDegrees * 10));
-			log(LogLevel::Status, message);
+			log(LogLevel::Status, moduleName, message);
 		}
 
 		if(backlashSize > 0) {
@@ -1276,7 +1310,7 @@ namespace Modules {
 		}
 		else {
 			this->backlashControl.systemBacklash = 0;
-			log(LogLevel::Status, "Negative backlash detected - presuming zero");
+			log(LogLevel::Status, moduleName, "Negative backlash detected - presuming zero");
 		}
 		
 		this->healthStatus.backlashOK = true;
@@ -1294,11 +1328,15 @@ namespace Modules {
 	Exception
 	MotionControl::homeRoutine(const MeasureRoutineSettings& settings)
 	{
+		// Create a moduleName
+		char moduleName[100];
+		sprintf(moduleName, "%s.homeRoutine", this->getName());
+
 		// Stop any existing motion profile
 		this->stop();
 
 		if(!this->timer.hardwareTimer) {
-			return Exception("No hardware timer");
+			return Exception(moduleName, "No hardware timer");
 		}
 
 		auto & homeSwitch = this->homeSwitch;
@@ -1311,14 +1349,14 @@ namespace Modules {
 		uint32_t startTime = millis();
 		uint32_t timeoutTime = startTime + (uint32_t) settings.timeout_s * 1000U;
 
-		log(LogLevel::Status, "home : begin");
+		log(LogLevel::Status, moduleName, "begin");
 
 		this->switchesArmed = true;
 
-		auto endRoutine = [this]() {
+		auto endRoutine = [this, &moduleName]() {
 			this->stop();
 			this->switchesArmed = false;
-			log(LogLevel::Status, "home : end");
+			log(LogLevel::Status, moduleName, "end");
 		};
 
 		const Steps buttonClearDistance = MOTION_CLEAR_SWITCH_STEPS * microStepsPerStep; // here we have a value by trial and error (at 128 microsteps)
@@ -1327,7 +1365,7 @@ namespace Modules {
 		Steps homePosition;
 		{
 			// (0) Walk to where we last saw home
-			log(LogLevel::Status, "Home 0: walk to last home");
+			log(LogLevel::Status, moduleName, "0: Walk to last home");
 
 			// First check if we're already at home or the home switch is active
 			if(this->position != 0
@@ -1348,30 +1386,32 @@ namespace Modules {
 				auto result = this->routineMoveTo(targetPosition, timeoutTime);
 				if(result.exception) {
 					endRoutine();
+					result.exception.setModuleName(moduleName);
 					return result.exception;
 				}
 			}
 
 			// (1) Walk off the back switch
-			log(LogLevel::Status, "Home 1: walk back off the back switch");
+			log(LogLevel::Status, moduleName, "1: Walk back off the back switch");
 			{
 				if(this->homeSwitch.getBackwardsActive()) {
 					//Move backwards by clearance distance
 					auto result = this->routineMoveTo(this->position - buttonClearDistance, timeoutTime);
 					if(result.exception) {
 						endRoutine();
+						result.exception.setModuleName(moduleName);
 						return result.exception;
 					}
 				}
 
 				if(this->homeSwitch.getBackwardsActive()) {
-					// Still on the switch - somethig went wrong
-					return Exception::SwitchSeen();
+					// Still on the switch - something went wrong
+					return Exception::SwitchSeen(moduleName);
 				}
 			}
 
 			// (2) Fast step until we're on the forward switch is active (ok if it's already active)
-			log(LogLevel::Status, "Home 2: fast find switch");
+			log(LogLevel::Status, moduleName, "2: Fast find switch");
 
 			Steps positionForwardSwitchRough;
 			if(homeSwitch.getForwardsActive()) {
@@ -1386,6 +1426,7 @@ namespace Modules {
 
 				if(result.exception) {
 					endRoutine();
+					result.exception.setModuleName(moduleName);
 					return result.exception;
 				}
 
@@ -1393,7 +1434,7 @@ namespace Modules {
 			}
 
 			// (3) Back off the switch completely so we can approach again slowly
-			log(LogLevel::Status, "Home 3: back off FW switch");
+			log(LogLevel::Status, moduleName, "3: Back off FW switch");
 			{
 				auto targetPosition = positionForwardSwitchRough
 					- settings.backOffDistance * microStepsPerStep;
@@ -1402,12 +1443,13 @@ namespace Modules {
 				auto result = this->routineMoveTo(targetPosition, timeoutTime);
 				if(result.exception) {
 					endRoutine();
+					result.exception.setModuleName(moduleName);
 					return result.exception;
 				}
 			}
 
 			// (4) Walk up slowly to find exact button start
-			log(LogLevel::Status, "Home 4: find FW switch slowly");
+			log(LogLevel::Status, moduleName, "4: Find FW switch slowly");
 			Steps positionForwardSwitchAccurate;
 			{
 				auto result = this->routineMoveToFindSwitch(true
@@ -1417,6 +1459,7 @@ namespace Modules {
 				
 				if(result.exception) {
 					endRoutine();
+					result.exception.setModuleName(moduleName);
 					return result.exception;
 				}
 
@@ -1424,7 +1467,7 @@ namespace Modules {
 			}
 
 			// (5) Walk forward enough to clear switch
-			log(LogLevel::Status, "Home 5: walk beyond switch + backlash region");
+			log(LogLevel::Status, moduleName, "5: Walk beyond switch + backlash region");
 			{
 				auto targetPosition = positionForwardSwitchAccurate + buttonClearDistance + this->backlashControl.systemBacklash;
 				
@@ -1433,17 +1476,19 @@ namespace Modules {
 
 				if(result.exception) {
 					endRoutine();
+					result.exception.setModuleName(moduleName);
 					return result.exception;
 				}
 
 				// Check if any switches active
 				if(this->homeSwitch.getForwardsActive() || this->homeSwitch.getBackwardsActive()) {
-					return Exception::SwitchSeen();
+					// Switch is still active - something wrong
+					return Exception::SwitchSeen(moduleName);
 				}
 			}
 
 			// (6) Slow move back onto switch to find reverse switch position
-			log(LogLevel::Status, "Home 6: slow move onto reverse switch");
+			log(LogLevel::Status, moduleName, "6: Slow move onto reverse switch");
 			Steps positionBackwardsSwitchAccurate;
 			{
 				auto result = this->routineMoveToFindSwitch(false
@@ -1453,6 +1498,7 @@ namespace Modules {
 				
 				if(result.exception) {
 					endRoutine();
+					result.exception.setModuleName(moduleName);
 					return result.exception;
 				}
 
@@ -1475,7 +1521,7 @@ namespace Modules {
 				, "Home = %d (%d/10 degrees )"
 				, homePosition
 				, (int) (homePositionInDegrees * 10));
-			log(LogLevel::Status, message);
+			log(LogLevel::Status, moduleName, message);
 		}
 		
 		this->position -= homePosition;
@@ -1521,6 +1567,10 @@ namespace Modules {
 	MotionControl::routineMoveTo(Steps targetPosition
 		, uint32_t timeout)
 	{
+		// create moduleName
+		char moduleName[100];
+		sprintf(moduleName, "%s.routineMoveTo", this->getName());
+
 		MotionControl::RoutineMoveResult result;
 
 		this->setTargetPosition(targetPosition);
@@ -1536,14 +1586,14 @@ namespace Modules {
 
 			// Check if timeout
 			if (millis() > timeout) {
-				result.exception = Exception::Timeout();
+				result.exception = Exception::Timeout(moduleName);
 				this->stop();
 				return result;
 			}
 
 			// Check if should exit
 			if(App::updateFromRoutine()) {
-				result.exception = Exception::Escape();
+				result.exception = Exception::Escape(moduleName);
 				this->stop();
 				return result;
 			}
@@ -1563,6 +1613,10 @@ namespace Modules {
 			, SwitchesMask switchesMask
 			, uint32_t timeout)
 	{
+		// create moduleName
+		char moduleName[100];
+		sprintf(moduleName, "%s.routineMoveToUntilSeeSwitch", this->getName());
+
 		MotionControl::RoutineMoveResult result;
 
 		this->setTargetPosition(targetPosition);
@@ -1587,21 +1641,21 @@ namespace Modules {
 
 			// Check if we've got to target position (without seeing switch)
 			if(this->getTargetPosition() == this->getPosition()) {
-				result.exception = Exception::SwitchNotSeen();
+				result.exception = Exception::SwitchNotSeen(moduleName);
 				this->stop();
 				return result;
 			}
 
 			// Check if timeout
 			if (millis() > timeout) {
-				result.exception = Exception::Timeout();
+				result.exception = Exception::Timeout(moduleName);
 				this->stop();
 				return result;
 			}
 
 			// Check if should exit
 			if(App::updateFromRoutine()) {
-				result.exception = Exception::Escape();
+				result.exception = Exception::Escape(moduleName);
 				this->stop();
 				return result;
 			}
@@ -1618,6 +1672,10 @@ namespace Modules {
 		, MotionControl::SwitchesMask switchesMask
 		, uint32_t timeout)
 	{
+		// create moduleName
+		char moduleName[100];
+		sprintf(moduleName, "%s.routineMoveToFindSwitch", this->getName());
+
 		MotionControl::RoutineMoveResult result;
 
 		this->run(direction, speed);
@@ -1642,14 +1700,14 @@ namespace Modules {
 
 			// Check if timeout
 			if (millis() > timeout) {
-				result.exception = Exception::Timeout();
+				result.exception = Exception::Timeout(moduleName);
 				this->stop();
 				return result;
 			}
 
 			// Check if should exit
 			if(App::updateFromRoutine()) {
-				result.exception = Exception::Escape();
+				result.exception = Exception::Escape(moduleName);
 				this->stop();
 				return result;
 			}

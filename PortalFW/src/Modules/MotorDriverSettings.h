@@ -59,7 +59,7 @@ namespace Modules {
 		struct {
 			MicrostepResolution microStepResolution = MicrostepResolution::Default;
 			bool sleep = false;
-			Amps current = 0.1f;
+			Amps current = MOTORDRIVERSETTINGS_MAX_CURRENT;
 		} state;
 	};
 }

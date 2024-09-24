@@ -2,6 +2,13 @@
 
 namespace Modules {
 	//----------
+	const char *
+	Base::getName() const
+	{
+		return this->getTypeName();
+	}
+
+	//----------
 	void
 	Base::reportStatus(msgpack::Serializer& serializer)
 	{

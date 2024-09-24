@@ -196,7 +196,7 @@ namespace Modules
 #endif
 
 		if(App::instance->shouldEscapeFromRoutine) {
-			log(LogLevel::Status, "Exiting routine");
+			log(LogLevel::Status, "App", "Exiting routine");
 			return true;
 		}
 		else {

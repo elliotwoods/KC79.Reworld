@@ -56,7 +56,7 @@ namespace Modules {
 		{
 			char message[64];
 			sprintf(message, "Board ID : %d", (int) readValue);
-			log(LogLevel::Status, message);
+			log(LogLevel::Status, "ID", message);
 		}
 
 		this->value = (Value) readValue;
@@ -79,7 +79,7 @@ namespace Modules {
 		if(this->isIDNewThisFrame) {
 			char message[64];
 			sprintf(message, "New ID : %d", (int) this->value);
-			log(LogLevel::Status, message);
+			log(LogLevel::Status, "ID", message);
 		}
 
 		// If new ID, then send ours out

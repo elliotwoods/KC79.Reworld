@@ -6,6 +6,8 @@
 namespace Modules {
 	class Base : public msgpack::Messaging {
 	public:
+		virtual const char * getName() const;
+
 		virtual void setup() {};
 		virtual void update() {};
 
