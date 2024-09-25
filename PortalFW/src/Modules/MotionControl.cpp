@@ -991,6 +991,7 @@ namespace Modules {
 
 		// Wait for move
 		log(LogLevel::Status, moduleName, "Walk CCW");
+		Steps backwardsSwitchSeenPosition;
 		{
 			while (this->getPosition() > this->getTargetPosition())
 			{
@@ -1008,6 +1009,8 @@ namespace Modules {
 					endRoutine();
 					return Exception::Timeout(moduleName);
 				}
+
+				backwardsSwitchSeenPosition = this->frameSwitchEvents.backwards.positionSeen;
 			}
 		}
 
@@ -1019,6 +1022,14 @@ namespace Modules {
 		endRoutine();
 
 		this->healthStatus.switchesOK = true;
+
+		// Make a guess for the home position
+		{
+			auto switchToHere = this->getPosition() - backwardsSwitchSeenPosition;
+
+			// Take the position from this value and normalise it to the number of steps per rotation
+			this->position = switchToHere * this->motorDriverSettings.getMicrostepsPerStep();
+		}
 
 #endif
 		return Exception::None();
@@ -1148,7 +1159,7 @@ namespace Modules {
 		log(LogLevel::Status, moduleName, "begin");
 
 		auto endRoutine = [this, &moduleName]() {
-			this->inInterrupt.invertSwitches = false;
+			this->inInterrupt.invertSwitches = false; // we might invert during the routine
 			this->stop();
 			this->switchesArmed = false;
 			log(LogLevel::Status, moduleName, "end");
@@ -1157,81 +1168,13 @@ namespace Modules {
 		// https://paper.dropbox.com/doc/KC79-Firmware-development-log--B9ww1dZ58Y0lrKt6fzBa9O8yAg-NaTWt2IkZT4ykJZeMERKP#:h2=Backlash-measure-algorithm
 		Steps backlashSize;
 		{
-			// For a start we want to find the start of the forwards switch
-			// If we're already on the backwards switch then..
-
-			// (1) Walk off the back switch
-			log(LogLevel::Status, moduleName, "1: Walk back off the bw switch");
+			Steps positionFWSwitchAccurate;
+			log(LogLevel::Status, moduleName, "1: Find FW switch accurate");
 			{
-				if(homeSwitch.getBackwardsActive()) {
-					//Move backwards by clearance distance
-					auto targetPosition = this->position - MOTION_CLEAR_SWITCH_STEPS / 128 * microStepsPerStep;
-					
-					auto result = this->routineMoveTo(targetPosition, timeoutTime);
-
-					if(result.exception) {
-						endRoutine();
-						result.exception.setModuleName(moduleName);
-						return result.exception;
-					}
-				}
-			}
-
-			// (2) Fast step until we're on the forwards switch (ok if we're already on forwards switch)
-			log(LogLevel::Status, moduleName, "2: Fast find fw switch");
-			Steps positionForwardSwitchRough;
-			if(!homeSwitch.getForwardsActive()) {
-				//Move forward by one prism rotation
-				auto result = this->routineMoveToUntilSeeSwitch(this->position + microstepsPerPrismRotation
-					, SwitchesMask { true, false}
-					, timeoutTime);
-
-				if(result.exception) {
-					endRoutine();
-					result.exception.setModuleName(moduleName);
-					return result.exception;
-				}
-
-				positionForwardSwitchRough = result.frameSwitchEvents.forwards.positionSeen;
-			}
-
-			// (3) Back off the switch completely so we can approach again slowly
-			{
-				log(LogLevel::Status, moduleName, "3: Back off switch and push past backlash size");
-
-				auto backOffPosition = positionForwardSwitchRough - settings.backOffDistance * microStepsPerStep;
-				auto backOffPlusClearBacklashPosition = backOffPosition - MOTION_CLEAR_BACKLASH_STEPS * microStepsPerStep;
-
-				// back off far
-				{
-					auto result = this->routineMoveTo(backOffPlusClearBacklashPosition, timeoutTime);
-
-					if(result.exception) {
-						endRoutine();
-						result.exception.setModuleName(moduleName);
-						return result.exception;
-					}
-				}
-
-				// back off close
-				{
-					auto result = this->routineMoveTo(backOffPosition, timeoutTime);
-
-					if(result.exception) {
-						endRoutine();
-						result.exception.setModuleName(moduleName);
-						return result.exception;
-					}
-				}
-			}
-			
-			// (4) Walk up slowly to find exact button start
-			log(LogLevel::Status, moduleName, "4: Find switch again");
-			Steps postitionFWSwitchAccurate;
-			{
-				auto result = this->routineMoveToFindSwitch(true
+				// For a start we want to find the start of the forwards switch
+				auto result = this->routineFindSwitchAccurate(true
 					, settings.slowMoveSpeed
-					, SwitchesMask { true, false}
+					, true
 					, timeoutTime);
 
 				if(result.exception) {
@@ -1240,15 +1183,14 @@ namespace Modules {
 					return result.exception;
 				}
 
-				postitionFWSwitchAccurate = result.frameSwitchEvents.forwards.positionSeen;
+				positionFWSwitchAccurate = result.frameSwitchEvents.forwards.positionSeen;
 			}
 
 			HAL_Delay(500);
 
-			// (5) Walk forward N steps into switch for debouncing
-			log(LogLevel::Status, moduleName, "5: Walk into switch (debounce)");
+			log(LogLevel::Status, moduleName, "2: Walk into switch (debounce)");
 			{
-				auto targetPosition = postitionFWSwitchAccurate + settings.debounceDistance * microStepsPerStep;
+				auto targetPosition = positionFWSwitchAccurate + settings.debounceDistance * microStepsPerStep;
 				
 				auto result = this->routineMoveTo(targetPosition, timeoutTime);
 
@@ -1261,12 +1203,11 @@ namespace Modules {
 				// Check that forwards is still active (in debounce)
 				if(!this->homeSwitch.getForwardsActive()) {
 					endRoutine();
-					return Exception(moduleName, "BLC Debounce error");
+					return Exception(moduleName, "Debounce error");
 				}
 			}
 
-			// (6) Walk backwards slowly until button de-presses
-			log(LogLevel::Status, moduleName, "6: Back off to find backlash");
+			log(LogLevel::Status, moduleName, "3: Back off to find backlash");
 			Steps disengagePosition;
 			{
 				// Look for when switches drop low
@@ -1291,7 +1232,7 @@ namespace Modules {
 				this->inInterrupt.invertSwitches = false;
 			}
 
-			backlashSize = postitionFWSwitchAccurate - disengagePosition;
+			backlashSize = positionFWSwitchAccurate - disengagePosition;
 		}
 			
 		// Measure the current position at end of sequence
@@ -1315,8 +1256,9 @@ namespace Modules {
 		
 		this->healthStatus.backlashOK = true;
 
-		// Give a guess for homing
+		// Give a guess for homing if we haven't homed
 		if(!this->healthStatus.homeOK) {
+			// We are at 0 but offset by the backlash since we just walked backwards
 			this->position = - this->backlashControl.systemBacklash;
 		}
 
@@ -1361,149 +1303,42 @@ namespace Modules {
 
 		const Steps buttonClearDistance = MOTION_CLEAR_SWITCH_STEPS * microStepsPerStep; // here we have a value by trial and error (at 128 microsteps)
 
-		// https://paper.dropbox.com/doc/KC79-Firmware-development-log--B9ww1dZ58Y0lrKt6fzBa9O8yAg-NaTWt2IkZT4ykJZeMERKP#:uid=201211977543731617580121&h2=Home-sequence
+		Steps positionForwardSwitchAccurate;
+		log(LogLevel::Status, moduleName, "1: Find FW switch accurate");
+		{
+			auto result = this->routineFindSwitchAccurate(true
+				, settings.slowMoveSpeed
+				, true
+				, timeoutTime);
+
+			if(result.exception) {
+				endRoutine();
+				result.exception.setModuleName(moduleName);
+				return result.exception;
+			}
+
+			positionForwardSwitchAccurate = result.frameSwitchEvents.forwards.positionSeen;
+		}
+
+		Steps positionBackwardsSwitchAccurate;
+		log(LogLevel::Status, moduleName, "2: Find BW switch accurate");
+		{
+			auto result = this->routineFindSwitchAccurate(false
+				, settings.slowMoveSpeed
+				, false
+				, timeoutTime);
+
+			if(result.exception) {
+				endRoutine();
+				result.exception.setModuleName(moduleName);
+				return result.exception;
+			}
+
+			positionBackwardsSwitchAccurate = result.frameSwitchEvents.backwards.positionSeen;
+		}
+
 		Steps homePosition;
 		{
-			// (0) Walk to where we last saw home
-			log(LogLevel::Status, moduleName, "0: Walk to last home");
-
-			// First check if we're already at home or the home switch is active
-			if(this->position != 0
-				&& !this->homeSwitch.getForwardsActive()
-				&& !this->homeSwitch.getBackwardsActive()) {
-
-				const auto currentPosition = this->getPosition();
-				Steps targetPosition = 0;
-
-				// Move to 0 (last home)
-				if(currentPosition > 0) {
-					targetPosition = currentPosition - currentPosition % this->getMicrostepsPerPrismRotation();
-				}
-				else {
-					targetPosition = -(currentPosition + (-currentPosition % this->getMicrostepsPerPrismRotation()));
-				}
-
-				auto result = this->routineMoveTo(targetPosition, timeoutTime);
-				if(result.exception) {
-					endRoutine();
-					result.exception.setModuleName(moduleName);
-					return result.exception;
-				}
-			}
-
-			// (1) Walk off the back switch
-			log(LogLevel::Status, moduleName, "1: Walk back off the back switch");
-			{
-				if(this->homeSwitch.getBackwardsActive()) {
-					//Move backwards by clearance distance
-					auto result = this->routineMoveTo(this->position - buttonClearDistance, timeoutTime);
-					if(result.exception) {
-						endRoutine();
-						result.exception.setModuleName(moduleName);
-						return result.exception;
-					}
-				}
-
-				if(this->homeSwitch.getBackwardsActive()) {
-					// Still on the switch - something went wrong
-					return Exception::SwitchSeen(moduleName);
-				}
-			}
-
-			// (2) Fast step until we're on the forward switch is active (ok if it's already active)
-			log(LogLevel::Status, moduleName, "2: Fast find switch");
-
-			Steps positionForwardSwitchRough;
-			if(homeSwitch.getForwardsActive()) {
-				// We're already on forwards switch
-				positionForwardSwitchRough = this->getPosition();
-			}
-			else {
-				//Move forward by one prism rotation
-				auto result = this->routineMoveToUntilSeeSwitch(this->position + microstepsPerPrismRotation
-					, SwitchesMask { true, false }
-					, timeoutTime);
-
-				if(result.exception) {
-					endRoutine();
-					result.exception.setModuleName(moduleName);
-					return result.exception;
-				}
-
-				positionForwardSwitchRough = result.frameSwitchEvents.forwards.positionSeen;
-			}
-
-			// (3) Back off the switch completely so we can approach again slowly
-			log(LogLevel::Status, moduleName, "3: Back off FW switch");
-			{
-				auto targetPosition = positionForwardSwitchRough
-					- settings.backOffDistance * microStepsPerStep;
-				
-				//Move backwards by clearance distance
-				auto result = this->routineMoveTo(targetPosition, timeoutTime);
-				if(result.exception) {
-					endRoutine();
-					result.exception.setModuleName(moduleName);
-					return result.exception;
-				}
-			}
-
-			// (4) Walk up slowly to find exact button start
-			log(LogLevel::Status, moduleName, "4: Find FW switch slowly");
-			Steps positionForwardSwitchAccurate;
-			{
-				auto result = this->routineMoveToFindSwitch(true
-					, settings.slowMoveSpeed
-					, SwitchesMask { true, false}
-					, timeoutTime);
-				
-				if(result.exception) {
-					endRoutine();
-					result.exception.setModuleName(moduleName);
-					return result.exception;
-				}
-
-				positionForwardSwitchAccurate = result.frameSwitchEvents.forwards.positionSeen;
-			}
-
-			// (5) Walk forward enough to clear switch
-			log(LogLevel::Status, moduleName, "5: Walk beyond switch + backlash region");
-			{
-				auto targetPosition = positionForwardSwitchAccurate + buttonClearDistance + this->backlashControl.systemBacklash;
-				
-				auto result = this->routineMoveTo(targetPosition
-					, timeoutTime);
-
-				if(result.exception) {
-					endRoutine();
-					result.exception.setModuleName(moduleName);
-					return result.exception;
-				}
-
-				// Check if any switches active
-				if(this->homeSwitch.getForwardsActive() || this->homeSwitch.getBackwardsActive()) {
-					// Switch is still active - something wrong
-					return Exception::SwitchSeen(moduleName);
-				}
-			}
-
-			// (6) Slow move back onto switch to find reverse switch position
-			log(LogLevel::Status, moduleName, "6: Slow move onto reverse switch");
-			Steps positionBackwardsSwitchAccurate;
-			{
-				auto result = this->routineMoveToFindSwitch(false
-					, settings.slowMoveSpeed
-					, SwitchesMask { false, true}
-					, timeoutTime);
-				
-				if(result.exception) {
-					endRoutine();
-					result.exception.setModuleName(moduleName);
-					return result.exception;
-				}
-
-				positionBackwardsSwitchAccurate = result.frameSwitchEvents.backwards.positionSeen;
-			}
 
 			// Now:
 			// * We're moving backward
@@ -1521,6 +1356,16 @@ namespace Modules {
 				, "Home = %d (%d/10 degrees )"
 				, homePosition
 				, (int) (homePositionInDegrees * 10));
+			log(LogLevel::Status, moduleName, message);
+		}
+
+		{
+			auto switchSizeInDegrees = 360.0f * (float) this->homing.switchSize / (float) microstepsPerPrismRotation;
+			char message[100];
+			sprintf(message
+				, "Switch size = %d (%d/10 degrees )"
+				, this->homing.switchSize
+				, (int) (switchSizeInDegrees * 10));
 			log(LogLevel::Status, moduleName, message);
 		}
 		
@@ -1561,6 +1406,7 @@ namespace Modules {
 		{
 			auto result = this->routineFindSwitchAccurate(true
 				, settings.slowMoveSpeed
+				, true
 				, millis() + timeout_ms);
 
 			if(result.exception.report()) {
@@ -1588,6 +1434,7 @@ namespace Modules {
 		{
 			auto result = this->routineFindSwitchAccurate(true
 				, settings.slowMoveSpeed
+				, false
 				, millis() + timeout_ms);
 
 			if(result.exception.report()) {
@@ -1806,6 +1653,7 @@ namespace Modules {
 	MotionControl::RoutineMoveResult
 	MotionControl::routineFindSwitchAccurate(bool direction
 		, StepsPerSecond slowSpeed
+		, bool guessPosition
 		, uint32_t timeout)
 	{
 		// create moduleName
@@ -1820,18 +1668,44 @@ namespace Modules {
 		bool isOnSwitch = this->homeSwitch.getForwardsActive() || this->homeSwitch.getBackwardsActive();
 
 		if(!isOnSwitch) {
-			// Move onto the switch. Move up to two full cycles forwards
-			auto result = this->routineMoveToUntilSeeSwitch(this->position + forwardsVector * 2 * this->getMicrostepsPerPrismRotation()
-				, switchesMask
-				, timeout);
-			
-			if(result.exception) {
-				result.exception.setModuleName(moduleName);
-				return result;
+			// Move onto the switch
+			if(guessPosition) {
+				const auto currentPosition = this->getPosition();
+
+				// Calculate a target position based on the direction, also add an additional rotation for good measure
+				if(currentPosition > 0) {
+					targetPosition = currentPosition - currentPosition % this->getMicrostepsPerPrismRotation();
+					targetPosition += this->getMicrostepsPerPrismRotation();
+				}
+				else {
+					targetPosition = -(currentPosition + (-currentPosition % this->getMicrostepsPerPrismRotation()));
+					targetPosition -= this->getMicrostepsPerPrismRotation();
+				}
+
+				// Go to closest cycle
+				auto result = this->routineMoveToUntilSeeSwitch(targetPosition
+					, SwitchesMask { true, true }
+					, timeout);
+
+				if(result.exception) {
+					result.exception.setModuleName(moduleName);
+					return result;
+				}
+			}
+			else {
+				// Move up to two full cycles forwards
+				auto result = this->routineMoveToUntilSeeSwitch(this->position + forwardsVector * 2 * this->getMicrostepsPerPrismRotation()
+					, switchesMask
+					, timeout);
+				
+				if(result.exception) {
+					result.exception.setModuleName(moduleName);
+					return result;
+				}
 			}
 		}
 
-		// Now we're definitely on the switch
+		// Now we're definitely on the switch (FW or BW - not known)
 
 		// Move off the switch backwards
 		{

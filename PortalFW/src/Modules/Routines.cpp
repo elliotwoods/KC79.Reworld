@@ -34,6 +34,8 @@ namespace Modules {
 		// create moduleName
 		char moduleName[100];
 		sprintf(moduleName, "%s.init", this->getName());
+		
+		auto startTime = millis();
 
 		log(LogLevel::Status, moduleName, "begin");
 
@@ -51,12 +53,21 @@ namespace Modules {
 		if(this->measureCycle(settings).report()) {
 			return Exception(moduleName, "Fail on measureCycle");
 		}
-		
+
 		if(this->calibrate(settings).report()) {
 			return Exception(moduleName, "Fail on calibrate");
 		}
 
 		log(LogLevel::Status, moduleName, "end");
+
+		auto endTime = millis();
+
+		// Print the duration in seconds to 0.1s accuracy
+		{
+			char message[100];
+			sprintf(message, "Duration: %ds", (endTime - startTime) / 1000);
+			log(LogLevel::Status, moduleName, message);
+		}
 
 		return Exception::None();
 	}

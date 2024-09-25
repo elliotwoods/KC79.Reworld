@@ -147,6 +147,7 @@ namespace Modules {
 
 		RoutineMoveResult routineFindSwitchAccurate(bool direction
 			, StepsPerSecond slowSpeed
+			, bool guessPosition
 			, uint32_t timeout);
 		
 	protected:
