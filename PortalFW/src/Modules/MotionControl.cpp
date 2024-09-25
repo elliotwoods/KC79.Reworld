@@ -272,6 +272,17 @@ namespace Modules {
 	}
 
 	//----------
+	Steps
+	MotionControl::getClosestHomePosition() const
+	{
+		auto currentPosition = this->getPosition();
+		auto currentCycle = currentPosition / (float) this->getMicrostepsPerPrismRotation();
+		auto cycleRounded = round(currentCycle);
+		auto closestHomePosition = (Steps) (cycleRounded * (float) this->getMicrostepsPerPrismRotation());
+		return closestHomePosition;
+	}
+
+	//----------
 	void
 	MotionControl::setTargetPositionWithMotionFiltering(Steps value)
 	{
@@ -1248,9 +1259,13 @@ namespace Modules {
 
 		if(backlashSize > 0) {
 			this->backlashControl.systemBacklash = backlashSize;
+
+			// We just reached the end of the backlash which makes this value 0
+			this->backlashControl.positionWithinBacklash = 0;
 		}
 		else {
 			this->backlashControl.systemBacklash = 0;
+			this->backlashControl.positionWithinBacklash = 0;
 			log(LogLevel::Status, moduleName, "Negative backlash detected - presuming zero");
 		}
 		
@@ -1258,8 +1273,10 @@ namespace Modules {
 
 		// Give a guess for homing if we haven't homed
 		if(!this->healthStatus.homeOK) {
-			// We are at 0 but offset by the backlash since we just walked backwards
-			this->position = - this->backlashControl.systemBacklash;
+			// We are off the switch just at the disengage position
+			// To get to the center of the switch we need to move through the backlash and then half way into the swtich
+			// Backlash control will handle the backlash for us. So we just think about being half way off the switch center
+			this->setCurrentPosition(- this->homing.switchSize / 2);
 		}
 
 		endRoutine();
@@ -1345,7 +1362,7 @@ namespace Modules {
 			// * We are outisde of backlash region (since we did actually move)
 			// * We had backlash control on in the interrupt, so should be already backlash corrected
 			homePosition = (positionForwardSwitchAccurate + positionBackwardsSwitchAccurate) / 2;
-			this->homing.switchSize = positionForwardSwitchAccurate - positionBackwardsSwitchAccurate;
+			this->homing.switchSize = positionBackwardsSwitchAccurate - positionForwardSwitchAccurate;
 		}
 			
 		// Measure the current position at end of sequence
@@ -1372,6 +1389,7 @@ namespace Modules {
 		this->position -= homePosition;
 		this->targetPosition = 0;
 		this->healthStatus.homeOK = true;
+		this->healthStatus.switchesOK = true; // Since we used both forwards and backwards in this routine
 
 		endRoutine();
 		return Exception::None();
@@ -1430,7 +1448,7 @@ namespace Modules {
 		}
 
 		Steps positionAtEnd;
-		log(LogLevel::Status, moduleName, "3: Find the FW switch again");
+		log(LogLevel::Status, moduleName, "3: Cycle to next FW switch");
 		{
 			auto result = this->routineFindSwitchAccurate(true
 				, settings.slowMoveSpeed
@@ -1455,11 +1473,22 @@ namespace Modules {
 		// Log the result
 		{
 			char message[100];
-			sprintf(message, "Cycle = %d steps", cycleLength);
+			sprintf(message, "Cycle = %d steps (expected %d)", cycleLength, MOTION_STEPS_PER_PRISM_ROTATION);
 			log(LogLevel::Status, moduleName, message);
 		}
 
 		endRoutine();
+
+		// Check the result
+		{
+			auto delta = abs(cycleLength - MOTION_STEPS_PER_PRISM_ROTATION);
+			if(delta > MOTION_ALLOWED_PRISM_ROTATION_ERROR) {
+				char message[100];
+				sprintf(message, "Cycle length error (%d > %d)", delta, MOTION_ALLOWED_PRISM_ROTATION_ERROR);
+				return Exception(moduleName, message);
+			}
+		}
+		
 		return Exception::None();
 	}
 
@@ -1673,12 +1702,11 @@ namespace Modules {
 				const auto currentPosition = this->getPosition();
 
 				// Calculate a target position based on the direction, also add an additional rotation for good measure
-				if(currentPosition > 0) {
-					targetPosition = currentPosition - currentPosition % this->getMicrostepsPerPrismRotation();
+				auto targetPosition = this->getClosestHomePosition();
+				if(targetPosition > currentPosition) {
 					targetPosition += this->getMicrostepsPerPrismRotation();
 				}
 				else {
-					targetPosition = -(currentPosition + (-currentPosition % this->getMicrostepsPerPrismRotation()));
 					targetPosition -= this->getMicrostepsPerPrismRotation();
 				}
 

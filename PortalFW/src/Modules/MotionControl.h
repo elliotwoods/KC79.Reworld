@@ -32,6 +32,8 @@
 	* MOTION_STEPPER_GEAR_REDUCTION \
 	/ MOTION_GEAR_DRIVE )
 
+#define MOTION_ALLOWED_PRISM_ROTATION_ERROR 10
+
 namespace Modules {
 	class Routines;
 	
@@ -112,6 +114,8 @@ namespace Modules {
 		void setTargetPosition(Steps steps);
 		Steps getTargetPosition() const;
 
+		Steps getClosestHomePosition() const;
+
 		void setTargetPositionWithMotionFiltering(Steps);
 
 		const MotionProfile & getMotionProfile() const;
@@ -188,7 +192,7 @@ namespace Modules {
 
 		struct {
 			bool liveHomingEnabled = false;
-			Steps switchSize = 0; // size between forwards and backwards start engagement
+			Steps switchSize = 3721 * 128 / 128; // size between forwards and backwards start engagement. Default value here
 		} homing;
 
 		// This is used to smooth out motion between packets
