@@ -135,6 +135,7 @@ namespace Modules {
 		RoutineMoveResult routineMoveTo(Steps targetPosition
 			, uint32_t timeout);
 
+		// Move using standard motion profile to a position and stop when a switch is seen
 		RoutineMoveResult routineMoveToUntilSeeSwitch(Steps targetPosition
 			, SwitchesMask
 			, uint32_t timeout);
@@ -142,6 +143,10 @@ namespace Modules {
 		RoutineMoveResult routineMoveToFindSwitch(bool direction
 			, StepsPerSecond speed
 			, SwitchesMask
+			, uint32_t timeout);
+
+		RoutineMoveResult routineFindSwitchAccurate(bool direction
+			, StepsPerSecond slowSpeed
 			, uint32_t timeout);
 		
 	protected:

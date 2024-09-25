@@ -1556,28 +1556,11 @@ namespace Modules {
 		auto timeout_ms = settings.timeout_s * 1000U;
 		auto clearSwitchDistance = MOTION_CLEAR_SWITCH_STEPS * this->motorDriverSettings.getMicrostepsPerStep();
 
-		// (0) Back off FW switch
-		if(this->homeSwitch.getForwardsActive()) {
-			log(LogLevel::Status, moduleName, "0: Back off FW switch");
-			auto result = this->routineMoveTo(this->position - clearSwitchDistance, millis() + timeout_ms);
-
-			if(result.exception) {
-				result.exception.setModuleName(moduleName);
-				endRoutine();
-				return result.exception;
-			}
-
-			// Double check we're off the FW switch
-			if(this->homeSwitch.getForwardsActive()) {
-				return Exception::SwitchSeen(moduleName);
-			}
-		}
-
 		Steps positionAtStart;
-		log(LogLevel::Status, moduleName, "1: Walk to FW switch");
+		log(LogLevel::Status, moduleName, "1: Find the FW switch");
 		{
-			auto result = this->routineMoveToUntilSeeSwitch(this->position + this->getMicrostepsPerPrismRotation() * 2
-				, SwitchesMask { true, false }
+			auto result = this->routineFindSwitchAccurate(true
+				, settings.slowMoveSpeed
 				, millis() + timeout_ms);
 
 			if(result.exception.report()) {
@@ -1589,9 +1572,9 @@ namespace Modules {
 			positionAtStart = result.frameSwitchEvents.forwards.positionSeen;
 		}
 
-		log(LogLevel::Status, moduleName, "2: Walk to clear switch");
+		log(LogLevel::Status, moduleName, "2: Move off the switch");
 		{
-			auto result = this->routineMoveTo(this->position + clearSwitchDistance, millis() + timeout_ms);
+			auto result = this->routineMoveTo(positionAtStart + clearSwitchDistance, millis() + timeout_ms);
 
 			if(result.exception.report()) {
 				result.exception.setModuleName(moduleName);
@@ -1601,10 +1584,10 @@ namespace Modules {
 		}
 
 		Steps positionAtEnd;
-		log(LogLevel::Status, moduleName, "3: Walk to find FW switch again");
+		log(LogLevel::Status, moduleName, "3: Find the FW switch again");
 		{
-			auto result = this->routineMoveToUntilSeeSwitch(this->position + this->getMicrostepsPerPrismRotation() * 2
-				, SwitchesMask { true, false }
+			auto result = this->routineFindSwitchAccurate(true
+				, settings.slowMoveSpeed
 				, millis() + timeout_ms);
 
 			if(result.exception.report()) {
@@ -1817,5 +1800,76 @@ namespace Modules {
 			HAL_Delay(1);
 		}
 		this->stop();
+	}
+
+	//----------
+	MotionControl::RoutineMoveResult
+	MotionControl::routineFindSwitchAccurate(bool direction
+		, StepsPerSecond slowSpeed
+		, uint32_t timeout)
+	{
+		// create moduleName
+		char moduleName[100];
+		sprintf(moduleName, "%s.routineFindSwitchAccurate", this->getName());
+
+		auto forwardsVector = direction ? 1 : -1;
+		auto backwardsVector = direction ? -1 : 1;
+		auto switchesMask = direction ? SwitchesMask { true, false } : SwitchesMask { false, true };
+
+		// Check if we are on the switch
+		bool isOnSwitch = this->homeSwitch.getForwardsActive() || this->homeSwitch.getBackwardsActive();
+
+		if(!isOnSwitch) {
+			// Move onto the switch. Move up to two full cycles forwards
+			auto result = this->routineMoveToUntilSeeSwitch(this->position + forwardsVector * 2 * this->getMicrostepsPerPrismRotation()
+				, switchesMask
+				, timeout);
+			
+			if(result.exception) {
+				result.exception.setModuleName(moduleName);
+				return result;
+			}
+		}
+
+		// Now we're definitely on the switch
+
+		// Move off the switch backwards
+		{
+			// Move off the switch
+			auto result = this->routineMoveTo(this->position + backwardsVector * MOTION_CLEAR_SWITCH_STEPS * this->motorDriverSettings.getMicrostepsPerStep()
+				, timeout);
+			
+			if(result.exception) {
+				result.exception.setModuleName(moduleName);
+				return result;
+			}
+		}
+
+		// Now we're behind the switch
+
+		// Move forwards onto the switch slowly
+		Steps positionSwitchSeen;
+		{
+			auto result = this->routineMoveToFindSwitch(direction, slowSpeed, switchesMask, timeout);
+			if(result.exception) {
+				result.exception.setModuleName(moduleName);
+				return result;
+			}
+			positionSwitchSeen = result.frameSwitchEvents.forwards.positionSeen;
+		}
+
+		// Return result
+		MotionControl::RoutineMoveResult result;
+		{
+			if(direction) {
+				result.frameSwitchEvents.forwards.seen = true;
+				result.frameSwitchEvents.forwards.positionSeen = positionSwitchSeen;
+			}
+			else {
+				result.frameSwitchEvents.backwards.seen = true;
+				result.frameSwitchEvents.backwards.positionSeen = positionSwitchSeen;
+			}
+		}
+		return result;
 	}
 }
