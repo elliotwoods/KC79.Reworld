@@ -48,6 +48,21 @@ log(const Exception& exception)
 void
 print(const LogMessage& logMessage)
 {
+	// Special cases for begin and end messages
+	if(logMessage.message == "begin" && logMessage.level == LogLevel::Status) {
+		serial.println("/---------");
+		serial.print("| BEGIN ");
+		serial.println(logMessage.module.c_str());
+		return;
+	}
+	else if(logMessage.message == "end" && logMessage.level == LogLevel::Status) {
+		serial.print("| END ");
+		serial.println(logMessage.module.c_str());
+		serial.println("\\---------");
+		serial.println("");
+		return;
+	}
+
 	// Header section
 	{
 		serial.print("[");

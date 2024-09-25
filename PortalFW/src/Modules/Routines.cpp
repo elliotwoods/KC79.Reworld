@@ -42,9 +42,9 @@ namespace Modules {
 		app->motionControlA->stop();
 		app->motionControlB->stop();
 
-		if(this->unjam(settings).report()) {
-			return Exception(moduleName, "Fail on unjam");
-		}
+		// if(this->unjam(settings).report()) {
+		// 	return Exception(moduleName, "Fail on unjam");
+		// }
 
 		// if(this->tuneCurrent().report()) {
 		// 	return Exception(moduleName, "Fail on tuneCurrent");

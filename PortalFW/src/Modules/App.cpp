@@ -153,15 +153,16 @@ namespace Modules
 		// Indicate if a motor driver is enabled
 		if(this->motorIndicatorEnabled) {
 			digitalWrite(LED_INDICATOR, this->motorDriverA->getEnabled() || this->motorDriverB->getEnabled());
-		}		
+		}
+
 		// Refresh the watchdog counter
 		LL_IWDG_ReloadCounter(IWDG);
 
 		// set distant target if no signal received
-		if(!this->rs485->hasAnySignalBeenReceived()) {
-			this->motionControlA->setTargetPosition(this->motionControlA->getMicrostepsPerPrismRotation() * 1024 * 8);
-			this->motionControlB->setTargetPosition(this->motionControlA->getMicrostepsPerPrismRotation() * 1024 * 8);
-		}
+		// if(!this->rs485->hasAnySignalBeenReceived()) {
+		// 	this->motionControlA->setTargetPosition(this->motionControlA->getMicrostepsPerPrismRotation() * 1024 * 8);
+		// 	this->motionControlB->setTargetPosition(this->motionControlA->getMicrostepsPerPrismRotation() * 1024 * 8);
+		// }
 	}
 
 	//---------
