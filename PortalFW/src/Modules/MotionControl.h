@@ -25,7 +25,7 @@
 #define MOTION_GEAR_RING 118
 
 #define MOTION_CLEAR_SWITCH_STEPS (20000 / 128)
-#define MOTION_CLEAR_BACKLASH_STEPS 30000
+#define MOTION_CLEAR_BACKLASH_STEPS (30000 / 128)
 
 #define MOTION_STEPS_PER_PRISM_ROTATION ( MOTION_STEPS_PER_MOTOR_ROTATION \
 	* MOTION_GEAR_RING \
@@ -126,6 +126,7 @@ namespace Modules {
 		Exception tuneCurrentRoutine(const MeasureRoutineSettings&);
 		Exception measureBacklashRoutine(const MeasureRoutineSettings&);
 		Exception homeRoutine(const MeasureRoutineSettings&);
+		Exception measureCycleRoutine(const MeasureRoutineSettings&);
 
 		void reportStatus(msgpack::Serializer&) override;
 

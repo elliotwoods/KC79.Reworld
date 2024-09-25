@@ -134,6 +134,10 @@ Logger::update()
 				// Unjam
 				Modules::App::X().routines->unjam();
 				break;
+			case 'y':
+				// Measure cycle
+				Modules::App::X().routines->measureCycle();
+				break;
 			case 'r':
 				// Reboot
 				NVIC_SystemReset();
@@ -199,6 +203,7 @@ Logger::printHelp()
 	serial.println("h = home routine");
 	serial.println("s = startup");
 	serial.println("u = unjam");
+	serial.println("y = measure cycle");
 	serial.println("v = print version");
 	serial.println("? = print help");
 	serial.println("r = reboot");

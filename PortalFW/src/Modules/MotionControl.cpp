@@ -1200,7 +1200,7 @@ namespace Modules {
 				log(LogLevel::Status, moduleName, "3: Back off switch and push past backlash size");
 
 				auto backOffPosition = positionForwardSwitchRough - settings.backOffDistance * microStepsPerStep;
-				auto backOffPlusClearBacklashPosition = backOffPosition - MOTION_CLEAR_BACKLASH_STEPS * microStepsPerStep / 128;
+				auto backOffPlusClearBacklashPosition = backOffPosition - MOTION_CLEAR_BACKLASH_STEPS * microStepsPerStep;
 
 				// back off far
 				{
@@ -1533,6 +1533,107 @@ namespace Modules {
 	}
 
 	//----------
+	Exception
+	MotionControl::measureCycleRoutine(const MeasureRoutineSettings& settings)
+	{
+		// Create a moduleName
+		char moduleName[100];
+		sprintf(moduleName, "%s.measureCycleRoutine", this->getName());
+
+		log(LogLevel::Status, moduleName, "begin");
+
+		this->switchesArmed = true;
+
+		auto endRoutine = [this, &moduleName]() {
+			this->stop();
+			this->switchesArmed = false;
+			log(LogLevel::Status, moduleName, "end");
+		};
+
+		// Stop any existing motion profile
+		this->stop();
+
+		auto timeout_ms = settings.timeout_s * 1000U;
+		auto clearSwitchDistance = MOTION_CLEAR_SWITCH_STEPS * this->motorDriverSettings.getMicrostepsPerStep();
+
+		// (0) Back off FW switch
+		if(this->homeSwitch.getForwardsActive()) {
+			log(LogLevel::Status, moduleName, "0: Back off FW switch");
+			auto result = this->routineMoveTo(this->position - clearSwitchDistance, millis() + timeout_ms);
+
+			if(result.exception) {
+				result.exception.setModuleName(moduleName);
+				endRoutine();
+				return result.exception;
+			}
+
+			// Double check we're off the FW switch
+			if(this->homeSwitch.getForwardsActive()) {
+				return Exception::SwitchSeen(moduleName);
+			}
+		}
+
+		Steps positionAtStart;
+		log(LogLevel::Status, moduleName, "1: Walk to FW switch");
+		{
+			auto result = this->routineMoveToUntilSeeSwitch(this->position + this->getMicrostepsPerPrismRotation() * 2
+				, SwitchesMask { true, false }
+				, millis() + timeout_ms);
+
+			if(result.exception.report()) {
+				result.exception.setModuleName(moduleName);
+				endRoutine();
+				return result.exception;
+			}
+
+			positionAtStart = result.frameSwitchEvents.forwards.positionSeen;
+		}
+
+		log(LogLevel::Status, moduleName, "2: Walk to clear switch");
+		{
+			auto result = this->routineMoveTo(this->position + clearSwitchDistance, millis() + timeout_ms);
+
+			if(result.exception.report()) {
+				result.exception.setModuleName(moduleName);
+				endRoutine();
+				return result.exception;
+			}
+		}
+
+		Steps positionAtEnd;
+		log(LogLevel::Status, moduleName, "3: Walk to find FW switch again");
+		{
+			auto result = this->routineMoveToUntilSeeSwitch(this->position + this->getMicrostepsPerPrismRotation() * 2
+				, SwitchesMask { true, false }
+				, millis() + timeout_ms);
+
+			if(result.exception.report()) {
+				result.exception.setModuleName(moduleName);
+				endRoutine();
+				return result.exception;
+			}
+
+			positionAtEnd = result.frameSwitchEvents.forwards.positionSeen;
+		}
+
+		// Calculate the length of one cycle
+		auto cycleLength = positionAtEnd - positionAtStart;
+
+		// Normalise to full steps
+		cycleLength = cycleLength / this->motorDriverSettings.getMicrostepsPerStep();
+
+		// Log the result
+		{
+			char message[100];
+			sprintf(message, "Cycle = %d steps", cycleLength);
+			log(LogLevel::Status, moduleName, message);
+		}
+
+		endRoutine();
+		return Exception::None();
+	}
+
+	//----------
 	void
 	MotionControl::reportStatus(msgpack::Serializer& serializer)
 	{
@@ -1580,7 +1681,7 @@ namespace Modules {
 
 			{
 				char message[64];
-				sprintf(message, "\r%d ", this->position);
+				sprintf(message, "\r%d\t", this->position);
 				Logger::X().printRaw(message);
 			}
 
@@ -1626,7 +1727,7 @@ namespace Modules {
 
 			{
 				char message[64];
-				sprintf(message, "\r%d ", this->position);
+				sprintf(message, "\r%d\t", this->position);
 				Logger::X().printRaw(message);
 			}
 
@@ -1685,7 +1786,7 @@ namespace Modules {
 
 			{
 				char message[64];
-				sprintf(message, "\r%d ", this->position);
+				sprintf(message, "\r%d\t", this->position);
 				Logger::X().printRaw(message);
 			}
 
