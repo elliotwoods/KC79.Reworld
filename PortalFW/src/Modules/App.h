@@ -9,6 +9,7 @@
 #include "MotorDriver.h"
 #include "ID.h"
 #include "RS485.h"
+#include "LEDs.h"
 #include "HomeSwitch.h"
 #include "MotionControl.h"
 #include "Routines.h"
@@ -39,6 +40,7 @@ namespace Modules {
 #endif
 		ID * id;
 		RS485 * rs485;
+		LEDs * leds;
 
 		MotorDriverSettings * motorDriverSettings;
 		MotorDriver * motorDriverA;
@@ -57,6 +59,5 @@ namespace Modules {
 		bool processIncomingByKey(const char * key, Stream &) override;
 		bool isInsideRoutine = true;
 		bool shouldEscapeFromRoutine = false;
-		bool motorIndicatorEnabled = true;
 	};
 }

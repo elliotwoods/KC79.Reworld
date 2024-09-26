@@ -48,6 +48,9 @@ namespace Modules
 		this->rs485 = new RS485(this);
 		this->rs485->setup();
 
+		this->leds = new LEDs();
+		this->leds->setup();
+
 		this->motorDriverSettings = new MotorDriverSettings(MotorDriverSettings::Config());
 		this->motorDriverSettings->setup();
 
@@ -106,54 +109,7 @@ namespace Modules
 		this->gui->update();
 #endif
 
-		// Heartbeat LED
-		{
-			const auto & healthStatusA = this->motionControlA->getHealthStatus();
-			const auto & healthStatusB = this->motionControlB->getHealthStatus();
-
-			auto isCalibrated = healthStatusA.switchesOK && healthStatusA.backlashOK && healthStatusA.homeOK
-				&& healthStatusB.switchesOK && healthStatusB.backlashOK && healthStatusB.homeOK;
-			
-			if(isCalibrated) {
-				// Slow heartbeat
-				analogWrite(LED_HEARTBEAT, (millis() % 2000) / 128);
-			} else {
-				// Write a debug sequence out
-
-				int sequence = 0b111;
-				int pos = 6;
-				sequence |= healthStatusA.switchesOK * (1 << pos++);
-				pos++;
-
-				sequence |= healthStatusA.backlashOK * (1 << pos++);
-				pos++;
-
-				sequence |= healthStatusA.homeOK * (1 << pos++);
-				pos++;
-
-				pos++;
-
-				sequence |= healthStatusB.switchesOK * (1 << pos++);
-				pos++;
-
-				sequence |= healthStatusB.backlashOK * (1 << pos++);
-				pos++;
-
-				sequence |= healthStatusB.homeOK * (1 << pos++);
-				pos++;
-
-				pos += 4; // some blank positions at end
-
-				int positionInSequence = (millis() / 200) % pos;
-				auto value = (sequence >> positionInSequence) & 1;
-				digitalWrite(LED_HEARTBEAT, value);
-			}
-		}
-
-		// Indicate if a motor driver is enabled
-		if(this->motorIndicatorEnabled) {
-			digitalWrite(LED_INDICATOR, this->motorDriverA->getEnabled() || this->motorDriverB->getEnabled());
-		}
+		this->leds->update();
 
 		// Refresh the watchdog counter
 		LL_IWDG_ReloadCounter(IWDG);
@@ -467,23 +423,15 @@ namespace Modules
 			if(!msgpack::readBool(stream, value)) {
 				return false;
 			}
-			this->motorIndicatorEnabled = value;
+			this->leds->setMotorIndicatorEnabled(value);
 			return true;
 		}
+
 		else if (strcmp(key, "escapeFromRoutine") == 0) {
 			if(!msgpack::readNil(stream)) {
 				return false;
 			}
 			this->escapeFromRoutine();
-			return true;
-		}
-
-		else if (strcmp(key, "motorDriverIndicator") == 0) {
-			bool value;
-			if(!msgpack::readBool(stream, value)) {
-				return false;
-			}
-			this->motorIndicatorEnabled = value;
 			return true;
 		}
 

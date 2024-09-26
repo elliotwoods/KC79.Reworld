@@ -58,6 +58,7 @@ namespace Modules {
 			Steps backOffDistance = MOTION_STEPS_PER_PRISM_ROTATION / 100; // Full steps
 			Steps debounceDistance = 32; // Full steps
 			uint8_t tryCount = 3;
+			bool stopAllRoutinesIfOneFails = false;
 		};
 
 		struct FrameSwitchEvents {
@@ -80,9 +81,12 @@ namespace Modules {
 		};
 
 		struct HealthStatus {
+			bool measureCycleOK = false;
 			bool switchesOK = false;
 			bool backlashOK = false;
 			bool homeOK = false;
+
+			bool allOK() const;
 		};
 
 		MotionControl(MotorDriverSettings&

@@ -4,6 +4,16 @@
 
 namespace Modules {
 	//----------
+	bool
+	MotionControl::HealthStatus::allOK() const
+	{
+		return this->measureCycleOK
+			&& this->switchesOK
+			&& this->backlashOK
+			&& this->homeOK;
+	}
+
+	//----------
 	MotionControl::MotionControl(MotorDriverSettings& motorDriverSettings
 		, MotorDriver& motorDriver
 		, HomeSwitch& homeSwitch)
@@ -1477,17 +1487,20 @@ namespace Modules {
 			log(LogLevel::Status, moduleName, message);
 		}
 
-		endRoutine();
-
 		// Check the result
 		{
 			auto delta = abs(cycleLength - MOTION_STEPS_PER_PRISM_ROTATION);
 			if(delta > MOTION_ALLOWED_PRISM_ROTATION_ERROR) {
 				char message[100];
 				sprintf(message, "Cycle length error (%d > %d)", delta, MOTION_ALLOWED_PRISM_ROTATION_ERROR);
+				endRoutine();
 				return Exception(moduleName, message);
 			}
 		}
+
+		endRoutine();
+
+		this->healthStatus.measureCycleOK = true;
 		
 		return Exception::None();
 	}
@@ -1503,7 +1516,8 @@ namespace Modules {
 
 			serializer << "healthStatus";
 			{
-				serializer.beginMap(3);
+				serializer.beginMap(4);
+				serializer << "measureCycleOK" << this->healthStatus.measureCycleOK;
 				serializer << "SwitchesOK" << this->healthStatus.switchesOK;
 				serializer << "backlashOK" << this->healthStatus.backlashOK;
 				serializer << "homeOK" << this->healthStatus.homeOK;

@@ -39,26 +39,24 @@ namespace Modules {
 
 		log(LogLevel::Status, moduleName, "begin");
 
+		bool failedAnywhere = false;
+
 		app->motionControlA->stop();
 		app->motionControlB->stop();
 
-		// if(this->unjam(settings).report()) {
-		// 	return Exception(moduleName, "Fail on unjam");
-		// }
-
-		// if(this->tuneCurrent().report()) {
-		// 	return Exception(moduleName, "Fail on tuneCurrent");
-		// }
-
 		if(this->measureCycle(settings).report()) {
-			return Exception(moduleName, "Fail on measureCycle");
+			if(settings.stopAllRoutinesIfOneFails) {
+				Exception(moduleName, "Fail on measureCycle");
+			}
+			failedAnywhere = true;
 		}
 
 		if(this->calibrate(settings).report()) {
-			return Exception(moduleName, "Fail on calibrate");
+			if(settings.stopAllRoutinesIfOneFails) {
+				return Exception(moduleName, "Fail on calibrate");
+			}
+			failedAnywhere = true;
 		}
-
-		log(LogLevel::Status, moduleName, "end");
 
 		auto endTime = millis();
 
@@ -73,6 +71,11 @@ namespace Modules {
 		app->motionControlA->setTargetPosition(0);
 		app->motionControlB->setTargetPosition(0);
 
+		if(failedAnywhere) {
+			return Exception(moduleName, "Fail");
+		}
+		
+		log(LogLevel::Status, moduleName, "end");
 		return Exception::None();
 	}
 
@@ -89,16 +92,27 @@ namespace Modules {
 		app->motionControlA->stop();
 		app->motionControlB->stop();
 
+		bool failedAnywhere = false;
+
 		if(app->motionControlA->unjamRoutine(settings).report()) {
-			return Exception(moduleName, "Fail on unjam A");
+			if(settings.stopAllRoutinesIfOneFails) {
+				return Exception(moduleName, "Fail on unjam A");
+			}
+			failedAnywhere = true;
 		}
 
 		if(app->motionControlB->unjamRoutine(settings).report()) {
-			return Exception(moduleName, "Fail on unjam B");
+			if(settings.stopAllRoutinesIfOneFails) {
+				return Exception(moduleName, "Fail on unjam B");
+			}
+			failedAnywhere = true;
 		}
 
+		if(failedAnywhere) {
+			return Exception(moduleName, "Fail");
+		}
+		
 		log(LogLevel::Status, moduleName, "end");
-
 		return Exception::None();
 	}
 
@@ -115,16 +129,27 @@ namespace Modules {
 		app->motionControlA->stop();
 		app->motionControlB->stop();
 
+		bool failedAnywhere = false;
+
 		if(app->motionControlA->tuneCurrentRoutine(settings).report()) {
-			return Exception(moduleName, "Fail on tuneCurrent A");
+			if(settings.stopAllRoutinesIfOneFails) {
+				return Exception(moduleName, "Fail on tuneCurrent A");
+			}
+			failedAnywhere = true;
 		}
 
 		if(app->motionControlB->tuneCurrentRoutine(settings).report()) {
-			return Exception(moduleName, "Fail on tuneCurrent B");
+			if(settings.stopAllRoutinesIfOneFails) {
+				return Exception(moduleName, "Fail on tuneCurrent B");
+			}
+			failedAnywhere = true;
 		}
 
+		if(failedAnywhere) {
+			return Exception(moduleName, "Fail");
+		}
+		
 		log(LogLevel::Status, moduleName, "end");
-
 		return Exception::None();
 	}
 
@@ -141,22 +166,39 @@ namespace Modules {
 		app->motionControlA->stop();
 		app->motionControlB->stop();
 
+		bool failedAnywhere = false;
+
 		if(app->motionControlA->measureBacklashRoutine(settings).report()) {
-			return Exception(moduleName, "Fail on measure backlash A");
+			if(settings.stopAllRoutinesIfOneFails) {
+				return Exception(moduleName, "Fail on measure backlash A");
+			}
+			failedAnywhere = true;
 		}
 		if(app->motionControlA->homeRoutine(settings).report()) {
-			return Exception(moduleName, "Fail on home A");
+			if(settings.stopAllRoutinesIfOneFails) {
+				return Exception(moduleName, "Fail on home A");
+			}
+			failedAnywhere = true;
 		}
 
 		if(app->motionControlB->measureBacklashRoutine(settings).report()) {
-			return Exception(moduleName, "Fail on measure backlash B");
+			if(settings.stopAllRoutinesIfOneFails) {
+				return Exception(moduleName, "Fail on measure backlash B");
+			}
+			failedAnywhere = true;
 		}
 		if(app->motionControlB->homeRoutine(settings).report()) {
-			return Exception(moduleName, "Fail on home B");
+			if(settings.stopAllRoutinesIfOneFails) {
+				return Exception(moduleName, "Fail on home B");
+			}
+			failedAnywhere = true;
 		}
 
+		if(failedAnywhere) {
+			return Exception(moduleName, "Fail");
+		}
+		
 		log(LogLevel::Status, moduleName, "end");
-
 		return Exception::None();
 	}
 
@@ -173,15 +215,26 @@ namespace Modules {
 		app->motionControlA->stop();
 		app->motionControlB->stop();
 
+		bool failedAnywhere = false;
+
 		if(app->motionControlA->homeRoutine(settings).report()) {
-			return Exception(moduleName, "Fail on A");
+			if(settings.stopAllRoutinesIfOneFails) {
+				return Exception(moduleName, "Fail on A");
+			}
+			failedAnywhere = true;
 		}
 		if(app->motionControlB->homeRoutine(settings).report()) {
-			return Exception(moduleName, "Fail on B");
+			if(settings.stopAllRoutinesIfOneFails) {
+				return Exception(moduleName, "Fail on B");
+			}
+			failedAnywhere = true;
 		}
 
+		if(failedAnywhere) {
+			return Exception(moduleName, "Fail");
+		}
+		
 		log(LogLevel::Status, moduleName, "end");
-
 		return Exception::None();
 	}
 
@@ -198,15 +251,26 @@ namespace Modules {
 		app->motionControlA->stop();
 		app->motionControlB->stop();
 
+		bool failedAnywhere = false;
+
 		if(app->motionControlA->measureCycleRoutine(settings).report()) {
-			return Exception(moduleName, "Fail on A");
+			if(settings.stopAllRoutinesIfOneFails) {
+				return Exception(moduleName, "Fail on A");
+			}
+			failedAnywhere = true;
 		}
 		if(app->motionControlB->measureCycleRoutine(settings).report()) {
-			return Exception(moduleName, "Fail on B");
+			if(settings.stopAllRoutinesIfOneFails) {
+				return Exception(moduleName, "Fail on B");
+			}
+			failedAnywhere = true;
 		}
 
+		if(failedAnywhere) {
+			return Exception(moduleName, "Fail");
+		}
+		
 		log(LogLevel::Status, moduleName, "end");
-
 		return Exception::None();
 	}
 
