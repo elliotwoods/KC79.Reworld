@@ -69,6 +69,10 @@ namespace Modules {
 			log(LogLevel::Status, moduleName, message);
 		}
 
+		// Move to zero position on both axes
+		app->motionControlA->setTargetPosition(0);
+		app->motionControlB->setTargetPosition(0);
+
 		return Exception::None();
 	}
 

@@ -131,7 +131,18 @@ Logger::update()
 		while(serial.available()) {
 			command = serial.read();
 		}
-		if(command != 0) {
+		if(command == 0) {
+			// Do nothing
+		}
+		else if(command >= '0' && command <= '9') {
+			auto stepsPerRevolution = Modules::App::X().motionControlA->getMicrostepsPerPrismRotation();
+			auto targetPosition = stepsPerRevolution * (Steps) (command - '0') / (Steps) ('9' - '0');
+
+			// Move to test position
+			Modules::App::X().motionControlA->setTargetPosition(targetPosition);
+			Modules::App::X().motionControlB->setTargetPosition(targetPosition);
+		}
+		else {
 			switch(command) {
 			case 'c':
 				// Calibrate
@@ -220,6 +231,7 @@ Logger::printHelp()
 	serial.println("u = unjam");
 	serial.println("y = measure cycle");
 	serial.println("v = print version");
+	serial.println("0-9 = move to test position");
 	serial.println("? = print help");
 	serial.println("r = reboot");
 	serial.println("ESC = exit current routine");
