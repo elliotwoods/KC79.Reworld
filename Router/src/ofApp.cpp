@@ -9,7 +9,8 @@ void ofApp::setup(){
 	ofSetFrameRate(60.0f);
 
 	gui.init();
-	gui.addInspector()->setCaption("Router");
+	gui.addInspector()->setTitleEnabled(false);
+	ofSetWindowTitle("Router");
 	
 	// Register factories
 	SerialDevices::registerFactories();

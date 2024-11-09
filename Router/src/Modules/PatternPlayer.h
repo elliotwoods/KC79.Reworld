@@ -23,7 +23,7 @@ namespace Modules {
 		vector<shared_ptr<Patterns::Base>> patterns;
 
 		struct : ofParameterGroup {
-			ofParameter<bool> enabled{ "Enabled", true };
+			ofParameter<bool> enabled{ "Enabled", false };
 			PARAM_DECLARE("PatternPlayer", enabled);
 		} parameters;
 
