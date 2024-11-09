@@ -3,11 +3,11 @@
 #include "Base.h"
 #include "crow/crow.h"
 
-#include "Column.h"
-#include "TestPattern.h"
-#include "PatternPlayer.h"
+#include "Image/Renderer.h"
+#include "Hardware/Installation.h"
+#include "OSC/Receiver.h"
+#include "REST/Server.h"
 
-#include "ofxOsc.h"
 #include "ofxNetwork.h"
 
 namespace Modules {
@@ -20,53 +20,22 @@ namespace Modules {
 		
 		string getTypeName() const override;
 		void init() override;
+		void initGUI(ofxCvGui::Builder&);
+
 		void update() override;
 		void populateInspector(ofxCvGui::InspectArguments& args);
 
 		void load();
 		void deserialise(const nlohmann::json&);
 
-		vector<shared_ptr<Column>> getAllColumns() const;
-		shared_ptr<Column> getColumnByID(int) const;
-
-		glm::tvec2<size_t> getSize() const;
-		void moveGrid(const vector<glm::vec2>& positions);
-		void moveGridRow(const vector<glm::vec2>& positions, int rowIndex);
-
-		void pollAll();
-		void broadcast(const msgpack11::MsgPack&);
-		void uploadFWAll(const string& path);
-
-		ofxCvGui::ElementPtr getPositionsPreview();
+		shared_ptr<Hardware::Installation> getInstallation();
 	protected:
 		static shared_ptr<App> instance;
 
-		void setupCrowRoutes();
-		crow::SimpleApp crow;
-		std::future<void> crowRun;
-
-		map<int, shared_ptr<Column>> columns;
-
-		shared_ptr<TestPattern> testPattern;
-		shared_ptr<PatternPlayer> patternPlayer;
-		vector<shared_ptr<Base>> modules;
-
-		struct : ofParameterGroup {
-			struct : ofParameterGroup {
-				ofParameter<bool> enabled{ "Enabled", true };
-				ofParameter<int> port{ "Port", 4000 };
-				PARAM_DECLARE("OSC", enabled, port);
-			} osc;
-			PARAM_DECLARE("App", osc);
-		} parameters;
-
-		shared_ptr<ofxOscReceiver> oscReceiver;
-		ofxTCPServer tcpServer;
-
-
-		struct {
-			ofColor normal;
-			ofColor flash{ 200, 200, 200 };
-		} flashScreenSettings;
+		vector<shared_ptr<Modules::Base>> modules;
+		shared_ptr<Image::Renderer> renderer;
+		shared_ptr<Hardware::Installation> installation;
+		shared_ptr<OSC::Receiver> oscReceiver;
+		shared_ptr<REST::Server> restServer;
 	};
 }

@@ -4,7 +4,7 @@
 #include "FWUpdate.h"
 #include "Portal.h"
 
-#include "Base.h"
+#include "../Base.h"
 
 namespace Modules {
 	class Column : public Base
@@ -27,6 +27,9 @@ namespace Modules {
 
 		void buildPanels(size_t panelCount);
 
+		size_t getCountX() const;
+		size_t getCountY() const;
+
 		vector<shared_ptr<Portal>> getAllPortals() const;
 		shared_ptr<Portal> getPortalByTargetID(Portal::Target);
 
@@ -44,7 +47,7 @@ namespace Modules {
 		void broadcastEscapeFromRoutine();
 		void broadcastReset();
 
-		ofxCvGui::ElementPtr getMiniView(float width);
+		ofxCvGui::PanelPtr getMiniView(float width);
 
 	protected:
 		void refreshPortalsByID();

@@ -24,13 +24,13 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
     <CharacterSet>Unicode</CharacterSet>
-    <PlatformToolset>v142</PlatformToolset>
+    <PlatformToolset>v143</PlatformToolset>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
     <CharacterSet>Unicode</CharacterSet>
     <WholeProgramOptimization>true</WholeProgramOptimization>
-    <PlatformToolset>v142</PlatformToolset>
+    <PlatformToolset>v143</PlatformToolset>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
   <ImportGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="PropertySheets">
@@ -181,21 +181,20 @@
     <ClCompile Include="src\main.cpp" />
     <ClCompile Include="src\Modules\App.cpp" />
     <ClCompile Include="src\Modules\Base.cpp" />
-    <ClCompile Include="src\Modules\Column.cpp" />
-    <ClCompile Include="src\Modules\FWUpdate.cpp" />
-    <ClCompile Include="src\Modules\PatternPlayer.cpp" />
-    <ClCompile Include="src\Modules\Patterns\Base.cpp" />
-    <ClCompile Include="src\Modules\Patterns\Lens.cpp" />
-    <ClCompile Include="src\Modules\Patterns\Swing.cpp" />
-    <ClCompile Include="src\Modules\PerPortal\Axis.cpp" />
-    <ClCompile Include="src\Modules\PerPortal\Logger.cpp" />
-    <ClCompile Include="src\Modules\PerPortal\MotionControl.cpp" />
-    <ClCompile Include="src\Modules\PerPortal\MotorDriver.cpp" />
-    <ClCompile Include="src\Modules\PerPortal\MotorDriverSettings.cpp" />
-    <ClCompile Include="src\Modules\PerPortal\Pilot.cpp" />
-    <ClCompile Include="src\Modules\Portal.cpp" />
-    <ClCompile Include="src\Modules\RS485.cpp" />
-    <ClCompile Include="src\Modules\TestPattern.cpp" />
+    <ClCompile Include="src\Modules\Hardware\Column.cpp" />
+    <ClCompile Include="src\Modules\Hardware\FWUpdate.cpp" />
+    <ClCompile Include="src\Modules\Hardware\Installation.cpp" />
+    <ClCompile Include="src\Modules\Hardware\PerPortal\Axis.cpp" />
+    <ClCompile Include="src\Modules\Hardware\PerPortal\Logger.cpp" />
+    <ClCompile Include="src\Modules\Hardware\PerPortal\MotionControl.cpp" />
+    <ClCompile Include="src\Modules\Hardware\PerPortal\MotorDriver.cpp" />
+    <ClCompile Include="src\Modules\Hardware\PerPortal\MotorDriverSettings.cpp" />
+    <ClCompile Include="src\Modules\Hardware\PerPortal\Pilot.cpp" />
+    <ClCompile Include="src\Modules\Hardware\Portal.cpp" />
+    <ClCompile Include="src\Modules\Hardware\RS485.cpp" />
+    <ClCompile Include="src\Modules\Image\Renderer.cpp" />
+    <ClCompile Include="src\Modules\OSC\Receiver.cpp" />
+    <ClCompile Include="src\Modules\REST\Server.cpp" />
     <ClCompile Include="src\msgpack11\msgpack11.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">NotUsing</PrecompiledHeader>
@@ -275,22 +274,21 @@
     <ClInclude Include="src\crow\crow\websocket.h" />
     <ClInclude Include="src\Modules\App.h" />
     <ClInclude Include="src\Modules\Base.h" />
-    <ClInclude Include="src\Modules\Column.h" />
-    <ClInclude Include="src\Modules\FWUpdate.h" />
-    <ClInclude Include="src\Modules\PatternPlayer.h" />
-    <ClInclude Include="src\Modules\Patterns\Base.h" />
-    <ClInclude Include="src\Modules\Patterns\Lens.h" />
-    <ClInclude Include="src\Modules\Patterns\Swing.h" />
-    <ClInclude Include="src\Modules\PerPortal\Axis.h" />
-    <ClInclude Include="src\Modules\PerPortal\Constants.h" />
-    <ClInclude Include="src\Modules\PerPortal\Logger.h" />
-    <ClInclude Include="src\Modules\PerPortal\MotionControl.h" />
-    <ClInclude Include="src\Modules\PerPortal\MotorDriver.h" />
-    <ClInclude Include="src\Modules\PerPortal\MotorDriverSettings.h" />
-    <ClInclude Include="src\Modules\PerPortal\Pilot.h" />
-    <ClInclude Include="src\Modules\Portal.h" />
-    <ClInclude Include="src\Modules\RS485.h" />
-    <ClInclude Include="src\Modules\TestPattern.h" />
+    <ClInclude Include="src\Modules\Hardware\Column.h" />
+    <ClInclude Include="src\Modules\Hardware\FWUpdate.h" />
+    <ClInclude Include="src\Modules\Hardware\Installation.h" />
+    <ClInclude Include="src\Modules\Hardware\PerPortal\Axis.h" />
+    <ClInclude Include="src\Modules\Hardware\PerPortal\Constants.h" />
+    <ClInclude Include="src\Modules\Hardware\PerPortal\Logger.h" />
+    <ClInclude Include="src\Modules\Hardware\PerPortal\MotionControl.h" />
+    <ClInclude Include="src\Modules\Hardware\PerPortal\MotorDriver.h" />
+    <ClInclude Include="src\Modules\Hardware\PerPortal\MotorDriverSettings.h" />
+    <ClInclude Include="src\Modules\Hardware\PerPortal\Pilot.h" />
+    <ClInclude Include="src\Modules\Hardware\Portal.h" />
+    <ClInclude Include="src\Modules\Hardware\RS485.h" />
+    <ClInclude Include="src\Modules\Image\Renderer.h" />
+    <ClInclude Include="src\Modules\OSC\Receiver.h" />
+    <ClInclude Include="src\Modules\REST\Server.h" />
     <ClInclude Include="src\msgpack11\msgpack11.hpp" />
     <ClInclude Include="src\ofApp.h" />
     <ClInclude Include="src\OSC\Routes.h" />

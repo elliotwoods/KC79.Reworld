@@ -7,50 +7,23 @@
     <ClCompile Include="src\main.cpp">
       <Filter>src</Filter>
     </ClCompile>
-    <ClCompile Include="src\Modules\RS485.cpp">
-      <Filter>src\Modules</Filter>
-    </ClCompile>
     <ClCompile Include="src\pch_App.cpp">
       <Filter>src</Filter>
     </ClCompile>
     <ClCompile Include="src\cobs-c\cobs.cpp">
       <Filter>src\cobs-c</Filter>
     </ClCompile>
-    <ClCompile Include="src\Modules\FWUpdate.cpp">
-      <Filter>src\Modules</Filter>
-    </ClCompile>
     <ClCompile Include="src\Modules\App.cpp">
       <Filter>src\Modules</Filter>
     </ClCompile>
-    <ClCompile Include="src\Modules\Portal.cpp">
-      <Filter>src\Modules</Filter>
-    </ClCompile>
-    <ClCompile Include="src\Modules\PerPortal\Pilot.cpp">
-      <Filter>src\Modules\PerPortal</Filter>
-    </ClCompile>
-    <ClCompile Include="src\Modules\PerPortal\MotorDriverSettings.cpp">
-      <Filter>src\Modules\PerPortal</Filter>
-    </ClCompile>
-    <ClCompile Include="src\Modules\PerPortal\MotionControl.cpp">
-      <Filter>src\Modules\PerPortal</Filter>
-    </ClCompile>
-    <ClCompile Include="src\Modules\PerPortal\Axis.cpp">
-      <Filter>src\Modules\PerPortal</Filter>
-    </ClCompile>
     <ClCompile Include="src\Modules\Base.cpp">
       <Filter>src\Modules</Filter>
-    </ClCompile>
-    <ClCompile Include="src\Modules\PerPortal\MotorDriver.cpp">
-      <Filter>src\Modules\PerPortal</Filter>
     </ClCompile>
     <ClCompile Include="src\Utils.cpp">
       <Filter>src</Filter>
     </ClCompile>
     <ClCompile Include="src\msgpack11\msgpack11.cpp">
       <Filter>src\msgpack11</Filter>
-    </ClCompile>
-    <ClCompile Include="src\Modules\PerPortal\Logger.cpp">
-      <Filter>src\Modules\PerPortal</Filter>
     </ClCompile>
     <ClCompile Include="src\SerialDevices\Serial.cpp">
       <Filter>src\SerialDevices</Filter>
@@ -75,9 +48,6 @@
     </ClCompile>
     <ClCompile Include="src\SerialDevices\TCP.cpp">
       <Filter>src\SerialDevices</Filter>
-    </ClCompile>
-    <ClCompile Include="src\Modules\Column.cpp">
-      <Filter>src\Modules</Filter>
     </ClCompile>
     <ClCompile Include="src\SerialDevices\Factory.cpp">
       <Filter>src\SerialDevices</Filter>
@@ -118,23 +88,50 @@
     <ClCompile Include="..\..\..\addons\ofxOsc\libs\oscpack\src\ip\win32\NetworkingUtils.cpp">
       <Filter>addons\ofxOsc\libs\oscpack\src\ip\win32</Filter>
     </ClCompile>
-    <ClCompile Include="src\OSC\Routes.cpp">
+    <ClCompile Include="src\Modules\Hardware\Column.cpp">
+      <Filter>src\Modules\Hardware</Filter>
+    </ClCompile>
+    <ClCompile Include="src\Modules\Hardware\FWUpdate.cpp">
+      <Filter>src\Modules\Hardware</Filter>
+    </ClCompile>
+    <ClCompile Include="src\Modules\Hardware\Portal.cpp">
+      <Filter>src\Modules\Hardware</Filter>
+    </ClCompile>
+    <ClCompile Include="src\Modules\Hardware\RS485.cpp">
+      <Filter>src\Modules\Hardware</Filter>
+    </ClCompile>
+    <ClCompile Include="src\Modules\Hardware\Installation.cpp">
+      <Filter>src\Modules\Hardware</Filter>
+    </ClCompile>
+    <ClCompile Include="src\Modules\OSC\Receiver.cpp">
       <Filter>src\Modules\OSC</Filter>
     </ClCompile>
-    <ClCompile Include="src\Modules\TestPattern.cpp">
-      <Filter>src\Modules</Filter>
+    <ClCompile Include="src\OSC\Routes.cpp">
+      <Filter>src\OSC</Filter>
     </ClCompile>
-    <ClCompile Include="src\Modules\PatternPlayer.cpp">
-      <Filter>src\Modules</Filter>
+    <ClCompile Include="src\Modules\REST\Server.cpp">
+      <Filter>src\Modules\REST</Filter>
     </ClCompile>
-    <ClCompile Include="src\Modules\Patterns\Base.cpp">
-      <Filter>src\Modules\Patterns</Filter>
+    <ClCompile Include="src\Modules\Image\Renderer.cpp">
+      <Filter>src\Modules\Image</Filter>
     </ClCompile>
-    <ClCompile Include="src\Modules\Patterns\Swing.cpp">
-      <Filter>src\Modules\Patterns</Filter>
+    <ClCompile Include="src\Modules\Hardware\PerPortal\Axis.cpp">
+      <Filter>src\Modules\Hardware\PerPortal</Filter>
     </ClCompile>
-    <ClCompile Include="src\Modules\Patterns\Lens.cpp">
-      <Filter>src\Modules\Patterns</Filter>
+    <ClCompile Include="src\Modules\Hardware\PerPortal\Logger.cpp">
+      <Filter>src\Modules\Hardware\PerPortal</Filter>
+    </ClCompile>
+    <ClCompile Include="src\Modules\Hardware\PerPortal\MotionControl.cpp">
+      <Filter>src\Modules\Hardware\PerPortal</Filter>
+    </ClCompile>
+    <ClCompile Include="src\Modules\Hardware\PerPortal\MotorDriver.cpp">
+      <Filter>src\Modules\Hardware\PerPortal</Filter>
+    </ClCompile>
+    <ClCompile Include="src\Modules\Hardware\PerPortal\MotorDriverSettings.cpp">
+      <Filter>src\Modules\Hardware\PerPortal</Filter>
+    </ClCompile>
+    <ClCompile Include="src\Modules\Hardware\PerPortal\Pilot.cpp">
+      <Filter>src\Modules\Hardware\PerPortal</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -146,9 +143,6 @@
     </Filter>
     <Filter Include="src\cobs-c">
       <UniqueIdentifier>{09bf3e6b-0abe-40d4-b353-91c932d806bb}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="src\Modules\PerPortal">
-      <UniqueIdentifier>{a25e72f7-c39b-408d-8e44-e5dab68fdc4e}</UniqueIdentifier>
     </Filter>
     <Filter Include="src\msgpack11">
       <UniqueIdentifier>{624f35ea-3d29-4999-96b9-224c86445965}</UniqueIdentifier>
@@ -210,16 +204,25 @@
     <Filter Include="src\Modules\OSC">
       <UniqueIdentifier>{ec9aa7a7-b176-4f2e-a636-1d555198794a}</UniqueIdentifier>
     </Filter>
-    <Filter Include="src\Modules\Patterns">
-      <UniqueIdentifier>{90543735-314b-43c7-984d-2fa34418eae9}</UniqueIdentifier>
+    <Filter Include="src\Modules\Hardware">
+      <UniqueIdentifier>{77a00205-9a8b-4371-bca8-de86ad88bcd0}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\OSC">
+      <UniqueIdentifier>{a24ad1ba-ada1-4abf-bef1-7bc578ff594a}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\Modules\REST">
+      <UniqueIdentifier>{866a699b-9a48-44f1-9d0d-0b34268698b0}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\Modules\Hardware\PerPortal">
+      <UniqueIdentifier>{feff1fe5-3daa-4902-9cdb-8bd95433cfb1}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\Modules\Image">
+      <UniqueIdentifier>{75458376-b762-44f1-ba94-d88634031db7}</UniqueIdentifier>
     </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\ofApp.h">
       <Filter>src</Filter>
-    </ClInclude>
-    <ClInclude Include="src\Modules\RS485.h">
-      <Filter>src\Modules</Filter>
     </ClInclude>
     <ClInclude Include="src\pch_App.h">
       <Filter>src</Filter>
@@ -227,44 +230,17 @@
     <ClInclude Include="src\cobs-c\cobs.h">
       <Filter>src\cobs-c</Filter>
     </ClInclude>
-    <ClInclude Include="src\Modules\FWUpdate.h">
-      <Filter>src\Modules</Filter>
-    </ClInclude>
     <ClInclude Include="src\Modules\Base.h">
       <Filter>src\Modules</Filter>
     </ClInclude>
     <ClInclude Include="src\Modules\App.h">
       <Filter>src\Modules</Filter>
     </ClInclude>
-    <ClInclude Include="src\Modules\Portal.h">
-      <Filter>src\Modules</Filter>
-    </ClInclude>
-    <ClInclude Include="src\Modules\PerPortal\MotionControl.h">
-      <Filter>src\Modules\PerPortal</Filter>
-    </ClInclude>
-    <ClInclude Include="src\Modules\PerPortal\Pilot.h">
-      <Filter>src\Modules\PerPortal</Filter>
-    </ClInclude>
-    <ClInclude Include="src\Modules\PerPortal\Constants.h">
-      <Filter>src\Modules\PerPortal</Filter>
-    </ClInclude>
-    <ClInclude Include="src\Modules\PerPortal\MotorDriver.h">
-      <Filter>src\Modules\PerPortal</Filter>
-    </ClInclude>
-    <ClInclude Include="src\Modules\PerPortal\Axis.h">
-      <Filter>src\Modules\PerPortal</Filter>
-    </ClInclude>
-    <ClInclude Include="src\Modules\PerPortal\MotorDriverSettings.h">
-      <Filter>src\Modules\PerPortal</Filter>
-    </ClInclude>
     <ClInclude Include="src\Utils.h">
       <Filter>src</Filter>
     </ClInclude>
     <ClInclude Include="src\msgpack11\msgpack11.hpp">
       <Filter>src\msgpack11</Filter>
-    </ClInclude>
-    <ClInclude Include="src\Modules\PerPortal\Logger.h">
-      <Filter>src\Modules\PerPortal</Filter>
     </ClInclude>
     <ClInclude Include="src\crow\crow.h">
       <Filter>src\crow</Filter>
@@ -398,9 +374,6 @@
     <ClInclude Include="..\..\..\addons\ofxNetwork\src\ofxNetworkUtils.h">
       <Filter>addons\ofxNetwork\src</Filter>
     </ClInclude>
-    <ClInclude Include="src\Modules\Column.h">
-      <Filter>src\Modules</Filter>
-    </ClInclude>
     <ClInclude Include="src\SerialDevices\Factory.h">
       <Filter>src\SerialDevices</Filter>
     </ClInclude>
@@ -464,23 +437,53 @@
     <ClInclude Include="..\..\..\addons\ofxOsc\libs\oscpack\src\osc\OscHostEndianness.h">
       <Filter>addons\ofxOsc\libs\oscpack\src\osc</Filter>
     </ClInclude>
-    <ClInclude Include="src\OSC\Routes.h">
+    <ClInclude Include="src\Modules\Hardware\Column.h">
+      <Filter>src\Modules\Hardware</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Modules\Hardware\FWUpdate.h">
+      <Filter>src\Modules\Hardware</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Modules\Hardware\Portal.h">
+      <Filter>src\Modules\Hardware</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Modules\Hardware\RS485.h">
+      <Filter>src\Modules\Hardware</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Modules\Hardware\Installation.h">
+      <Filter>src\Modules\Hardware</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Modules\OSC\Receiver.h">
       <Filter>src\Modules\OSC</Filter>
     </ClInclude>
-    <ClInclude Include="src\Modules\TestPattern.h">
-      <Filter>src\Modules</Filter>
+    <ClInclude Include="src\OSC\Routes.h">
+      <Filter>src\OSC</Filter>
     </ClInclude>
-    <ClInclude Include="src\Modules\PatternPlayer.h">
-      <Filter>src\Modules</Filter>
+    <ClInclude Include="src\Modules\REST\Server.h">
+      <Filter>src\Modules\REST</Filter>
     </ClInclude>
-    <ClInclude Include="src\Modules\Patterns\Base.h">
-      <Filter>src\Modules\Patterns</Filter>
+    <ClInclude Include="src\Modules\Image\Renderer.h">
+      <Filter>src\Modules\Image</Filter>
     </ClInclude>
-    <ClInclude Include="src\Modules\Patterns\Swing.h">
-      <Filter>src\Modules\Patterns</Filter>
+    <ClInclude Include="src\Modules\Hardware\PerPortal\Axis.h">
+      <Filter>src\Modules\Hardware\PerPortal</Filter>
     </ClInclude>
-    <ClInclude Include="src\Modules\Patterns\Lens.h">
-      <Filter>src\Modules\Patterns</Filter>
+    <ClInclude Include="src\Modules\Hardware\PerPortal\Constants.h">
+      <Filter>src\Modules\Hardware\PerPortal</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Modules\Hardware\PerPortal\Logger.h">
+      <Filter>src\Modules\Hardware\PerPortal</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Modules\Hardware\PerPortal\MotionControl.h">
+      <Filter>src\Modules\Hardware\PerPortal</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Modules\Hardware\PerPortal\MotorDriver.h">
+      <Filter>src\Modules\Hardware\PerPortal</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Modules\Hardware\PerPortal\MotorDriverSettings.h">
+      <Filter>src\Modules\Hardware\PerPortal</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Modules\Hardware\PerPortal\Pilot.h">
+      <Filter>src\Modules\Hardware\PerPortal</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>

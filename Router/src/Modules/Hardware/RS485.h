@@ -2,7 +2,7 @@
 
 #include "ofSerial.h"
 #include "ofxCvGui.h"
-#include "Base.h"
+#include "../Base.h"
 #include "Utils.h"
 #include "../msgpack11/msgpack11.hpp"
 #include "../SerialDevices/IDevice.h"

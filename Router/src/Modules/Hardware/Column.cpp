@@ -381,20 +381,28 @@ namespace Modules {
 	}
 
 	//----------
-	ofxCvGui::ElementPtr
+	ofxCvGui::PanelPtr
 		Column::getMiniView(float width)
 	{
-		auto element = ofxCvGui::makeElement();
-		const auto cellSize = width / 3.0f;
-		element->setWidth(cellSize * 3.0f);
+		auto countx = (float)this->getCountX();
+		auto county = (float)this->getCountY();
+		
 		auto portals = this->getAllPortals();
-		element->setHeight(portals.size() / 3 * cellSize);
+
+		auto element = ofxCvGui::Panels::makeBlank();
+		const auto cellSize = width / countx;
+		element->setWidth(width);
+		element->setHeight(county * cellSize);
+
 		element->onDraw += [this](ofxCvGui::DrawArguments& args) {
-			const auto cellSize = args.localBounds.width / 3.0f;
+			auto countx = (float)this->getCountX();
+			auto county = (float)this->getCountY();
+			const auto cellSize = args.localBounds.width / countx;
 
 			auto portals = this->getAllPortals();
 
-			float y = cellSize * (portals.size() / 3);
+			// start at bottom left
+			float y = cellSize * county;
 			float x = 0.0f;
 			int index = 0;
 			const auto radius = cellSize / 2.0f - 3.0f;
@@ -402,8 +410,8 @@ namespace Modules {
 			ofPushMatrix();
 			{
 				if (this->parameters.physical.flipped.get()) {
-					auto height = cellSize * (portals.size() / 3);
-					auto width = cellSize * 3;
+					auto height = cellSize * county;
+					auto width = cellSize * countx;
 					ofTranslate(width, height);
 					ofRotateDeg(180.0f);
 				}
@@ -437,7 +445,7 @@ namespace Modules {
 
 					index++;
 
-					if (index % 3 == 0) {
+					if (index % this->getCountX() == 0) {
 						y -= cellSize;
 						x = 0.0f;
 					}

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Base.h"
+#include "../Base.h"
 #include "RS485.h"
 
 #define FW_FRAME_SIZE 32

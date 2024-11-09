@@ -5,7 +5,7 @@
 #include "OSC/Routes.h"
 
 //--------------------------------------------------------------
-void ofApp::setup(){
+void ofApp::setup() {
 	ofSetFrameRate(60.0f);
 
 	gui.init();
@@ -17,6 +17,7 @@ void ofApp::setup(){
 
 	this->app = Modules::App::X();
 	this->app->init();
+	this->app->initGUI(this->gui);
 
 	// Register OSC routes
 	OSC::initRoutes(this->app.get());

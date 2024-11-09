@@ -11,7 +11,8 @@ namespace OSC {
 	//----------
 	void performOnAllPortals(App * app, std::function<void(shared_ptr<Portal>)> action)
 	{
-		auto columns = app->getAllColumns();
+		auto installation = app->getInstallation();
+		auto columns = installation->getAllColumns();
 		for (auto column : columns) {
 			auto portals = column->getAllPortals();
 			for (auto portal : portals) {
@@ -36,7 +37,8 @@ namespace OSC {
 					auto x = message.getArgAsFloat(2);
 					auto y = message.getArgAsFloat(3);
 
-					auto column = app->getColumnByID(column_id);
+					auto installation = app->getInstallation();
+					auto column = installation->getColumnByID(column_id);
 					if (!column) {
 						throw(Exception("Column " + ofToString(column_id) + " not found"));
 					}
@@ -63,7 +65,8 @@ namespace OSC {
 
 					if (message.getNumArgs() < 1) {
 						// Peform on all
-						auto columns = app->getAllColumns();
+						auto installation = app->getInstallation();
+						auto columns = installation->getAllColumns();
 						for (auto column : columns) {
 							performOnColumn(column);
 						}
@@ -72,7 +75,8 @@ namespace OSC {
 						auto column_id = message.getArgAsInt(0);
 
 						// Perform on single column
-						auto column = app->getColumnByID(column_id);
+						auto installation = app->getInstallation();
+						auto column = installation->getColumnByID(column_id);
 
 						if (!column) {
 							throw(Exception("Column " + ofToString(column_id) + " not found"));
@@ -85,7 +89,8 @@ namespace OSC {
 						auto column_id = message.getArgAsInt(0);
 						auto portal_id = message.getArgAsInt(1);
 
-						auto column = app->getColumnByID(column_id);
+						auto installation = app->getInstallation();
+						auto column = installation->getColumnByID(column_id);
 
 						if (!column) {
 							throw(Exception("Column " + ofToString(column_id) + " not found"));
@@ -98,36 +103,6 @@ namespace OSC {
 
 						portal->getPilot()->unwind();
 					}
-				}
-			},
-			Route {
-				"/grid"
-				, [app](const ofxOscMessage& message) {
-					vector<glm::vec2> positions;
-					auto count = message.getNumArgs() / 2;
-					for (int i = 0; i < count; i++) {
-						positions.push_back({
-							message.getArgAsFloat(i * 2 + 0)
-							, message.getArgAsFloat(i * 2 + 1)
-							});
-					}
-
-					app->moveGrid(positions);
-				}
-			},
-			Route {
-				"/gridRow"
-				, [app](const ofxOscMessage& message) {
-					vector<glm::vec2> positions;
-					auto count = (message.getNumArgs() - 1) / 2;
-					for (int i = 0; i < count; i++) {
-						positions.push_back({
-							message.getArgAsFloat(i * 2 + 0)
-							, message.getArgAsFloat(i * 2 + 1)
-							});
-					}
-					auto rowIndex = (int) message.getArgAsFloat(message.getNumArgs() - 1);
-					app->moveGridRow(positions, rowIndex);
 				}
 			},
 			Route {
