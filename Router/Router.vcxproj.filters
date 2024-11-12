@@ -142,6 +142,9 @@
     <ClCompile Include="src\Modules\Image\Sources\FilePlayer.cpp">
       <Filter>src\Modules\Image\Sources</Filter>
     </ClCompile>
+    <ClCompile Include="src\Modules\Image\Sources\Text.cpp">
+      <Filter>src\Modules\Image\Sources</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <Filter Include="src">
@@ -509,8 +512,14 @@
     <ClInclude Include="src\Modules\Image\Sources\FilePlayer.h">
       <Filter>src\Modules\Image\Sources</Filter>
     </ClInclude>
+    <ClInclude Include="src\Modules\Image\Sources\Text.h">
+      <Filter>src\Modules\Image\Sources</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="icon.rc" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="cpp.hint" />
   </ItemGroup>
 </Project>

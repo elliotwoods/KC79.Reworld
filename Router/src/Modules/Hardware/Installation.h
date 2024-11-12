@@ -47,8 +47,8 @@ namespace Modules {
 
 			struct : ofParameterGroup {
 				struct : ofParameterGroup {
-					ofParameter<int> columns{ "Columns", 4 };
-					ofParameter<int> rows{ "Rows", 6 };
+					ofParameter<int> columns{ "Columns", 32 };
+					ofParameter<int> rows{ "Rows", 24 };
 					ofParameter<int> columnWidth{ "Column width", 1 };
 					ofParameter<bool> flipped{ "Flipped", false };
 					PARAM_DECLARE("Arrangement", columns, rows, columnWidth, flipped);

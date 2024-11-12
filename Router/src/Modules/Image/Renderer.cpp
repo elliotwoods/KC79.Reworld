@@ -2,6 +2,7 @@
 #include "Renderer.h"
 #include "Sources/Gradient.h"
 #include "Sources/FilePlayer.h"
+#include "Sources/Text.h"
 
 namespace Modules {
 	namespace Image {
@@ -23,6 +24,7 @@ namespace Modules {
 		{
 			this->sources.push_back(make_shared<Sources::Gradient>());
 			this->sources.push_back(make_shared<Sources::FilePlayer>());
+			this->sources.push_back(make_shared<Sources::Text>());
 			for (auto source : this->sources) {
 				source->init();
 			}

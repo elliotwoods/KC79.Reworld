@@ -130,7 +130,7 @@ namespace Modules {
 			inspector->addParameterGroup(this->parameters);
 			inspector->addButton("Rebuild columns", [this]() {
 				this->rebuildColumns();
-				});
+				}, OF_KEY_RETURN)->setHeight(100.0f);
 		}
 
 		//----------
