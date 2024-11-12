@@ -19,12 +19,16 @@ namespace Modules {
 			protected:
 				ofFbo fbo;
 
+				ofTrueTypeFont font;
+				string loadedFontName;
+				int loadedFontSize = 0;
+
 				struct : ofParameterGroup {
-					ofParameter<string> text{ "Text", "REWORLD" };
+					ofParameter<string> text{ "Text", "TEST" };
 					ofParameter<string> font{ "Font", "" };
-					ofParameter<int> size{ "Size", 10 };
+					ofParameter<int> size{ "Size", 11 };
 					ofParameter<bool> usePixelFont{ "Use Pixel Font", false };	
-					ofParameter<int> border{ "Border", 1 };
+					ofParameter<int> border{ "Border", 0 };
 					ofParameter<bool> inverse{ "Inverse", false };
 					PARAM_DECLARE("Text", text, font, size, usePixelFont, border, inverse);
 				} parameters;

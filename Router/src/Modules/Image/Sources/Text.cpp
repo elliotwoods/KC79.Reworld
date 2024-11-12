@@ -65,6 +65,8 @@ namespace Modules {
 								ofxCvGui::closeDialog();
 								});
 
+							button->setHeight(60.0f);
+
 							button->onDraw += [this, name](ofxCvGui::DrawArguments& args) {
 								const auto height = 20;
 								const auto& font = ofxAssets::font(name, height);
@@ -108,7 +110,7 @@ namespace Modules {
 						ofRectangle targetBounds(border, border, renderSettings.width - border * 2, renderSettings.height - border * 2);
 
 						if (this->parameters.usePixelFont) {
-							auto naturalBounds = ofRectangle(0, -13, text.size() * 8, 13);
+							auto naturalBounds = ofRectangle(0, -11, text.size() * 8, 11);
 							const auto offset = targetBounds.getCenter() - naturalBounds.getCenter();
 
 							// draw as bitmap string
@@ -120,10 +122,17 @@ namespace Modules {
 							ofPopMatrix();
 						}
 						else {
-							auto& font = ofxAssets::AssetRegister().getFont(this->parameters.font.get(), this->parameters.size.get());
+							if (this->loadedFontName != this->parameters.font.get()
+								|| this->loadedFontSize != this->parameters.size.get()) {
+								const auto & fontAsset = ofxAssets::AssetRegister().getFonts()[this->parameters.font.get()];
+								auto filename = fontAsset->getFilename();
+								this->font.loadFont(filename, this->parameters.size.get(), false, true, false);
 
+								this->loadedFontName = this->parameters.font.get();
+								this->loadedFontSize = this->parameters.size.get();
+							}
 							// Calculate the natural (untransformed) text bounds
-							auto naturalBounds = font.getStringBoundingBox(text, 0, 0);
+							auto naturalBounds = this->font.getStringBoundingBox(text, 0, 0);
 
 							// Calculate the scale and offset to fit the text within the target bounds
 							const auto scale = std::min(targetBounds.width / naturalBounds.width, targetBounds.height / naturalBounds.height);
@@ -134,7 +143,7 @@ namespace Modules {
 							{
 								ofTranslate(offset);
 								ofScale(scale, scale);
-								font.drawString(text, 0, 0);
+								this->font.drawString(text, 0, 0);
 							}
 							ofPopMatrix();
 						}

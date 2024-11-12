@@ -46,8 +46,10 @@ namespace Modules {
 			// Render the individual images
 			{
 				for (auto source : this->sources) {
-					source->allocate(renderSettings);
-					source->render(renderSettings);
+					if (source->getRenderEnabled()) {
+						source->allocate(renderSettings);
+						source->render(renderSettings);
+					}
 				}
 			}
 
@@ -65,10 +67,17 @@ namespace Modules {
 
 				// Sum the individual images into the result
 				for (auto source : this->sources) {
+					// If it's not visible or not allocated correctly (e.g. hasn't been rendered)
+					if (!source->getVisible()
+						|| source->pixels.size() != this->pixels.size()) {
+						continue;
+					}
+
 					auto sourcePixels = source->pixels.getData();
 					auto resultPixels = this->pixels.getData();
+					const auto& alpha = source->getAlpha();
 					for (int i = 0; i < this->pixels.size(); i++) {
-						resultPixels[i] += sourcePixels[i];
+						resultPixels[i] += sourcePixels[i] * alpha;
 					}
 				}
 			}
