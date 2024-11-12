@@ -234,6 +234,40 @@ namespace Modules {
 
 		//----------
 		void
+			Installation::transmitKeyframe(const ofFloatPixels& pixels)
+		{
+			// Note this is a temporary approach to this problem,
+			// later we want to be sending combined keyframe packets
+			// for the entire column with positions and velocities
+			// and therefore here we would also calculate velocity
+			// through finite difference
+			
+			auto resolution = this->getResolution();
+			if (resolution.x != pixels.getWidth() || resolution.y != pixels.getHeight()) {
+				ofLogError("Installation::transmitKeyframe") << "Resolution mismatch";
+				return;
+			}
+			const auto& width = resolution.x;
+			const auto& height = resolution.y;
+			const auto pixelData = (glm::vec3*)pixels.getData();
+
+			auto allColumns = this->getAllColumns();
+			for (int i = 0; i < width; i++) {
+				auto column = allColumns[i];
+				
+				// Note these are organised from bottom to top
+				auto portals = column->getAllPortals();
+				for (int j = 0; j < height; j++) {
+					auto portal = portals[height - j - 1];
+					auto index = j * width + i;
+					const auto & pixel = pixelData[index];
+					portal->getPilot()->setPosition({ pixel.x, pixel.y });
+				}
+			}
+		}
+
+		//----------
+		void
 			Installation::rebuildMiniView()
 		{
 			this->miniView->clear();

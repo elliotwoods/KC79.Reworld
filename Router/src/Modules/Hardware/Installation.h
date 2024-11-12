@@ -34,6 +34,8 @@ namespace Modules {
 
 			ofxCvGui::PanelPtr getPanel() override;
 			ofxCvGui::PanelPtr getMiniView() override;
+
+			void transmitKeyframe(const ofFloatPixels&);
 		protected:
 			void rebuildPanel();
 			void rebuildMiniView();

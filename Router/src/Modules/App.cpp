@@ -192,6 +192,7 @@ namespace Modules {
 			// Transmit the image to the hardware
 			{
 				const auto & pixels = this->renderer->getPixels();
+				this->installation->transmitKeyframe(pixels);
 			}
 		}
 	}

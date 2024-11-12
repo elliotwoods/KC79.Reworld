@@ -22,6 +22,10 @@ namespace Modules {
 		void
 			Renderer::init()
 		{
+			this->onPopulateInspector += [this](ofxCvGui::InspectArguments& args) {
+				this->populateInspector(args);
+				};
+
 			this->sources.push_back(make_shared<Sources::Gradient>());
 			this->sources.push_back(make_shared<Sources::FilePlayer>());
 			this->sources.push_back(make_shared<Sources::Text>());
@@ -96,7 +100,8 @@ namespace Modules {
 		void
 			Renderer::populateInspector(ofxCvGui::InspectArguments& args)
 		{
-
+			auto inspector = args.inspector;
+			inspector->addParameterGroup(this->parameters);
 		}
 
 		//----------
@@ -125,6 +130,20 @@ namespace Modules {
 
 			}
 			return panel;
+		}
+
+		//----------
+		bool
+			Renderer::isTransmitEnabled() const
+		{
+			return this->parameters.transmitEnabled.get();
+		}
+
+		//----------
+		const ofFloatPixels&
+			Renderer::getPixels() const
+		{
+			return this->pixels;
 		}
 	}
 }

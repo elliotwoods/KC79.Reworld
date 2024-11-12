@@ -31,8 +31,8 @@ namespace Modules {
 
 			struct : ofParameterGroup {
 				ofParameter<bool> transmitEnabled{ "Transmit enabled", true };
-				PARAM_DECLARE("Renderer", enabled);
-			};
+				PARAM_DECLARE("Renderer", transmitEnabled);
+			} parameters;
 		};
 	}
 }
