@@ -12,7 +12,7 @@ namespace Modules {
 	public:
 		virtual string getTypeName() const = 0;
 		virtual string getName() const {
-			return this->getTypeName();
+			return ofSplitString(this->getTypeName(), "::").back();
 		}
 		virtual string getGlyph() const {
 			return "";
@@ -25,5 +25,7 @@ namespace Modules {
 
 		shared_ptr<ofxCvGui::Widgets::SubMenuInspectable> addSubMenuToInsecptor(shared_ptr<ofxCvGui::Panels::Widgets> inspector
 			, shared_ptr<ofxCvGui::IInspectable> inspectable);
+	protected:
+		string defaultName;
 	};
 }

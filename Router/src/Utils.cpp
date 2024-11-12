@@ -140,13 +140,23 @@ namespace Utils{
 	template<typename T>
 	bool deserialize(const nlohmann::json& json, ofParameter<T>& parameter)
 	{
+		// Try name directly
 		if (json.contains(parameter.getName())) {
 			parameter = json[parameter.getName()].get<T>();
 			return true;
 		}
-		else {
-			return false;
+
+		// Try to strip the name
+		{
+			auto strippedName = ofSplitString(parameter.getName(), " ").front();
+			strippedName = ofToLower(strippedName);
+			if (json.contains(strippedName)) {
+				parameter = json[strippedName].get<T>();
+				return true;
+			}
 		}
+
+		return false;
 	}
 
 	// Define symbols for template instantiation

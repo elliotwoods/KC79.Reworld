@@ -24,7 +24,7 @@ namespace Modules {
 		string
 			Installation::getTypeName() const
 		{
-			return "Installation";
+			return "Hardware::Installation";
 		}
 
 		//----------
@@ -40,6 +40,10 @@ namespace Modules {
 		void
 			Installation::update()
 		{
+			if (this->needsRebuildColumns) {
+				this->rebuildColumns();
+			}
+
 			// update columns
 			for (const auto& column : this->columns) {
 				column->update();
@@ -119,6 +123,8 @@ namespace Modules {
 
 			this->needsRebuildMiniView = true;
 			this->needsRebuildPanel = true;
+
+			this->needsRebuildColumns = false;
 		}
 
 		//----------

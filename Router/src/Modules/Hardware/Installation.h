@@ -39,6 +39,7 @@ namespace Modules {
 			void rebuildMiniView();
 
 			vector<shared_ptr<Column>> columns;
+			bool needsRebuildColumns = true;
 
 			shared_ptr<ofxCvGui::Panels::Groups::Strip> miniView;
 			shared_ptr<ofxCvGui::Panels::Widgets> panel;

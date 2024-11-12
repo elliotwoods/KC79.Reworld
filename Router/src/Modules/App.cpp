@@ -187,6 +187,13 @@ namespace Modules {
 			}
 			this->renderer->render(renderSettings);
 		}
+
+		if (this->renderer->isTransmitEnabled()) {
+			// Transmit the image to the hardware
+			{
+				const auto & pixels = this->renderer->getPixels();
+			}
+		}
 	}
 
 	//----------
