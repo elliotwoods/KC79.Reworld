@@ -10,7 +10,15 @@ namespace Modules {
 	class Column : public Base
 	{
 	public:
-		Column();
+		struct Settings {
+			size_t index;
+
+			size_t countX;
+			size_t countY;
+			bool flipped;
+		};
+
+		Column(const Settings&);
 
 		string getTypeName() const override;
 		string getName() const override;
@@ -23,11 +31,13 @@ namespace Modules {
 		void populateInspector(ofxCvGui::InspectArguments& args);
 		void processIncoming(const nlohmann::json&) override;
 
-		void dragEvent(const ofDragInfo&);
+		void rebuildPortals();
 
-		void buildPanels(size_t panelCount);
-
+		/// <summary>
+		/// In the case of Reworld Type 1, each Columns is itself 3 Portals wide
+		/// </summary>
 		size_t getCountX() const;
+
 		size_t getCountY() const;
 
 		vector<shared_ptr<Portal>> getAllPortals() const;
@@ -54,19 +64,24 @@ namespace Modules {
 
 		shared_ptr<RS485> rs485;
 		shared_ptr<FWUpdate> fwUpdate;
+		vector<shared_ptr<Base>> submodules;
 
+		size_t columnIndex = 0;
+		size_t countX = 1;
+		size_t countY = 1;
 		vector<shared_ptr<Portal>> portals;
 
 		map<Portal::Target, shared_ptr<Portal>> portalsByID;
 		bool portalsByIDDirty = true;
 
-		vector<shared_ptr<Base>> modules;
 
 		struct : ofParameterGroup {
 			struct : ofParameterGroup {
+				ofParameter<size_t> countX{ "Count X", 1 };
+				ofParameter<size_t> countY{ "Count Y", 1 };
 				ofParameter<bool> flipped{ "Flipped", true };
-				PARAM_DECLARE("Physical", flipped);
-			} physical;
+				PARAM_DECLARE("Srrangement", flipped);
+			} arrangement;
 
 			struct : ofParameterGroup {
 				ofParameter<bool> enabled{ "Enabled", true };
@@ -74,7 +89,7 @@ namespace Modules {
 				PARAM_DECLARE("Scheduled poll", enabled, period_s);
 			} scheduledPoll;
 
-			PARAM_DECLARE("Column", physical, scheduledPoll);
+			PARAM_DECLARE("Column", arrangement, scheduledPoll);
 		} parameters;
 
 		chrono::system_clock::time_point lastPollAll = chrono::system_clock::now();

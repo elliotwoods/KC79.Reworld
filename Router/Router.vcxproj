@@ -70,6 +70,7 @@
       <ObjectFileName>$(IntDir)\Build\%(RelativeDir)\$(Configuration)\</ObjectFileName>
       <PrecompiledHeader>Use</PrecompiledHeader>
       <PrecompiledHeaderFile>pch_App.h</PrecompiledHeaderFile>
+      <DebugInformationFormat>EditAndContinue</DebugInformationFormat>
     </ClCompile>
     <Link>
       <GenerateDebugInformation>true</GenerateDebugInformation>
@@ -193,6 +194,8 @@
     <ClCompile Include="src\Modules\Hardware\Portal.cpp" />
     <ClCompile Include="src\Modules\Hardware\RS485.cpp" />
     <ClCompile Include="src\Modules\Image\Renderer.cpp" />
+    <ClCompile Include="src\Modules\Image\Sources\Base.cpp" />
+    <ClCompile Include="src\Modules\Image\Sources\Gradient.cpp" />
     <ClCompile Include="src\Modules\OSC\Receiver.cpp" />
     <ClCompile Include="src\Modules\REST\Server.cpp" />
     <ClCompile Include="src\msgpack11\msgpack11.cpp">
@@ -287,8 +290,11 @@
     <ClInclude Include="src\Modules\Hardware\Portal.h" />
     <ClInclude Include="src\Modules\Hardware\RS485.h" />
     <ClInclude Include="src\Modules\Image\Renderer.h" />
+    <ClInclude Include="src\Modules\Image\Sources\Base.h" />
+    <ClInclude Include="src\Modules\Image\Sources\Gradient.h" />
     <ClInclude Include="src\Modules\OSC\Receiver.h" />
     <ClInclude Include="src\Modules\REST\Server.h" />
+    <ClInclude Include="src\Modules\TopLevelModule.h" />
     <ClInclude Include="src\msgpack11\msgpack11.hpp" />
     <ClInclude Include="src\ofApp.h" />
     <ClInclude Include="src\OSC\Routes.h" />

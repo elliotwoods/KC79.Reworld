@@ -3,8 +3,8 @@
 
 namespace Modules {
 	//----------
-	void
-		Base::addSubMenuToInsecptor(shared_ptr<ofxCvGui::Panels::Inspector> inspector
+	shared_ptr<ofxCvGui::Widgets::SubMenuInspectable>
+		Base::addSubMenuToInsecptor(shared_ptr<ofxCvGui::Panels::Widgets> inspector
 			, shared_ptr<ofxCvGui::IInspectable> inspectable)
 	{
 		auto menuItem = inspector->addSubMenu(this->getName(), inspectable);
@@ -19,5 +19,7 @@ namespace Modules {
 				ofxCvGui::Utils::drawGlyph(glyph, bounds);
 			};
 		}
+
+		return menuItem;
 	}
 }

@@ -1,10 +1,11 @@
 #pragma once
 
-#include "../Base.h"
+#include "../TopLevelModule.h"
+#include "Sources/Base.h"
 
 namespace Modules {
 	namespace Image {
-		class Renderer : public Base
+		class Renderer : public TopLevelModule
 		{
 		public:
 			Renderer();
@@ -13,11 +14,17 @@ namespace Modules {
 			void init() override;
 			void update() override;
 
+			void render(const Sources::RenderSettings&);
+
 			void populateInspector(ofxCvGui::InspectArguments&);
 			void deserialise(const nlohmann::json&);
 
-			ofxCvGui::PanelPtr getMiniView();
+			ofxCvGui::PanelPtr getMiniView() override;
+			ofxCvGui::PanelPtr getPanel() override;
 		protected:
+			vector<shared_ptr<Sources::Base>> sources;
+			ofFloatPixels pixels;
+			ofTexture preview;
 		};
 	}
 }

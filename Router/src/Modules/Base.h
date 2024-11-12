@@ -17,13 +17,13 @@ namespace Modules {
 		virtual string getGlyph() const {
 			return "";
 		}
-		virtual void init() = 0;
+		virtual void init() { };
 		virtual void deserialise(const nlohmann::json&) { };
-		virtual void update() = 0;
+		virtual void update() { };
 		
 		virtual void processIncoming(const nlohmann::json&) { }
 
-		void addSubMenuToInsecptor(shared_ptr<ofxCvGui::Panels::Inspector> inspector
+		shared_ptr<ofxCvGui::Widgets::SubMenuInspectable> addSubMenuToInsecptor(shared_ptr<ofxCvGui::Panels::Widgets> inspector
 			, shared_ptr<ofxCvGui::IInspectable> inspectable);
 	};
 }

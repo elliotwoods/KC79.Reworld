@@ -12,14 +12,21 @@ namespace Utils {
 
 	struct IsFrameNew {
 		void notify() {
-			this->notifyFrameNew = true;
+			this->incomingEventCount++;
 		}
+
 		void update() {
-			this->isFrameNew = this->notifyFrameNew;
-			this->notifyFrameNew = false;
+			this->eventCount = incomingEventCount;
+			this->isFrameNew = this->eventCount > 0;
+
+			this->incomingEventCount = 0;
 		}
+
 		bool isFrameNew = false;
-		bool notifyFrameNew = false;
+		size_t eventCount = 0;
+
+	protected:
+		size_t incomingEventCount = 0;
 	};
 
 	struct IReportedState {
@@ -90,4 +97,7 @@ namespace Utils {
 
 	string millisToString(uint32_t millis);
 	string durationToString(const chrono::system_clock::duration&);
+
+	template<typename T>
+	bool deserialize(const nlohmann::json&, ofParameter<T>&);
 }

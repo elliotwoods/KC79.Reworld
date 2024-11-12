@@ -32,10 +32,12 @@ namespace Modules {
 	protected:
 		static shared_ptr<App> instance;
 
-		vector<shared_ptr<Modules::Base>> modules;
+		vector<shared_ptr<Modules::TopLevelModule>> modules;
 		shared_ptr<Image::Renderer> renderer;
 		shared_ptr<Hardware::Installation> installation;
 		shared_ptr<OSC::Receiver> oscReceiver;
 		shared_ptr<REST::Server> restServer;
+
+		ofxCvGui::PanelGroupPtr placeholderView;
 	};
 }

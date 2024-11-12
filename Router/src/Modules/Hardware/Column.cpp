@@ -5,28 +5,37 @@ using namespace msgpack11;
 
 namespace Modules {
 	//----------
-	Column::Column()
+	Column::Column(const Settings& settings)
 	{
-		// RS485
-		{
-			this->rs485 = make_shared<RS485>(this);
-			this->modules.push_back(this->rs485);
-		}
-
-		// FWUpdate
-		{
-			this->fwUpdate = make_shared<FWUpdate>(this->rs485);
-			this->modules.push_back(this->fwUpdate);
-		}
-
-		// Init modules
-		for (auto module : this->modules) {
-			module->init();
-		}
-
 		this->onPopulateInspector += [this](ofxCvGui::InspectArguments& args) {
 			this->populateInspector(args);
-		};
+			};
+
+		// Submodules
+		{
+
+			this->rs485 = make_shared<RS485>(this);
+			this->fwUpdate = make_shared<FWUpdate>(this->rs485);
+
+			this->submodules = {
+				this->rs485
+				, this->fwUpdate
+			};
+
+			for (auto module : this->submodules) {
+				module->init();
+			}
+		}
+
+		this->columnIndex = settings.index;
+
+		// Build portals
+		{
+			this->parameters.arrangement.countX = settings.countX;
+			this->parameters.arrangement.countY = settings.countY;
+			this->parameters.arrangement.flipped = settings.flipped;
+			this->rebuildPortals();
+		}
 	}
 
 	//----------
@@ -40,52 +49,26 @@ namespace Modules {
 	string
 		Column::getName() const
 	{
-		if (!this->name.empty()) {
-			return this->name;
-		}
-		else {
-			return this->getTypeName();
-		}
+		return ofToString(this->columnIndex);
 	}
-	
+
 	//----------
 	void
 		Column::deserialise(const nlohmann::json& json)
 	{
-		// Build columns
+		// Build portals
 		{
-			if (json.contains("panelCount")) {
-				auto panelCount = (int)json["panelCount"];
-				this->buildPanels(panelCount);
-			}
-			else {
-				this->buildPanels(1);
-			}
+			Utils::deserialize(json, this->parameters.arrangement.countX);
+			Utils::deserialize(json, this->parameters.arrangement.countY);
+			Utils::deserialize(json, this->parameters.arrangement.flipped);
+			this->rebuildPortals();
 		}
 
 		// Deserialise all submodules with json 
-		for (auto module : this->modules) {
-			auto typeName = ofToLower(module->getTypeName());
+		for (auto module : this->submodules) {
+			auto typeName = ofToLower(module->getName());
 			if (json.contains(typeName)) {
 				module->deserialise(json[typeName]);
-			}
-		}
-
-		// Set our name to be our index
-		{
-			if (json.contains("index")) {
-				this->name = ofToString((int)json["index"]);
-			}
-		}
-
-		// Physical properties
-		{
-			if (json.contains("physical")) {
-				const auto& jsonPhysical = json["physical"];
-
-				if (jsonPhysical.contains("flipped")) {
-					this->parameters.physical.flipped = (bool)jsonPhysical["flipped"];
-				}
 			}
 		}
 	}
@@ -105,7 +88,7 @@ namespace Modules {
 			this->refreshPortalsByID();
 		}
 
-		for (auto module : this->modules) {
+		for (auto module : this->submodules) {
 			module->update();
 		}
 
@@ -131,32 +114,29 @@ namespace Modules {
 		inspector->addFps();
 
 		// Add modules
-		for (auto module : this->modules) {
+		for (auto module : this->submodules) {
 			module->addSubMenuToInsecptor(inspector, module);
 		}
 
-		// Panel builder
-		{
-			inspector->addButton("Build panels", [this]() {
-				auto response = ofSystemTextBoxDialog("Panel count");
-				if (!response.empty()) {
-					auto panelCount = ofToInt(response);
-					if (panelCount > 0 && panelCount < 16) {
-						this->buildPanels(panelCount);
-					}
-				}
-				})->setDrawGlyph(u8"\uf0fe");
-		}
 
-		// Add portals
+
+		// Portals
 		{
+			{
+				inspector->addButton("Rebuild portals", [this]() {
+					this->rebuildPortals();
+					})->setDrawGlyph(u8"\uf0fe");
+			}
+
 			map<int, shared_ptr<ofxCvGui::Widgets::HorizontalStack>> widgetRows;
-			if (!this->parameters.physical.flipped) {
+			if (!this->parameters.arrangement.flipped) {
+				const auto countX = this->parameters.arrangement.countX.get();
+
 				// Draw right way up
 				for (const auto& it : this->portalsByID) {
 					auto target = it.first;
 					auto portal = it.second;
-					auto rowIndex = (target - 1) / 3;
+					auto rowIndex = (target - 1) / countX;
 
 					// make a new row if we're on last
 					if (widgetRows.find(rowIndex) == widgetRows.end()) {
@@ -172,7 +152,7 @@ namespace Modules {
 				for (auto it = this->portalsByID.rbegin(); it != this->portalsByID.rend(); it++) {
 					auto target = it->first;
 					auto portal = it->second;
-					auto rowIndex = index / 3;
+					auto rowIndex = index / countX;
 
 					// make a new row if we're on last
 					if (widgetRows.find(rowIndex) == widgetRows.end()) {
@@ -204,6 +184,10 @@ namespace Modules {
 			// Add actions
 			auto actions = Portal::getActions();
 			for (const auto& action : actions) {
+				if (buttonStack->getElements().size() >= 6) {
+					buttonStack = inspector->addHorizontalStack();
+				}
+
 				auto hasHotkey = action.shortcutKey != 0;
 
 				auto buttonAction = [this, action]() {
@@ -290,24 +274,41 @@ namespace Modules {
 
 	//----------
 	void
-		Column::buildPanels(size_t panelCount)
+		Column::rebuildPortals()
 	{
 		this->portals.clear();
 		this->portalsByID.clear();
 
-		auto rows = panelCount * 3;
-		for (int j = 0; j < rows; j++) {
-			for (int i = 0; i < 3; i++) {
-				auto target = i + j * 3 + 1;
-				auto portal = make_shared<Portal>(this->rs485, target);
+		const auto countX = this->parameters.arrangement.countX.get();
+		const auto countY = this->parameters.arrangement.countY.get();
+
+		int targetID = 1;
+		for (int j = 0; j < countY; j++) {
+			for (int i = 0; i < countX; i++) {
+				auto portal = make_shared<Portal>(this->rs485, targetID);
 				portal->onTargetChange += [this](Portal::Target) {
 					this->portalsByIDDirty = true;
 				};
 				this->portals.push_back(portal);
+
+				targetID++;
 			}
 		}
 		this->portalsByIDDirty = true;
 		ofxCvGui::refreshInspector(this);
+	}
+
+	//----------
+	size_t Column::getCountX() const
+	{
+		return this->parameters.arrangement.countX.get();
+	}
+
+
+	//----------
+	size_t Column::getCountY() const
+	{
+		return this->parameters.arrangement.countY.get();
 	}
 
 	//----------
@@ -409,7 +410,7 @@ namespace Modules {
 
 			ofPushMatrix();
 			{
-				if (this->parameters.physical.flipped.get()) {
+				if (this->parameters.arrangement.flipped.get()) {
 					auto height = cellSize * county;
 					auto width = cellSize * countx;
 					ofTranslate(width, height);

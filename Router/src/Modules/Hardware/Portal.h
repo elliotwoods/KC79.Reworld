@@ -46,6 +46,8 @@ namespace Modules {
 		Target getTarget() const;
 		void setTarget(Target);
 
+		bool isRS485Open() const;
+
 		// Used by PerPortal classes to send out from module to RS485
 		void sendToPortal(const msgpack11::MsgPack&, const string& addressForCollate);
 		void sendToPortal(const function<msgpack11::MsgPack()>&, const string& addressForCollate);

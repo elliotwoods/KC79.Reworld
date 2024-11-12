@@ -10,7 +10,8 @@ namespace Modules {
 		//----------
 		Installation::Installation()
 		{
-
+			this->panel = ofxCvGui::Panels::makeWidgets();
+			this->miniView = ofxCvGui::Panels::Groups::makeStrip();
 		}
 
 		//----------
@@ -39,9 +40,16 @@ namespace Modules {
 		void
 			Installation::update()
 		{
-			// update modules
+			// update columns
 			for (const auto& column : this->columns) {
-				column.second->update();
+				column->update();
+			}
+
+			if (this->needsRebuildMiniView) {
+				this->rebuildMiniView();
+			}
+			if (this->needsRebuildPanel) {
+				this->rebuildPanel();
 			}
 		}
 
@@ -49,38 +57,68 @@ namespace Modules {
 		void
 			Installation::deserialise(const nlohmann::json& json)
 		{
-			this->columns.clear();
-
-			if (json.contains("columns")) {
-				// Build up the columns
-				auto jsonColumns = json["columns"];
-
-				for (auto jsonColumn : jsonColumns) {
-					// Berge in the commmon settings
-					if (json.contains("columnCommonSettings")) {
-						const auto& jsonColumnSettings = json["columnCommonSettings"];
-						jsonColumn.update(jsonColumnSettings);
-					}
-
-					auto column = make_shared<Column>();
-					if (jsonColumn.contains("index")) {
-						this->columns.emplace((int)jsonColumn["index"], column);
-						column->deserialise(jsonColumn);
-						column->init();
-					}
-					else {
-						ofLogError("deserialise") << "Config json needs to set an index for each column";
-					}
+			// Get the arrangement
+			{
+				if (json.contains("arrangement")) {
+					Utils::deserialize(json["arrangement"], this->parameters.arrangement.columns);
+					Utils::deserialize(json["arrangement"], this->parameters.arrangement.rows);
+					Utils::deserialize(json["arrangement"], this->parameters.arrangement.columnWidth);
+					Utils::deserialize(json["arrangement"], this->parameters.arrangement.flipped);
 				}
 			}
-			else {
-				// create a blank column
-				auto column = make_shared<Column>();
-				this->columns.emplace(1, column);
-				column->init();
+
+			this->rebuildColumns();
+
+			// Deserialise settings for the columns themselves
+			if (json.contains("columns")) {
+				auto jsonColumns = json["columns"];
+
+				const auto jsonColumnSettings = json.contains("columnCommonSettings")
+					? json["columnCommonSettings"]
+					: nlohmann::json();
+
+				auto count = min(this->columns.size(), jsonColumns.size());
+
+				for (size_t i = 0; i < count; i++) {
+					auto jsonColumn = jsonColumns[i];
+					auto column = this->columns[i];
+
+					// Merge default settings with column settings
+					jsonColumn.update(jsonColumnSettings);
+					column->deserialise(jsonColumn);
+				}
 			}
 
 			ofxCvGui::refreshInspector(this);
+		}
+
+		//----------
+		void
+			Installation::rebuildColumns()
+		{
+			if (!ofxCvGui::isBeingInspected(this)) {
+				// In case we are selecting something inside a column
+				ofxCvGui::inspect(nullptr);
+			}
+
+			this->columns.clear();
+
+			Column::Settings columnSettings;
+			{
+				columnSettings.countX = this->parameters.arrangement.columnWidth;
+				columnSettings.countY = this->parameters.arrangement.rows;
+				columnSettings.flipped = this->parameters.arrangement.flipped;
+			};
+
+			for (int colIndex = 0; colIndex < this->parameters.arrangement.columns; colIndex++) {
+				columnSettings.index = colIndex;
+				auto column = make_shared<Column>(columnSettings);
+				this->columns.push_back(column);
+				column->init();
+			}
+
+			this->needsRebuildMiniView = true;
+			this->needsRebuildPanel = true;
 		}
 
 		//----------
@@ -89,46 +127,181 @@ namespace Modules {
 		{
 			auto inspector = args.inspector;
 
-			// Actions
+			inspector->addParameterGroup(this->parameters);
+			inspector->addButton("Rebuild columns", [this]() {
+				this->rebuildColumns();
+				});
+		}
 
+		//----------
+		vector<shared_ptr<Column>>
+			Installation::getAllColumns() const
+		{
+			return this->columns;
+		}
+
+		//----------
+		shared_ptr<Column>
+			Installation::getColumnByID(size_t columnID) const
+		{
+			if (columnID > this->columns.size()) {
+				return shared_ptr<Column>();
+			}
+			return this->columns[columnID];
+		}
+
+		//----------
+		vector<shared_ptr<Portal>>
+			Installation::getAllPortals() const
+		{
+			vector<shared_ptr<Portal>> portals;
+			for (const auto& column : this->columns) {
+				auto columnPortals = column->getAllPortals();
+				portals.insert(portals.end(), columnPortals.begin(), columnPortals.end());
+			}
+
+			return portals;
+		}
+
+		//----------
+		shared_ptr<Portal>
+			Installation::getPortalByTargetID(size_t columnID, Portal::Target target) const
+		{
+			auto column = this->getColumnByID(columnID);
+			if (!column) {
+				return shared_ptr<Portal>();
+			}
+
+			return column->getPortalByTargetID(target);
+		}
+
+		//----------
+		glm::tvec2<size_t>
+			Installation::getResolution() const
+		{
+			auto allColumns = this->getAllColumns();
+			if (allColumns.empty()) {
+				return { 0, 0 };
+			}
+
+			auto testColumn = allColumns.front();
+			auto testPortals = testColumn->getAllPortals();
+
+			return {
+				this->columns.size() * testColumn->getCountX()
+				, testColumn->getCountY()
+			};
+		}
+
+		//----------
+		void
+			Installation::pollAll()
+		{
+			for (const auto& column : this->columns) {
+				column->pollAll();
+			}
+		}
+
+		//----------
+		void
+			Installation::broadcast(const msgpack11::MsgPack& message)
+		{
+			auto columns = this->getAllColumns();
+			for (const auto& column : columns) {
+				column->broadcast(message);
+			}
+		}
+
+		//----------
+		ofxCvGui::PanelPtr
+			Installation::getPanel()
+		{
+			return this->panel;
+		}
+
+		//----------
+		ofxCvGui::PanelPtr
+			Installation::getMiniView()
+		{
+			return this->miniView;
+		}
+
+		//----------
+		void
+			Installation::rebuildMiniView()
+		{
+			this->miniView->clear();
+
+			if (!this->columns.empty()) {
+				auto colWidth = ofGetWidth() / this->columns.size();
+				auto allColumns = this->getAllColumns();
+				for (auto column : allColumns) {
+					auto colView = column->getMiniView(colWidth);
+					this->miniView->add(colView);
+					this->miniView->setHeight(colView->getHeight());
+				}
+			}
+
+			this->needsRebuildMiniView = false;
+		}
+
+		//----------
+		void
+			Installation::rebuildPanel() 
+		{
+			this->panel->clear();
+
+			// Actions (we don't support hot keys for the Installation broadcast actions)
 			{
-				auto buttonStack = inspector->addHorizontalStack();
+				this->panel->addTitle("Broadcast actions");
+
+				auto buttonStack = this->panel->addHorizontalStack();
 				// Special action for poll
 				buttonStack->addButton("Poll", [this]() {
 					this->pollAll();
-					}, ' ')->setDrawGlyph(u8"\uf059");
+					})->setDrawGlyph(u8"\uf059");
 
 					// Add actions
 					auto actions = Portal::getActions();
 					for (const auto& action : actions) {
-						auto hasHotkey = action.shortcutKey != 0;
+						// Max 6 elements per stack then start a new one
+						if (buttonStack->getElements().size() >= 6) {
+							buttonStack = this->panel->addHorizontalStack();
+						}
 
 						auto buttonAction = [this, action]() {
 							this->broadcast(action.message);
 							};
 
-						auto button = hasHotkey
-							? buttonStack->addButton(action.caption, buttonAction, action.shortcutKey)
-							: buttonStack->addButton(action.caption, buttonAction);
-
+						auto button = buttonStack->addButton(action.caption, buttonAction);
 						button->setDrawGlyph(action.icon);
 					}
 			}
 
-			inspector->addSpacer();
+			this->panel->addSpacer();
 
 			// Add columns
 			{
-				auto stack = inspector->addHorizontalStack();
+				this->panel->addTitle("Columns");
+
+				auto stack = this->panel->addHorizontalStack();
 				float colHeight = 10.0f;
-				for (const auto& it : this->columns) {
-					const auto& column = it.second;
+				for (const auto& column : this->columns) {
 					auto columnWeak = weak_ptr<Column>(column);
 					auto button = make_shared<ofxCvGui::Widgets::SubMenuInspectable>("", column);
 
 					// Custom draw
 					{
 						button->onDraw += [columnWeak](ofxCvGui::DrawArguments& args) {
+							auto column = columnWeak.lock();
+							if (ofxCvGui::isBeingInspected(column)) {
+								ofPushStyle();
+								{
+									ofNoFill();
+									ofDrawRectangle(args.localBounds);
+								}
+								ofPopStyle();
+							}
 							};
 					}
 
@@ -211,107 +384,8 @@ namespace Modules {
 
 				stack->setHeight(colHeight);
 			}
-		}
 
-		//----------
-		vector<shared_ptr<Column>>
-			Installation::getAllColumns() const
-		{
-			vector<shared_ptr<Column>> columns;
-			for (const auto& it : this->columns) {
-				columns.push_back(it.second);
-			}
-
-			return columns;
-		}
-
-		//----------
-		shared_ptr<Column>
-			Installation::getColumnByID(int id) const
-		{
-			if (this->columns.find(id) == this->columns.end()) {
-				return shared_ptr<Column>();
-			}
-			else {
-				return this->columns.at(id);
-			}
-		}
-
-		//----------
-		vector<shared_ptr<Portal>>
-			Installation::getAllPortals() const
-		{
-			vector<shared_ptr<Portal>> portals;
-			for (const auto& it : this->columns) {
-				auto column = it.second;
-				auto columnPortals = column->getAllPortals();
-				portals.insert(portals.end(), columnPortals.begin(), columnPortals.end());
-			}
-
-			return portals;
-		}
-
-		//----------
-		shared_ptr<Portal>
-			Installation::getPortalByTargetID(int columnID, Portal::Target target) const
-		{
-			auto column = this->getColumnByID(columnID);
-			if (!column) {
-				return shared_ptr<Portal>();
-			}
-
-			return column->getPortalByTargetID(target);
-		}
-
-		//----------
-		glm::tvec2<size_t>
-			Installation::getResolution() const
-		{
-			auto allColumns = this->getAllColumns();
-			auto testColumn = allColumns.front();
-			auto testPortals = testColumn->getAllPortals();
-
-			return {
-				this->columns.size() * testColumn->getCountX()
-				, testColumn->getCountY()
-			};
-		}
-
-		//----------
-		void
-			Installation::pollAll()
-		{
-			for (const auto& it : this->columns) {
-				auto column = it.second;
-				column->pollAll();
-			}
-		}
-
-		//----------
-		void
-			Installation::broadcast(const msgpack11::MsgPack& message)
-		{
-			auto columns = this->getAllColumns();
-			for (const auto& column : columns) {
-				column->broadcast(message);
-			}
-		}
-
-		//----------
-		ofxCvGui::PanelPtr
-			Installation::getMiniView()
-		{
-			auto stack = ofxCvGui::Panels::Groups::makeStrip();
-			{
-				auto colWidth = ofGetWidth() / this->columns.size();
-				auto allColumns = this->getAllColumns();
-				for (auto column : allColumns) {
-					auto colView = column->getMiniView(colWidth);
-					stack->add(colView);
-					stack->setHeight(colView->getHeight());
-				}
-			}
-			return stack;
+			this->needsRebuildPanel = false;
 		}
 	}
 }

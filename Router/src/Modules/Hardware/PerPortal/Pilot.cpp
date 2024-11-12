@@ -135,39 +135,59 @@ namespace Modules {
 
 			// alias the axis values
 			{
-				this->parameters.axes.a.set(
-					this->stepsToAxis(
+				{
+					auto priorValue = this->parameters.axes.a.get();
+					auto roundedValue = this->stepsToAxis(
 						this->axisToSteps(
-							this->parameters.axes.a.get()
+							priorValue
 							, 0
 						)
-						, 0)
-				);
+						, 0);
 
-				this->parameters.axes.b.set(
-					this->stepsToAxis(
+					if (priorValue != roundedValue) {
+						this->parameters.axes.a.set(roundedValue);
+					}
+				}
+
+				{
+					auto priorValue = this->parameters.axes.b.get();
+					auto roundedValue = this->stepsToAxis(
 						this->axisToSteps(
-							this->parameters.axes.b.get()
+							priorValue
 							, 1
 						)
-						, 1)
-				);
+						, 1);
+
+					if (priorValue != roundedValue) {
+						this->parameters.axes.b.set(roundedValue);
+					}
+				}
 			}
 
 			// Check if needs push
 			{
 				bool needsSend = false;
 				{
+					// Periodically send
 					if (this->parameters.axes.sendPeriodically) {
 						auto now = chrono::system_clock::now();
 						if (now - this->cachedSentValues.lastUpdateRequest > this->cachedSentValues.updatePeriod) {
 							needsSend = true;
 						}
 					}
+
+					// Send if stale
+					if (this->parameters.axes.a != this->cachedSentValues.a
+						|| this->parameters.axes.b != this->cachedSentValues.b) {
+						needsSend = true;
+					}
+
+					// Don't send if rs485 is closed
+					if (!this->portal->isRS485Open()) {
+						needsSend = false;
+					}
 				}
-				if (needsSend
-					|| this->parameters.axes.a != this->cachedSentValues.a
-					|| this->parameters.axes.b != this->cachedSentValues.b) {
+				if (needsSend) {
 					this->pushLazy();
 				}
 			}

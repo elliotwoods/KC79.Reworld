@@ -8,8 +8,9 @@
 void ofApp::setup() {
 	ofSetFrameRate(60.0f);
 
-	gui.init();
-	gui.addInspector()->setTitleEnabled(false);
+	// Position in screen center
+	ofSetWindowPosition((ofGetScreenWidth() - ofGetWidth()) / 2, (ofGetScreenHeight() - ofGetHeight()) / 2);
+
 	ofSetWindowTitle("Router");
 	
 	// Register factories
@@ -17,6 +18,8 @@ void ofApp::setup() {
 
 	this->app = Modules::App::X();
 	this->app->init();
+
+	gui.init();
 	this->app->initGUI(this->gui);
 
 	// Register OSC routes

@@ -93,16 +93,75 @@ namespace Modules {
 	void
 		App::initGUI(ofxCvGui::Builder& gui)
 	{
+		this->placeholderView = make_shared<ofxCvGui::Panels::Groups::Grid>();
+
 		auto strip1 = gui.addStrip();
-		strip1->setCellSizes({ 100, -1 });
+		strip1->setCellSizes({ 150, -1, 300 });
 		{
 			// Make a vertical strip for the left side
-			auto modulesGrid = make_shared<ofxCvGui::Panels::Groups::Strip>(ofxCvGui::Panels::Groups::Strip::Direction::Vertical);
 			{
-				modulesGrid->add(this->renderer->getMiniView());
-				modulesGrid->add(this->installation->getMiniView());
-				modulesGrid->add(this->oscReceiver->getMiniView());
-				modulesGrid->add(this->restServer->getMiniView());
+				auto topLevelModulesStrip = make_shared<ofxCvGui::Panels::Groups::Strip>(ofxCvGui::Panels::Groups::Strip::Direction::Vertical);
+				{
+					vector<int> cellSizes;
+
+					for (auto submodule : this->modules) {
+						auto miniView = submodule->getMiniView();
+						topLevelModulesStrip->add(miniView);
+						miniView->onMouseReleased += [submodule, this](ofxCvGui::MouseArguments& args) {
+							// Set the central panel
+							{
+								auto panel = submodule->getPanel();
+								this->placeholderView->clear();
+								if (panel) {
+									this->placeholderView->add(panel);
+								}
+								else {
+									this->placeholderView->add(make_shared<ofxCvGui::Panels::Text>("No panel available"));
+								}
+							}
+
+							// Set the inspector
+							{
+								ofxCvGui::inspect(submodule);
+							}
+							};
+
+						// Draw an outline on selected views
+						miniView->onDraw += [submodule, this](ofxCvGui::DrawArguments& args) {
+							auto isBeingInspected = ofxCvGui::isBeingInspected(submodule);
+							
+							ofxCvGui::Utils::drawText(submodule->getName()
+								, 0, 0
+								, true
+								, 10, 10
+								, false
+								, isBeingInspected ? ofColor(255) : ofColor(40));
+
+							if (isBeingInspected) {
+								ofDrawLine(args.localBounds.getTopLeft(), args.localBounds.getTopRight());
+								ofDrawLine(args.localBounds.getTopLeft(), args.localBounds.getBottomLeft());
+								ofDrawLine(args.localBounds.getBottomLeft(), args.localBounds.getBottomRight());
+							}
+							};
+
+						cellSizes.push_back(submodule->getMiniViewHeight());
+					}
+
+					topLevelModulesStrip->setCellSizes(cellSizes);
+				}
+				strip1->add(topLevelModulesStrip);
+			}
+
+			// Add the placeholder to center
+			{
+				strip1->add(placeholderView);
+			}
+
+			// Add an inspector for RHS
+			{
+				auto inspectorPanel = ofxCvGui::Panels::makeInspector();
+				inspectorPanel->setTitleEnabled(false);
+				strip1->add(inspectorPanel);
 			}
 		}
 
@@ -116,6 +175,18 @@ namespace Modules {
 		for (const auto& module : this->modules) {
 			module->update();
 		}
+
+		// Render images
+		{
+			Image::Sources::RenderSettings renderSettings;
+			{
+				const auto resolution = this->installation->getResolution();
+				renderSettings.width = resolution.x;
+				renderSettings.height = resolution.y;
+				renderSettings.time = ofGetElapsedTimef();
+			}
+			this->renderer->render(renderSettings);
+		}
 	}
 
 	//----------
@@ -125,11 +196,6 @@ namespace Modules {
 		auto inspector = args.inspector;
 
 		inspector->addFps();
-
-		// Add modules
-		for (const auto& module : this->modules) {
-			module->addSubMenuToInsecptor(inspector, module);
-		}
 	}
 
 	//----------

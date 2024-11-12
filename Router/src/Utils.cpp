@@ -1,7 +1,7 @@
 #include "pch_App.h"
 
 #include "Utils.h"
-#include "Modules/Portal.h"
+#include "Modules/Hardware/Portal.h"
 
 namespace Utils{
 	//----------
@@ -135,4 +135,31 @@ namespace Utils{
 		auto millis = chrono::duration_cast<chrono::milliseconds>(duration);
 		return millisToString(millis.count());
 	}
+
+	//----------
+	template<typename T>
+	bool deserialize(const nlohmann::json& json, ofParameter<T>& parameter)
+	{
+		if (json.contains(parameter.getName())) {
+			parameter = json[parameter.getName()].get<T>();
+			return true;
+		}
+		else {
+			return false;
+		}
+	}
+
+	// Define symbols for template instantiation
+	template bool deserialize(const nlohmann::json&, ofParameter<int8_t>&);
+	template bool deserialize(const nlohmann::json&, ofParameter<int16_t>&);
+	template bool deserialize(const nlohmann::json&, ofParameter<int32_t>&);
+	template bool deserialize(const nlohmann::json&, ofParameter<int64_t>&);
+	template bool deserialize(const nlohmann::json&, ofParameter<uint8_t>&);
+	template bool deserialize(const nlohmann::json&, ofParameter<uint16_t>&);
+	template bool deserialize(const nlohmann::json&, ofParameter<uint32_t>&);
+	template bool deserialize(const nlohmann::json&, ofParameter<uint64_t>&);
+	template bool deserialize(const nlohmann::json&, ofParameter<float>&);
+	template bool deserialize(const nlohmann::json&, ofParameter<double>&);
+	template bool deserialize(const nlohmann::json&, ofParameter<bool>&);
+	template bool deserialize(const nlohmann::json&, ofParameter<string>&);
 }

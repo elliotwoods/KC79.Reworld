@@ -20,7 +20,9 @@ namespace Modules {
 		void
 			Receiver::init()
 		{
-
+			this->onPopulateInspector += [this](ofxCvGui::InspectArguments& args) {
+				this->populateInspector(args);
+				};
 		}
 
 		//----------
@@ -53,8 +55,11 @@ namespace Modules {
 				ofxOscMessage message;
 				while (this->oscReceiver->getNextMessage(&message)) {
 					::OSC::handleRoute(message);
+					this->isFrameNew.notify();
 				}
 			}
+
+			this->isFrameNew.update();
 		}
 
 		//----------
@@ -72,11 +77,44 @@ namespace Modules {
 		ofxCvGui::PanelPtr
 			Receiver::getMiniView()
 		{
-			auto view = make_shared<ofxCvGui::Panels::Base>();
-			view->onDraw += [this](ofxCvGui::DrawArguments& args) {
-				ofxCvGui::Utils::drawText(this->getName(), args.localBounds);
-				};
+			auto view = ofxCvGui::Panels::makeWidgets();
+			{
+				auto stack = view->addHorizontalStack();
+				{
+					{
+						auto element = make_shared<ofxCvGui::Widgets::Indicator>("Running", [this]() {
+							if ((bool)this->oscReceiver) {
+								return ofxCvGui::Widgets::Indicator::Status::Good;
+							}
+							else {
+								return ofxCvGui::Widgets::Indicator::Status::Clear;
+							}
+							});
+						stack->add(element);
+					}
+					{
+						auto element = make_shared<ofxCvGui::Widgets::LiveValue<int>>("Port", [this]() {
+							return this->parameters.port.get();
+							});
+						stack->add(element);
+					}
+				}
+			}
+
+			{
+				view->addLiveValueHistory("Messages", [this]() {
+					return (float)this->isFrameNew.eventCount;
+					});
+			}
+
 			return view;
+		}
+
+		//----------
+		int
+			Receiver::getMiniViewHeight() const
+		{
+			return 120;
 		}
 	}
 }

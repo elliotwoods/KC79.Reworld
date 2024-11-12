@@ -133,6 +133,12 @@
     <ClCompile Include="src\Modules\Hardware\PerPortal\Pilot.cpp">
       <Filter>src\Modules\Hardware\PerPortal</Filter>
     </ClCompile>
+    <ClCompile Include="src\Modules\Image\Sources\Gradient.cpp">
+      <Filter>src\Modules\Image\Sources</Filter>
+    </ClCompile>
+    <ClCompile Include="src\Modules\Image\Sources\Base.cpp">
+      <Filter>src\Modules\Image\Sources</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <Filter Include="src">
@@ -218,6 +224,9 @@
     </Filter>
     <Filter Include="src\Modules\Image">
       <UniqueIdentifier>{75458376-b762-44f1-ba94-d88634031db7}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\Modules\Image\Sources">
+      <UniqueIdentifier>{810ca6e2-e2fa-4535-ac0d-6858294e3bec}</UniqueIdentifier>
     </Filter>
   </ItemGroup>
   <ItemGroup>
@@ -484,6 +493,15 @@
     </ClInclude>
     <ClInclude Include="src\Modules\Hardware\PerPortal\Pilot.h">
       <Filter>src\Modules\Hardware\PerPortal</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Modules\TopLevelModule.h">
+      <Filter>src\Modules</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Modules\Image\Sources\Base.h">
+      <Filter>src\Modules\Image\Sources</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Modules\Image\Sources\Gradient.h">
+      <Filter>src\Modules\Image\Sources</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>

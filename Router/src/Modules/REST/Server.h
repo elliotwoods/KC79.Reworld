@@ -1,11 +1,11 @@
 #pragma once
 
-#include "../Base.h"
+#include "../TopLevelModule.h"
 #include "crow/crow.h"
 
 namespace Modules {
 	namespace REST {
-		class Server : public Base
+		class Server : public TopLevelModule
 		{
 		public:
 			Server();
@@ -20,7 +20,7 @@ namespace Modules {
 			void update() override;
 			void populateInspector(ofxCvGui::InspectArguments& args);
 
-			ofxCvGui::PanelPtr getMiniView();
+			ofxCvGui::PanelPtr getMiniView() override;
 		protected:
 			struct : ofParameterGroup {
 				ofParameter<bool> enabled{ "Enabled", true };

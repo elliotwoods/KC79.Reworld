@@ -347,6 +347,10 @@ namespace Modules {
 
 
 			for (const auto& action : actions) {
+				if (buttonStack->getElements().size() >= 6) {
+					buttonStack = inspector->addHorizontalStack();
+				}
+
 				auto hasHotkey = action.shortcutKey != 0;
 				auto buttonAction = [this, action]() {
 					this->sendToPortal(action.message, "");
@@ -454,6 +458,13 @@ namespace Modules {
 		Portal::setTarget(Target value)
 	{
 		this->parameters.targetID.set(value);
+	}
+
+	//----------
+	bool
+		Portal::isRS485Open() const
+	{
+		return this->rs485->isConnected();
 	}
 
 	//----------

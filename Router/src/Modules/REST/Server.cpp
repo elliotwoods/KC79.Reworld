@@ -26,9 +26,7 @@ namespace Modules {
 		void
 			Server::init()
 		{
-			{
-				this->setupCrowRoutes();
-			}
+			
 		}
 
 		//----------

@@ -50,6 +50,8 @@ namespace Modules {
 			float stepsToAxis(Steps, int axisIndex) const;
 
 			void push();
+
+			// Put a message into the outbox that calculates the most recent axis values when the message is sent
 			void pushLazy();
 			void pollPosition();
 
