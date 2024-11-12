@@ -139,6 +139,9 @@
     <ClCompile Include="src\Modules\Image\Sources\Base.cpp">
       <Filter>src\Modules\Image\Sources</Filter>
     </ClCompile>
+    <ClCompile Include="src\Modules\Image\Sources\FilePlayer.cpp">
+      <Filter>src\Modules\Image\Sources</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <Filter Include="src">
@@ -501,6 +504,9 @@
       <Filter>src\Modules\Image\Sources</Filter>
     </ClInclude>
     <ClInclude Include="src\Modules\Image\Sources\Gradient.h">
+      <Filter>src\Modules\Image\Sources</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Modules\Image\Sources\FilePlayer.h">
       <Filter>src\Modules\Image\Sources</Filter>
     </ClInclude>
   </ItemGroup>

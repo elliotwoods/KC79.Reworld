@@ -14,7 +14,7 @@ namespace Modules {
 			string
 				Gradient::getTypeName() const
 			{
-				return "Image::Gradient";
+				return "Image::Sources::Gradient";
 			}
 
 			//----------
@@ -97,6 +97,7 @@ namespace Modules {
 
 						*data++ = ofMap(alpha, 0.0f, 1.0f, this->parameters.value1.get().x, this->parameters.value2.get().x);
 						*data++ = ofMap(alpha, 0.0f, 1.0f, this->parameters.value1.get().y, this->parameters.value2.get().y);
+						*data++ = 0.0f;
 					}
 				}
 			}

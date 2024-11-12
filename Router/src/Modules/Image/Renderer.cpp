@@ -1,6 +1,7 @@
 #include "pch_App.h"
 #include "Renderer.h"
 #include "Sources/Gradient.h"
+#include "Sources/FilePlayer.h"
 
 namespace Modules {
 	namespace Image {
@@ -21,6 +22,7 @@ namespace Modules {
 			Renderer::init()
 		{
 			this->sources.push_back(make_shared<Sources::Gradient>());
+			this->sources.push_back(make_shared<Sources::FilePlayer>());
 			for (auto source : this->sources) {
 				source->init();
 			}
@@ -51,8 +53,8 @@ namespace Modules {
 			{
 				// Check if needs allocate
 				if (this->pixels.getWidth() != renderSettings.width || this->pixels.getHeight() != renderSettings.height) {
-					this->pixels.allocate(renderSettings.width, renderSettings.height, 2);
-					this->preview.allocate(renderSettings.width, renderSettings.height, GL_RG);
+					this->pixels.allocate(renderSettings.width, renderSettings.height, 3);
+					this->preview.allocate(renderSettings.width, renderSettings.height, GL_RGB);
 					this->preview.setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
 				}
 

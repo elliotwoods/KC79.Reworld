@@ -195,6 +195,7 @@
     <ClCompile Include="src\Modules\Hardware\RS485.cpp" />
     <ClCompile Include="src\Modules\Image\Renderer.cpp" />
     <ClCompile Include="src\Modules\Image\Sources\Base.cpp" />
+    <ClCompile Include="src\Modules\Image\Sources\FilePlayer.cpp" />
     <ClCompile Include="src\Modules\Image\Sources\Gradient.cpp" />
     <ClCompile Include="src\Modules\OSC\Receiver.cpp" />
     <ClCompile Include="src\Modules\REST\Server.cpp" />
@@ -291,6 +292,7 @@
     <ClInclude Include="src\Modules\Hardware\RS485.h" />
     <ClInclude Include="src\Modules\Image\Renderer.h" />
     <ClInclude Include="src\Modules\Image\Sources\Base.h" />
+    <ClInclude Include="src\Modules\Image\Sources\FilePlayer.h" />
     <ClInclude Include="src\Modules\Image\Sources\Gradient.h" />
     <ClInclude Include="src\Modules\OSC\Receiver.h" />
     <ClInclude Include="src\Modules\REST\Server.h" />

@@ -11,11 +11,14 @@ namespace Modules {
 				const auto width = renderSettings.width;
 				const auto height = renderSettings.height;
 
-				this->pixels.allocate(width, height, 2);
-				this->preview.allocate(width, height, GL_RG);
+				if (this->pixels.getWidth() != width || this->pixels.getHeight() != height) {
+					this->pixels.allocate(width, height, 3);
+					this->pixels.set(0);
 
-				// Disable image filtering on texture
-				this->preview.setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
+					this->preview.allocate(width, height, GL_RGB);
+					this->preview.setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
+					this->preview.loadData(this->pixels);
+				}
 			}
 
 			//----------
