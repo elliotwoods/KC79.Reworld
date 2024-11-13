@@ -2,6 +2,7 @@
 #include "ofApp.h"
 
 #include "SerialDevices/Factory.h"
+#include "Modules/Image/Sources/Factory.h"
 #include "OSC/Routes.h"
 
 //--------------------------------------------------------------
@@ -15,6 +16,7 @@ void ofApp::setup() {
 	
 	// Register factories
 	SerialDevices::registerFactories();
+	Modules::Image::Sources::registerFactories();
 
 	this->app = Modules::App::X();
 	this->app->init();
