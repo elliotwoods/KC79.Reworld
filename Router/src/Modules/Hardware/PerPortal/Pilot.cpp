@@ -248,11 +248,9 @@ namespace Modules {
 		ofxCvGui::PanelPtr
 			Pilot::getPanel()
 		{
-			auto horizontalStrip = ofxCvGui::Panels::Groups::makeStrip(ofxCvGui::Panels::Groups::Strip::Direction::Horizontal);
+			auto strip1 = ofxCvGui::Panels::Groups::makeStrip(ofxCvGui::Panels::Groups::Strip::Direction::Vertical);
 			{
-				horizontalStrip->setCellSizes({ 300, 100 });
-				horizontalStrip->setWidth(100.0f);
-				horizontalStrip->setHeight(400.0f);
+				strip1->setHeight(900.0f);
 			}
 			{
 				auto power = 0.4f;
@@ -424,20 +422,19 @@ namespace Modules {
 				}
 
 
-				horizontalStrip->add(panel);
+				strip1->add(panel);
 			}
 
 			{
-				auto verticalStrip = ofxCvGui::Panels::Groups::makeStrip(ofxCvGui::Panels::Groups::Strip::Direction::Vertical);
-				{
-					auto makeAxisControlPanel = [this](ofParameter<float>& axis, int axisIndex) {
-						auto horizontalStrip = ofxCvGui::Panels::Groups::makeStrip(ofxCvGui::Panels::Groups::Strip::Direction::Horizontal);
-						horizontalStrip->setCellSizes({ -1, 80 });
-						{
-							auto panel = ofxCvGui::Panels::makeBlank();
-							panel->setWidth(100.0f);
-							panel->setHeight(100.0f);
-							panel->onDraw += [this, &axis, axisIndex](ofxCvGui::DrawArguments& args)
+				// Strip containing both axes
+				auto makeAxisControlPanel = [this](ofParameter<float>& axis, int axisIndex) {
+					auto strip3 = ofxCvGui::Panels::Groups::makeStrip(ofxCvGui::Panels::Groups::Strip::Direction::Horizontal);
+					strip3->setCellSizes({ -1, 80 });
+					{
+						auto panel = ofxCvGui::Panels::makeBlank();
+						panel->setWidth(100.0f);
+						panel->setHeight(100.0f);
+						panel->onDraw += [this, &axis, axisIndex](ofxCvGui::DrawArguments& args)
 							{
 								auto panelCenter = args.localBounds.getCenter();
 								auto panelSize = min(args.localBounds.width, args.localBounds.height);
@@ -482,7 +479,7 @@ namespace Modules {
 										panel_x
 										, panel_y
 									};
-								};
+									};
 
 								// Draw line and circle
 								{
@@ -548,7 +545,7 @@ namespace Modules {
 									ofPopStyle();
 								}
 							};
-							panel->onMouse += [this, panel, &axis](ofxCvGui::MouseArguments& args)
+						panel->onMouse += [this, panel, &axis](ofxCvGui::MouseArguments& args)
 							{
 								args.takeMousePress(panel);
 
@@ -566,49 +563,47 @@ namespace Modules {
 									}
 								}
 							};
-							horizontalStrip->add(panel);
-						}
+						strip3->add(panel);
+					}
 
-						{
-							auto buttonStrip = ofxCvGui::Panels::makeWidgets();
-							auto go = [&axis, this](float position) {
-								axis.set(position);
-								this->setAxes(this->getAxes()); // invoke events
+					{
+						auto buttonStrip = ofxCvGui::Panels::makeWidgets();
+						auto go = [&axis, this](float position) {
+							axis.set(position);
+							this->setAxes(this->getAxes()); // invoke events
 							};
-							map<float, string> positions;
-							{
-								positions[0] = "Left";
-								positions[0.25] = "Up";
-								positions[0.5] = "Right";
-								positions[0.75] = "Down";
-							}
-							map<string, string> icons;
-							{
-								icons["Left"] = u8"\uf137";
-								icons["Up"] = u8"\uf139";
-								icons["Right"] = u8"\uf138";
-								icons["Down"] = u8"\uf13a";
-							}
-							for (auto it : positions) {
-								auto value = it.first;
-								buttonStrip->addButton(ofToString(value), [go, value]() {
-									go(value);
-									})->setDrawGlyph(icons[it.second]);
-							}
-
-							horizontalStrip->add(buttonStrip);
+						map<float, string> positions;
+						{
+							positions[0] = "Left";
+							positions[0.25] = "Up";
+							positions[0.5] = "Right";
+							positions[0.75] = "Down";
+						}
+						map<string, string> icons;
+						{
+							icons["Left"] = u8"\uf137";
+							icons["Up"] = u8"\uf139";
+							icons["Right"] = u8"\uf138";
+							icons["Down"] = u8"\uf13a";
+						}
+						for (auto it : positions) {
+							auto value = it.first;
+							buttonStrip->addButton(ofToString(value), [go, value]() {
+								go(value);
+								})->setDrawGlyph(icons[it.second]);
 						}
 
-						return horizontalStrip;
+						strip3->add(buttonStrip);
+					}
+
+					return strip3;
 					};
 
-					verticalStrip->add(makeAxisControlPanel(this->parameters.axes.a, 0));
-					verticalStrip->add(makeAxisControlPanel(this->parameters.axes.b, 1));
-				}
-				horizontalStrip->add(verticalStrip);
+				strip1->add(makeAxisControlPanel(this->parameters.axes.a, 0));
+				strip1->add(makeAxisControlPanel(this->parameters.axes.b, 1));
 			}
 
-			return horizontalStrip;
+			return strip1;
 		}
 
 		//----------

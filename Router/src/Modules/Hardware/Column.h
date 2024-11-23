@@ -80,7 +80,7 @@ namespace Modules {
 				ofParameter<size_t> countX{ "Count X", 1 };
 				ofParameter<size_t> countY{ "Count Y", 1 };
 				ofParameter<bool> flipped{ "Flipped", true };
-				PARAM_DECLARE("Srrangement", flipped);
+				PARAM_DECLARE("Arrangement", countX, countY, flipped);
 			} arrangement;
 
 			struct : ofParameterGroup {
