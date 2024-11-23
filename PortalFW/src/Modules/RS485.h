@@ -1,6 +1,7 @@
 #pragma once
 #include "Base.h"
 #include "Exception.h"
+#include "../Hardware/SerialStream.hpp"
 
 namespace Modules {
 	class App;

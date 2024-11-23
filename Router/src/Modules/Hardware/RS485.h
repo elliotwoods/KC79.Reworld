@@ -132,11 +132,12 @@ namespace Modules {
 			struct : ofParameterGroup {
 				ofParameter<bool> printTx{ "Print Tx", false };
 				ofParameter<bool> printRx{ "Print Rx", false };
+				ofParameter<bool> printBase64{ "Print Base64", false };
 				ofParameter<bool> printBrokenMsgpack{ "Print broken msgpack", false };
 				ofParameter<bool> printACKTime{ "Print ACK time", false };
 				ofParameter<bool> printMessageErrors{ "Print message errors",  false };
 				ofParameter<int> targetID{ "Target ID", 1 };
-				PARAM_DECLARE("Debug", printTx, printRx, printACKTime, printMessageErrors, targetID);
+				PARAM_DECLARE("Debug", printTx, printRx, printBase64, printACKTime, printMessageErrors, targetID);
 			} debug;
 			
 			PARAM_DECLARE("RS485", responseWindow_ms, gapBetweenBroadcastSends_ms, gapAfterLastRx_ms, collatePackets, debug);

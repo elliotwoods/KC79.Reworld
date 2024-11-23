@@ -46,7 +46,7 @@ void SystemClock_Config(void)
 }
 
 void setup() {
-	SystemClock_Config();
+	//SystemClock_Config();
 	
 	// LED's
 	pinMode(PB3, OUTPUT);

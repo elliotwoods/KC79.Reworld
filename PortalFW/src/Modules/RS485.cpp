@@ -7,7 +7,7 @@
 #include "Logger.h"
 #include "Exception.h"
 
-HardwareSerial serialRS485(PA3, PA2);
+Hardware::SerialStream serialRS485(USART2);
 msgpack::COBSRWStream cobsStream(serialRS485);
 
 #define BOOTLOADER_FLASH_ADDRESS 0x08000000U
@@ -55,11 +55,9 @@ namespace Modules {
 	void
 	RS485::setup()
 	{
-		serialRS485.begin(115200);
-
-		// Setup the DE pin
-		pinMode(PIN_DE, OUTPUT);
-		digitalWrite(PIN_DE, LOW);
+		log(LogLevel::Status, this->getName(), "Starting");
+		serialRS485.init();
+		log(LogLevel::Status, this->getName(), "Ready");
 	}
 
 	//---------

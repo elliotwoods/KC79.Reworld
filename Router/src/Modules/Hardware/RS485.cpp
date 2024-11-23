@@ -7,6 +7,9 @@
 #include "../cobs-c/cobs.h"
 #include "msgpack.h"
 
+// We include crow for base64 functions
+#include "crow/crow/utility.h"
+
 // For debugging
 void printChar(int byte) {
 	cout << "0x" << std::hex << byte;
@@ -720,6 +723,10 @@ namespace Modules {
 							printChar(byte);
 						}
 						cout << endl;
+
+						if (this->parameters.debug.printBase64.get()) {
+							cout << crow::utility::base64encode(binaryCOBS.data(), binaryCOBS.size()) << endl;
+						}
 					}
 
 					{
@@ -728,6 +735,10 @@ namespace Modules {
 							printChar(byte);
 						}
 						cout << endl;
+
+						if (this->parameters.debug.printBase64.get()) {
+							cout << crow::utility::base64encode(msgpackBinary.data(), msgpackBinary.size()) << endl;
+						}
 					}
 				}
 			}
