@@ -27,7 +27,7 @@ namespace Modules {
 
 		void init() override;
 		void update() override;
-		void pushStale(bool useKeyframe);
+		void pushStale();
 
 		void populateInspector(ofxCvGui::InspectArguments& args);
 		void processIncoming(const nlohmann::json&) override;
@@ -94,7 +94,9 @@ namespace Modules {
 		std::string name;
 
 		struct {
+			// this time is used for velocities (not for checking if we should send)
 			chrono::system_clock::time_point lastKeyframeTime = chrono::system_clock::now();
+
 			vector<glm::vec2> axisValues;
 		} lastKeyframe;
 	};

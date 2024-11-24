@@ -29,9 +29,9 @@ namespace Modules {
 			Portal * portal;
 
 			struct : ofParameterGroup {
-				ofParameter<bool> autoPush{ "Auto push", true };
-				ofParameter<float> current{ "Current [A]", 0.150, 0, 0.300 };
-				ofParameter<int> microstepResolution{ "Microstep resolution", 128, 1, 256 };
+				ofParameter<bool> autoPush{ "Auto push", false };
+				ofParameter<float> current{ "Current [A]", 0.25, 0, 0.300 };
+				ofParameter<int> microstepResolution{ "Microstep resolution", 32, 1, 256 };
 				PARAM_DECLARE("MotorDriverSettings", autoPush, current, microstepResolution);
 			} parameters;
 

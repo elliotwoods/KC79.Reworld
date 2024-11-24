@@ -351,7 +351,9 @@ namespace Modules {
 	Steps
 	MotionControl::getMicrostepsPerPrismRotation() const
 	{
-		return (MOTION_STEPS_PER_PRISM_ROTATION) * this->motorDriverSettings.getMicrostepsPerStep();
+		auto microstepsPerStep = this->motorDriverSettings.getMicrostepsPerStep();
+
+		return (MOTION_STEPS_PER_PRISM_ROTATION) * microstepsPerStep;
 	}
 
 	//----------

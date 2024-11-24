@@ -78,6 +78,7 @@ namespace Modules {
 
 		vector<ofxCvGui::ElementPtr> getWidgets();
 
+		void removePacketsFromOutbox(string address, int target);
 		void collateOutboxPackets();
 
 		/// <summary>

@@ -34,6 +34,24 @@ namespace Modules {
 	//----------
 	RS485::Packet::Packet(const msgpack11::MsgPack& message)
 	{
+		// take the first key as address
+		if (message.is_array()) {
+			const auto& root_array_items = message.array_items();
+			if (root_array_items.size() >= 3) {
+				// the third element might be an object
+				if (root_array_items[2].is_object()) {
+					const auto& object_items = root_array_items[2].object_items();
+					if (!object_items.empty()) {
+						const auto& firstItem = object_items.begin();
+						if (firstItem->first.is_string()) {
+							this->address = (string)firstItem->first.string_value();
+						}
+					}
+				}
+			}
+			
+		}
+
 		auto dataString = message.dump();
 		auto dataBegin = (uint8_t*)dataString.data();
 		auto dataEnd = dataBegin + dataString.size();
@@ -429,6 +447,33 @@ namespace Modules {
 		};
 	}
 
+	//----------
+	void
+		RS485::removePacketsFromOutbox(string address, int target)
+	{
+		if (!this->serialThread) {
+			return;
+		}
+
+		// Take all packets out of the queue
+		vector<RS485::Packet> allPackets;
+		{
+			Packet packet;
+			while (this->serialThread->outbox.tryReceive(packet)) {
+				allPackets.push_back(packet);
+			}
+		}
+
+		// Put items back in that don't match the pattern
+		for (const auto& packet : allPackets) {
+			if (packet.address == address && packet.target == target) {
+				// Skip adding this packet
+				continue;
+			}
+
+			this->serialThread->outbox.send(packet);
+		}
+	}
 
 	//----------
 	void
@@ -449,6 +494,12 @@ namespace Modules {
 		vector<RS485::Packet> filteredPackets;
 
 		for (const auto& packet : allPackets) {
+			// This is true for cases where we gave a msgpack object but no address (we try to find the address automatically in Packet constructor)
+			if (packet.address.empty()) {
+				filteredPackets.push_back(packet);
+				continue;
+			}
+
 			bool foundMatch = false;
 			for (auto& existingPacket : filteredPackets) {
 				if (packet.collateable
@@ -671,7 +722,7 @@ namespace Modules {
 		Packet packet;
 		while (this->serialThread->outbox.tryReceive(packet)) {
 			if (this->serialThread->joining) {
-				// if we're exiting, just ignore rest of packets in outbox
+				// if we're exiting, just serialThreadSendignore rest of packets in outbox
 				break;
 			}
 

@@ -39,10 +39,12 @@ namespace Modules {
 			ofxCvGui::PanelPtr getPanel() override;
 			ofxCvGui::PanelPtr getMiniView() override;
 
-			void transmitKeyframe();
+			void takeImage();
+			void transmitFrame();
 
 			chrono::system_clock::duration getTransmitKeyframeInterval() const;
 			int getTransmitKeyframeBatchSize() const;
+			bool getKeyframeVelocitiesEnabled() const;
 		protected:
 			void rebuildPanel();
 			void rebuildMiniView();
@@ -58,9 +60,10 @@ namespace Modules {
 			struct : ofParameterGroup {
 				struct : ofParameterGroup {
 					ofParameter<ImageTransmit> transmit{ "Transmit", ImageTransmit::Keyframe };
+					ofParameter<float> periodS{ "Period [s]", 0.5, 0, 10 };
 					ofParameter<int> keyframeBatchSize{ "Keyframe batch size", 8 };
-					ofParameter<float> periodS{ "Period [s]", 0.1, 0, 10 };
-					PARAM_DECLARE("Messaging", transmit, periodS, keyframeBatchSize);
+					ofParameter<bool> keyframeVelocities{ "Keyframe velocities", true };
+					PARAM_DECLARE("Messaging", transmit, periodS, keyframeBatchSize, keyframeVelocities);
 				} messaging;
 
 				struct : ofParameterGroup {

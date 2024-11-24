@@ -108,31 +108,14 @@ namespace Modules {
 
 	//----------
 	void
-		Column::pushStale(bool useKeyframe)
+		Column::pushStale()
 	{
-		if (!useKeyframe) {
-			// Check them individually and just push the ones that are stale
-			for (auto portal : this->portals) {
-				if (portal->getPilot()->needsPush()) {
-					portal->getPilot()->pushLazy();
-				}
+		// Check them individually and just push the ones that are stale
+		for (auto portal : this->portals) {
+			if (portal->getPilot()->needsPush()) {
+				portal->getPilot()->pushLazy();
 			}
 		}
-		else {
-			// If using keyframe, check if any are stale
-			bool isStale = false;
-			for (auto portal : this->portals) {
-				if (portal->getPilot()->needsPush()) {
-					isStale = true;
-					break;
-				}
-			}
-
-			if (isStale) {
-				this->transmitKeyframe();
-			}
-		}
-		
 	}
 
 	//----------
@@ -565,14 +548,15 @@ namespace Modules {
 		{
 			for (size_t i = 0; i < this->portals.size(); i++) {
 				auto pilot = this->portals[i]->getPilot();
-				pilot->notifyValuesSent();
 				axisValues.push_back(pilot->getAxisSteps());
+				pilot->notifyValuesSent();
 			}
 		}
 
 		// Calculate velocities
+		auto velocitiesEnabled = App::X()->getInstallation()->getKeyframeVelocitiesEnabled();
 		vector<glm::vec2> velocities;
-		{
+		if(velocitiesEnabled) {
 			if (this->lastKeyframe.axisValues.size() == axisValues.size()) {
 				auto now = chrono::system_clock::now();
 
@@ -588,10 +572,13 @@ namespace Modules {
 				}
 			}
 			else {
-				// Fill with zeros
+				// Fill with zeros if we don't have priors
 				velocities.resize(this->portals.size(), glm::vec2(0.0f, 0.0f));
 			}
 		}
+
+		// Clear any existing keyframes from outbox
+		this->rs485->removePacketsFromOutbox("keyframe", -1);
 
 		// Transmit keyframe message (in blocks)
 		{
@@ -616,12 +603,21 @@ namespace Modules {
 				};
 
 			for (size_t i = 0; i < this->portals.size(); i++) {
-				keyframeValues.push_back(msgpack11::MsgPack::array{
-					(int32_t) axisValues[i].x
+				if (velocitiesEnabled) {
+					keyframeValues.push_back(msgpack11::MsgPack::array{
+					(int32_t)axisValues[i].x
 					, (int32_t)axisValues[i].y
 					, (int32_t)velocities[i].x
 					, (int32_t)velocities[i].y
-					});
+						});
+				}
+				else {
+					keyframeValues.push_back(msgpack11::MsgPack::array{
+					(int32_t)axisValues[i].x
+					, (int32_t)axisValues[i].y
+						});
+				}
+				
 
 				if (keyframeValues.size() >= maxBlockSize) {
 					// Transmit invididual blocks and clear the keyframe

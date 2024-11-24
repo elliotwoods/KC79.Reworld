@@ -458,6 +458,10 @@ namespace Modules
 
 		else if (strcmp(key, "keyframe") == 0)
 		{
+			if(this->isInsideRoutine) {
+				return true;
+			}
+
 			return this->keyframeMotionControl->processIncoming(stream);
 		}
 

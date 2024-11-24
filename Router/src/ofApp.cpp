@@ -9,9 +9,6 @@
 void ofApp::setup() {
 	ofSetFrameRate(60.0f);
 
-	// Position in screen center
-	ofSetWindowPosition((ofGetScreenWidth() - ofGetWidth()) / 2, (ofGetScreenHeight() - ofGetHeight()) / 2);
-
 	ofSetWindowTitle("Router");
 	
 	// Register factories
@@ -28,6 +25,10 @@ void ofApp::setup() {
 	OSC::initRoutes(this->app.get());
 
 	ofxCvGui::inspect(this->app);
+
+	ofSetWindowShape(1920, 1080);
+	// Position in screen center
+	ofSetWindowPosition((ofGetScreenWidth() - ofGetWidth()) / 2, (ofGetScreenHeight() - ofGetHeight()) / 2);
 }
 
 //--------------------------------------------------------------

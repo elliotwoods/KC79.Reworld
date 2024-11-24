@@ -39,7 +39,7 @@ namespace Modules {
 
 		// Data is OK, apply filtered motion...
 		for(uint8_t i=0; i<2; i++) {
-			auto targetPosition = this->keyframes[i].position + (this->keyframes[i].velocity * timeSinceLastKeyframe) / 1000;
+			auto targetPosition = (int32_t) ((int64_t) this->keyframes[i].position + ((int64_t) this->keyframes[i].velocity * (int64_t)  timeSinceLastKeyframe) / (int64_t) 1000);
 			Modules::App::X().getMotionControl(i)->setTargetPosition(targetPosition);
 		}
 
@@ -185,6 +185,13 @@ namespace Modules {
 #endif
 						return false;
 					}
+
+#ifdef DEBUG_KEYFRAME_RX
+					{
+						char message[100];
+						sprintf(message, "%d, %d", positionA, positionB);
+					}
+#endif
 				}
 
 				if(innerArraySize == 4) {
@@ -201,6 +208,9 @@ namespace Modules {
 #endif
 						return false;
 					}
+
+					// Enable velocity interpolation
+					this->active = true;
 				}
 			}
 			
@@ -211,9 +221,16 @@ namespace Modules {
 				this->keyframes[0].velocity = velocityA;
 				this->keyframes[1].velocity = velocityB;
 
+				auto wasActive = this->active;
+				App::X().motionControlA->setTargetPosition(positionA);
+				App::X().motionControlB->setTargetPosition(positionB);
+
+				if(wasActive) {
+					// This flag is cleared by setTargetPosition on the motionControl
+					this->active = true;
+				}
 				this->lastTimestamp = millis();
 
-				this->active = true;
 				return true;
 			}
 		}

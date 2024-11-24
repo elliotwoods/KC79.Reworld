@@ -42,20 +42,11 @@ namespace Modules {
 		void
 			Installation::update()
 		{
-			// Render the image into the installation
-			if (this->parameters.image.enabled) {
-				auto sendInterval = this->getTransmitKeyframeInterval();
-				auto now = chrono::system_clock::now();
-				if (this->lastTransmitKeyframe + sendInterval <= now) {
-					this->transmitKeyframe();
-				}
+			if (this->parameters.image.enabled.get()) {
+				this->takeImage();
 			}
-			else {
-				for (auto column : this->columns) {
-					auto useKeyframe = this->parameters.messaging.transmit.get() == ImageTransmit::Keyframe;
-					column->pushStale(useKeyframe);
-				}
-			}
+
+			this->transmitFrame();
 
 			if (this->needsRebuildColumns) {
 				this->rebuildColumns();
@@ -251,34 +242,50 @@ namespace Modules {
 
 		//----------
 		void
-			Installation::transmitKeyframe()
+			Installation::takeImage()
 		{
 			auto imageRendererModule = App::X()->getImageRenderer();
 			const auto& pixels = imageRendererModule->getPixels();
 
 			auto resolution = this->getResolution();
 			if (resolution.x != pixels.getWidth() || resolution.y != pixels.getHeight()) {
-				ofLogError("Installation::transmitKeyframe") << "Resolution mismatch";
+				ofLogError("Installation::transmitImage") << "Resolution mismatch";
 				return;
 			}
 
 			for (auto column : this->columns) {
 				column->updatePositionsFromImage(pixels);
+			}
+		}
 
-				switch (this->parameters.messaging.transmit.get()) {
-				case ImageTransmit::Keyframe:
-				{
-					column->transmitKeyframe();
-					break;
-				}
-				case ImageTransmit::Inidividual:
-				{
-					column->pushStale(false);
-					break;
-				}
-				}
+		//----------
+		void
+			Installation::transmitFrame()
+		{
+			// Choose between keyframe style (regular) or individual (on stale)
 
-				this->lastTransmitKeyframe = chrono::system_clock::now();
+			switch (this->parameters.messaging.transmit.get()) {
+			case ImageTransmit::Keyframe:
+			{
+
+				auto sendInterval = this->getTransmitKeyframeInterval();
+				auto now = chrono::system_clock::now();
+				auto doSend = this->lastTransmitKeyframe + sendInterval <= now;
+				if (doSend) {
+					for (auto column : this->columns) {
+						column->transmitKeyframe();
+					}
+					this->lastTransmitKeyframe = chrono::system_clock::now();
+				}
+				break;
+			}
+			case ImageTransmit::Inidividual:
+			{
+				for (auto column : this->columns) {
+					column->pushStale();
+				}
+				break;
+			}
 			}
 		}
 
@@ -294,6 +301,13 @@ namespace Modules {
 			Installation::getTransmitKeyframeBatchSize() const
 		{
 			return this->parameters.messaging.keyframeBatchSize.get();
+		}
+
+		//----------
+		bool
+			Installation::getKeyframeVelocitiesEnabled() const
+		{
+			return this->parameters.messaging.keyframeVelocities.get();
 		}
 
 		//----------

@@ -29,7 +29,7 @@ namespace Modules {
 
 				struct : ofParameterGroup {
 					ofParameter<GradientType> gradientType{ "Gradient type", GradientType::Radial };
-					ofParameter<Wave> wave{ "Wave", Wave::Triangle };
+					ofParameter<Wave> wave{ "Wave", Wave::Sine };
 					ofParameter<float> frequency{ "Frequency", 1.0f };
 					ofParameter<float> speed{ "Speed", 0.05f };
 					ofParameter<glm::vec2> value1{ "Value 1", glm::vec2(0.0f, 0.0f) };
