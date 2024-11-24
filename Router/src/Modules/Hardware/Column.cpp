@@ -1,5 +1,6 @@
 #include "pch_App.h"
 #include "Column.h"
+#include "../App.h"
 
 using namespace msgpack11;
 
@@ -107,6 +108,35 @@ namespace Modules {
 
 	//----------
 	void
+		Column::pushStale(bool useKeyframe)
+	{
+		if (!useKeyframe) {
+			// Check them individually and just push the ones that are stale
+			for (auto portal : this->portals) {
+				if (portal->getPilot()->needsPush()) {
+					portal->getPilot()->pushLazy();
+				}
+			}
+		}
+		else {
+			// If using keyframe, check if any are stale
+			bool isStale = false;
+			for (auto portal : this->portals) {
+				if (portal->getPilot()->needsPush()) {
+					isStale = true;
+					break;
+				}
+			}
+
+			if (isStale) {
+				this->transmitKeyframe();
+			}
+		}
+		
+	}
+
+	//----------
+	void
 		Column::populateInspector(ofxCvGui::InspectArguments& args)
 	{
 		auto inspector = args.inspector;
@@ -191,7 +221,7 @@ namespace Modules {
 				auto hasHotkey = action.shortcutKey != 0;
 
 				auto buttonAction = [this, action]() {
-					this->broadcast(action.message);
+					this->broadcast(action.message, false);
 				};
 
 				auto button = hasHotkey
@@ -243,7 +273,7 @@ namespace Modules {
 									, stepsB
 								}
 							}
-							});
+							}, true);
 					}
 				};
 			}
@@ -294,6 +324,10 @@ namespace Modules {
 				targetID++;
 			}
 		}
+
+		this->countX = countX;
+		this->countY = countY;
+
 		this->portalsByIDDirty = true;
 		ofxCvGui::refreshInspector(this);
 	}
@@ -358,7 +392,7 @@ namespace Modules {
 
 	//----------
 	void
-		Column::broadcast(const msgpack11::MsgPack& message)
+		Column::broadcast(const msgpack11::MsgPack& message, bool collateable)
 	{
 		auto packet = RS485::Packet(
 			msgpack11::MsgPack::array{
@@ -367,18 +401,8 @@ namespace Modules {
 				, message
 			});
 		packet.needsACK = false;
+		packet.collateable = collateable;
 		this->rs485->transmit(packet);
-	}
-
-	//----------
-	void
-		Column::broadcastHome()
-	{
-		this->broadcast(msgpack11::MsgPack::object{
-					{
-						"home", msgpack11::MsgPack()
-					}
-			});
 	}
 
 	//----------
@@ -458,6 +482,163 @@ namespace Modules {
 			ofPopMatrix();
 		};
 		return element;
+	}
+
+	//----------
+	void
+		Column::updatePositionsFromImage(const ofFloatPixels& pixels)
+	{
+		// For logging
+		string moduleName = "Column " + ofToString(this->columnIndex) + "::updatePositionsFromImage";
+
+		// Check we have the correct number of local portals
+		if (this->portals.size() != this->countX * this->countY) {
+			ofLogError(moduleName) << "Portals not allocated correctly";
+			return;
+		}
+
+		// Get target position vectors from the pixels
+		vector<glm::vec2> targetPositions;
+		{
+			// Check that the pixels is the correct resolution
+			{
+				if (pixels.getWidth() < (this->columnIndex + 1) * this->countX) {
+					ofLogError(moduleName) << "Image resolution is not wide enough for this column";
+					return;
+				}
+				if (pixels.getHeight() < this->countY) {
+					ofLogError(moduleName) << "Image resolution is not tall enough for this column";
+					return;
+				}
+			}
+
+			// Get the pixels for this column
+			{
+				const auto flipped = this->parameters.arrangement.flipped.get();
+				const auto data = (glm::vec3*)pixels.getData();
+				const auto pixelWidth = pixels.getWidth();
+
+				for (int j = 0; j < this->countY; j++) {
+					for (int i = 0; i < this->countX; i++) {
+						auto x = this->columnIndex * this->countX + i;
+						auto y = j;
+
+						if (!flipped) {
+							// Default is bottom to top indexed
+							y = this->countY - 1 - j;
+						}
+
+
+						const auto targetPosition = data[x + y * pixelWidth];
+
+						auto pilot = this->portals[i + j * this->countX]->getPilot();
+						pilot->setPosition(targetPosition);
+						pilot->update(); // calculate the other values with the new position
+
+					}
+				}
+			}
+		}
+	}
+
+	//----------
+	void
+		Column::transmitKeyframe()
+	{
+		if (!this->getRS485()->isConnected()) {
+			return;
+		}
+
+		// For logging
+		string moduleName = "Column " + ofToString(this->columnIndex) + "::transmitKeyframe";
+
+		// Get target position vectors from the portals (already update from pixels before this stage)
+		vector<glm::vec2> targetPositions;
+		{
+			for(auto portal : this->portals) {
+				targetPositions.push_back(portal->getPilot()->getPosition());
+			}
+		}
+
+		// Gather the axis values
+		vector<glm::vec2> axisValues;
+		{
+			for (size_t i = 0; i < this->portals.size(); i++) {
+				auto pilot = this->portals[i]->getPilot();
+				pilot->notifyValuesSent();
+				axisValues.push_back(pilot->getAxisSteps());
+			}
+		}
+
+		// Calculate velocities
+		vector<glm::vec2> velocities;
+		{
+			if (this->lastKeyframe.axisValues.size() == axisValues.size()) {
+				auto now = chrono::system_clock::now();
+
+				// get dt
+				auto dt = now - this->lastKeyframe.lastKeyframeTime;
+				this->lastKeyframe.lastKeyframeTime = now;
+
+				// cast to seconds
+				auto dt_s = (float) std::chrono::duration_cast<std::chrono::milliseconds>(dt).count() / 1000.0f;
+
+				for (size_t i = 0; i < this->portals.size(); i++) {
+					velocities.push_back((axisValues[i] - this->lastKeyframe.axisValues[i]) / dt_s);
+				}
+			}
+			else {
+				// Fill with zeros
+				velocities.resize(this->portals.size(), glm::vec2(0.0f, 0.0f));
+			}
+		}
+
+		// Transmit keyframe message (in blocks)
+		{
+			auto maxBlockSize = App::X()->getInstallation()->getTransmitKeyframeBatchSize();
+
+			size_t blockStartIndex = 1;
+
+			msgpack11::MsgPack::array keyframeValues;
+
+			auto transmitBlock = [&]() {
+				this->broadcast(msgpack11::MsgPack::object{
+						{
+							"keyframe"
+							, msgpack11::MsgPack::object {
+								{ "startIndex",  blockStartIndex }
+								, { "values", keyframeValues }
+							}
+						}
+					}, false);
+				blockStartIndex += keyframeValues.size();
+				keyframeValues.clear();
+				};
+
+			for (size_t i = 0; i < this->portals.size(); i++) {
+				keyframeValues.push_back(msgpack11::MsgPack::array{
+					(int32_t) axisValues[i].x
+					, (int32_t)axisValues[i].y
+					, (int32_t)velocities[i].x
+					, (int32_t)velocities[i].y
+					});
+
+				if (keyframeValues.size() >= maxBlockSize) {
+					// Transmit invididual blocks and clear the keyframe
+					transmitBlock();
+				}
+			}
+
+			if (!keyframeValues.empty()) {
+				// Transmit last block
+				transmitBlock();
+			}
+		}
+
+		// Store this frame as previous keyframe with timecode
+		{
+			this->lastKeyframe.axisValues = axisValues;
+		}
 	}
 
 	//----------

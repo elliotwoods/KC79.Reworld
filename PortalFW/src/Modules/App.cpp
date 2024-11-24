@@ -73,6 +73,8 @@ namespace Modules
 		this->motionControlB->setup();
 
 		this->routines = new Routines(this);
+
+		this->keyframeMotionControl = new KeyframeMotionControl();
 		
 		// Calibrate self on startup
 #ifndef STARTUP_INIT_DISABLED
@@ -103,6 +105,8 @@ namespace Modules
 		this->homeSwitchB->update();
 		this->motionControlA->update();
 		this->motionControlB->update();
+		this->routines->update();
+		this->keyframeMotionControl->update();
 #endif
 
 #ifndef GUI_DISABLED
@@ -166,6 +170,18 @@ namespace Modules
 	App::escapeFromRoutine()
 	{
 		this->shouldEscapeFromRoutine = true;
+	}
+
+	//----------
+	MotionControl *
+	App::getMotionControl(uint8_t index)
+	{
+		if(index == 0) {
+			return this->motionControlA;
+		}
+		else {
+			return this->motionControlB;
+		}
 	}
 
 	//----------
@@ -438,6 +454,11 @@ namespace Modules
 		else if (strcmp(key, "reset") == 0)
 		{
 			NVIC_SystemReset();
+		}
+
+		else if (strcmp(key, "keyframe") == 0)
+		{
+			return this->keyframeMotionControl->processIncoming(stream);
 		}
 
 		return false;

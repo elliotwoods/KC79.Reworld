@@ -22,17 +22,11 @@ namespace Modules {
 			ofxCvGui::PanelPtr getMiniView() override;
 			ofxCvGui::PanelPtr getPanel() override;
 
-			bool isTransmitEnabled() const;
 			const ofFloatPixels& getPixels() const;
 		protected:
 			vector<shared_ptr<Sources::Base>> sources;
 			ofFloatPixels pixels;
 			ofTexture preview;
-
-			struct : ofParameterGroup {
-				ofParameter<bool> transmitEnabled{ "Transmit enabled", true };
-				PARAM_DECLARE("Renderer", transmitEnabled);
-			} parameters;
 		};
 	}
 }

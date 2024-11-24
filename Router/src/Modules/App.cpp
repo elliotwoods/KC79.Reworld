@@ -187,14 +187,6 @@ namespace Modules {
 			}
 			this->renderer->render(renderSettings);
 		}
-
-		if (this->renderer->isTransmitEnabled()) {
-			// Transmit the image to the hardware
-			{
-				const auto & pixels = this->renderer->getPixels();
-				this->installation->transmitKeyframe(pixels);
-			}
-		}
 	}
 
 	//----------
@@ -242,5 +234,12 @@ namespace Modules {
 		App::getInstallation()
 	{
 		return this->installation;
+	}
+
+	//----------
+	shared_ptr<Image::Renderer>
+		App::getImageRenderer()
+	{
+		return this->renderer;
 	}
 }

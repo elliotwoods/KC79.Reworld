@@ -27,6 +27,7 @@ namespace Modules {
 
 		void init() override;
 		void update() override;
+		void pushStale(bool useKeyframe);
 
 		void populateInspector(ofxCvGui::InspectArguments& args);
 		void processIncoming(const nlohmann::json&) override;
@@ -48,16 +49,12 @@ namespace Modules {
 
 		void pollAll();
 
-		void broadcast(const msgpack11::MsgPack&);
-		void broadcastInit();
-		void broadcastCalibrate();
-		void broadcastFlashLED();
-		void broadcastHome();
-		void broadcastSeeThrough();
-		void broadcastEscapeFromRoutine();
-		void broadcastReset();
+		void broadcast(const msgpack11::MsgPack&, bool collateable);
 
 		ofxCvGui::PanelPtr getMiniView(float width);
+
+		void updatePositionsFromImage(const ofFloatPixels&);
+		void transmitKeyframe();
 
 	protected:
 		void refreshPortalsByID();
@@ -84,7 +81,7 @@ namespace Modules {
 			} arrangement;
 
 			struct : ofParameterGroup {
-				ofParameter<bool> enabled{ "Enabled", true };
+				ofParameter<bool> enabled{ "Enabled", false };
 				ofParameter<float> period_s{ "Period [s]", 60.0f, 0.01f, 100.0f };
 				PARAM_DECLARE("Scheduled poll", enabled, period_s);
 			} scheduledPoll;
@@ -95,5 +92,10 @@ namespace Modules {
 		chrono::system_clock::time_point lastPollAll = chrono::system_clock::now();
 
 		std::string name;
+
+		struct {
+			chrono::system_clock::time_point lastKeyframeTime = chrono::system_clock::now();
+			vector<glm::vec2> axisValues;
+		} lastKeyframe;
 	};
 }

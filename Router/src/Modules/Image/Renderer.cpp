@@ -101,7 +101,6 @@ namespace Modules {
 			Renderer::populateInspector(ofxCvGui::InspectArguments& args)
 		{
 			auto inspector = args.inspector;
-			inspector->addParameterGroup(this->parameters);
 		}
 
 		//----------
@@ -130,13 +129,6 @@ namespace Modules {
 
 			}
 			return panel;
-		}
-
-		//----------
-		bool
-			Renderer::isTransmitEnabled() const
-		{
-			return this->parameters.transmitEnabled.get();
 		}
 
 		//----------

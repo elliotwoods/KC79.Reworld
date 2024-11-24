@@ -16,8 +16,8 @@
 // Above this the device locks up because interrupts are too rapid
 #define MOTION_MAX_SPEED 80000
 
-// 2 * musical note A8
-#define MOTION_DEFAULT_SPEED 7040 * 2
+// N * musical note A8
+#define MOTION_DEFAULT_SPEED 7040 * 3
 
 #define MOTION_STEPS_PER_MOTOR_ROTATION 32
 #define MOTION_STEPPER_GEAR_REDUCTION 9759 / 296

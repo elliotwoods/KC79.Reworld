@@ -29,6 +29,7 @@ namespace Modules {
 		void deserialise(const nlohmann::json&);
 
 		shared_ptr<Hardware::Installation> getInstallation();
+		shared_ptr<Image::Renderer> getImageRenderer();
 	protected:
 		static shared_ptr<App> instance;
 

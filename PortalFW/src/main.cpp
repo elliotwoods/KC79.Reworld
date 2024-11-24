@@ -47,8 +47,8 @@ void SystemClock_Config(void)
 
 void setup() {
 	// This breaks our RS485 comms so we disable it for now
-	//SystemClock_Config();
-	
+	SystemClock_Config();
+
 	// LED's
 	pinMode(PB3, OUTPUT);
 	pinMode(PB4, OUTPUT);

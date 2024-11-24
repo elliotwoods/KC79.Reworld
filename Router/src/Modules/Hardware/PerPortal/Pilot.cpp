@@ -164,34 +164,6 @@ namespace Modules {
 				}
 			}
 
-			// Check if needs push
-			{
-				bool needsSend = false;
-				{
-					// Periodically send
-					if (this->parameters.axes.sendPeriodically) {
-						auto now = chrono::system_clock::now();
-						if (now - this->cachedSentValues.lastUpdateRequest > this->cachedSentValues.updatePeriod) {
-							needsSend = true;
-						}
-					}
-
-					// Send if stale
-					if (this->parameters.axes.a != this->cachedSentValues.a
-						|| this->parameters.axes.b != this->cachedSentValues.b) {
-						needsSend = true;
-					}
-
-					// Don't send if rs485 is closed
-					if (!this->portal->isRS485Open()) {
-						needsSend = false;
-					}
-				}
-				if (needsSend) {
-					this->pushLazy();
-				}
-			}
-
 			// Update live axis values
 			{
 				for (int i = 0; i < 2; i++) {
@@ -214,6 +186,44 @@ namespace Modules {
 					}
 				}
 			}
+		}
+
+		//----------
+		bool
+			Pilot::needsPush()
+		{
+			bool needsSend = false;
+			{
+				// Periodically send
+				if (this->parameters.axes.sendPeriodically) {
+					auto now = chrono::system_clock::now();
+					if (now - this->cachedSentValues.lastUpdateRequest > this->cachedSentValues.updatePeriod) {
+						needsSend = true;
+					}
+				}
+
+				// Send if stale
+				if (this->parameters.axes.a != this->cachedSentValues.a
+					|| this->parameters.axes.b != this->cachedSentValues.b) {
+					needsSend = true;
+				}
+
+				// Don't send if rs485 is closed
+				if (!this->portal->isRS485Open()) {
+					needsSend = false;
+				}
+			}
+
+			return needsSend;
+		}
+
+		//----------
+		void
+			Pilot::notifyValuesSent()
+		{
+			this->cachedSentValues.a = this->parameters.axes.a.get();
+			this->cachedSentValues.b = this->parameters.axes.b.get();
+			this->cachedSentValues.lastUpdateRequest = chrono::system_clock::now();
 		}
 
 		//----------
@@ -865,9 +875,7 @@ namespace Modules {
 
 			this->portal->sendToPortal(message, "m");
 
-			this->cachedSentValues.a = this->parameters.axes.a.get();
-			this->cachedSentValues.b = this->parameters.axes.b.get();
-			this->cachedSentValues.lastUpdateRequest = chrono::system_clock::now();
+			this->notifyValuesSent();
 		}
 
 		//----------
@@ -875,22 +883,19 @@ namespace Modules {
 			Pilot::pushLazy()
 		{
 			this->portal->sendToPortal([this]() {
-				Steps stepsA = this->axisToSteps(this->parameters.axes.a.get(), 0);
-				Steps stepsB = this->axisToSteps(this->parameters.axes.b.get(), 1);
+				auto axisSteps = this->getAxisSteps();
 
 				auto message = MsgPack::object{
 					{
 						"m"
 						, MsgPack::array{
-							(int32_t)stepsA
-							, (int32_t)stepsB
+							(int32_t)axisSteps[0]
+							, (int32_t)axisSteps[1]
 						}
 					}
 				};
 
-				this->cachedSentValues.a = this->parameters.axes.a.get();
-				this->cachedSentValues.b = this->parameters.axes.b.get();
-				this->cachedSentValues.lastUpdateRequest = chrono::system_clock::now();
+				this->notifyValuesSent();
 
 				return message;
 			}, "m");
@@ -910,6 +915,18 @@ namespace Modules {
 			this->portal->sendToPortal(message, "p");
 		}
 
+		//----------
+		glm::tvec2<Steps>
+			Pilot::getAxisSteps() const
+		{
+			Steps stepsA = this->axisToSteps(this->parameters.axes.a.get(), 0);
+			Steps stepsB = this->axisToSteps(this->parameters.axes.b.get(), 1);
+			
+			return {
+				stepsA
+				, stepsB
+			};
+		}
 		//----------
 		glm::vec2
 			Pilot::getLivePosition() const

@@ -9,6 +9,10 @@ namespace Modules {
 		class Installation : public TopLevelModule
 		{
 		public:
+			MAKE_ENUM(ImageTransmit
+				, (Keyframe, Inidividual)
+				, ("Keyframe", "Individual"));
+
 			Installation();
 			~Installation();
 
@@ -30,12 +34,15 @@ namespace Modules {
 			glm::tvec2<size_t> getResolution() const; // columns, rows
 
 			void pollAll();
-			void broadcast(const msgpack11::MsgPack&);
+			void broadcast(const msgpack11::MsgPack&, bool collateable);
 
 			ofxCvGui::PanelPtr getPanel() override;
 			ofxCvGui::PanelPtr getMiniView() override;
 
-			void transmitKeyframe(const ofFloatPixels&);
+			void transmitKeyframe();
+
+			chrono::system_clock::duration getTransmitKeyframeInterval() const;
+			int getTransmitKeyframeBatchSize() const;
 		protected:
 			void rebuildPanel();
 			void rebuildMiniView();
@@ -50,6 +57,18 @@ namespace Modules {
 
 			struct : ofParameterGroup {
 				struct : ofParameterGroup {
+					ofParameter<ImageTransmit> transmit{ "Transmit", ImageTransmit::Keyframe };
+					ofParameter<int> keyframeBatchSize{ "Keyframe batch size", 8 };
+					ofParameter<float> periodS{ "Period [s]", 0.1, 0, 10 };
+					PARAM_DECLARE("Messaging", transmit, periodS, keyframeBatchSize);
+				} messaging;
+
+				struct : ofParameterGroup {
+					ofParameter<bool> enabled{ "Enabled", true };
+					PARAM_DECLARE("Image", enabled)
+				} image;
+
+				struct : ofParameterGroup {
 					ofParameter<int> columns{ "Columns", 32 };
 					ofParameter<int> rows{ "Rows", 24 };
 					ofParameter<int> columnWidth{ "Column width", 1 };
@@ -57,8 +76,10 @@ namespace Modules {
 					PARAM_DECLARE("Arrangement", columns, rows, columnWidth, flipped);
 				} arrangement;
 
-				PARAM_DECLARE("Installation", arrangement);
+				PARAM_DECLARE("Installation", messaging, image, arrangement);
 			} parameters;
+
+			chrono::system_clock::time_point lastTransmitKeyframe = chrono::system_clock::now();
 		};
 	}
 }

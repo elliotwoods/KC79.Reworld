@@ -1,6 +1,8 @@
 #include "pch_App.h"
 
 #include "Installation.h"
+#include "../App.h"
+
 #include "../Utils.h"
 
 using namespace msgpack11;
@@ -40,6 +42,21 @@ namespace Modules {
 		void
 			Installation::update()
 		{
+			// Render the image into the installation
+			if (this->parameters.image.enabled) {
+				auto sendInterval = this->getTransmitKeyframeInterval();
+				auto now = chrono::system_clock::now();
+				if (this->lastTransmitKeyframe + sendInterval <= now) {
+					this->transmitKeyframe();
+				}
+			}
+			else {
+				for (auto column : this->columns) {
+					auto useKeyframe = this->parameters.messaging.transmit.get() == ImageTransmit::Keyframe;
+					column->pushStale(useKeyframe);
+				}
+			}
+
 			if (this->needsRebuildColumns) {
 				this->rebuildColumns();
 			}
@@ -210,11 +227,11 @@ namespace Modules {
 
 		//----------
 		void
-			Installation::broadcast(const msgpack11::MsgPack& message)
+			Installation::broadcast(const msgpack11::MsgPack& message, bool collateable)
 		{
 			auto columns = this->getAllColumns();
 			for (const auto& column : columns) {
-				column->broadcast(message);
+				column->broadcast(message, collateable);
 			}
 		}
 
@@ -234,36 +251,49 @@ namespace Modules {
 
 		//----------
 		void
-			Installation::transmitKeyframe(const ofFloatPixels& pixels)
+			Installation::transmitKeyframe()
 		{
-			// Note this is a temporary approach to this problem,
-			// later we want to be sending combined keyframe packets
-			// for the entire column with positions and velocities
-			// and therefore here we would also calculate velocity
-			// through finite difference
-			
+			auto imageRendererModule = App::X()->getImageRenderer();
+			const auto& pixels = imageRendererModule->getPixels();
+
 			auto resolution = this->getResolution();
 			if (resolution.x != pixels.getWidth() || resolution.y != pixels.getHeight()) {
 				ofLogError("Installation::transmitKeyframe") << "Resolution mismatch";
 				return;
 			}
-			const auto& width = resolution.x;
-			const auto& height = resolution.y;
-			const auto pixelData = (glm::vec3*)pixels.getData();
 
-			auto allColumns = this->getAllColumns();
-			for (int i = 0; i < width; i++) {
-				auto column = allColumns[i];
-				
-				// Note these are organised from bottom to top
-				auto portals = column->getAllPortals();
-				for (int j = 0; j < height; j++) {
-					auto portal = portals[height - j - 1];
-					auto index = j * width + i;
-					const auto & pixel = pixelData[index];
-					portal->getPilot()->setPosition({ pixel.x, pixel.y });
+			for (auto column : this->columns) {
+				column->updatePositionsFromImage(pixels);
+
+				switch (this->parameters.messaging.transmit.get()) {
+				case ImageTransmit::Keyframe:
+				{
+					column->transmitKeyframe();
+					break;
 				}
+				case ImageTransmit::Inidividual:
+				{
+					column->pushStale(false);
+					break;
+				}
+				}
+
+				this->lastTransmitKeyframe = chrono::system_clock::now();
 			}
+		}
+
+		//----------
+		chrono::system_clock::duration
+			Installation::getTransmitKeyframeInterval() const
+		{
+			return chrono::milliseconds((uint32_t)(this->parameters.messaging.periodS.get() * 1000.0f));
+		}
+
+		//----------
+		int
+			Installation::getTransmitKeyframeBatchSize() const
+		{
+			return this->parameters.messaging.keyframeBatchSize.get();
 		}
 
 		//----------
@@ -310,7 +340,7 @@ namespace Modules {
 						}
 
 						auto buttonAction = [this, action]() {
-							this->broadcast(action.message);
+							this->broadcast(action.message, false);
 							};
 
 						auto button = buttonStack->addButton(action.caption, buttonAction);

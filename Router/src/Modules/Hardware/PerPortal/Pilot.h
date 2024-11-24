@@ -22,6 +22,12 @@ namespace Modules {
 			void init() override;
 			void update() override;
 
+			// Check if the sent values are stale and need push
+			bool needsPush();
+
+			// Notify the Pilot that the values have been sent (e.g. in a Keyframe message)
+			void notifyValuesSent();
+
 			void populateInspector(ofxCvGui::InspectArguments&);
 
 			ofxCvGui::PanelPtr getPanel();
@@ -32,6 +38,7 @@ namespace Modules {
 			const glm::vec2 getPolar() const;
 			const glm::vec2 getAxes() const;
 
+			/// Set the target position
 			void setPosition(const glm::vec2&);
 			void setPolar(const glm::vec2&);
 			void setAxes(const glm::vec2&);
@@ -55,6 +62,7 @@ namespace Modules {
 			void pushLazy();
 			void pollPosition();
 
+			glm::tvec2<Steps> getAxisSteps() const;
 			glm::vec2 getLivePosition() const;
 			glm::vec2 getLiveTargetPosition() const;
 			bool isInTargetPosition() const;

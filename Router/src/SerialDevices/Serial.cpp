@@ -28,9 +28,9 @@ namespace SerialDevices {
 	bool
 		Serial::open(const nlohmann::json& json)
 	{
-		if (json.contains("portName")) {
-			auto portName = (string)json["portName"];
-			return this->open(portName);
+		if (json.contains("address")) {
+			auto address = (string)json["address"];
+			return this->open(address);
 		}
 		else {
 			return false;

@@ -6,6 +6,7 @@
 #include <sstream>
 #include <memory>
 #include <vector>
+#include <map>
 #include <deque>
 #include <functional>
 #include <msgpack.hpp>
@@ -41,6 +42,11 @@ public:
 
 class Logger {
 public:
+	struct MenuItem {
+		std::string name;
+		std::function<void()> action;
+	};
+
 	static Logger& X();
 
 	void setup();
@@ -49,6 +55,7 @@ public:
 	void printVersion();
 	void printHelp();
 	void printOutbox();
+	void printAxesInfo();
 	
 	static std::shared_ptr<Logger> get();
 
@@ -62,4 +69,5 @@ private:
 	Logger();
 
 	std::deque<LogMessage> messageOutbox;
+	std::map<char, MenuItem> menuItems;
 };

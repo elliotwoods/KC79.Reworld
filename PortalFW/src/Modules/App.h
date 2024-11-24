@@ -13,6 +13,7 @@
 #include "HomeSwitch.h"
 #include "MotionControl.h"
 #include "Routines.h"
+#include "KeyframeMotionControl.h"
 
 #include <memory>
 #include <vector>
@@ -35,6 +36,8 @@ namespace Modules {
 		static bool updateFromRoutine();
 		void escapeFromRoutine();
 
+		MotionControl * getMotionControl(uint8_t);
+
 #ifndef GUI_DISABLED
 		GUI * gui;
 #endif
@@ -53,6 +56,8 @@ namespace Modules {
 		MotionControl * motionControlB;
 
 		Routines * routines;
+
+		KeyframeMotionControl * keyframeMotionControl;
 		
 	protected:
 		static App * instance;

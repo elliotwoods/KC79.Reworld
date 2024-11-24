@@ -272,6 +272,9 @@ namespace Modules {
 	MotionControl::setTargetPosition(Steps value)
 	{
 		this->targetPosition = value;
+
+		// If anything sets the target position then reset the keyframeMotionControl system
+		App::X().keyframeMotionControl->clear();
 	}
 
 	//----------
@@ -1483,7 +1486,7 @@ namespace Modules {
 		// Log the result
 		{
 			char message[100];
-			sprintf(message, "Cycle = %d steps (expected %d)", cycleLength, MOTION_STEPS_PER_PRISM_ROTATION);
+			sprintf(message, "Cycle = %d full steps (expected %d)", cycleLength, MOTION_STEPS_PER_PRISM_ROTATION);
 			log(LogLevel::Status, moduleName, message);
 		}
 
@@ -1492,7 +1495,7 @@ namespace Modules {
 			auto delta = abs(cycleLength - MOTION_STEPS_PER_PRISM_ROTATION);
 			if(delta > MOTION_ALLOWED_PRISM_ROTATION_ERROR) {
 				char message[100];
-				sprintf(message, "Cycle length error (%d > %d)", delta, MOTION_ALLOWED_PRISM_ROTATION_ERROR);
+				sprintf(message, "Cycle length error (%d > %d full steps)", delta, MOTION_ALLOWED_PRISM_ROTATION_ERROR);
 				endRoutine();
 				return Exception(moduleName, message);
 			}

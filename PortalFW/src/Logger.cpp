@@ -108,7 +108,98 @@ Logger::get()
 //---------
 Logger::Logger()
 {
-
+	this->menuItems = {
+		{
+			'a'
+			, {
+				"Print axes info"
+				, [this]() {
+					this->printAxesInfo();
+				}
+			}
+		}
+		, {
+			'c'
+			, {
+				"Calibrate"
+				, []() {
+					Modules::App::X().routines->calibrate();
+				}
+			}
+		}
+		,{
+			'h'
+			, {
+				"Home routine"
+				, []() {
+					Modules::App::X().routines->calibrate();
+				}
+			}
+		}
+		,{
+			's'
+			, {
+				"Startup routine"
+				, []() {
+					Modules::App::X().routines->startup();
+				}
+			}
+		}
+		,{
+			'u'
+			, {
+				"Unjam routine"
+				, []() {
+					Modules::App::X().routines->unjam();
+				}
+			}
+		}
+		,{
+			'y'
+			, {
+				"Measure cycle routine"
+				, []() {
+					Modules::App::X().routines->measureCycle();
+				}
+			}
+		}
+		,{
+			'r'
+			, {
+				"Reboot"
+				, []() {
+					NVIC_SystemReset();
+				}
+			}
+		}
+		,{
+			'v'
+			, {
+				"Print version"
+				, [this]() {
+					this->printVersion();
+				}
+			}
+		}
+		,{
+			27
+			, {
+				"Escape routine"
+				, [this]() {
+					Modules::App::X().escapeFromRoutine();
+				}
+			}
+		}
+		,{
+			'?'
+			, {
+				"Help"
+				, [this]() {
+					this->printHelp();
+				}
+			}
+		}
+	};
 }
 
 //----------
@@ -143,44 +234,14 @@ Logger::update()
 			Modules::App::X().motionControlB->setTargetPosition(targetPosition);
 		}
 		else {
-			switch(command) {
-			case 'c':
-				// Calibrate
-				Modules::App::X().routines->calibrate();
-				break;
-			case 'h':
-				// Home routine
-				Modules::App::X().routines->home();
-				break;
-			case 's':
-				// Startup
-				Modules::App::X().routines->startup();
-				break;
-			case 'u':
-				// Unjam
-				Modules::App::X().routines->unjam();
-				break;
-			case 'y':
-				// Measure cycle
-				Modules::App::X().routines->measureCycle();
-				break;
-			case 'r':
-				// Reboot
-				NVIC_SystemReset();
-				break;
-			case 'v':
-				// Version
-				this->printVersion();
-				break;
-			case 27:
-				// Escape from routine
-				Modules::App::X().escapeFromRoutine();
-				break;
-			case '?':
-				// Help
-				this->printHelp();
-				break;
-			default:
+			// Check through commands
+			auto it = this->menuItems.find(command);
+			if(it != this->menuItems.end()) {
+				// Perform action
+				it->second.action();
+			}
+			else {
+				// Default action
 				this->printOutbox();
 			}
 		}
@@ -219,23 +280,87 @@ void
 Logger::printVersion()
 {
 	serial.println(PORTAL_VERSION_STRING);
+
+	// Print the clock speed
+	serial.print("Clock Speed: ");
+	serial.print(F_CPU / 1000000);
+	serial.println(" MHz");
 }
 
 //----------
 void
 Logger::printHelp()
 {
-	serial.println("c = calibrate");
-	serial.println("h = home routine");
-	serial.println("s = startup");
-	serial.println("u = unjam");
-	serial.println("y = measure cycle");
-	serial.println("v = print version");
-	serial.println("0-9 = move to test position");
-	serial.println("? = print help");
-	serial.println("r = reboot");
-	serial.println("ESC = exit current routine");
-	serial.println("any other key = print the message outbox");
+	for(auto & menuItem : this->menuItems) {
+		// print the key
+		switch(menuItem.first) {
+		case 27:
+			serial.print("ESC");
+			break;
+		case ' ':
+			serial.print("Space");
+		default:
+			serial.print(menuItem.first);
+		}
+
+		serial.print(" = ");
+
+		serial.println(menuItem.second.name.c_str());
+	}
+	serial.println("0-9 = Move to test position");
+	serial.println("Any other key = Print the message outbox");
+}
+
+void
+sprintf_fixed(char * string, float number, int dp)
+{
+	auto isNegative = number < 0;
+	auto remaining = abs(number);
+
+	auto wholePart = int(remaining);
+	sprintf(string, "%s%d.", (isNegative ? "-" : " "), wholePart);
+	remaining -= wholePart;
+
+	for(int i=0; i<dp; i++) {
+		remaining *= 10;
+		wholePart = int(remaining);
+		sprintf(string, "%s%d", string, int(remaining));
+		remaining -= wholePart;
+	}
+}
+
+//----------
+void
+Logger::printAxesInfo()
+{
+	float microstepsPerRotation = Modules::App::X().motionControlA->getMicrostepsPerPrismRotation();
+
+	char axesInfo[2][100];
+
+	for(uint8_t i=0; i<2; i++) {
+		// Get the data
+		auto motionControl = Modules::App::X().getMotionControl(i);
+		auto moduleName = motionControl->getName();
+
+		// Create the message
+		{
+			auto currentPosition = (float) motionControl->getPosition() / (float) microstepsPerRotation;
+			auto targetPosition = (float) motionControl->getTargetPosition() / (float) microstepsPerRotation;
+
+			char currentPosition_s[100];
+			sprintf_fixed(currentPosition_s, currentPosition, 3);
+
+			char targetPosition_s[100];
+			sprintf_fixed(targetPosition_s, targetPosition, 3);
+
+			sprintf(axesInfo[i], "%s\t->\t[%s]", currentPosition_s, targetPosition_s);
+		}
+	}
+
+	char message[200];
+	sprintf(message, "{A : %s, B: \t%s}", axesInfo[0], axesInfo[1]);
+	::log(LogLevel::Status, "Logger::printAxisInfo", message);
+
 }
 
 //----------
