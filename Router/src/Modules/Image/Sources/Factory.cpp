@@ -4,6 +4,7 @@
 #include "FilePlayer.h"
 #include "Gradient.h"
 #include "Text.h"
+#include "Spout.h"
 
 namespace Modules {
 	namespace Image {
@@ -18,6 +19,7 @@ namespace Modules {
 				registerFactory<FilePlayer>();
 				registerFactory<Gradient>();
 				registerFactory<Text>();
+				registerFactory<Spout>();
 			}
 
 			//----------

@@ -135,24 +135,10 @@ namespace Modules {
 			}
 
 			//----------
-			bool
-				Base::getVisible() const
+			const Base::Parameters&
+				Base::getBaseParameters() const
 			{
-				return this->parameters.visible.get();
-			}
-
-			//----------
-			bool
-				Base::getRenderEnabled() const
-			{
-				return this->parameters.renderEnabled.get();
-			}
-
-			//----------
-			float
-				Base::getAlpha() const
-			{
-				return this->parameters.alpha.get();
+				return this->parameters;
 			}
 		}
 	}

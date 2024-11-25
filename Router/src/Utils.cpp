@@ -172,4 +172,18 @@ namespace Utils{
 	template bool deserialize(const nlohmann::json&, ofParameter<double>&);
 	template bool deserialize(const nlohmann::json&, ofParameter<bool>&);
 	template bool deserialize(const nlohmann::json&, ofParameter<string>&);
+
+	//----------
+	CRCType calcCheckSum(uint8_t* data, uint32_t size)
+	{
+		CRCType value = 0;
+		auto wordPosition = (CRCType*)data;
+		auto dataEnd = (CRCType*)(data + size);
+
+		while (wordPosition < dataEnd) {
+			value ^= *wordPosition++;
+		}
+
+		return value;
+	}
 }

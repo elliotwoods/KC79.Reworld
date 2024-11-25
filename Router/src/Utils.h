@@ -100,4 +100,7 @@ namespace Utils {
 
 	template<typename T>
 	bool deserialize(const nlohmann::json&, ofParameter<T>&);
+
+	typedef uint16_t CRCType;
+	CRCType calcCheckSum(uint8_t* data, uint32_t size);
 }

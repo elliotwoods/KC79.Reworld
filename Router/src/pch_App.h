@@ -1,5 +1,6 @@
 #pragma once
 
+#include "ofxSpout.h"
 #include "ofMain.h"
 #include "ofxCvGui.h"
 #include "msgpack.h"

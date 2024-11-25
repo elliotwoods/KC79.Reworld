@@ -7,7 +7,7 @@ namespace Modules {
 			//----------
 			FilePlayer::FilePlayer()
 			{
-
+				Base::parameters.style.set(Style::HV_ThetaR);
 			}
 
 			//----------

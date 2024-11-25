@@ -1,21 +1,6 @@
 #include "pch_App.h"
 #include "FWUpdate.h"
-
-typedef uint16_t CRCType;
-
-//----------
-CRCType calcCheckSum(uint8_t* data, uint32_t size)
-{
-	CRCType value = 0;
-	auto wordPosition = (CRCType*)data;
-	auto dataEnd = (CRCType*)(data + size);
-
-	while (wordPosition < dataEnd) {
-		value ^= *wordPosition++;
-	}
-
-	return value;
-}
+#include "../../Utils.h"
 
 namespace Modules {
 	//----------
@@ -300,10 +285,10 @@ namespace Modules {
 		}
 
 		// Prepend the data with checksum
-		auto checksum = calcCheckSum((uint8_t*) packetData, packetSize);
+		auto checksum = Utils::calcCheckSum((uint8_t*) packetData, packetSize);
 		auto checksumBytes = (uint8_t*)&checksum;
 		vector<uint8_t> packetBody;
-		for (int i = 0; i < sizeof(CRCType); i++) {
+		for (int i = 0; i < sizeof(Utils::CRCType); i++) {
 			packetBody.push_back(checksumBytes[i]);
 		}
 		
@@ -335,10 +320,10 @@ namespace Modules {
 				msgpack_pack_map(&packer, 1);
 				{
 					// Key is the packet index
-					if (sizeof(CRCType) == 2) {
+					if (sizeof(Utils::CRCType) == 2) {
 						msgpack_pack_uint32(&packer, frameOffset);
 					}
-					else if (sizeof(CRCType) == 4) {
+					else if (sizeof(Utils::CRCType) == 4) {
 						msgpack_pack_uint32(&packer, frameOffset);
 					}
 

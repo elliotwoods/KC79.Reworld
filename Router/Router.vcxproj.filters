@@ -148,6 +148,12 @@
     <ClCompile Include="src\Modules\Image\Sources\Factory.cpp">
       <Filter>src\Modules\Image\Sources</Filter>
     </ClCompile>
+    <ClCompile Include="src\Modules\Image\Sources\Spout.cpp">
+      <Filter>src\Modules\Image\Sources</Filter>
+    </ClCompile>
+    <ClCompile Include="src\Modules\Hardware\MassFWUdpdate.cpp">
+      <Filter>src\Modules\Hardware</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <Filter Include="src">
@@ -520,6 +526,12 @@
     </ClInclude>
     <ClInclude Include="src\Modules\Image\Sources\Factory.h">
       <Filter>src\Modules\Image\Sources</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Modules\Image\Sources\Spout.h">
+      <Filter>src\Modules\Image\Sources</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Modules\Hardware\MassFWUpdate.h">
+      <Filter>src\Modules\Hardware</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>

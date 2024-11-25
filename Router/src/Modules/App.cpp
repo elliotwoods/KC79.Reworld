@@ -106,6 +106,7 @@ namespace Modules {
 
 					for (auto submodule : this->modules) {
 						auto miniView = submodule->getMiniView();
+						miniView->setWidth(150);
 						topLevelModulesStrip->add(miniView);
 						miniView->onMouseReleased += [submodule, this](ofxCvGui::MouseArguments& args) {
 							// Set the central panel

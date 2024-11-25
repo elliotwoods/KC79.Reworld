@@ -38,12 +38,14 @@
     <Import Project="..\..\..\libs\openFrameworksCompiled\project\vs\openFrameworksRelease.props" />
     <Import Project="..\..\..\addons\ofxCvGui\ofxCvGuiLib\ofxCvGui.props" />
     <Import Project="..\..\..\addons\ofxMessagePack\ofxMessagePackLib\ofxMessagePack.props" />
+    <Import Project="..\..\..\addons\ofxSpout\ofxSpoutLib\ofxSpout.props" />
   </ImportGroup>
   <ImportGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="PropertySheets">
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
     <Import Project="..\..\..\libs\openFrameworksCompiled\project\vs\openFrameworksDebug.props" />
     <Import Project="..\..\..\addons\ofxCvGui\ofxCvGuiLib\ofxCvGui.props" />
     <Import Project="..\..\..\addons\ofxMessagePack\ofxMessagePackLib\ofxMessagePack.props" />
+    <Import Project="..\..\..\addons\ofxSpout\ofxSpoutLib\ofxSpout.props" />
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
@@ -185,6 +187,7 @@
     <ClCompile Include="src\Modules\Hardware\Column.cpp" />
     <ClCompile Include="src\Modules\Hardware\FWUpdate.cpp" />
     <ClCompile Include="src\Modules\Hardware\Installation.cpp" />
+    <ClCompile Include="src\Modules\Hardware\MassFWUdpdate.cpp" />
     <ClCompile Include="src\Modules\Hardware\PerPortal\Axis.cpp" />
     <ClCompile Include="src\Modules\Hardware\PerPortal\Logger.cpp" />
     <ClCompile Include="src\Modules\Hardware\PerPortal\MotionControl.cpp" />
@@ -198,6 +201,7 @@
     <ClCompile Include="src\Modules\Image\Sources\Factory.cpp" />
     <ClCompile Include="src\Modules\Image\Sources\FilePlayer.cpp" />
     <ClCompile Include="src\Modules\Image\Sources\Gradient.cpp" />
+    <ClCompile Include="src\Modules\Image\Sources\Spout.cpp" />
     <ClCompile Include="src\Modules\Image\Sources\Text.cpp" />
     <ClCompile Include="src\Modules\OSC\Receiver.cpp" />
     <ClCompile Include="src\Modules\REST\Server.cpp" />
@@ -283,6 +287,7 @@
     <ClInclude Include="src\Modules\Hardware\Column.h" />
     <ClInclude Include="src\Modules\Hardware\FWUpdate.h" />
     <ClInclude Include="src\Modules\Hardware\Installation.h" />
+    <ClInclude Include="src\Modules\Hardware\MassFWUpdate.h" />
     <ClInclude Include="src\Modules\Hardware\PerPortal\Axis.h" />
     <ClInclude Include="src\Modules\Hardware\PerPortal\Constants.h" />
     <ClInclude Include="src\Modules\Hardware\PerPortal\Logger.h" />
@@ -297,6 +302,7 @@
     <ClInclude Include="src\Modules\Image\Sources\Factory.h" />
     <ClInclude Include="src\Modules\Image\Sources\FilePlayer.h" />
     <ClInclude Include="src\Modules\Image\Sources\Gradient.h" />
+    <ClInclude Include="src\Modules\Image\Sources\Spout.h" />
     <ClInclude Include="src\Modules\Image\Sources\Text.h" />
     <ClInclude Include="src\Modules\OSC\Receiver.h" />
     <ClInclude Include="src\Modules\REST\Server.h" />
@@ -322,6 +328,9 @@
     </ProjectReference>
     <ProjectReference Include="..\..\..\addons\ofxMessagePack\ofxMessagePackLib\ofxMessagePack.vcxproj">
       <Project>{b6ef2661-4d10-4dae-b4cf-bd0a92ea864c}</Project>
+    </ProjectReference>
+    <ProjectReference Include="..\..\..\addons\ofxSpout\ofxSpoutLib\ofxSpout.vcxproj">
+      <Project>{3985ee69-9945-40c4-839b-c21a17d5f151}</Project>
     </ProjectReference>
   </ItemGroup>
   <ItemGroup>

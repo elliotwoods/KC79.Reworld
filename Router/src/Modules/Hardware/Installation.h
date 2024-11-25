@@ -3,6 +3,7 @@
 #include "../TopLevelModule.h"
 
 #include "Column.h"
+#include "MassFWUpdate.h"
 
 namespace Modules {
 	namespace Hardware {
@@ -10,8 +11,8 @@ namespace Modules {
 		{
 		public:
 			MAKE_ENUM(ImageTransmit
-				, (Keyframe, Inidividual)
-				, ("Keyframe", "Individual"));
+				, (Keyframe, Inidividual, Disabled)
+				, ("Keyframe", "Individual", "Disabled"));
 
 			Installation();
 			~Installation();
@@ -47,14 +48,13 @@ namespace Modules {
 			bool getKeyframeVelocitiesEnabled() const;
 		protected:
 			void rebuildPanel();
-			void rebuildMiniView();
 
 			vector<shared_ptr<Column>> columns;
 			bool needsRebuildColumns = true;
 
-			shared_ptr<ofxCvGui::Panels::Groups::Strip> miniView;
+			shared_ptr<MassFWUpdate> massFWUpdate;
+
 			shared_ptr<ofxCvGui::Panels::Widgets> panel;
-			bool needsRebuildMiniView = true;
 			bool needsRebuildPanel = true;
 
 			struct : ofParameterGroup {

@@ -13,7 +13,7 @@ namespace Modules {
 		Installation::Installation()
 		{
 			this->panel = ofxCvGui::Panels::makeWidgets();
-			this->miniView = ofxCvGui::Panels::Groups::makeStrip();
+			this->massFWUpdate = make_shared<MassFWUpdate>();
 		}
 
 		//----------
@@ -36,6 +36,7 @@ namespace Modules {
 			this->onPopulateInspector += [this](ofxCvGui::InspectArguments& args) {
 				this->populateInspector(args);
 				};
+			this->massFWUpdate->init();
 		}
 
 		//----------
@@ -57,9 +58,6 @@ namespace Modules {
 				column->update();
 			}
 
-			if (this->needsRebuildMiniView) {
-				this->rebuildMiniView();
-			}
 			if (this->needsRebuildPanel) {
 				this->rebuildPanel();
 			}
@@ -129,7 +127,6 @@ namespace Modules {
 				column->init();
 			}
 
-			this->needsRebuildMiniView = true;
 			this->needsRebuildPanel = true;
 
 			this->needsRebuildColumns = false;
@@ -145,6 +142,57 @@ namespace Modules {
 			inspector->addButton("Rebuild columns", [this]() {
 				this->rebuildColumns();
 				}, OF_KEY_RETURN)->setHeight(100.0f);
+
+			this->massFWUpdate->addSubMenuToInsecptor(inspector, this->massFWUpdate);
+
+			// Add simple pilot (draggable button
+			{
+				inspector->addTitle("Pilot all:", ofxCvGui::Widgets::Title::Level::H3);
+
+				auto pilotButton = inspector->addButton("", []() {});
+				pilotButton->setHeight(inspector->getWidth());
+
+				// Add mouse action
+				auto pilotButtonWeak = weak_ptr<ofxCvGui::Element>(pilotButton);
+				pilotButton->onMouse += [this, pilotButtonWeak](ofxCvGui::MouseArguments& args) {
+					if (this->columns.empty()) {
+						return;
+					}
+					auto portals = this->columns.front()->getAllPortals();
+					if (portals.empty()) {
+						return;
+					}
+
+					auto pilotButton = pilotButtonWeak.lock();
+					if (pilotButton->isMouseDown()) {
+						auto firstPortal = portals.front();
+						auto firstPilot = firstPortal->getPilot();
+
+						auto position = args.localNormalized * 2.0f - 1.0f;
+
+						// clamp to r<=1
+						if (glm::length(position) > 1.0f) {
+							position /= glm::length(position);
+						}
+
+						auto polar = firstPilot->positionToPolar(position);
+						auto axes = firstPilot->polarToAxes(position);
+
+						auto stepsA = firstPilot->axisToSteps(axes[0], 0);
+						auto stepsB = firstPilot->axisToSteps(axes[1], 1);
+
+						this->broadcast(MsgPack::object{
+							{
+								"m"
+								, MsgPack::array {
+									stepsA
+									, stepsB
+								}
+							}
+							}, true);
+					}
+					};
+			}
 		}
 
 		//----------
@@ -237,7 +285,63 @@ namespace Modules {
 		ofxCvGui::PanelPtr
 			Installation::getMiniView()
 		{
-			return this->miniView;
+			auto panel = ofxCvGui::Panels::makeBlank();
+			panel->onDraw += [this](ofxCvGui::DrawArguments& args) {
+				if (this->columns.empty()) {
+					return;
+				}
+				const auto& firstColumn = this->columns.front();
+
+				if (firstColumn->getAllPortals().empty()) {
+					return;
+				}
+
+				const auto countX = this->columns.size();
+				const auto countY = firstColumn->getAllPortals().size();
+
+				const auto cellSize = min(args.localBounds.width / countX, args.localBounds.height / countY);
+				const auto radius = cellSize * 0.45 - 1;
+				for (int i = 0; i < countX; i++) {
+					const auto column = this->columns[i];
+					const auto portals = column->getAllPortals();
+					auto x = i * cellSize;
+
+					for (int j = 0; j < countY; j++) {
+						auto portal = portals[j];
+
+						// We ignore flipped for now
+
+						auto y = args.localBounds.height - (1 + j) * cellSize;
+						auto targetPosition = portal->getPilot()->getPosition();
+						auto livePosition = portal->getPilot()->getLivePosition();
+
+						ofPushMatrix();
+						{
+							ofTranslate(x + cellSize / 2.0f, y + cellSize / 2.0f);
+							ofPushStyle();
+							{
+								ofSetColor(80.0f);
+								ofFill();
+								ofDrawCircle(0, 0, radius);
+
+								ofSetColor(255.0f);
+								ofFill();
+								ofDrawCircle(radius * targetPosition.x, radius * targetPosition.y, 2.0f);
+								ofDrawLine({ 0, 0 }, radius * targetPosition);
+
+								ofSetColor(100, 100, 200);
+								ofDrawCircle(radius * livePosition.x, radius * livePosition.y, 1.0f);
+								ofDrawLine({ 0, 0 }, radius * livePosition);
+
+							}
+							ofPopStyle();
+						}
+						ofPopMatrix();
+					}
+				}
+				};
+
+			return panel;
 		}
 
 		//----------
@@ -286,6 +390,10 @@ namespace Modules {
 				}
 				break;
 			}
+			case ImageTransmit::Disabled:
+			{
+				break;
+			}
 			}
 		}
 
@@ -308,25 +416,6 @@ namespace Modules {
 			Installation::getKeyframeVelocitiesEnabled() const
 		{
 			return this->parameters.messaging.keyframeVelocities.get();
-		}
-
-		//----------
-		void
-			Installation::rebuildMiniView()
-		{
-			this->miniView->clear();
-
-			if (!this->columns.empty()) {
-				auto colWidth = ofGetWidth() / this->columns.size();
-				auto allColumns = this->getAllColumns();
-				for (auto column : allColumns) {
-					auto colView = column->getMiniView(colWidth);
-					this->miniView->add(colView);
-					this->miniView->setHeight(colView->getHeight());
-				}
-			}
-
-			this->needsRebuildMiniView = false;
 		}
 
 		//----------
