@@ -33,6 +33,7 @@ namespace Modules {
 				shared_ptr<ofxCvGui::Widgets::Button> getButton(shared_ptr<Base>);
 
 				const Parameters& getBaseParameters() const;
+				virtual void deserialise(const nlohmann::json&) override;
 
 				ofFloatPixels pixels;
 				ofTexture preview;
