@@ -38,7 +38,7 @@ namespace Modules {
 				, "/calibrate"
 			}
 			, {
-				"Home routine"
+				"Home routine" // Note this name is used in Installation::homeHardwareAndZeroPositions. If you change the name, change it there also
 				, u8"\uf3fd"
 				, msgpack11::MsgPack::object {
 					{
@@ -86,24 +86,24 @@ namespace Modules {
 				, "/seeThrough"
 			}
 			, {
-				"Disable motor lights"
+				"Disable debug lights"
 				, u8"\uf042"
 				, msgpack11::MsgPack::object {
 					{
-						"motorIndicatorEnabled", false
+						"debugLightsEnabled", false
 					}
 				}
-				, "/disableMotorLights"
+				, "/disableDebugLights"
 			}
 			, {
-				"Enable motor lights"
+				"Enable debug lights"
 				, u8"\uf111"
 				, msgpack11::MsgPack::object {
 					{
-						"motorIndicatorEnabled", true
+						"debugLightsEnabled", true
 					}
 				}
-				, "/enableMotorLights"
+				, "/enableDebugLights"
 			}
 			, {
 				"Unjam"

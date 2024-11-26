@@ -22,7 +22,7 @@ namespace OSC {
 	}
 
 	//----------
-	void initRoutes(Modules::App * app)
+	void initRoutes(Modules::App* app)
 	{
 		routes = {
 			Route {
@@ -137,6 +137,22 @@ namespace OSC {
 							portal->getMotorDriverSettings()->setCurrent(current);
 							});
 					}
+				}
+			},
+			Route{
+				"/homeAndZeroLocal"
+				, [app](const ofxOscMessage& message) {
+					app->getInstallation()->homeHardwareAndZeroPositions();
+				}
+			},
+			Route{
+				"/disableLights"
+				, [app](const ofxOscMessage& message) {
+					app->getInstallation()->broadcast(msgpack11::MsgPack::object {
+						{
+							"debugLightsEnabled", false
+						}
+					}, false);
 				}
 			}
 		};

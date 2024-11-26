@@ -434,12 +434,12 @@ namespace Modules
 			return true;
 		}
 
-		else if (strcmp(key, "motorIndicatorEnabled") == 0) {
+		else if (strcmp(key, "debugLightsEnabled") == 0) {
 			bool value;
 			if(!msgpack::readBool(stream, value)) {
 				return false;
 			}
-			this->leds->setMotorIndicatorEnabled(value);
+			this->leds->setDebugLightsEnabled(value);
 			return true;
 		}
 

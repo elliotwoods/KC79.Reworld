@@ -16,51 +16,57 @@ namespace Modules {
 	{
 		auto app = &App::X();
 
-		// Heartbeat LED
-		{
-			const auto & healthStatusA = app->motionControlA->getHealthStatus();
-			const auto & healthStatusB = app->motionControlB->getHealthStatus();
+		if(this->debugLightsEnabled) {
 
-			const auto allOK = healthStatusA.allOK() && healthStatusB.allOK();
+			// Heartbeat LED
+			{
+				const auto & healthStatusA = app->motionControlA->getHealthStatus();
+				const auto & healthStatusB = app->motionControlB->getHealthStatus();
 
-			if(allOK) {
-				// Slow heartbeat
-				analogWrite(LED_HEARTBEAT, (millis() % 2000) / 128);
-			} else {
-				// Write a debug sequence out
+				const auto allOK = healthStatusA.allOK() && healthStatusB.allOK();
 
-				int lengthOfSequence = 16;
-				int positionInSequence = (millis() / 200) % lengthOfSequence;
-				
-				bool value = false;
+				if(allOK) {
+					// Slow heartbeat
+					analogWrite(LED_HEARTBEAT, (millis() % 2000) / 128);
+				} else {
+					// Write a debug sequence out
 
-				switch(positionInSequence) {
-					// one flash for axis A
-					case 0:
-					value = !healthStatusA.allOK();
-					break;
+					int lengthOfSequence = 16;
+					int positionInSequence = (millis() / 200) % lengthOfSequence;
+					
+					bool value = false;
 
-					// two flashes for axis B
-					case 4:
-					case 6:
-					value = !healthStatusB.allOK();
-					break;
+					switch(positionInSequence) {
+						// one flash for axis A
+						case 0:
+						value = !healthStatusA.allOK();
+						break;
+
+						// two flashes for axis B
+						case 4:
+						case 6:
+						value = !healthStatusB.allOK();
+						break;
+					}
+
+					digitalWrite(LED_HEARTBEAT, value);
 				}
-
-				digitalWrite(LED_HEARTBEAT, value);
 			}
-		}
 
-		// Motor indicator LED
-		if(this->motorIndicatorEnabled) {
+			// Motor indicator LED
 			digitalWrite(LED_INDICATOR, app->motorDriverA->getEnabled() || app->motorDriverB->getEnabled());
+		}
+		else {
+			analogWrite(LED_HEARTBEAT, 0);
+			digitalWrite(LED_HEARTBEAT, false);
+			digitalWrite(LED_INDICATOR, false);
 		}
 	}
 
 	//----------
 	void
-	LEDs::setMotorIndicatorEnabled(bool enabled)
+	LEDs::setDebugLightsEnabled(bool enabled)
 	{
-		this->motorIndicatorEnabled = enabled;
+		this->debugLightsEnabled = enabled;
 	}
 }

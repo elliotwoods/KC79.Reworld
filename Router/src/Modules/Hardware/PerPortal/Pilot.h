@@ -43,8 +43,12 @@ namespace Modules {
 			void setPolar(const glm::vec2&);
 			void setAxes(const glm::vec2&);
 
-			void resetPosition();
+			/// Reset the local targets
+			void resetLocal();
 			void unwind();
+
+			/// Reset the local and cached remotes. You can call this after sending a home to the hardware
+			void reset();
 
 			glm::vec2 positionToPolar(const glm::vec2&) const;
 			glm::vec2 polarToPosition(const glm::vec2&) const;

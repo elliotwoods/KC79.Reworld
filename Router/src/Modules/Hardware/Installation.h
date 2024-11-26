@@ -11,8 +11,8 @@ namespace Modules {
 		{
 		public:
 			MAKE_ENUM(ImageTransmit
-				, (Keyframe, Inidividual, Disabled)
-				, ("Keyframe", "Individual", "Disabled"));
+				, (Inidividual, Keyframe, Disabled)
+				, ("Inidividual", "Keyframe", "Disabled"));
 
 			Installation();
 			~Installation();
@@ -46,6 +46,8 @@ namespace Modules {
 			chrono::system_clock::duration getTransmitKeyframeInterval() const;
 			int getTransmitKeyframeBatchSize() const;
 			bool getKeyframeVelocitiesEnabled() const;
+
+			void homeHardwareAndZeroPositions();
 		protected:
 			void rebuildPanel();
 
@@ -59,7 +61,7 @@ namespace Modules {
 
 			struct : ofParameterGroup {
 				struct : ofParameterGroup {
-					ofParameter<ImageTransmit> transmit{ "Transmit", ImageTransmit::Keyframe };
+					ofParameter<ImageTransmit> transmit{ "Transmit", ImageTransmit::Inidividual };
 					ofParameter<float> periodS{ "Period [s]", 0.5, 0, 10 };
 					ofParameter<int> keyframeBatchSize{ "Keyframe batch size", 8 };
 					ofParameter<bool> keyframeVelocities{ "Keyframe velocities", true };
