@@ -84,7 +84,7 @@ namespace Modules {
 
 				struct : ofParameterGroup {
 					ofParameter<float> r{ "r", 0, -1, 1 };
-					ofParameter<float> theta{ "Theta", 0, -acos(0) * 2, acos(0) * 2 };
+					ofParameter<float> theta{ "Theta", 0, (float) - acos(0) * 2, (float)acos(0) * 2};
 					PARAM_DECLARE("Polar", r, theta);
 				} polar;
 
