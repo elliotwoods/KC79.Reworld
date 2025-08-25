@@ -28,6 +28,9 @@ namespace Modules {
 				factories.push_back(factory);
 			}
 
+			shared_ptr<Base>
+				createFromJson(const nlohmann::json&);
+
 			void registerFactories();
 
 			shared_ptr<Base> createFromJson(const nlohmann::json&);

@@ -14,8 +14,8 @@ namespace Modules {
 	public:
 		const char * getTypeName() const override;
 		void update() override;
-		void setMotorIndicatorEnabled(bool);
+		void setDebugLightsEnabled(bool);
 	protected:
-		bool motorIndicatorEnabled = true;
+		bool debugLightsEnabled = true;
 	};
 }

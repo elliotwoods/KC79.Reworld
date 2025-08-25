@@ -24,9 +24,14 @@ namespace Modules {
 
 			const ofFloatPixels& getPixels() const;
 		protected:
+			void addSource();
+			void refreshPanel();
 			vector<shared_ptr<Sources::Base>> sources;
 			ofFloatPixels pixels;
 			ofTexture preview;
+
+			shared_ptr<ofxCvGui::Panels::Widgets> panel;
+			bool needsPanelRefresh = true;
 		};
 	}
 }

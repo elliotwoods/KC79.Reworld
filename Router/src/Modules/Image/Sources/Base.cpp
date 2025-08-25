@@ -34,7 +34,12 @@ namespace Modules {
 			void
 				Base::updatePreview()
 			{
-				this->preview.loadData(this->pixels);
+				if (this->pixels.isAllocated()) {
+					this->preview.loadData(this->pixels);
+				}
+				else {
+					this->preview.clear();
+				}
 			}
 
 			//----------
@@ -60,7 +65,9 @@ namespace Modules {
 						bounds.height = bounds.width / aspectRatio;
 					}
 
-					this->preview.draw(bounds);
+					if (this->preview.isAllocated()) {
+						this->preview.draw(bounds);
+					}
 					};
 
 				// Add a button for toggling visibility
@@ -132,6 +139,18 @@ namespace Modules {
 					};
 
 				return button;
+			}
+
+			//----------
+			void
+				Base::deserialise(const nlohmann::json& json)
+			{
+				if (json.contains("visible")) {
+					this->parameters.visible.set(json["visible"]);
+				}
+				if (json.contains("renderEnabled")) {
+					this->parameters.renderEnabled.set(json["renderEnabled"]);
+				}
 			}
 
 			//----------

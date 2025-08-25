@@ -193,6 +193,10 @@ namespace Modules {
 					}
 					};
 			}
+
+			inspector->addButton("Home and zero local", [this]() {
+				this->homeHardwareAndZeroPositions();
+				});
 		}
 
 		//----------
@@ -416,6 +420,35 @@ namespace Modules {
 			Installation::getKeyframeVelocitiesEnabled() const
 		{
 			return this->parameters.messaging.keyframeVelocities.get();
+		}
+
+		//----------
+		void
+			Installation::homeHardwareAndZeroPositions()
+		{
+			// Send the message to perform home routine
+			{
+				auto actions = Portal::getActions();
+				for (const auto& action : actions) {
+					if(action.caption == "Home routine") {
+						for (int i = 0; i < 10; i++) {
+							this->broadcast(action.message, false);
+						}
+						break;
+					}
+
+				}
+			}
+
+			// Zero positions within this software to match home position
+			{
+				for (auto column : this->columns) {
+					auto portals = column->getAllPortals();
+					for (auto portal : portals) {
+						portal->getPilot()->reset();
+					}
+				}
+			}
 		}
 
 		//----------

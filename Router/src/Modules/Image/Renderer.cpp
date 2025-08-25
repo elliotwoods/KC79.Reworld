@@ -1,15 +1,13 @@
 #include "pch_App.h"
 #include "Renderer.h"
-#include "Sources/Gradient.h"
-#include "Sources/FilePlayer.h"
-#include "Sources/Text.h"
-#include "Sources/Spout.h"
+#include "Sources/Factory.h"
 
 namespace Modules {
 	namespace Image {
 		//----------
 		Renderer::Renderer()
 		{
+			this->panel = ofxCvGui::Panels::makeWidgets();
 		}
 
 		//----------
@@ -26,14 +24,6 @@ namespace Modules {
 			this->onPopulateInspector += [this](ofxCvGui::InspectArguments& args) {
 				this->populateInspector(args);
 				};
-
-			this->sources.push_back(make_shared<Sources::Gradient>());
-			this->sources.push_back(make_shared<Sources::FilePlayer>());
-			this->sources.push_back(make_shared<Sources::Text>());
-			this->sources.push_back(make_shared<Sources::Spout>());
-			for (auto source : this->sources) {
-				source->init();
-			}
 		}
 
 		//----------
@@ -42,6 +32,9 @@ namespace Modules {
 		{
 			for (auto source : this->sources) {
 				source->update();
+			}
+			if (this->needsPanelRefresh) {
+				this->refreshPanel();
 			}
 		}
 
@@ -176,7 +169,18 @@ namespace Modules {
 		void
 			Renderer::deserialise(const nlohmann::json& json)
 		{
-
+			if (json.contains("sources")) {
+				const auto& jsonSources = json["sources"];
+				if (jsonSources.is_array()) {
+					for (const auto& jsonSource : jsonSources) {
+						auto source = Sources::createFromJson(jsonSource);
+						if (source) {
+							source->init();
+							this->sources.push_back(source);
+						}
+					}
+				}
+			}
 		}
 
 		//----------
@@ -191,13 +195,7 @@ namespace Modules {
 		ofxCvGui::PanelPtr
 			Renderer::getPanel()
 		{
-			auto panel = ofxCvGui::Panels::makeWidgets();
-
-			for (auto source : this->sources) {
-				panel->add(source->getButton(source));
-
-			}
-			return panel;
+			return this->panel;
 		}
 
 		//----------
@@ -205,6 +203,41 @@ namespace Modules {
 			Renderer::getPixels() const
 		{
 			return this->pixels;
+		}
+
+		//----------
+		void
+			Renderer::addSource()
+		{
+			auto selectPanel = ofxCvGui::Panels::makeWidgets();
+			{
+				for (const auto& factory : Sources::factories) {
+					selectPanel->addButton(factory.typeName, [this, factory]() {
+						auto module = factory.createModule({});
+						module->init();
+						this->sources.push_back(module);
+						this->needsPanelRefresh = true;
+						ofxCvGui::closeDialog();
+						});
+				}
+			};
+			ofxCvGui::openDialog(selectPanel);
+		}
+
+		//----------
+		void 
+			Renderer::refreshPanel()
+		{
+			this->panel->clear();
+
+			for (auto source : this->sources) {
+				this->panel->add(source->getButton(source));
+			}
+
+			this->panel->addButton("+", [this]() {
+				this->addSource();
+				});
+			this->needsPanelRefresh = false;
 		}
 	}
 }

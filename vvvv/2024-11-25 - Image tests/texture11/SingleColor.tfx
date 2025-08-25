@@ -1,0 +1,32 @@
+//@author: vux
+//@help: template for texture fx
+//@tags: texture
+//@credits: 
+
+Texture2D texture2d : PREVIOUS;
+
+cbuffer controls:register(b0){
+	float4 Color <bool color=true; string uiname="Color";> ={1,1,0,1};
+};
+
+struct psInput
+{
+	float4 p : SV_Position;
+};
+
+
+float4 PS(psInput input) : SV_Target
+{
+	return Color;
+}
+
+technique10 Process
+{
+	pass P0
+	{
+		SetPixelShader(CompileShader(ps_4_0,PS()));
+	}
+}
+
+
+

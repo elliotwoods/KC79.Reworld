@@ -33,7 +33,14 @@ namespace Modules {
 
 				// Look through factories
 				for (const auto& factory : factories) {
-					if (factory.typeName == type) {
+					auto factoryNameSpace = ofSplitString(factory.typeName, "::", true, true);;
+					if (factoryNameSpace.empty()) {
+						continue;
+					}
+
+					auto strippedTypeName = factoryNameSpace.back();
+
+					if (strippedTypeName == type) {
 						return factory.createModule(json);
 					}
 				}

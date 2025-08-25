@@ -233,8 +233,8 @@ namespace Modules {
 			auto inspector = args.inspector;
 
 			inspector->add(this->getPanel());
-			inspector->addButton("Reset position", [this]() {
-				this->resetPosition();
+			inspector->addButton("Reset local", [this]() {
+				this->resetLocal();
 				}, 'r');
 			inspector->addButton("Unwind", [this]() {
 				this->unwind();
@@ -684,13 +684,28 @@ namespace Modules {
 
 		//----------
 		void
-			Pilot::resetPosition()
+			Pilot::resetLocal()
 		{
 			// Zero the polar for the sake of the cyclcical function
 			this->setPolar({ 0.0f, 0.0f });
 
 			// Reset the position
 			this->setPosition({ 0.0f, 0.0f });
+		}
+		//----------
+		void
+			Pilot::reset()
+		{
+			this->parameters.position.x.set(0);
+			this->parameters.position.y.set(0);
+			this->parameters.polar.r.set(0);
+			this->parameters.polar.theta.set(0);
+			this->parameters.axes.a.set(0);
+			this->parameters.axes.b.set(0);
+			this->liveAxisValuesKnown = { true, true };
+			this->liveAxisValues = { 0, 0 };
+			this->liveAxisTargetValuesKnown = { true, true };
+			this->liveAxisTargetValues = { 0, 0 };
 		}
 
 		//----------

@@ -7,7 +7,7 @@ namespace Modules {
 			//----------
 			Spout::Spout()
 			{
-				Base::parameters.renderEnabled.set(false);
+
 			}
 
 			//----------
