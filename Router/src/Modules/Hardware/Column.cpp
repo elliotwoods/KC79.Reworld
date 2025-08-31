@@ -201,17 +201,17 @@ namespace Modules {
 					buttonStack = inspector->addHorizontalStack();
 				}
 
-				auto hasHotkey = action.shortcutKey != 0;
+				auto hasHotkey = action->shortcutKey != 0;
 
 				auto buttonAction = [this, action]() {
-					this->broadcast(action.message, false);
+					this->broadcastAction(action);
 				};
 
 				auto button = hasHotkey
-					? buttonStack->addButton(action.caption, buttonAction, action.shortcutKey)
-					: buttonStack->addButton(action.caption, buttonAction);
+					? buttonStack->addButton(action->caption, buttonAction, action->shortcutKey)
+					: buttonStack->addButton(action->caption, buttonAction);
 
-				button->setDrawGlyph(action.icon);
+				button->setDrawGlyph(action->icon);
 			}
 
 			inspector->addParameterGroup(this->parameters);
@@ -386,6 +386,18 @@ namespace Modules {
 		packet.needsACK = false;
 		packet.collateable = collateable;
 		this->rs485->transmit(packet);
+	}
+
+	//----------
+	void
+		Column::broadcastAction(shared_ptr<Portal::Action> action)
+	{
+		this->broadcast(action->message, false);
+		if (action->portalUpdateFunction) {
+			for (auto portal : this->portals) {
+				action->portalUpdateFunction(portal.get());
+			}
+		}
 	}
 
 	//----------

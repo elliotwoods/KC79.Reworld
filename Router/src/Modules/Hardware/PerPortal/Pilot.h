@@ -42,6 +42,7 @@ namespace Modules {
 			void setPosition(const glm::vec2&);
 			void setPolar(const glm::vec2&);
 			void setAxes(const glm::vec2&);
+			void setAxesCyclic(const glm::vec2&); // we will perform cyclic navigation inside Pilot
 
 			/// Reset the local targets
 			void resetLocal();

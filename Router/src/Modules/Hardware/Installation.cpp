@@ -67,13 +67,32 @@ namespace Modules {
 		void
 			Installation::deserialise(const nlohmann::json& json)
 		{
-			// Get the arrangement
+			// Get the parameters
 			{
 				if (json.contains("arrangement")) {
 					Utils::deserialize(json["arrangement"], this->parameters.arrangement.columns);
 					Utils::deserialize(json["arrangement"], this->parameters.arrangement.rows);
 					Utils::deserialize(json["arrangement"], this->parameters.arrangement.columnWidth);
 					Utils::deserialize(json["arrangement"], this->parameters.arrangement.flipped);
+				}
+
+				if (json.contains("messaging")) {
+					{
+						string transmitString;
+						if (json["messaging"].contains("transmit")) {
+							transmitString = (string) json["messaging"]["transmit"];
+							ImageTransmit value;
+							value.fromString(transmitString);
+							this->parameters.messaging.transmit.set(value);
+						}
+					}
+					Utils::deserialize(json["messaging"], this->parameters.messaging.periodS);
+					Utils::deserialize(json["messaging"], this->parameters.messaging.keyframeBatchSize);
+					Utils::deserialize(json["messaging"], this->parameters.messaging.keyframeVelocities);
+				}
+
+				if (json.contains("image")) {
+					Utils::deserialize(json["image"], this->parameters.image.enabled);
 				}
 			}
 
@@ -200,7 +219,7 @@ namespace Modules {
 		}
 
 		//----------
-		vector<shared_ptr<Column>>
+		const vector<shared_ptr<Column>>&
 			Installation::getAllColumns() const
 		{
 			return this->columns;
@@ -275,6 +294,19 @@ namespace Modules {
 			auto columns = this->getAllColumns();
 			for (const auto& column : columns) {
 				column->broadcast(message, collateable);
+			}
+		}
+
+		//----------
+		void
+			Installation::broadcastAction(shared_ptr<Portal::Action> action)
+		{
+			this->broadcast(action->message, false);
+			if (action->portalUpdateFunction) {
+				auto portals = this->getAllPortals();
+				for (auto portal : portals) {
+					action->portalUpdateFunction(portal.get());
+				}
 			}
 		}
 
@@ -428,15 +460,9 @@ namespace Modules {
 		{
 			// Send the message to perform home routine
 			{
-				auto actions = Portal::getActions();
-				for (const auto& action : actions) {
-					if(action.caption == "Home routine") {
-						for (int i = 0; i < 10; i++) {
-							this->broadcast(action.message, false);
-						}
-						break;
-					}
-
+				auto action = Portal::getActionByCaption("Home routine");
+				for (int i = 0; i < 10; i++) {
+					this->broadcastAction(action);
 				}
 			}
 
@@ -476,11 +502,11 @@ namespace Modules {
 						}
 
 						auto buttonAction = [this, action]() {
-							this->broadcast(action.message, false);
+							this->broadcastAction(action);
 							};
 
-						auto button = buttonStack->addButton(action.caption, buttonAction);
-						button->setDrawGlyph(action.icon);
+						auto button = buttonStack->addButton(action->caption, buttonAction);
+						button->setDrawGlyph(action->icon);
 					}
 			}
 

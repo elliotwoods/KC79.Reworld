@@ -684,6 +684,14 @@ namespace Modules {
 
 		//----------
 		void
+			Pilot::setAxesCyclic(const glm::vec2& target)
+		{
+			auto adjusted = this->findClosestAxesCycle(target);
+			this->setAxes(adjusted);
+		}
+
+		//----------
+		void
 			Pilot::resetLocal()
 		{
 			// Zero the polar for the sake of the cyclcical function
@@ -756,6 +764,13 @@ namespace Modules {
 		glm::vec2
 			Pilot::polarToAxes(const glm::vec2& polar) const
 		{
+			// Special case for see-through
+			if (polar.r == 0) {
+				return {
+					0.5, 0.0
+				};
+			};
+
 			const auto & r = polar[0];
 			const auto & theta = polar[1];
 
@@ -817,27 +832,14 @@ namespace Modules {
 
 		//----------
 		glm::vec2
-			Pilot::findClosestAxesCycle(const glm::vec2& newAxes) const
+			Pilot::findClosestAxesCycle(const glm::vec2& target) const
 		{
-			const auto currentAxes = this->getAxes();
-			
-			auto deltaAxes = newAxes - currentAxes;
+			glm::vec2 adjusted;
+			glm::vec2 current = this->getAxes();
+			adjusted[0] = target[0] + std::round(current[0] - target[0]);
+			adjusted[1] = target[1] + std::round(current[0] - target[1]);
 
-			while (deltaAxes[0] > 0.5) {
-				deltaAxes[0] -= 1.0f;
-			}
-			while (deltaAxes[0] < -0.5) {
-				deltaAxes[0] += 1.0f;
-			}
-
-			while (deltaAxes[1] > 0.5) {
-				deltaAxes[1] -= 1.0f;
-			}
-			while (deltaAxes[1] < -0.5) {
-				deltaAxes[1] += 1.0f;
-			}
-			
-			return currentAxes + deltaAxes;
+			return adjusted;
 		}
 
 		//----------

@@ -50,6 +50,7 @@ namespace Modules {
 		void pollAll();
 
 		void broadcast(const msgpack11::MsgPack&, bool collateable);
+		void broadcastAction(shared_ptr<Portal::Action>);
 
 		ofxCvGui::PanelPtr getMiniView(float width);
 

@@ -23,9 +23,12 @@ namespace Modules {
 			msgpack11::MsgPack message;
 			string oscAddress;
 			char shortcutKey = 0;
+			std::function<void(Portal*)> portalUpdateFunction; // optional
 		};
 
-		static vector<Action> getActions();
+		static vector<shared_ptr<Action>> getActions();
+		static shared_ptr<Action> getActionByCaption(const string& caption);
+		static shared_ptr<Action> getActionByOSCAddress(const string& oscAddress);
 
 		Portal(shared_ptr<RS485>, int Target);
 		string getTypeName() const override;
@@ -51,6 +54,8 @@ namespace Modules {
 		// Used by PerPortal classes to send out from module to RS485
 		void sendToPortal(const msgpack11::MsgPack&, const string& addressForCollate);
 		void sendToPortal(const function<msgpack11::MsgPack()>&, const string& addressForCollate);
+
+		void performAction(shared_ptr<Action>);
 
 		shared_ptr<PerPortal::MotorDriverSettings> getMotorDriverSettings();
 		shared_ptr<PerPortal::Axis> getAxis(int axis);
