@@ -36,6 +36,7 @@ namespace Modules {
 
 			void pollAll();
 			void broadcast(const msgpack11::MsgPack&, bool collateable);
+			void broadcastAction(shared_ptr<Portal::Action>);
 
 			ofxCvGui::PanelPtr getPanel() override;
 			ofxCvGui::PanelPtr getMiniView() override;
@@ -69,7 +70,7 @@ namespace Modules {
 				} messaging;
 
 				struct : ofParameterGroup {
-					ofParameter<bool> enabled{ "Enabled", true };
+					ofParameter<bool> enabled{ "Enabled", false };
 					PARAM_DECLARE("Image", enabled)
 				} image;
 

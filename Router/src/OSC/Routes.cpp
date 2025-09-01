@@ -249,10 +249,60 @@ namespace OSC {
 	//----------
 	void handleRoute(const ofxOscMessage& message)
 	{
+		// Handle global routes
 		for (const auto& route : routes) {
 			if (ofToLower(route.address) == ofToLower(message.getAddress())) {
 				route.action(message);
 				return;
+			}
+		}
+
+		// Handle per-column and per-module routes
+		{
+			auto isInteger = [](const std::string& s) -> bool {
+				auto intString = ofToString(ofToInt(s));
+				return intString == s;
+				};
+
+			auto address = message.getAddress();
+			auto addressParts = ofSplitString(address, "/", true, true);
+			
+			if (addressParts.size() >= 2) {
+				auto hasColumnIndex = isInteger(addressParts[0]);
+				auto hasPortalIndex = isInteger(addressParts[1]);
+	
+				if (!hasColumnIndex && !hasPortalIndex) {
+					// Perform on installation
+					auto action = Portal::getActionByOSCAddress(addressParts[0]);
+					if (action) {
+						App::X()->getInstallation()->broadcastAction(action);
+					}
+				}
+				else if (hasColumnIndex && !hasPortalIndex) {
+					// Perform on column
+					auto columnIndex = ofToInt(addressParts[0]);
+					auto column = App::X()->getInstallation()->getColumnByID(columnIndex);
+					
+					if (column) {
+						auto action = Portal::getActionByOSCAddress(addressParts[1]);
+						if (action) {
+							column->broadcastAction(action);
+						}
+					}
+				}
+				else if(hasColumnIndex && hasPortalIndex) {
+					// Perform on portal
+					auto columnIndex = ofToInt(addressParts[0]);
+					auto portalIndex = ofToInt(addressParts[1]);
+
+					auto portal = App::X()->getInstallation()->getPortalByTargetID(columnIndex, portalIndex);
+					if (portal) {
+						auto action = Portal::getActionByOSCAddress(addressParts[2]);
+						if (action) {
+							portal->performAction(action);
+						}
+					}
+				}
 			}
 		}
 

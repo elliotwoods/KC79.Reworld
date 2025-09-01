@@ -764,6 +764,13 @@ namespace Modules {
 		glm::vec2
 			Pilot::polarToAxes(const glm::vec2& polar) const
 		{
+			// Special case for see-through
+			if (polar.r == 0) {
+				return {
+					0.5, 0.0
+				};
+			};
+
 			const auto & r = polar[0];
 			const auto & theta = polar[1];
 

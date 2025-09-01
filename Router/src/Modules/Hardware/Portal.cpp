@@ -6,15 +6,29 @@ using namespace msgpack11;
 
 namespace Modules {
 	//----------
-	vector<Portal::Action>
+	vector<shared_ptr<Portal::Action>>
 	Portal::getActions()
 	{
-		return {
+		static vector<shared_ptr<Action>> actions;
+		if (!actions.empty()) {
+			return actions;
+		}
+		
+		auto zeroAxesFunction = [](Portal* portal) {
+			portal->getPilot()->reset();
+			portal->getPilot()->setAxes({ 0, 0 });
+			};
+		auto seeThroughAxesFunction = [](Portal* portal) {
+			portal->getPilot()->reset();
+			portal->getPilot()->setAxes({ 0.5, 0 });
+			};
+
+		vector<Action> actionsInstance({
 			{
 				"Ping"
 				, u8"\uf45d"
 				, msgpack11::MsgPack()
-				, "/ping"
+				, "ping"
 			}
 			, {
 				"Initialise routine"
@@ -24,7 +38,9 @@ namespace Modules {
 						"init", msgpack11::MsgPack()
 					}
 				}
-				, "/init"
+				, "init"
+				, 0
+				, zeroAxesFunction
 			,
 			}
 			, {
@@ -35,7 +51,9 @@ namespace Modules {
 						"calibrate", msgpack11::MsgPack()
 					}
 				}
-				, "/calibrate"
+				, "calibrate"
+				, 0
+				, zeroAxesFunction
 			}
 			, {
 				"Home routine" // Note this name is used in Installation::homeHardwareAndZeroPositions. If you change the name, change it there also
@@ -45,7 +63,9 @@ namespace Modules {
 						"home", msgpack11::MsgPack()
 					}
 				}
-				, "/home"
+				, "home"
+				, 0
+				, zeroAxesFunction
 			}
 			, {
 				"Flash lights"
@@ -55,7 +75,7 @@ namespace Modules {
 						"flashLED", msgpack11::MsgPack()
 					}
 				}
-				, "/flashLEDs"
+				, "flashLEDs"
 			}
 			, {
 				"Go Home"
@@ -69,7 +89,9 @@ namespace Modules {
 						}
 					}
 				}
-				, "/goHome"
+				, "goHome"
+				, 0
+				, zeroAxesFunction
 			}
 			, {
 				"See through"
@@ -84,6 +106,8 @@ namespace Modules {
 					}
 				}
 				, "/seeThrough"
+				, 0
+				, seeThroughAxesFunction
 			}
 			, {
 				"Disable debug lights"
@@ -93,7 +117,7 @@ namespace Modules {
 						"debugLightsEnabled", false
 					}
 				}
-				, "/disableDebugLights"
+				, "disableDebugLights"
 			}
 			, {
 				"Enable debug lights"
@@ -113,7 +137,7 @@ namespace Modules {
 						"unjam", msgpack11::MsgPack()
 					}
 				}
-				, "/unjam"
+				, "unjam"
 			}
 			, {
 				"Escape from routine"
@@ -123,7 +147,7 @@ namespace Modules {
 						"escapeFromRoutine", msgpack11::MsgPack()
 					}
 				}
-				, "/escapeFromRoutine"
+				, "escapeFromRoutine"
 			}
 			, {
 				"Reboot"
@@ -133,9 +157,46 @@ namespace Modules {
 						"reset", msgpack11::MsgPack()
 					}
 				}
-				, "/reboot"
+				, "reboot"
+				, 0
+				, zeroAxesFunction
 			}
-		};
+		});
+
+		
+		for (auto action : actionsInstance) {
+			actions.push_back(make_shared<Action>(action));
+		}
+
+		return actions;
+	}
+
+	//----------
+	shared_ptr<Portal::Action>
+		Portal::getActionByCaption(const string& caption)
+	{
+		auto actions = Portal::getActions();
+		for (auto action : actions) {
+			if (action->caption == caption) {
+				return action;
+			}
+		}
+
+		return nullptr;
+	}
+
+	//----------
+	shared_ptr<Portal::Action>
+		Portal::getActionByOSCAddress(const string& oscAddress)
+	{
+		auto actions = Portal::getActions();
+		for (auto action : actions) {
+			if (action->oscAddress == oscAddress) {
+				return action;
+			}
+		}
+
+		return nullptr;
 	}
 
 	//----------
@@ -352,16 +413,16 @@ namespace Modules {
 					buttonStack = inspector->addHorizontalStack();
 				}
 
-				auto hasHotkey = action.shortcutKey != 0;
+				auto hasHotkey = action->shortcutKey != 0;
 				auto buttonAction = [this, action]() {
-					this->sendToPortal(action.message, "");
+					this->performAction(action);
 				};
 
 				auto button = hasHotkey
-					? buttonStack->addButton(action.caption, buttonAction, action.shortcutKey)
-					: buttonStack->addButton(action.caption, buttonAction);
+					? buttonStack->addButton(action->caption, buttonAction, action->shortcutKey)
+					: buttonStack->addButton(action->caption, buttonAction);
 
-				button->setDrawGlyph(action.icon);
+				button->setDrawGlyph(action->icon);
 			}
 		}
 	}
@@ -515,6 +576,16 @@ namespace Modules {
 		};
 
 		this->rs485->transmit(packet);
+	}
+
+	//----------
+	void
+		Portal::performAction(shared_ptr<Action> action)
+	{
+		this->sendToPortal(action->message, action->oscAddress);
+		if (action->portalUpdateFunction) {
+			action->portalUpdateFunction(this);
+		}
 	}
 
 	//----------
