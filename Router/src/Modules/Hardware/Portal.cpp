@@ -105,7 +105,7 @@ namespace Modules {
 						}
 					}
 				}
-				, "/seeThrough"
+				, "seeThrough"
 				, 0
 				, seeThroughAxesFunction
 			}
@@ -127,7 +127,7 @@ namespace Modules {
 						"debugLightsEnabled", true
 					}
 				}
-				, "/enableDebugLights"
+				, "enableDebugLights"
 			}
 			, {
 				"Unjam"

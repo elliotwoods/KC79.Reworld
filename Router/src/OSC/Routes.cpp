@@ -267,7 +267,14 @@ namespace OSC {
 			auto address = message.getAddress();
 			auto addressParts = ofSplitString(address, "/", true, true);
 			
-			if (addressParts.size() >= 2) {
+			if (addressParts.size() == 1) {
+				// Perform on installation
+				auto action = Portal::getActionByOSCAddress(addressParts[0]);
+				if (action) {
+					App::X()->getInstallation()->broadcastAction(action);
+				}
+			}
+			else if (addressParts.size() >= 2) {
 				auto hasColumnIndex = isInteger(addressParts[0]);
 				auto hasPortalIndex = isInteger(addressParts[1]);
 	
