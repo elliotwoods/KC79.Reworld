@@ -26,7 +26,7 @@ namespace Modules {
 
 			void rebuildColumns();
 
-			vector<shared_ptr<Column>> getAllColumns() const;
+			const vector<shared_ptr<Column>> & getAllColumns() const;
 			shared_ptr<Column> getColumnByID(size_t) const;
 
 			vector<shared_ptr<Portal>> getAllPortals() const;

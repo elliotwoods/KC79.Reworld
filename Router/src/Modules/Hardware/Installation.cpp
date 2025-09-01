@@ -200,7 +200,7 @@ namespace Modules {
 		}
 
 		//----------
-		vector<shared_ptr<Column>>
+		const vector<shared_ptr<Column>>&
 			Installation::getAllColumns() const
 		{
 			return this->columns;
