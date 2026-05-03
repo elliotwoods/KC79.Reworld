@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "WebFetch(domain:www.digikey.kr)",
+      "WebFetch(domain:www.st.com)",
+      "WebFetch(domain:www.manualslib.com)",
+      "WebFetch(domain:www.digikey.pl)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:www.alldatasheet.com)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:taoic.oss-cn-hangzhou.aliyuncs.com)",
+      "WebFetch(domain:www.scribd.com)",
+      "WebFetch(domain:moons.link)"
+    ]
+  }
+}
