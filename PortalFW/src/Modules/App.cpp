@@ -443,6 +443,17 @@ namespace Modules
 			return true;
 		}
 
+#ifndef HOME_SWITCH_LEGACY
+		else if (strcmp(key, "homeThreshold") == 0) {
+			int32_t value;
+			if(!msgpack::readInt<int32_t>(stream, value)) {
+				return false;
+			}
+			HomeSwitchOptical::setThreshold((uint8_t) value);
+			return true;
+		}
+#endif
+
 		else if (strcmp(key, "escapeFromRoutine") == 0) {
 			if(!msgpack::readNil(stream)) {
 				return false;
