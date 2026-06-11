@@ -22,6 +22,8 @@
 // Built only by the `home_switch_track` PlatformIO env (entry point: this file).
 
 #include <Arduino.h>
+#include <U8g2lib.h>
+#include <u8g2hal.h>
 
 #include "Modules/HomeSwitchOptical.h"
 
@@ -61,6 +63,9 @@ extern "C" void SystemClock_Config(void) {
 // Same debug UART as runtime / the sweep tool (USART1, PB6 TX / PB7 RX @ 115200).
 HardwareSerial testSerial(PB7, PB6);
 
+static U8G2 u8g2;
+static bool oledOk = false;
+
 static Modules::HomeSwitchOptical * homeA = nullptr;
 static Modules::HomeSwitchOptical * homeB = nullptr;
 
@@ -69,6 +74,47 @@ static const uint8_t  kThreshold = HOMESWITCHOPTICAL_DEFAULT_THRESHOLD;
 // Max serial frame rate to the PC.
 static const uint32_t kStreamHz  = 60;
 static const uint32_t kFrameUs   = 1000000UL / kStreamHz;   // ~16667 us
+// OLED refresh rate (slower than the inner loop - I2C is expensive).
+static const uint32_t kOledPeriodMs = 100;
+
+static void drawOled(bool a, bool b, uint32_t aEdges, uint32_t bEdges) {
+    if (!oledOk) return;
+    u8g2.clearBuffer();
+    u8g2.setFont(u8g2_font_5x7_tr);
+    u8g2.drawStr(0, 7, "HOME-SW TRACKER");
+
+    // Big state indicators: two 50x40 boxes side-by-side, filled when active.
+    // A on the left, B on the right.
+    const int boxW = 50, boxH = 40, boxY = 12;
+    const int aX = 4, bX = 74;
+
+    if (a) {
+        u8g2.drawBox(aX, boxY, boxW, boxH);
+        u8g2.setDrawColor(0);
+    }
+    u8g2.drawFrame(aX, boxY, boxW, boxH);
+    u8g2.setFont(u8g2_font_10x20_mr);
+    u8g2.drawStr(aX + 14, boxY + 26, "A");
+    u8g2.setDrawColor(1);
+
+    if (b) {
+        u8g2.drawBox(bX, boxY, boxW, boxH);
+        u8g2.setDrawColor(0);
+    }
+    u8g2.drawFrame(bX, boxY, boxW, boxH);
+    u8g2.drawStr(bX + 14, boxY + 26, "B");
+    u8g2.setDrawColor(1);
+
+    // Edge counters below the boxes.
+    char buf[24];
+    u8g2.setFont(u8g2_font_5x7_tr);
+    snprintf(buf, sizeof(buf), "e%lu", (unsigned long)(aEdges & 0xFFFF));
+    u8g2.drawStr(aX + 2, 62, buf);
+    snprintf(buf, sizeof(buf), "e%lu", (unsigned long)(bEdges & 0xFFFF));
+    u8g2.drawStr(bX + 2, 62, buf);
+
+    u8g2.sendBuffer();
+}
 
 void setup() {
     SystemClock_Config();
@@ -84,6 +130,16 @@ void setup() {
     testSerial.print("# threshold="); testSerial.println((int) kThreshold);
     testSerial.println("# byte: b7=1 b0=A b1=B b2=Aedge b3=Bedge");
 
+    if (u8x8_stm32_init_i2c()) {
+        u8g2_Setup_ssd1306_i2c_128x64_noname_f(u8g2.getU8g2(), U8G2_R2,
+            u8x8_byte_stm32_hw_i2c, u8x8_stm32_gpio_and_delay);
+        u8x8_SetI2CAddress(u8g2.getU8x8(), 0x3c);
+        u8g2.begin();
+        oledOk = true;
+    } else {
+        testSerial.println("# WARNING: OLED not detected");
+    }
+
     homeA = new Modules::HomeSwitchOptical(Modules::HomeSwitchOptical::Config::A());
     homeB = new Modules::HomeSwitchOptical(Modules::HomeSwitchOptical::Config::B());
     homeA->setup();   // installs the shared TIM6 software-PWM threshold generator
@@ -96,6 +152,8 @@ void loop() {
     static bool prevA = false, prevB = false;   // last sampled level
     static bool aEdge = false, bEdge = false;   // sticky edge latch since last frame
     static uint32_t nextFrameUs = 0;
+    static uint32_t aEdgeCount = 0, bEdgeCount = 0;
+    static uint32_t lastOledMs = 0;
 
     // Fast inner read - runs far above 60 Hz. LEDs track live; edges are latched.
     const bool a = homeA->getForwardsActive();
@@ -104,8 +162,8 @@ void loop() {
     digitalWrite(PB3, a ? HIGH : LOW);
     digitalWrite(PB4, b ? HIGH : LOW);
 
-    if (a != prevA) aEdge = true;
-    if (b != prevB) bEdge = true;
+    if (a != prevA) { aEdge = true; aEdgeCount++; }
+    if (b != prevB) { bEdge = true; bEdgeCount++; }
     prevA = a;
     prevB = b;
 
@@ -123,5 +181,12 @@ void loop() {
 
         aEdge = false;
         bEdge = false;
+    }
+
+    // OLED refresh on a slower cadence so I2C doesn't block the inner loop.
+    const uint32_t nowMs = millis();
+    if (nowMs - lastOledMs >= kOledPeriodMs) {
+        lastOledMs = nowMs;
+        drawOled(a, b, aEdgeCount, bEdgeCount);
     }
 }
