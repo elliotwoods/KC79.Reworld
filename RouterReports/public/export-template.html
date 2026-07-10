@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>RouterRS session report</title>
+<style>
+body { margin: 0; background: #14161a; color: #d7dae0; font: 14px/1.45 "Segoe UI", system-ui, sans-serif; }
+main { padding: 20px; max-width: 1400px; margin: 0 auto; }
+h1 { font-size: 18px; } h2 { font-size: 15px; margin: 18px 0 8px; }
+.sub { color: #8a919c; font-size: 12px; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; margin-bottom: 12px; }
+th, td { text-align: left; padding: 4px 10px; border-bottom: 1px solid #32363e; }
+th { color: #8a919c; font-size: 12px; }
+.mono { font-family: Consolas, monospace; font-size: 12px; }
+.tiles { display: flex; gap: 12px; flex-wrap: wrap; }
+.tile { background: #1d2026; border: 1px solid #32363e; border-radius: 8px; padding: 10px 16px; min-width: 110px; }
+.tile .value { font-size: 20px; font-weight: 600; }
+.tile .label { color: #8a919c; font-size: 11px; text-transform: uppercase; }
+.state-ok { color: #4cc966; } .state-degraded { color: #f2bf33; }
+.state-faulty, .state-silent { color: #e64545; } .state-unknown { color: #8a919c; }
+canvas { display: block; margin: 8px 0; }
+</style>
+</head>
+<body>
+<main>
+  <h1>RouterRS session report</h1>
+  <div class="sub" id="meta"></div>
+  <h2>Totals</h2>
+  <div class="tiles" id="tiles"></div>
+  <h2>Unit health</h2>
+  <canvas id="heatmap"></canvas>
+  <h2>Traffic &amp; faults</h2>
+  <canvas id="chart" width="1200" height="220"></canvas>
+  <h2>Connections</h2>
+  <table id="columns"></table>
+  <h2>Worst units</h2>
+  <table id="worst"></table>
+  <h2>Fault timeline</h2>
+  <table id="faults"></table>
+</main>
+<script>
+const SUMMARY = /*__SUMMARY__*/null;
+const TIMELINE = /*__TIMELINE__*/null;
+
+const fmtTs = (ms) => ms == null ? '—' : new Date(ms).toISOString().replace('T',' ').slice(0,19);
+const fmtNum = (n) => n == null ? '—' : n.toLocaleString('en-US');
+
+document.getElementById('meta').textContent =
+  `${SUMMARY.session.host ?? ''} · ${fmtTs(SUMMARY.session.start_ts)} · ` +
+  `${Math.round((SUMMARY.session.duration_ms ?? 0)/1000)}s · ` +
+  (SUMMARY.session.clean_exit ? 'clean exit' : 'CRASHED');
+
+const t = SUMMARY.totals ?? {};
+document.getElementById('tiles').innerHTML = [
+  ['Tx', t.tx], ['Rx', t.rx], ['Timeouts', t.timeouts],
+  ['COBS err', t.cobs_errors], ['Msgpack err', t.msgpack_errors],
+  ['FW error logs', t.portal_error_logs], ['Reconnects', t.reconnects],
+].map(([l, v]) => `<div class="tile"><div class="value">${fmtNum(v ?? 0)}</div><div class="label">${l}</div></div>`).join('');
+
+// heatmap
+(() => {
+  const portals = SUMMARY.portals ?? [];
+  const byCol = new Map();
+  for (const p of portals) { (byCol.get(p.col) ?? byCol.set(p.col, []).get(p.col)).push(p); }
+  const cols = [...byCol.keys()].sort((a, b) => a - b);
+  const maxN = Math.max(1, ...[...byCol.values()].map(v => v.length));
+  const cell = 14, gap = 2, colGap = 8;
+  const canvas = document.getElementById('heatmap');
+  canvas.width = cols.length * (cell + colGap) + colGap;
+  canvas.height = maxN * (cell + gap) + 20;
+  const ctx = canvas.getContext('2d');
+  const colors = { ok: '#2e9e4c', degraded: '#c9992a', faulty: '#c23535', silent: '#7a1fa0', unknown: '#3a3f48' };
+  ctx.font = '9px Consolas, monospace';
+  cols.forEach((col, ci) => {
+    const x = colGap + ci * (cell + colGap);
+    ctx.fillStyle = '#8a919c';
+    ctx.fillText(String(col), x + 1, canvas.height - 6);
+    byCol.get(col).sort((a, b) => a.portal - b.portal).forEach((p, pi) => {
+      ctx.fillStyle = colors[p.final_state] ?? colors.unknown;
+      ctx.fillRect(x, (maxN - 1 - pi) * (cell + gap), cell, cell);
+    });
+  });
+})();
+
+// chart
+(() => {
+  const c = document.getElementById('chart');
+  const ctx = c.getContext('2d');
+  const { t: ts, tx, rx, faults } = TIMELINE;
+  if (!ts || ts.length === 0) return;
+  const pad = { l: 46, r: 10, t: 8, b: 18 };
+  const w = c.width - pad.l - pad.r, h = c.height - pad.t - pad.b;
+  const t0 = ts[0], t1 = ts[ts.length - 1] || t0 + 1;
+  const maxV = Math.max(1, ...tx, ...rx, ...faults);
+  const X = (v) => pad.l + (v - t0) / Math.max(t1 - t0, 1) * w;
+  const Y = (v) => pad.t + h - v / maxV * h;
+  ctx.strokeStyle = '#2a2e36';
+  for (let i = 0; i <= 4; i++) { const y = Y(maxV / 4 * i); ctx.beginPath(); ctx.moveTo(pad.l, y); ctx.lineTo(pad.l + w, y); ctx.stroke(); ctx.fillStyle = '#8a919c'; ctx.font = '10px monospace'; ctx.fillText(Math.round(maxV / 4 * i), 4, y + 3); }
+  const line = (vals, color) => { ctx.strokeStyle = color; ctx.lineWidth = 1.5; ctx.beginPath(); vals.forEach((v, i) => i === 0 ? ctx.moveTo(X(ts[i]), Y(v)) : ctx.lineTo(X(ts[i]), Y(v))); ctx.stroke(); };
+  line(tx, '#5a9ff2'); line(rx, '#4cc966'); line(faults, '#e64545');
+})();
+
+document.getElementById('columns').innerHTML =
+  '<tr><th>Col</th><th>Endpoint</th><th>Tx</th><th>Rx</th><th>Timeouts</th><th>COBS</th><th>Msgpack</th></tr>' +
+  (SUMMARY.columns ?? []).map(c =>
+    `<tr><td>${c.col}</td><td class="mono">${c.transport ?? ''} ${c.endpoint ?? ''}</td><td>${fmtNum(c.tx)}</td><td>${fmtNum(c.rx)}</td><td>${fmtNum(c.timeouts)}</td><td>${fmtNum(c.cobs_errors)}</td><td>${fmtNum(c.msgpack_errors)}</td></tr>`).join('');
+
+const worst = [...(SUMMARY.portals ?? [])].sort((a, b) => a.final_score - b.final_score).slice(0, 15);
+document.getElementById('worst').innerHTML =
+  '<tr><th>Unit</th><th>State</th><th>Score</th><th>ACK %</th><th>Timeouts</th><th>Error logs</th><th>FW</th></tr>' +
+  worst.map(p =>
+    `<tr><td>c${p.col} p${p.portal}</td><td class="state-${p.final_state}">${p.final_state}</td><td>${p.final_score}</td><td>${(p.ack_pct ?? 100).toFixed(1)}</td><td>${fmtNum(p.timeouts)}</td><td>${fmtNum(p.log_counts?.error ?? 0)}</td><td class="mono">${p.version ?? '?'}</td></tr>`).join('');
+
+document.getElementById('faults').innerHTML =
+  '<tr><th>From</th><th>Type</th><th>Col</th><th>Portal</th><th>Count</th><th>Sample</th></tr>' +
+  (SUMMARY.fault_timeline ?? []).slice(-100).reverse().map(f =>
+    `<tr><td class="mono">${fmtTs(f.ts)}</td><td>${f.type}</td><td>${f.col ?? ''}</td><td>${f.portal ?? ''}</td><td>${fmtNum(f.count)}</td><td class="mono">${f.sample ?? ''}</td></tr>`).join('');
+</script>
+</body>
+</html>

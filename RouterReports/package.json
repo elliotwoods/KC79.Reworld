@@ -1,0 +1,14 @@
+{
+  "name": "router-reports",
+  "version": "0.1.0",
+  "description": "Session report viewer for RouterRS (KC79 Reworld installation diagnostics)",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test test/"
+  },
+  "dependencies": {
+    "express": "^4.19.0"
+  }
+}

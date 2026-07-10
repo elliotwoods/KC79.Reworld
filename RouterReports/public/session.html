@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>RouterReports — session</title>
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<header>
+  <h1><a href="index.html">RouterReports</a></h1>
+  <span class="sub mono" id="sessionId"></span>
+  <span class="sub" id="sessionMeta"></span>
+  <span style="flex:1"></span>
+  <a id="exportLink" class="sub" href="#">Export static HTML</a>
+</header>
+<main>
+  <div class="tabs">
+    <button id="tabDashboard" class="active">Dashboard</button>
+    <button id="tabExplorer">Explorer</button>
+  </div>
+
+  <section id="dashboard">
+    <div class="tiles" id="tiles"></div>
+
+    <div class="panel">
+      <h2>Unit health heatmap
+        <select id="heatMetric" style="margin-left:12px;font-size:12px">
+          <option value="state">health state</option>
+          <option value="ack">ack %</option>
+          <option value="timeouts">timeouts</option>
+          <option value="errors">error logs</option>
+        </select>
+      </h2>
+      <canvas id="heatmap" class="heatmap"></canvas>
+      <div class="legend">
+        <span><span class="key" style="background:#2e9e4c"></span>ok</span>
+        <span><span class="key" style="background:#c9992a"></span>degraded</span>
+        <span><span class="key" style="background:#c23535"></span>faulty</span>
+        <span><span class="key" style="background:#7a1fa0"></span>silent</span>
+        <span><span class="key" style="background:#3a3f48"></span>unknown</span>
+        <span class="muted">click a cell to open it in the explorer</span>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Traffic &amp; faults over time</h2>
+      <canvas id="timelineChart" class="chart"></canvas>
+      <div class="legend">
+        <span><span class="key" style="background:#5a9ff2"></span>tx</span>
+        <span><span class="key" style="background:#4cc966"></span>rx</span>
+        <span><span class="key" style="background:#e64545"></span>faults</span>
+        <span><span class="key" style="background:#f2bf33;border:1px dashed #f2bf33"></span>markers</span>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Connections</h2>
+      <table id="columnsTable">
+        <thead><tr>
+          <th>Col</th><th>Endpoint</th><th>Connects</th><th>Stalls</th><th>Tx</th><th>Rx</th>
+          <th>Timeouts</th><th>COBS err</th><th>Msgpack err</th><th>Latency p50/p90/p99</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+    <div class="panel">
+      <h2>Top offenders</h2>
+      <div style="display:flex;gap:24px;flex-wrap:wrap" id="offenders"></div>
+    </div>
+
+    <div class="panel">
+      <h2>Fault timeline (merged)</h2>
+      <table id="faultsTable">
+        <thead><tr><th>From</th><th>To</th><th>Type</th><th>Col</th><th>Portal</th><th>Count</th><th>Sample</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="explorer" style="display:none">
+    <div class="panel">
+      <div class="filters">
+        <input id="fType" placeholder="type (comma-sep)" size="24">
+        <input id="fCol" placeholder="col" size="4">
+        <input id="fPortal" placeholder="portal" size="5">
+        <select id="fLevel">
+          <option value="">any level</option>
+          <option value="10">warnings+</option>
+          <option value="20">errors only</option>
+        </select>
+        <button id="fApply">Apply</button>
+        <button id="fFaults">Faults only</button>
+        <button id="fClear">Clear</button>
+        <span class="muted" id="fStatus"></span>
+      </div>
+      <div id="eventList"></div>
+      <button id="loadMore" class="filters" style="margin-top:8px">Load more</button>
+    </div>
+  </section>
+</main>
+<script type="module" src="js/session.js"></script>
+</body>
+</html>

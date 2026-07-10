@@ -1,0 +1,4898 @@
+{
+  "columns": [
+    {
+      "acks": 252,
+      "bytes_rx": 0,
+      "bytes_tx": 3438,
+      "cobs_errors": 8,
+      "col": 0,
+      "connects": 1,
+      "disconnects": 1,
+      "endpoint": "sim:18 portals",
+      "latency_ms": {
+        "max": 6.548999786376953,
+        "p50": 4.021390438079834,
+        "p90": 8.076923370361328,
+        "p99": 9.846153259277344
+      },
+      "msgpack_errors": 0,
+      "outbox_peak": 34,
+      "rx": 252,
+      "stalls": 0,
+      "timeouts": 36,
+      "transport": "Sim",
+      "tx": 288
+    },
+    {
+      "acks": 252,
+      "bytes_rx": 0,
+      "bytes_tx": 3438,
+      "cobs_errors": 8,
+      "col": 1,
+      "connects": 1,
+      "disconnects": 1,
+      "endpoint": "sim:18 portals",
+      "latency_ms": {
+        "max": 6.4853997230529785,
+        "p50": 4.021390438079834,
+        "p90": 8.076923370361328,
+        "p99": 9.846153259277344
+      },
+      "msgpack_errors": 0,
+      "outbox_peak": 34,
+      "rx": 252,
+      "stalls": 0,
+      "timeouts": 36,
+      "transport": "Sim",
+      "tx": 288
+    },
+    {
+      "acks": 252,
+      "bytes_rx": 0,
+      "bytes_tx": 3438,
+      "cobs_errors": 8,
+      "col": 2,
+      "connects": 1,
+      "disconnects": 1,
+      "endpoint": "sim:18 portals",
+      "latency_ms": {
+        "max": 12.59160041809082,
+        "p50": 4.076923370361328,
+        "p90": 8.260869979858398,
+        "p99": 9.927536010742188
+      },
+      "msgpack_errors": 0,
+      "outbox_peak": 34,
+      "rx": 252,
+      "stalls": 0,
+      "timeouts": 36,
+      "transport": "Sim",
+      "tx": 288
+    },
+    {
+      "acks": 252,
+      "bytes_rx": 0,
+      "bytes_tx": 3438,
+      "cobs_errors": 8,
+      "col": 3,
+      "connects": 1,
+      "disconnects": 1,
+      "endpoint": "sim:18 portals",
+      "latency_ms": {
+        "max": 6.580700397491455,
+        "p50": 4.021390438079834,
+        "p90": 8.076923370361328,
+        "p99": 9.846153259277344
+      },
+      "msgpack_errors": 0,
+      "outbox_peak": 34,
+      "rx": 252,
+      "stalls": 0,
+      "timeouts": 36,
+      "transport": "Sim",
+      "tx": 288
+    }
+  ],
+  "fault_timeline": [
+    {
+      "col": 0,
+      "count": 1,
+      "portal": 2,
+      "sample": "addr=m waited=300ms",
+      "ts": 1783511438407,
+      "ts_end": 1783511438407,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 1,
+      "count": 1,
+      "portal": 2,
+      "sample": "addr=m waited=300ms",
+      "ts": 1783511438407,
+      "ts_end": 1783511438407,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 2,
+      "count": 1,
+      "portal": 2,
+      "sample": "addr=m waited=300ms",
+      "ts": 1783511438407,
+      "ts_end": 1783511438407,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 3,
+      "count": 1,
+      "portal": 2,
+      "sample": "addr=m waited=300ms",
+      "ts": 1783511438407,
+      "ts_end": 1783511438407,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 0,
+      "count": 1,
+      "portal": 7,
+      "sample": "addr=m waited=300ms",
+      "ts": 1783511438729,
+      "ts_end": 1783511438729,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 1,
+      "count": 1,
+      "portal": 7,
+      "sample": "addr=m waited=300ms",
+      "ts": 1783511438729,
+      "ts_end": 1783511438729,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 2,
+      "count": 1,
+      "portal": 7,
+      "sample": "addr=m waited=300ms",
+      "ts": 1783511438729,
+      "ts_end": 1783511438729,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 3,
+      "count": 1,
+      "portal": 7,
+      "sample": "addr=m waited=300ms",
+      "ts": 1783511438729,
+      "ts_end": 1783511438729,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 1,
+      "count": 1,
+      "portal": 2,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511439089,
+      "ts_end": 1783511439089,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 2,
+      "count": 1,
+      "portal": 2,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511439089,
+      "ts_end": 1783511439089,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 3,
+      "count": 1,
+      "portal": 2,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511439089,
+      "ts_end": 1783511439089,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 0,
+      "count": 1,
+      "portal": 2,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511439090,
+      "ts_end": 1783511439090,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 3,
+      "count": 1,
+      "portal": 7,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511439410,
+      "ts_end": 1783511439410,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 0,
+      "count": 1,
+      "portal": 7,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511439411,
+      "ts_end": 1783511439411,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 1,
+      "count": 1,
+      "portal": 7,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511439411,
+      "ts_end": 1783511439411,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 2,
+      "count": 1,
+      "portal": 7,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511439412,
+      "ts_end": 1783511439412,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 3,
+      "count": 1,
+      "portal": 2,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511441467,
+      "ts_end": 1783511441467,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 1,
+      "count": 1,
+      "portal": 2,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511441467,
+      "ts_end": 1783511441467,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 0,
+      "count": 1,
+      "portal": 2,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511441467,
+      "ts_end": 1783511441467,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 2,
+      "count": 1,
+      "portal": 2,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511441467,
+      "ts_end": 1783511441467,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 3,
+      "count": 1,
+      "portal": 7,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511441788,
+      "ts_end": 1783511441788,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 2,
+      "count": 1,
+      "portal": 7,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511441788,
+      "ts_end": 1783511441788,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 1,
+      "count": 1,
+      "portal": 7,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511441790,
+      "ts_end": 1783511441790,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 0,
+      "count": 1,
+      "portal": 7,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511441790,
+      "ts_end": 1783511441790,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 2,
+      "count": 1,
+      "portal": null,
+      "sample": "COBS decode error: truncated frame (code byte ran past end)",
+      "ts": 1783511441797,
+      "ts_end": 1783511441797,
+      "type": "cobs_error"
+    },
+    {
+      "col": 3,
+      "count": 1,
+      "portal": null,
+      "sample": "COBS decode error: truncated frame (code byte ran past end)",
+      "ts": 1783511441797,
+      "ts_end": 1783511441797,
+      "type": "cobs_error"
+    },
+    {
+      "col": 2,
+      "count": 1,
+      "portal": null,
+      "sample": "COBS decode error: truncated frame (code byte ran past end)",
+      "ts": 1783511441797,
+      "ts_end": 1783511441797,
+      "type": "cobs_error"
+    },
+    {
+      "col": 3,
+      "count": 1,
+      "portal": null,
+      "sample": "COBS decode error: truncated frame (code byte ran past end)",
+      "ts": 1783511441797,
+      "ts_end": 1783511441797,
+      "type": "cobs_error"
+    },
+    {
+      "col": 0,
+      "count": 1,
+      "portal": null,
+      "sample": "COBS decode error: truncated frame (code byte ran past end)",
+      "ts": 1783511441798,
+      "ts_end": 1783511441798,
+      "type": "cobs_error"
+    },
+    {
+      "col": 1,
+      "count": 1,
+      "portal": null,
+      "sample": "COBS decode error: truncated frame (code byte ran past end)",
+      "ts": 1783511441798,
+      "ts_end": 1783511441798,
+      "type": "cobs_error"
+    },
+    {
+      "col": 0,
+      "count": 1,
+      "portal": null,
+      "sample": "COBS decode error: truncated frame (code byte ran past end)",
+      "ts": 1783511441798,
+      "ts_end": 1783511441798,
+      "type": "cobs_error"
+    },
+    {
+      "col": 1,
+      "count": 1,
+      "portal": null,
+      "sample": "COBS decode error: truncated frame (code byte ran past end)",
+      "ts": 1783511441798,
+      "ts_end": 1783511441798,
+      "type": "cobs_error"
+    },
+    {
+      "col": 3,
+      "count": 1,
+      "portal": 9,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511442094,
+      "ts_end": 1783511442094,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 2,
+      "count": 1,
+      "portal": 9,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511442094,
+      "ts_end": 1783511442094,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 0,
+      "count": 1,
+      "portal": 9,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511442095,
+      "ts_end": 1783511442095,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 1,
+      "count": 1,
+      "portal": 9,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511442096,
+      "ts_end": 1783511442096,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 2,
+      "count": 1,
+      "portal": 2,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511444474,
+      "ts_end": 1783511444474,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 3,
+      "count": 1,
+      "portal": 2,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511444474,
+      "ts_end": 1783511444474,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 0,
+      "count": 1,
+      "portal": 2,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511444474,
+      "ts_end": 1783511444474,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 1,
+      "count": 1,
+      "portal": 2,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511444475,
+      "ts_end": 1783511444475,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 3,
+      "count": 1,
+      "portal": 7,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511444795,
+      "ts_end": 1783511444795,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 2,
+      "count": 1,
+      "portal": 7,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511444795,
+      "ts_end": 1783511444795,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 0,
+      "count": 1,
+      "portal": 7,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511444795,
+      "ts_end": 1783511444795,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 1,
+      "count": 1,
+      "portal": 7,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511444797,
+      "ts_end": 1783511444797,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 3,
+      "count": 1,
+      "portal": 4,
+      "sample": "unknown -> ok: recovered",
+      "ts": 1783511446167,
+      "ts_end": 1783511446167,
+      "type": "health_transition"
+    },
+    {
+      "col": 0,
+      "count": 1,
+      "portal": 8,
+      "sample": "unknown -> ok: recovered",
+      "ts": 1783511446167,
+      "ts_end": 1783511446167,
+      "type": "health_transition"
+    },
+    {
+      "col": 0,
+      "count": 1,
+      "portal": 13,
+      "sample": "unknown -> ok: recovered",
+      "ts": 1783511446167,
+      "ts_end": 1783511446167,
+      "type": "health_transition"
+    },
+    {
+      "col": 2,
+      "count": 1,
+      "portal": 15,
+      "sample": "unknown -> ok: recovered",
+      "ts": 1783511446167,
+      "ts_end": 1783511446167,
+      "type": "health_transition"
+    },
+    {
+      "col": 0,
+      "count": 1,
+      "portal": 17,
+      "sample": "unknown -> ok: recovered",
+      "ts": 1783511446167,
+      "ts_end": 1783511446167,
+      "type": "health_transition"
+    },
+    {
+      "col": 2,
+      "count": 1,
+      "portal": 8,
+      "sample": "unknown -> ok: recovered",
+      "ts": 1783511446167,
+      "ts_end": 1783511446167,
+      "type": "health_transition"
+    },
+    {
+      "col": 0,
+      "count": 1,
+      "portal": 4,
+      "sample": "unknown -> ok: recovered",
+      "ts": 1783511446168,
+      "ts_end": 1783511446168,
+      "type": "health_transition"
+    },
+    {
+      "col": 1,
+      "count": 1,
+      "portal": 13,
+      "sample": "unknown -> ok: recovered",
+      "ts": 1783511446168,
+      "ts_end": 1783511446168,
+      "type": "health_transition"
+    },
+    {
+      "col": 3,
+      "count": 1,
+      "portal": 1,
+      "sample": "unknown -> ok: recovered",
+      "ts": 1783511446168,
+      "ts_end": 1783511446168,
+      "type": "health_transition"
+    },
+    {
+      "col": 2,
+      "count": 1,
+      "portal": 2,
+      "sample": "unknown -> silent: no response while polled",
+      "ts": 1783511446168,
+      "ts_end": 1783511446168,
+      "type": "health_transition"
+    },
+    {
+      "col": 0,
+      "count": 1,
+      "portal": 6,
+      "sample": "unknown -> ok: recovered",
+      "ts": 1783511446168,
+      "ts_end": 1783511446168,
+      "type": "health_transition"
+    },
+    {
+      "col": 1,
+      "count": 1,
+      "portal": 15,
+      "sample": "unknown -> ok: recovered",
+      "ts": 1783511446168,
+      "ts_end": 1783511446168,
+      "type": "health_transition"
+    },
+    {
+      "col": 1,
+      "count": 1,
+      "portal": 10,
+      "sample": "unknown -> ok: recovered",
+      "ts": 1783511446168,
+      "ts_end": 1783511446168,
+      "type": "health_transition"
+    },
+    {
+      "col": 1,
+      "count": 1,
+      "portal": 11,
+      "sample": "unknown -> ok: recovered",
+      "ts": 1783511446168,
+      "ts_end": 1783511446168,
+      "type": "health_transition"
+    },
+    {
+      "col": 3,
+      "count": 1,
+      "portal": 3,
+      "sample": "unknown -> ok: recovered",
+      "ts": 1783511446168,
+      "ts_end": 1783511446168,
+      "type": "health_transition"
+    },
+    {
+      "col": 1,
+      "count": 1,
+      "portal": 6,
+      "sample": "unknown -> ok: recovered",
+      "ts": 1783511446168,
+      "ts_end": 1783511446168,
+      "type": "health_transition"
+    },
+    {
+      "col": 2,
+      "count": 1,
+      "portal": 6,
+      "sample": "unknown -> ok: recovered",
+      "ts": 1783511446168,
+      "ts_end": 1783511446168,
+      "type": "health_transition"
+    },
+    {
+      "col": 3,
+      "count": 1,
+      "portal": 8,
+      "sample": "unknown -> ok: recovered",
+      "ts": 1783511446168,
+      "ts_end": 1783511446168,
+      "type": "health_transition"
+    },
+    {
+      "col": 2,
+      "count": 1,
+      "portal": 4,
+      "sample": "unknown -> ok: recovered",
+      "ts": 1783511446168,
+      "ts_end": 1783511446168,
+      "type": "health_transition"
+    },
+    {
+      "col": 1,
+      "count": 1,
+      "portal": 9,
+      "sample": "unknown -> degraded: score 79: ack 75%, 0 error logs/min",
+      "ts": 1783511446168,
+      "ts_end": 1783511446168,
+      "type": "health_transition"
+    },
+    {
+      "col": 1,
+      "count": 1,
+      "portal": 8,
+      "sample": "unknown -> ok: recovered",
+      "ts": 1783511446168,
+      "ts_end": 1783511446168,
+      "type": "health_transition"
+    },
+    {
+      "col": 3,
+      "count": 1,
+      "portal": 15,
+      "sample": "unknown -> ok: recovered",
+      "ts": 1783511446168,
+      "ts_end": 1783511446168,
+      "type": "health_transition"
+    },
+    {
+      "col": 2,
+      "count": 1,
+      "portal": 10,
+      "sample": "unknown -> ok: recovered",
+      "ts": 1783511446168,
+      "ts_end": 1783511446168,
+      "type": "health_transition"
+    },
+    {
+      "col": 1,
+      "count": 1,
+      "portal": 17,
+      "sample": "unknown -> ok: recovered",
+      "ts": 1783511446168,
+      "ts_end": 1783511446168,
+      "type": "health_transition"
+    },
+    {
+      "col": 3,
+      "count": 1,
+      "portal": 13,
+      "sample": "unknown -> ok: recovered",
+      "ts": 1783511446168,
+      "ts_end": 1783511446168,
+      "type": "health_transition"
+    },
+    {
+      "col": 3,
+      "count": 1,
+      "portal": 14,
+      "sample": "unknown -> ok: recovered",
+      "ts": 1783511446168,
+      "ts_end": 1783511446168,
+      "type": "health_transition"
+    },
+    {
+      "col": 0,
+      "count": 1,
+      "portal": 5,
+      "sample": "unknown -> ok: recovered",
+      "ts": 1783511446168,
+      "ts_end": 1783511446168,
+      "type": "health_transition"
+    },
+    {
+      "col": 2,
+      "count": 1,
+      "portal": 12,
+      "sample": "unknown -> ok: recovered",
+      "ts": 1783511446168,
+      "ts_end": 1783511446168,
+      "type": "health_transition"
+    },
+    {
+      "col": 1,
+      "count": 1,
+      "portal": 5,
+      "sample": "unknown -> ok: recovered",
+      "ts": 1783511446168,
+      "ts_end": 1783511446168,
+      "type": "health_transition"
+    },
+    {
+      "col": 0,
+      "count": 1,
+      "portal": 1,
+      "sample": "unknown -> ok: recovered",
+      "ts": 1783511446168,
+      "ts_end": 1783511446168,
+      "type": "health_transition"
+    },
+    {
+      "col": 3,
+      "count": 1,
+      "portal": 9,
+      "sample": "unknown -> degraded: score 79: ack 75%, 0 error logs/min",
+      "ts": 1783511446168,
+      "ts_end": 1783511446168,
+      "type": "health_transition"
+    },
+    {
+      "col": 1,
+      "count": 1,
+      "portal": 3,
+      "sample": "unknown -> ok: recovered",
+      "ts": 1783511446168,
+      "ts_end": 1783511446168,
+      "type": "health_transition"
+    },
+    {
+      "col": 3,
+      "count": 1,
+      "portal": 6,
+      "sample": "unknown -> ok: recovered",
+      "ts": 1783511446168,
+      "ts_end": 1783511446168,
+      "type": "health_transition"
+    },
+    {
+      "col": 0,
+      "count": 1,
+      "portal": 10,
+      "sample": "unknown -> ok: recovered",
+      "ts": 1783511446168,
+      "ts_end": 1783511446168,
+      "type": "health_transition"
+    },
+    {
+      "col": 0,
+      "count": 1,
+      "portal": 15,
+      "sample": "unknown -> ok: recovered",
+      "ts": 1783511446168,
+      "ts_end": 1783511446168,
+      "type": "health_transition"
+    },
+    {
+      "col": 0,
+      "count": 1,
+      "portal": 9,
+      "sample": "unknown -> degraded: score 79: ack 75%, 0 error logs/min",
+      "ts": 1783511446168,
+      "ts_end": 1783511446168,
+      "type": "health_transition"
+    },
+    {
+      "col": 0,
+      "count": 1,
+      "portal": 16,
+      "sample": "unknown -> ok: recovered",
+      "ts": 1783511446168,
+      "ts_end": 1783511446168,
+      "type": "health_transition"
+    },
+    {
+      "col": 2,
+      "count": 1,
+      "portal": 17,
+      "sample": "unknown -> ok: recovered",
+      "ts": 1783511446168,
+      "ts_end": 1783511446168,
+      "type": "health_transition"
+    },
+    {
+      "col": 2,
+      "count": 1,
+      "portal": 1,
+      "sample": "unknown -> ok: recovered",
+      "ts": 1783511446168,
+      "ts_end": 1783511446168,
+      "type": "health_transition"
+    },
+    {
+      "col": 3,
+      "count": 1,
+      "portal": 7,
+      "sample": "unknown -> silent: no response while polled",
+      "ts": 1783511446169,
+      "ts_end": 1783511446169,
+      "type": "health_transition"
+    },
+    {
+      "col": 2,
+      "count": 1,
+      "portal": 11,
+      "sample": "unknown -> ok: recovered",
+      "ts": 1783511446169,
+      "ts_end": 1783511446169,
+      "type": "health_transition"
+    },
+    {
+      "col": 3,
+      "count": 1,
+      "portal": 2,
+      "sample": "unknown -> silent: no response while polled",
+      "ts": 1783511446169,
+      "ts_end": 1783511446169,
+      "type": "health_transition"
+    },
+    {
+      "col": 2,
+      "count": 1,
+      "portal": 13,
+      "sample": "unknown -> ok: recovered",
+      "ts": 1783511446169,
+      "ts_end": 1783511446169,
+      "type": "health_transition"
+    },
+    {
+      "col": 2,
+      "count": 1,
+      "portal": 16,
+      "sample": "unknown -> ok: recovered",
+      "ts": 1783511446169,
+      "ts_end": 1783511446169,
+      "type": "health_transition"
+    },
+    {
+      "col": 3,
+      "count": 1,
+      "portal": 11,
+      "sample": "unknown -> ok: recovered",
+      "ts": 1783511446169,
+      "ts_end": 1783511446169,
+      "type": "health_transition"
+    },
+    {
+      "col": 3,
+      "count": 1,
+      "portal": 12,
+      "sample": "unknown -> ok: recovered",
+      "ts": 1783511446169,
+      "ts_end": 1783511446169,
+      "type": "health_transition"
+    },
+    {
+      "col": 0,
+      "count": 1,
+      "portal": 11,
+      "sample": "unknown -> ok: recovered",
+      "ts": 1783511446169,
+      "ts_end": 1783511446169,
+      "type": "health_transition"
+    },
+    {
+      "col": 2,
+      "count": 1,
+      "portal": 7,
+      "sample": "unknown -> silent: no response while polled",
+      "ts": 1783511446169,
+      "ts_end": 1783511446169,
+      "type": "health_transition"
+    },
+    {
+      "col": 2,
+      "count": 1,
+      "portal": 5,
+      "sample": "unknown -> ok: recovered",
+      "ts": 1783511446169,
+      "ts_end": 1783511446169,
+      "type": "health_transition"
+    },
+    {
+      "col": 1,
+      "count": 1,
+      "portal": 14,
+      "sample": "unknown -> ok: recovered",
+      "ts": 1783511446169,
+      "ts_end": 1783511446169,
+      "type": "health_transition"
+    },
+    {
+      "col": 0,
+      "count": 1,
+      "portal": 12,
+      "sample": "unknown -> ok: recovered",
+      "ts": 1783511446169,
+      "ts_end": 1783511446169,
+      "type": "health_transition"
+    },
+    {
+      "col": 1,
+      "count": 1,
+      "portal": 2,
+      "sample": "unknown -> silent: no response while polled",
+      "ts": 1783511446169,
+      "ts_end": 1783511446169,
+      "type": "health_transition"
+    },
+    {
+      "col": 2,
+      "count": 1,
+      "portal": 14,
+      "sample": "unknown -> ok: recovered",
+      "ts": 1783511446169,
+      "ts_end": 1783511446169,
+      "type": "health_transition"
+    },
+    {
+      "col": 2,
+      "count": 1,
+      "portal": 18,
+      "sample": "unknown -> ok: recovered",
+      "ts": 1783511446169,
+      "ts_end": 1783511446169,
+      "type": "health_transition"
+    },
+    {
+      "col": 3,
+      "count": 1,
+      "portal": 16,
+      "sample": "unknown -> ok: recovered",
+      "ts": 1783511446169,
+      "ts_end": 1783511446169,
+      "type": "health_transition"
+    },
+    {
+      "col": 1,
+      "count": 1,
+      "portal": 18,
+      "sample": "unknown -> ok: recovered",
+      "ts": 1783511446169,
+      "ts_end": 1783511446169,
+      "type": "health_transition"
+    },
+    {
+      "col": 0,
+      "count": 1,
+      "portal": 2,
+      "sample": "unknown -> silent: no response while polled",
+      "ts": 1783511446169,
+      "ts_end": 1783511446169,
+      "type": "health_transition"
+    },
+    {
+      "col": 3,
+      "count": 1,
+      "portal": 18,
+      "sample": "unknown -> ok: recovered",
+      "ts": 1783511446169,
+      "ts_end": 1783511446169,
+      "type": "health_transition"
+    },
+    {
+      "col": 0,
+      "count": 1,
+      "portal": 14,
+      "sample": "unknown -> ok: recovered",
+      "ts": 1783511446169,
+      "ts_end": 1783511446169,
+      "type": "health_transition"
+    },
+    {
+      "col": 3,
+      "count": 1,
+      "portal": 17,
+      "sample": "unknown -> ok: recovered",
+      "ts": 1783511446169,
+      "ts_end": 1783511446169,
+      "type": "health_transition"
+    },
+    {
+      "col": 2,
+      "count": 1,
+      "portal": 3,
+      "sample": "unknown -> ok: recovered",
+      "ts": 1783511446169,
+      "ts_end": 1783511446169,
+      "type": "health_transition"
+    },
+    {
+      "col": 3,
+      "count": 1,
+      "portal": 5,
+      "sample": "unknown -> ok: recovered",
+      "ts": 1783511446169,
+      "ts_end": 1783511446169,
+      "type": "health_transition"
+    },
+    {
+      "col": 0,
+      "count": 1,
+      "portal": 18,
+      "sample": "unknown -> ok: recovered",
+      "ts": 1783511446169,
+      "ts_end": 1783511446169,
+      "type": "health_transition"
+    },
+    {
+      "col": 1,
+      "count": 1,
+      "portal": 1,
+      "sample": "unknown -> ok: recovered",
+      "ts": 1783511446169,
+      "ts_end": 1783511446169,
+      "type": "health_transition"
+    },
+    {
+      "col": 0,
+      "count": 1,
+      "portal": 3,
+      "sample": "unknown -> ok: recovered",
+      "ts": 1783511446169,
+      "ts_end": 1783511446169,
+      "type": "health_transition"
+    },
+    {
+      "col": 1,
+      "count": 1,
+      "portal": 7,
+      "sample": "unknown -> silent: no response while polled",
+      "ts": 1783511446169,
+      "ts_end": 1783511446169,
+      "type": "health_transition"
+    },
+    {
+      "col": 1,
+      "count": 1,
+      "portal": 12,
+      "sample": "unknown -> ok: recovered",
+      "ts": 1783511446169,
+      "ts_end": 1783511446169,
+      "type": "health_transition"
+    },
+    {
+      "col": 0,
+      "count": 1,
+      "portal": 7,
+      "sample": "unknown -> silent: no response while polled",
+      "ts": 1783511446169,
+      "ts_end": 1783511446169,
+      "type": "health_transition"
+    },
+    {
+      "col": 1,
+      "count": 1,
+      "portal": 16,
+      "sample": "unknown -> ok: recovered",
+      "ts": 1783511446170,
+      "ts_end": 1783511446170,
+      "type": "health_transition"
+    },
+    {
+      "col": 2,
+      "count": 1,
+      "portal": 9,
+      "sample": "unknown -> degraded: score 79: ack 75%, 0 error logs/min",
+      "ts": 1783511446170,
+      "ts_end": 1783511446170,
+      "type": "health_transition"
+    },
+    {
+      "col": 3,
+      "count": 1,
+      "portal": 10,
+      "sample": "unknown -> ok: recovered",
+      "ts": 1783511446170,
+      "ts_end": 1783511446170,
+      "type": "health_transition"
+    },
+    {
+      "col": 1,
+      "count": 1,
+      "portal": 4,
+      "sample": "unknown -> ok: recovered",
+      "ts": 1783511446170,
+      "ts_end": 1783511446170,
+      "type": "health_transition"
+    },
+    {
+      "col": 1,
+      "count": 1,
+      "portal": 2,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511447475,
+      "ts_end": 1783511447475,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 0,
+      "count": 1,
+      "portal": 2,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511447475,
+      "ts_end": 1783511447475,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 2,
+      "count": 1,
+      "portal": 2,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511447475,
+      "ts_end": 1783511447475,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 3,
+      "count": 1,
+      "portal": 2,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511447475,
+      "ts_end": 1783511447475,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 3,
+      "count": 1,
+      "portal": 7,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511447794,
+      "ts_end": 1783511447794,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 2,
+      "count": 1,
+      "portal": 7,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511447794,
+      "ts_end": 1783511447794,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 1,
+      "count": 1,
+      "portal": 7,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511447795,
+      "ts_end": 1783511447795,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 0,
+      "count": 1,
+      "portal": 7,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511447795,
+      "ts_end": 1783511447795,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 1,
+      "count": 1,
+      "portal": 2,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511450482,
+      "ts_end": 1783511450482,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 2,
+      "count": 1,
+      "portal": 2,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511450482,
+      "ts_end": 1783511450482,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 0,
+      "count": 1,
+      "portal": 2,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511450482,
+      "ts_end": 1783511450482,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 3,
+      "count": 1,
+      "portal": 2,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511450482,
+      "ts_end": 1783511450482,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 2,
+      "count": 1,
+      "portal": 7,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511450803,
+      "ts_end": 1783511450803,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 1,
+      "count": 1,
+      "portal": 7,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511450803,
+      "ts_end": 1783511450803,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 3,
+      "count": 1,
+      "portal": 7,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511450803,
+      "ts_end": 1783511450803,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 0,
+      "count": 1,
+      "portal": 7,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511450803,
+      "ts_end": 1783511450803,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 0,
+      "count": 1,
+      "portal": 2,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511453486,
+      "ts_end": 1783511453486,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 2,
+      "count": 1,
+      "portal": 2,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511453486,
+      "ts_end": 1783511453486,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 3,
+      "count": 1,
+      "portal": 2,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511453486,
+      "ts_end": 1783511453486,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 1,
+      "count": 1,
+      "portal": 2,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511453486,
+      "ts_end": 1783511453486,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 0,
+      "count": 1,
+      "portal": 7,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511453807,
+      "ts_end": 1783511453807,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 3,
+      "count": 1,
+      "portal": 7,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511453807,
+      "ts_end": 1783511453807,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 1,
+      "count": 1,
+      "portal": 7,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511453809,
+      "ts_end": 1783511453809,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 2,
+      "count": 1,
+      "portal": 7,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511453809,
+      "ts_end": 1783511453809,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 0,
+      "count": 1,
+      "portal": 2,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511456487,
+      "ts_end": 1783511456487,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 1,
+      "count": 1,
+      "portal": 2,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511456487,
+      "ts_end": 1783511456487,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 3,
+      "count": 1,
+      "portal": 2,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511456488,
+      "ts_end": 1783511456488,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 2,
+      "count": 1,
+      "portal": 2,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511456488,
+      "ts_end": 1783511456488,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 1,
+      "count": 1,
+      "portal": 7,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511456807,
+      "ts_end": 1783511456807,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 0,
+      "count": 1,
+      "portal": 7,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511456807,
+      "ts_end": 1783511456807,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 2,
+      "count": 1,
+      "portal": 7,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511456809,
+      "ts_end": 1783511456809,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 3,
+      "count": 1,
+      "portal": 7,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511456809,
+      "ts_end": 1783511456809,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 0,
+      "count": 1,
+      "portal": null,
+      "sample": "COBS decode error: truncated frame (code byte ran past end)",
+      "ts": 1783511456818,
+      "ts_end": 1783511456818,
+      "type": "cobs_error"
+    },
+    {
+      "col": 1,
+      "count": 1,
+      "portal": null,
+      "sample": "COBS decode error: truncated frame (code byte ran past end)",
+      "ts": 1783511456818,
+      "ts_end": 1783511456818,
+      "type": "cobs_error"
+    },
+    {
+      "col": 0,
+      "count": 1,
+      "portal": null,
+      "sample": "COBS decode error: truncated frame (code byte ran past end)",
+      "ts": 1783511456818,
+      "ts_end": 1783511456818,
+      "type": "cobs_error"
+    },
+    {
+      "col": 1,
+      "count": 1,
+      "portal": null,
+      "sample": "COBS decode error: truncated frame (code byte ran past end)",
+      "ts": 1783511456818,
+      "ts_end": 1783511456818,
+      "type": "cobs_error"
+    },
+    {
+      "col": 3,
+      "count": 1,
+      "portal": null,
+      "sample": "COBS decode error: truncated frame (code byte ran past end)",
+      "ts": 1783511456819,
+      "ts_end": 1783511456819,
+      "type": "cobs_error"
+    },
+    {
+      "col": 2,
+      "count": 1,
+      "portal": null,
+      "sample": "COBS decode error: truncated frame (code byte ran past end)",
+      "ts": 1783511456819,
+      "ts_end": 1783511456819,
+      "type": "cobs_error"
+    },
+    {
+      "col": 3,
+      "count": 1,
+      "portal": null,
+      "sample": "COBS decode error: truncated frame (code byte ran past end)",
+      "ts": 1783511456819,
+      "ts_end": 1783511456819,
+      "type": "cobs_error"
+    },
+    {
+      "col": 2,
+      "count": 1,
+      "portal": null,
+      "sample": "COBS decode error: truncated frame (code byte ran past end)",
+      "ts": 1783511456819,
+      "ts_end": 1783511456819,
+      "type": "cobs_error"
+    },
+    {
+      "col": 0,
+      "count": 1,
+      "portal": 9,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511457112,
+      "ts_end": 1783511457112,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 1,
+      "count": 1,
+      "portal": 9,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511457112,
+      "ts_end": 1783511457112,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 3,
+      "count": 1,
+      "portal": 9,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511457113,
+      "ts_end": 1783511457113,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 2,
+      "count": 1,
+      "portal": 9,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511457113,
+      "ts_end": 1783511457113,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 3,
+      "count": 1,
+      "portal": 2,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511459504,
+      "ts_end": 1783511459504,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 1,
+      "count": 1,
+      "portal": 2,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511459504,
+      "ts_end": 1783511459504,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 0,
+      "count": 1,
+      "portal": 2,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511459504,
+      "ts_end": 1783511459504,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 2,
+      "count": 1,
+      "portal": 2,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511459504,
+      "ts_end": 1783511459504,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 3,
+      "count": 2,
+      "portal": null,
+      "sample": "COBS decode error: truncated frame (code byte ran past end)",
+      "ts": 1783511459519,
+      "ts_end": 1783511459519,
+      "type": "cobs_error"
+    },
+    {
+      "col": 1,
+      "count": 2,
+      "portal": null,
+      "sample": "COBS decode error: truncated frame (code byte ran past end)",
+      "ts": 1783511459520,
+      "ts_end": 1783511459520,
+      "type": "cobs_error"
+    },
+    {
+      "col": 0,
+      "count": 2,
+      "portal": null,
+      "sample": "COBS decode error: truncated frame (code byte ran past end)",
+      "ts": 1783511459521,
+      "ts_end": 1783511459521,
+      "type": "cobs_error"
+    },
+    {
+      "col": 2,
+      "count": 2,
+      "portal": null,
+      "sample": "COBS decode error: truncated frame (code byte ran past end)",
+      "ts": 1783511459522,
+      "ts_end": 1783511459522,
+      "type": "cobs_error"
+    },
+    {
+      "col": 3,
+      "count": 1,
+      "portal": 5,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511459814,
+      "ts_end": 1783511459814,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 0,
+      "count": 1,
+      "portal": 5,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511459816,
+      "ts_end": 1783511459816,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 1,
+      "count": 1,
+      "portal": 5,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511459816,
+      "ts_end": 1783511459816,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 2,
+      "count": 1,
+      "portal": 5,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511459817,
+      "ts_end": 1783511459817,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 3,
+      "count": 1,
+      "portal": 7,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511460120,
+      "ts_end": 1783511460120,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 1,
+      "count": 1,
+      "portal": 7,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511460121,
+      "ts_end": 1783511460121,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 0,
+      "count": 1,
+      "portal": 7,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511460122,
+      "ts_end": 1783511460122,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 2,
+      "count": 1,
+      "portal": 7,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511460123,
+      "ts_end": 1783511460123,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 3,
+      "count": 1,
+      "portal": 2,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511462516,
+      "ts_end": 1783511462516,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 2,
+      "count": 1,
+      "portal": 2,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511462516,
+      "ts_end": 1783511462516,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 1,
+      "count": 1,
+      "portal": 2,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511462516,
+      "ts_end": 1783511462516,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 0,
+      "count": 1,
+      "portal": 2,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511462516,
+      "ts_end": 1783511462516,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 2,
+      "count": 1,
+      "portal": 7,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511462837,
+      "ts_end": 1783511462837,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 3,
+      "count": 1,
+      "portal": 7,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511462837,
+      "ts_end": 1783511462837,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 0,
+      "count": 1,
+      "portal": 7,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511462837,
+      "ts_end": 1783511462837,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 1,
+      "count": 1,
+      "portal": 7,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511462837,
+      "ts_end": 1783511462837,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 3,
+      "count": 1,
+      "portal": 2,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511465516,
+      "ts_end": 1783511465516,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 1,
+      "count": 1,
+      "portal": 2,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511465516,
+      "ts_end": 1783511465516,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 2,
+      "count": 1,
+      "portal": 2,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511465517,
+      "ts_end": 1783511465517,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 0,
+      "count": 1,
+      "portal": 2,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511465518,
+      "ts_end": 1783511465518,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 1,
+      "count": 1,
+      "portal": 7,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511465834,
+      "ts_end": 1783511465834,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 2,
+      "count": 1,
+      "portal": 7,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511465835,
+      "ts_end": 1783511465835,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 3,
+      "count": 1,
+      "portal": 7,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511465836,
+      "ts_end": 1783511465836,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 0,
+      "count": 1,
+      "portal": 7,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511465837,
+      "ts_end": 1783511465837,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 1,
+      "count": 1,
+      "portal": 9,
+      "sample": "degraded -> ok: recovered",
+      "ts": 1783511466400,
+      "ts_end": 1783511466400,
+      "type": "health_transition"
+    },
+    {
+      "col": 3,
+      "count": 1,
+      "portal": 9,
+      "sample": "degraded -> ok: recovered",
+      "ts": 1783511466400,
+      "ts_end": 1783511466400,
+      "type": "health_transition"
+    },
+    {
+      "col": 0,
+      "count": 1,
+      "portal": 9,
+      "sample": "degraded -> ok: recovered",
+      "ts": 1783511466400,
+      "ts_end": 1783511466400,
+      "type": "health_transition"
+    },
+    {
+      "col": 2,
+      "count": 1,
+      "portal": 9,
+      "sample": "degraded -> ok: recovered",
+      "ts": 1783511466400,
+      "ts_end": 1783511466400,
+      "type": "health_transition"
+    },
+    {
+      "col": 0,
+      "count": 1,
+      "portal": 2,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511468516,
+      "ts_end": 1783511468516,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 2,
+      "count": 1,
+      "portal": 2,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511468516,
+      "ts_end": 1783511468516,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 3,
+      "count": 1,
+      "portal": 2,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511468516,
+      "ts_end": 1783511468516,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 1,
+      "count": 1,
+      "portal": 2,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511468518,
+      "ts_end": 1783511468518,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 2,
+      "count": 1,
+      "portal": 7,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511468840,
+      "ts_end": 1783511468840,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 1,
+      "count": 1,
+      "portal": 7,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511468840,
+      "ts_end": 1783511468840,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 0,
+      "count": 1,
+      "portal": 7,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511468840,
+      "ts_end": 1783511468840,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 3,
+      "count": 1,
+      "portal": 7,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511468840,
+      "ts_end": 1783511468840,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 2,
+      "count": 1,
+      "portal": 2,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511471531,
+      "ts_end": 1783511471531,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 3,
+      "count": 1,
+      "portal": 2,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511471531,
+      "ts_end": 1783511471531,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 0,
+      "count": 1,
+      "portal": 2,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511471531,
+      "ts_end": 1783511471531,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 1,
+      "count": 1,
+      "portal": 2,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511471531,
+      "ts_end": 1783511471531,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 1,
+      "count": 1,
+      "portal": 7,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511471855,
+      "ts_end": 1783511471855,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 2,
+      "count": 1,
+      "portal": 7,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511471855,
+      "ts_end": 1783511471855,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 3,
+      "count": 1,
+      "portal": 7,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511471855,
+      "ts_end": 1783511471855,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 0,
+      "count": 1,
+      "portal": 7,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511471855,
+      "ts_end": 1783511471855,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 3,
+      "count": 1,
+      "portal": 2,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511474544,
+      "ts_end": 1783511474544,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 2,
+      "count": 1,
+      "portal": 2,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511474544,
+      "ts_end": 1783511474544,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 0,
+      "count": 1,
+      "portal": 2,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511474544,
+      "ts_end": 1783511474544,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 1,
+      "count": 1,
+      "portal": 2,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511474544,
+      "ts_end": 1783511474544,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 3,
+      "count": 1,
+      "portal": 7,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511474866,
+      "ts_end": 1783511474866,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 2,
+      "count": 1,
+      "portal": 7,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511474866,
+      "ts_end": 1783511474866,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 0,
+      "count": 1,
+      "portal": 7,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511474866,
+      "ts_end": 1783511474866,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 1,
+      "count": 1,
+      "portal": 7,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511474866,
+      "ts_end": 1783511474866,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 2,
+      "count": 2,
+      "portal": null,
+      "sample": "COBS decode error: truncated frame (code byte ran past end)",
+      "ts": 1783511474918,
+      "ts_end": 1783511474918,
+      "type": "cobs_error"
+    },
+    {
+      "col": 0,
+      "count": 2,
+      "portal": null,
+      "sample": "COBS decode error: truncated frame (code byte ran past end)",
+      "ts": 1783511474918,
+      "ts_end": 1783511474918,
+      "type": "cobs_error"
+    },
+    {
+      "col": 1,
+      "count": 1,
+      "portal": null,
+      "sample": "COBS decode error: truncated frame (code byte ran past end)",
+      "ts": 1783511474919,
+      "ts_end": 1783511474919,
+      "type": "cobs_error"
+    },
+    {
+      "col": 3,
+      "count": 1,
+      "portal": null,
+      "sample": "COBS decode error: truncated frame (code byte ran past end)",
+      "ts": 1783511474919,
+      "ts_end": 1783511474919,
+      "type": "cobs_error"
+    },
+    {
+      "col": 1,
+      "count": 1,
+      "portal": null,
+      "sample": "COBS decode error: truncated frame (code byte ran past end)",
+      "ts": 1783511474919,
+      "ts_end": 1783511474919,
+      "type": "cobs_error"
+    },
+    {
+      "col": 3,
+      "count": 1,
+      "portal": null,
+      "sample": "COBS decode error: truncated frame (code byte ran past end)",
+      "ts": 1783511474919,
+      "ts_end": 1783511474919,
+      "type": "cobs_error"
+    },
+    {
+      "col": 0,
+      "count": 1,
+      "portal": 18,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511475214,
+      "ts_end": 1783511475214,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 1,
+      "count": 1,
+      "portal": 18,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511475215,
+      "ts_end": 1783511475215,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 3,
+      "count": 1,
+      "portal": 18,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511475215,
+      "ts_end": 1783511475215,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 2,
+      "count": 1,
+      "portal": 18,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511475215,
+      "ts_end": 1783511475215,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 0,
+      "count": 1,
+      "portal": 5,
+      "sample": "ok -> degraded: score 75: ack 93%, 12 error logs/min",
+      "ts": 1783511476501,
+      "ts_end": 1783511476501,
+      "type": "health_transition"
+    },
+    {
+      "col": 1,
+      "count": 1,
+      "portal": 5,
+      "sample": "ok -> degraded: score 75: ack 93%, 12 error logs/min",
+      "ts": 1783511476501,
+      "ts_end": 1783511476501,
+      "type": "health_transition"
+    },
+    {
+      "col": 2,
+      "count": 1,
+      "portal": 5,
+      "sample": "ok -> degraded: score 75: ack 93%, 12 error logs/min",
+      "ts": 1783511476501,
+      "ts_end": 1783511476501,
+      "type": "health_transition"
+    },
+    {
+      "col": 3,
+      "count": 1,
+      "portal": 5,
+      "sample": "ok -> degraded: score 75: ack 93%, 12 error logs/min",
+      "ts": 1783511476501,
+      "ts_end": 1783511476501,
+      "type": "health_transition"
+    },
+    {
+      "col": 1,
+      "count": 1,
+      "portal": 2,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511477551,
+      "ts_end": 1783511477551,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 0,
+      "count": 1,
+      "portal": 2,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511477551,
+      "ts_end": 1783511477551,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 3,
+      "count": 1,
+      "portal": 2,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511477551,
+      "ts_end": 1783511477551,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 2,
+      "count": 1,
+      "portal": 2,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511477551,
+      "ts_end": 1783511477551,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 3,
+      "count": 1,
+      "portal": 7,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511477871,
+      "ts_end": 1783511477871,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 1,
+      "count": 1,
+      "portal": 7,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511477871,
+      "ts_end": 1783511477871,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 0,
+      "count": 1,
+      "portal": 7,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511477871,
+      "ts_end": 1783511477871,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 2,
+      "count": 1,
+      "portal": 7,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511477872,
+      "ts_end": 1783511477872,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 2,
+      "count": 1,
+      "portal": 2,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511480566,
+      "ts_end": 1783511480566,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 0,
+      "count": 1,
+      "portal": 2,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511480566,
+      "ts_end": 1783511480566,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 1,
+      "count": 1,
+      "portal": 2,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511480566,
+      "ts_end": 1783511480566,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 3,
+      "count": 1,
+      "portal": 2,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511480566,
+      "ts_end": 1783511480566,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 2,
+      "count": 1,
+      "portal": 7,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511480886,
+      "ts_end": 1783511480886,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 0,
+      "count": 1,
+      "portal": 7,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511480886,
+      "ts_end": 1783511480886,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 3,
+      "count": 1,
+      "portal": 7,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511480886,
+      "ts_end": 1783511480886,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 1,
+      "count": 1,
+      "portal": 7,
+      "sample": "addr=poll waited=300ms",
+      "ts": 1783511480886,
+      "ts_end": 1783511480886,
+      "type": "ack_timeout"
+    },
+    {
+      "col": 0,
+      "count": 1,
+      "portal": null,
+      "sample": "shutdown",
+      "ts": 1783511483259,
+      "ts_end": 1783511483259,
+      "type": "device_disconnect"
+    },
+    {
+      "col": 1,
+      "count": 1,
+      "portal": null,
+      "sample": "shutdown",
+      "ts": 1783511483260,
+      "ts_end": 1783511483260,
+      "type": "device_disconnect"
+    },
+    {
+      "col": 2,
+      "count": 1,
+      "portal": null,
+      "sample": "shutdown",
+      "ts": 1783511483261,
+      "ts_end": 1783511483261,
+      "type": "device_disconnect"
+    },
+    {
+      "col": 3,
+      "count": 1,
+      "portal": null,
+      "sample": "shutdown",
+      "ts": 1783511483262,
+      "ts_end": 1783511483262,
+      "type": "device_disconnect"
+    }
+  ],
+  "portals": [
+    {
+      "ack_pct": 100.0,
+      "calibration_ok": [
+        false,
+        false
+      ],
+      "col": 0,
+      "final_score": 89,
+      "final_state": "ok",
+      "last_seen_ts": 1783511480264,
+      "latency_ms": {
+        "max": 6.233400344848633,
+        "p50": 4.400000095367432,
+        "p90": 9.166666030883789
+      },
+      "log_counts": {
+        "error": 0,
+        "status": 0,
+        "warning": 0
+      },
+      "portal": 1,
+      "reboots": 0,
+      "rx": 16,
+      "sends": 16,
+      "silent_episodes": 0,
+      "timeouts": 0,
+      "top_logs": [],
+      "version": "sim-1.0"
+    },
+    {
+      "ack_pct": 0.0,
+      "calibration_ok": [
+        null,
+        null
+      ],
+      "col": 0,
+      "final_score": 45,
+      "final_state": "silent",
+      "last_seen_ts": null,
+      "latency_ms": {
+        "max": 0.0,
+        "p50": 0.0,
+        "p90": 0.0
+      },
+      "log_counts": {
+        "error": 0,
+        "status": 0,
+        "warning": 0
+      },
+      "portal": 2,
+      "reboots": 0,
+      "rx": 0,
+      "sends": 16,
+      "silent_episodes": 1,
+      "timeouts": 16,
+      "top_logs": [],
+      "version": null
+    },
+    {
+      "ack_pct": 100.0,
+      "calibration_ok": [
+        false,
+        false
+      ],
+      "col": 0,
+      "final_score": 89,
+      "final_state": "ok",
+      "last_seen_ts": 1783511480569,
+      "latency_ms": {
+        "max": 6.548999786376953,
+        "p50": 4.400000095367432,
+        "p90": 9.166666030883789
+      },
+      "log_counts": {
+        "error": 0,
+        "status": 0,
+        "warning": 0
+      },
+      "portal": 3,
+      "reboots": 0,
+      "rx": 16,
+      "sends": 16,
+      "silent_episodes": 0,
+      "timeouts": 0,
+      "top_logs": [],
+      "version": "sim-1.0"
+    },
+    {
+      "ack_pct": 100.0,
+      "calibration_ok": [
+        false,
+        false
+      ],
+      "col": 0,
+      "final_score": 89,
+      "final_state": "ok",
+      "last_seen_ts": 1783511480575,
+      "latency_ms": {
+        "max": 6.241700172424316,
+        "p50": 5.0,
+        "p90": 9.375
+      },
+      "log_counts": {
+        "error": 0,
+        "status": 0,
+        "warning": 0
+      },
+      "portal": 4,
+      "reboots": 0,
+      "rx": 16,
+      "sends": 16,
+      "silent_episodes": 0,
+      "timeouts": 0,
+      "top_logs": [],
+      "version": "sim-1.0"
+    },
+    {
+      "ack_pct": 93.75,
+      "calibration_ok": [
+        false,
+        false
+      ],
+      "col": 0,
+      "final_score": 75,
+      "final_state": "degraded",
+      "last_seen_ts": 1783511480579,
+      "latency_ms": {
+        "max": 6.205600261688232,
+        "p50": 4.0,
+        "p90": 8.333333969116211
+      },
+      "log_counts": {
+        "error": 14,
+        "status": 0,
+        "warning": 0
+      },
+      "portal": 5,
+      "reboots": 0,
+      "rx": 15,
+      "sends": 16,
+      "silent_episodes": 0,
+      "timeouts": 1,
+      "top_logs": [
+        {
+          "count": 14,
+          "level": 20,
+          "message": "Switch not seen"
+        }
+      ],
+      "version": "sim-1.0"
+    },
+    {
+      "ack_pct": 100.0,
+      "calibration_ok": [
+        false,
+        false
+      ],
+      "col": 0,
+      "final_score": 89,
+      "final_state": "ok",
+      "last_seen_ts": 1783511480584,
+      "latency_ms": {
+        "max": 6.259900093078613,
+        "p50": 4.0,
+        "p90": 8.75
+      },
+      "log_counts": {
+        "error": 0,
+        "status": 0,
+        "warning": 0
+      },
+      "portal": 6,
+      "reboots": 0,
+      "rx": 16,
+      "sends": 16,
+      "silent_episodes": 0,
+      "timeouts": 0,
+      "top_logs": [],
+      "version": "sim-1.0"
+    },
+    {
+      "ack_pct": 0.0,
+      "calibration_ok": [
+        null,
+        null
+      ],
+      "col": 0,
+      "final_score": 45,
+      "final_state": "silent",
+      "last_seen_ts": null,
+      "latency_ms": {
+        "max": 0.0,
+        "p50": 0.0,
+        "p90": 0.0
+      },
+      "log_counts": {
+        "error": 0,
+        "status": 0,
+        "warning": 0
+      },
+      "portal": 7,
+      "reboots": 0,
+      "rx": 0,
+      "sends": 16,
+      "silent_episodes": 1,
+      "timeouts": 16,
+      "top_logs": [],
+      "version": null
+    },
+    {
+      "ack_pct": 100.0,
+      "calibration_ok": [
+        false,
+        false
+      ],
+      "col": 0,
+      "final_score": 89,
+      "final_state": "ok",
+      "last_seen_ts": 1783511480890,
+      "latency_ms": {
+        "max": 6.2565999031066895,
+        "p50": 5.0,
+        "p90": 9.375
+      },
+      "log_counts": {
+        "error": 0,
+        "status": 0,
+        "warning": 0
+      },
+      "portal": 8,
+      "reboots": 0,
+      "rx": 16,
+      "sends": 16,
+      "silent_episodes": 0,
+      "timeouts": 0,
+      "top_logs": [],
+      "version": "sim-1.0"
+    },
+    {
+      "ack_pct": 87.5,
+      "calibration_ok": [
+        false,
+        false
+      ],
+      "col": 0,
+      "final_score": 83,
+      "final_state": "ok",
+      "last_seen_ts": 1783511480895,
+      "latency_ms": {
+        "max": 6.080499649047852,
+        "p50": 3.615384578704834,
+        "p90": 5.0
+      },
+      "log_counts": {
+        "error": 0,
+        "status": 0,
+        "warning": 0
+      },
+      "portal": 9,
+      "reboots": 0,
+      "rx": 14,
+      "sends": 16,
+      "silent_episodes": 0,
+      "timeouts": 2,
+      "top_logs": [],
+      "version": "sim-1.0"
+    },
+    {
+      "ack_pct": 100.0,
+      "calibration_ok": [
+        false,
+        false
+      ],
+      "col": 0,
+      "final_score": 89,
+      "final_state": "ok",
+      "last_seen_ts": 1783511480901,
+      "latency_ms": {
+        "max": 6.384999752044678,
+        "p50": 4.181818008422852,
+        "p90": 9.0
+      },
+      "log_counts": {
+        "error": 0,
+        "status": 0,
+        "warning": 0
+      },
+      "portal": 10,
+      "reboots": 0,
+      "rx": 16,
+      "sends": 16,
+      "silent_episodes": 0,
+      "timeouts": 0,
+      "top_logs": [],
+      "version": "sim-1.0"
+    },
+    {
+      "ack_pct": 100.0,
+      "calibration_ok": [
+        false,
+        false
+      ],
+      "col": 0,
+      "final_score": 89,
+      "final_state": "ok",
+      "last_seen_ts": 1783511480906,
+      "latency_ms": {
+        "max": 6.43019962310791,
+        "p50": 3.846153974533081,
+        "p90": 8.333333969116211
+      },
+      "log_counts": {
+        "error": 0,
+        "status": 0,
+        "warning": 0
+      },
+      "portal": 11,
+      "reboots": 0,
+      "rx": 16,
+      "sends": 16,
+      "silent_episodes": 0,
+      "timeouts": 0,
+      "top_logs": [],
+      "version": "sim-1.0"
+    },
+    {
+      "ack_pct": 100.0,
+      "calibration_ok": [
+        false,
+        false
+      ],
+      "col": 0,
+      "final_score": 89,
+      "final_state": "ok",
+      "last_seen_ts": 1783511480911,
+      "latency_ms": {
+        "max": 6.327000141143799,
+        "p50": 3.846153974533081,
+        "p90": 8.333333969116211
+      },
+      "log_counts": {
+        "error": 0,
+        "status": 0,
+        "warning": 0
+      },
+      "portal": 12,
+      "reboots": 0,
+      "rx": 16,
+      "sends": 16,
+      "silent_episodes": 0,
+      "timeouts": 0,
+      "top_logs": [],
+      "version": "sim-1.0"
+    },
+    {
+      "ack_pct": 100.0,
+      "calibration_ok": [
+        false,
+        false
+      ],
+      "col": 0,
+      "final_score": 89,
+      "final_state": "ok",
+      "last_seen_ts": 1783511480916,
+      "latency_ms": {
+        "max": 6.430500030517578,
+        "p50": 4.181818008422852,
+        "p90": 9.0
+      },
+      "log_counts": {
+        "error": 0,
+        "status": 0,
+        "warning": 0
+      },
+      "portal": 13,
+      "reboots": 0,
+      "rx": 16,
+      "sends": 16,
+      "silent_episodes": 0,
+      "timeouts": 0,
+      "top_logs": [],
+      "version": "sim-1.0"
+    },
+    {
+      "ack_pct": 100.0,
+      "calibration_ok": [
+        false,
+        false
+      ],
+      "col": 0,
+      "final_score": 89,
+      "final_state": "ok",
+      "last_seen_ts": 1783511480922,
+      "latency_ms": {
+        "max": 6.077399730682373,
+        "p50": 3.846153974533081,
+        "p90": 8.333333969116211
+      },
+      "log_counts": {
+        "error": 0,
+        "status": 0,
+        "warning": 0
+      },
+      "portal": 14,
+      "reboots": 0,
+      "rx": 16,
+      "sends": 16,
+      "silent_episodes": 0,
+      "timeouts": 0,
+      "top_logs": [],
+      "version": "sim-1.0"
+    },
+    {
+      "ack_pct": 100.0,
+      "calibration_ok": [
+        false,
+        false
+      ],
+      "col": 0,
+      "final_score": 89,
+      "final_state": "ok",
+      "last_seen_ts": 1783511480927,
+      "latency_ms": {
+        "max": 5.832099914550781,
+        "p50": 3.6000001430511475,
+        "p90": 5.0
+      },
+      "log_counts": {
+        "error": 0,
+        "status": 0,
+        "warning": 0
+      },
+      "portal": 15,
+      "reboots": 0,
+      "rx": 16,
+      "sends": 16,
+      "silent_episodes": 0,
+      "timeouts": 0,
+      "top_logs": [],
+      "version": "sim-1.0"
+    },
+    {
+      "ack_pct": 100.0,
+      "calibration_ok": [
+        false,
+        false
+      ],
+      "col": 0,
+      "final_score": 89,
+      "final_state": "ok",
+      "last_seen_ts": 1783511480932,
+      "latency_ms": {
+        "max": 6.061500072479248,
+        "p50": 3.6000001430511475,
+        "p90": 5.0
+      },
+      "log_counts": {
+        "error": 0,
+        "status": 0,
+        "warning": 0
+      },
+      "portal": 16,
+      "reboots": 0,
+      "rx": 16,
+      "sends": 16,
+      "silent_episodes": 0,
+      "timeouts": 0,
+      "top_logs": [],
+      "version": "sim-1.0"
+    },
+    {
+      "ack_pct": 100.0,
+      "calibration_ok": [
+        false,
+        false
+      ],
+      "col": 0,
+      "final_score": 89,
+      "final_state": "ok",
+      "last_seen_ts": 1783511480937,
+      "latency_ms": {
+        "max": 6.2469000816345215,
+        "p50": 4.181818008422852,
+        "p90": 9.0
+      },
+      "log_counts": {
+        "error": 0,
+        "status": 0,
+        "warning": 0
+      },
+      "portal": 17,
+      "reboots": 0,
+      "rx": 16,
+      "sends": 16,
+      "silent_episodes": 0,
+      "timeouts": 0,
+      "top_logs": [],
+      "version": "sim-1.0"
+    },
+    {
+      "ack_pct": 93.75,
+      "calibration_ok": [
+        false,
+        false
+      ],
+      "col": 0,
+      "final_score": 85,
+      "final_state": "ok",
+      "last_seen_ts": 1783511480944,
+      "latency_ms": {
+        "max": 6.1844000816345215,
+        "p50": 4.0,
+        "p90": 8.333333969116211
+      },
+      "log_counts": {
+        "error": 0,
+        "status": 0,
+        "warning": 0
+      },
+      "portal": 18,
+      "reboots": 0,
+      "rx": 15,
+      "sends": 16,
+      "silent_episodes": 0,
+      "timeouts": 1,
+      "top_logs": [],
+      "version": "sim-1.0"
+    },
+    {
+      "ack_pct": 100.0,
+      "calibration_ok": [
+        false,
+        false
+      ],
+      "col": 1,
+      "final_score": 89,
+      "final_state": "ok",
+      "last_seen_ts": 1783511480264,
+      "latency_ms": {
+        "max": 6.228699684143066,
+        "p50": 4.400000095367432,
+        "p90": 9.166666030883789
+      },
+      "log_counts": {
+        "error": 0,
+        "status": 0,
+        "warning": 0
+      },
+      "portal": 1,
+      "reboots": 0,
+      "rx": 16,
+      "sends": 16,
+      "silent_episodes": 0,
+      "timeouts": 0,
+      "top_logs": [],
+      "version": "sim-1.0"
+    },
+    {
+      "ack_pct": 0.0,
+      "calibration_ok": [
+        null,
+        null
+      ],
+      "col": 1,
+      "final_score": 45,
+      "final_state": "silent",
+      "last_seen_ts": null,
+      "latency_ms": {
+        "max": 0.0,
+        "p50": 0.0,
+        "p90": 0.0
+      },
+      "log_counts": {
+        "error": 0,
+        "status": 0,
+        "warning": 0
+      },
+      "portal": 2,
+      "reboots": 0,
+      "rx": 0,
+      "sends": 16,
+      "silent_episodes": 1,
+      "timeouts": 16,
+      "top_logs": [],
+      "version": null
+    },
+    {
+      "ack_pct": 100.0,
+      "calibration_ok": [
+        false,
+        false
+      ],
+      "col": 1,
+      "final_score": 89,
+      "final_state": "ok",
+      "last_seen_ts": 1783511480569,
+      "latency_ms": {
+        "max": 6.4853997230529785,
+        "p50": 4.400000095367432,
+        "p90": 9.166666030883789
+      },
+      "log_counts": {
+        "error": 0,
+        "status": 0,
+        "warning": 0
+      },
+      "portal": 3,
+      "reboots": 0,
+      "rx": 16,
+      "sends": 16,
+      "silent_episodes": 0,
+      "timeouts": 0,
+      "top_logs": [],
+      "version": "sim-1.0"
+    },
+    {
+      "ack_pct": 100.0,
+      "calibration_ok": [
+        false,
+        false
+      ],
+      "col": 1,
+      "final_score": 89,
+      "final_state": "ok",
+      "last_seen_ts": 1783511480575,
+      "latency_ms": {
+        "max": 6.268700122833252,
+        "p50": 4.6666669845581055,
+        "p90": 9.285714149475098
+      },
+      "log_counts": {
+        "error": 0,
+        "status": 0,
+        "warning": 0
+      },
+      "portal": 4,
+      "reboots": 0,
+      "rx": 16,
+      "sends": 16,
+      "silent_episodes": 0,
+      "timeouts": 0,
+      "top_logs": [],
+      "version": "sim-1.0"
+    },
+    {
+      "ack_pct": 93.75,
+      "calibration_ok": [
+        false,
+        false
+      ],
+      "col": 1,
+      "final_score": 75,
+      "final_state": "degraded",
+      "last_seen_ts": 1783511480579,
+      "latency_ms": {
+        "max": 6.204899787902832,
+        "p50": 4.0,
+        "p90": 8.333333969116211
+      },
+      "log_counts": {
+        "error": 14,
+        "status": 0,
+        "warning": 0
+      },
+      "portal": 5,
+      "reboots": 0,
+      "rx": 15,
+      "sends": 16,
+      "silent_episodes": 0,
+      "timeouts": 1,
+      "top_logs": [
+        {
+          "count": 14,
+          "level": 20,
+          "message": "Switch not seen"
+        }
+      ],
+      "version": "sim-1.0"
+    },
+    {
+      "ack_pct": 100.0,
+      "calibration_ok": [
+        false,
+        false
+      ],
+      "col": 1,
+      "final_score": 89,
+      "final_state": "ok",
+      "last_seen_ts": 1783511480584,
+      "latency_ms": {
+        "max": 6.261000156402588,
+        "p50": 4.181818008422852,
+        "p90": 9.0
+      },
+      "log_counts": {
+        "error": 0,
+        "status": 0,
+        "warning": 0
+      },
+      "portal": 6,
+      "reboots": 0,
+      "rx": 16,
+      "sends": 16,
+      "silent_episodes": 0,
+      "timeouts": 0,
+      "top_logs": [],
+      "version": "sim-1.0"
+    },
+    {
+      "ack_pct": 0.0,
+      "calibration_ok": [
+        null,
+        null
+      ],
+      "col": 1,
+      "final_score": 45,
+      "final_state": "silent",
+      "last_seen_ts": null,
+      "latency_ms": {
+        "max": 0.0,
+        "p50": 0.0,
+        "p90": 0.0
+      },
+      "log_counts": {
+        "error": 0,
+        "status": 0,
+        "warning": 0
+      },
+      "portal": 7,
+      "reboots": 0,
+      "rx": 0,
+      "sends": 16,
+      "silent_episodes": 1,
+      "timeouts": 16,
+      "top_logs": [],
+      "version": null
+    },
+    {
+      "ack_pct": 100.0,
+      "calibration_ok": [
+        false,
+        false
+      ],
+      "col": 1,
+      "final_score": 89,
+      "final_state": "ok",
+      "last_seen_ts": 1783511480890,
+      "latency_ms": {
+        "max": 6.43779993057251,
+        "p50": 4.6666669845581055,
+        "p90": 9.285714149475098
+      },
+      "log_counts": {
+        "error": 0,
+        "status": 0,
+        "warning": 0
+      },
+      "portal": 8,
+      "reboots": 0,
+      "rx": 16,
+      "sends": 16,
+      "silent_episodes": 0,
+      "timeouts": 0,
+      "top_logs": [],
+      "version": "sim-1.0"
+    },
+    {
+      "ack_pct": 87.5,
+      "calibration_ok": [
+        false,
+        false
+      ],
+      "col": 1,
+      "final_score": 83,
+      "final_state": "ok",
+      "last_seen_ts": 1783511480895,
+      "latency_ms": {
+        "max": 6.0802998542785645,
+        "p50": 3.615384578704834,
+        "p90": 5.0
+      },
+      "log_counts": {
+        "error": 0,
+        "status": 0,
+        "warning": 0
+      },
+      "portal": 9,
+      "reboots": 0,
+      "rx": 14,
+      "sends": 16,
+      "silent_episodes": 0,
+      "timeouts": 2,
+      "top_logs": [],
+      "version": "sim-1.0"
+    },
+    {
+      "ack_pct": 100.0,
+      "calibration_ok": [
+        false,
+        false
+      ],
+      "col": 1,
+      "final_score": 89,
+      "final_state": "ok",
+      "last_seen_ts": 1783511480901,
+      "latency_ms": {
+        "max": 6.366300106048584,
+        "p50": 4.6666669845581055,
+        "p90": 9.285714149475098
+      },
+      "log_counts": {
+        "error": 0,
+        "status": 0,
+        "warning": 0
+      },
+      "portal": 10,
+      "reboots": 0,
+      "rx": 16,
+      "sends": 16,
+      "silent_episodes": 0,
+      "timeouts": 0,
+      "top_logs": [],
+      "version": "sim-1.0"
+    },
+    {
+      "ack_pct": 100.0,
+      "calibration_ok": [
+        false,
+        false
+      ],
+      "col": 1,
+      "final_score": 89,
+      "final_state": "ok",
+      "last_seen_ts": 1783511480906,
+      "latency_ms": {
+        "max": 6.4278998374938965,
+        "p50": 3.7142858505249023,
+        "p90": 7.5
+      },
+      "log_counts": {
+        "error": 0,
+        "status": 0,
+        "warning": 0
+      },
+      "portal": 11,
+      "reboots": 0,
+      "rx": 16,
+      "sends": 16,
+      "silent_episodes": 0,
+      "timeouts": 0,
+      "top_logs": [],
+      "version": "sim-1.0"
+    },
+    {
+      "ack_pct": 100.0,
+      "calibration_ok": [
+        false,
+        false
+      ],
+      "col": 1,
+      "final_score": 89,
+      "final_state": "ok",
+      "last_seen_ts": 1783511480911,
+      "latency_ms": {
+        "max": 6.3429999351501465,
+        "p50": 3.846153974533081,
+        "p90": 8.333333969116211
+      },
+      "log_counts": {
+        "error": 0,
+        "status": 0,
+        "warning": 0
+      },
+      "portal": 12,
+      "reboots": 0,
+      "rx": 16,
+      "sends": 16,
+      "silent_episodes": 0,
+      "timeouts": 0,
+      "top_logs": [],
+      "version": "sim-1.0"
+    },
+    {
+      "ack_pct": 100.0,
+      "calibration_ok": [
+        false,
+        false
+      ],
+      "col": 1,
+      "final_score": 89,
+      "final_state": "ok",
+      "last_seen_ts": 1783511480916,
+      "latency_ms": {
+        "max": 6.447200298309326,
+        "p50": 4.181818008422852,
+        "p90": 9.0
+      },
+      "log_counts": {
+        "error": 0,
+        "status": 0,
+        "warning": 0
+      },
+      "portal": 13,
+      "reboots": 0,
+      "rx": 16,
+      "sends": 16,
+      "silent_episodes": 0,
+      "timeouts": 0,
+      "top_logs": [],
+      "version": "sim-1.0"
+    },
+    {
+      "ack_pct": 100.0,
+      "calibration_ok": [
+        false,
+        false
+      ],
+      "col": 1,
+      "final_score": 89,
+      "final_state": "ok",
+      "last_seen_ts": 1783511480922,
+      "latency_ms": {
+        "max": 6.120100021362305,
+        "p50": 3.846153974533081,
+        "p90": 8.333333969116211
+      },
+      "log_counts": {
+        "error": 0,
+        "status": 0,
+        "warning": 0
+      },
+      "portal": 14,
+      "reboots": 0,
+      "rx": 16,
+      "sends": 16,
+      "silent_episodes": 0,
+      "timeouts": 0,
+      "top_logs": [],
+      "version": "sim-1.0"
+    },
+    {
+      "ack_pct": 100.0,
+      "calibration_ok": [
+        false,
+        false
+      ],
+      "col": 1,
+      "final_score": 89,
+      "final_state": "ok",
+      "last_seen_ts": 1783511480927,
+      "latency_ms": {
+        "max": 5.821499824523926,
+        "p50": 3.6000001430511475,
+        "p90": 5.0
+      },
+      "log_counts": {
+        "error": 0,
+        "status": 0,
+        "warning": 0
+      },
+      "portal": 15,
+      "reboots": 0,
+      "rx": 16,
+      "sends": 16,
+      "silent_episodes": 0,
+      "timeouts": 0,
+      "top_logs": [],
+      "version": "sim-1.0"
+    },
+    {
+      "ack_pct": 100.0,
+      "calibration_ok": [
+        false,
+        false
+      ],
+      "col": 1,
+      "final_score": 89,
+      "final_state": "ok",
+      "last_seen_ts": 1783511480932,
+      "latency_ms": {
+        "max": 6.060100078582764,
+        "p50": 3.6000001430511475,
+        "p90": 5.0
+      },
+      "log_counts": {
+        "error": 0,
+        "status": 0,
+        "warning": 0
+      },
+      "portal": 16,
+      "reboots": 0,
+      "rx": 16,
+      "sends": 16,
+      "silent_episodes": 0,
+      "timeouts": 0,
+      "top_logs": [],
+      "version": "sim-1.0"
+    },
+    {
+      "ack_pct": 100.0,
+      "calibration_ok": [
+        false,
+        false
+      ],
+      "col": 1,
+      "final_score": 89,
+      "final_state": "ok",
+      "last_seen_ts": 1783511480937,
+      "latency_ms": {
+        "max": 6.230400085449219,
+        "p50": 4.181818008422852,
+        "p90": 9.0
+      },
+      "log_counts": {
+        "error": 0,
+        "status": 0,
+        "warning": 0
+      },
+      "portal": 17,
+      "reboots": 0,
+      "rx": 16,
+      "sends": 16,
+      "silent_episodes": 0,
+      "timeouts": 0,
+      "top_logs": [],
+      "version": "sim-1.0"
+    },
+    {
+      "ack_pct": 93.75,
+      "calibration_ok": [
+        false,
+        false
+      ],
+      "col": 1,
+      "final_score": 85,
+      "final_state": "ok",
+      "last_seen_ts": 1783511480944,
+      "latency_ms": {
+        "max": 6.167699813842773,
+        "p50": 4.0,
+        "p90": 8.333333969116211
+      },
+      "log_counts": {
+        "error": 0,
+        "status": 0,
+        "warning": 0
+      },
+      "portal": 18,
+      "reboots": 0,
+      "rx": 15,
+      "sends": 16,
+      "silent_episodes": 0,
+      "timeouts": 1,
+      "top_logs": [],
+      "version": "sim-1.0"
+    },
+    {
+      "ack_pct": 100.0,
+      "calibration_ok": [
+        false,
+        false
+      ],
+      "col": 2,
+      "final_score": 89,
+      "final_state": "ok",
+      "last_seen_ts": 1783511480264,
+      "latency_ms": {
+        "max": 6.508399963378906,
+        "p50": 4.6666669845581055,
+        "p90": 9.285714149475098
+      },
+      "log_counts": {
+        "error": 0,
+        "status": 0,
+        "warning": 0
+      },
+      "portal": 1,
+      "reboots": 0,
+      "rx": 16,
+      "sends": 16,
+      "silent_episodes": 0,
+      "timeouts": 0,
+      "top_logs": [],
+      "version": "sim-1.0"
+    },
+    {
+      "ack_pct": 0.0,
+      "calibration_ok": [
+        null,
+        null
+      ],
+      "col": 2,
+      "final_score": 45,
+      "final_state": "silent",
+      "last_seen_ts": null,
+      "latency_ms": {
+        "max": 0.0,
+        "p50": 0.0,
+        "p90": 0.0
+      },
+      "log_counts": {
+        "error": 0,
+        "status": 0,
+        "warning": 0
+      },
+      "portal": 2,
+      "reboots": 0,
+      "rx": 0,
+      "sends": 16,
+      "silent_episodes": 1,
+      "timeouts": 16,
+      "top_logs": [],
+      "version": null
+    },
+    {
+      "ack_pct": 100.0,
+      "calibration_ok": [
+        false,
+        false
+      ],
+      "col": 2,
+      "final_score": 89,
+      "final_state": "ok",
+      "last_seen_ts": 1783511480569,
+      "latency_ms": {
+        "max": 6.8998003005981445,
+        "p50": 4.400000095367432,
+        "p90": 9.166666030883789
+      },
+      "log_counts": {
+        "error": 0,
+        "status": 0,
+        "warning": 0
+      },
+      "portal": 3,
+      "reboots": 0,
+      "rx": 16,
+      "sends": 16,
+      "silent_episodes": 0,
+      "timeouts": 0,
+      "top_logs": [],
+      "version": "sim-1.0"
+    },
+    {
+      "ack_pct": 100.0,
+      "calibration_ok": [
+        false,
+        false
+      ],
+      "col": 2,
+      "final_score": 89,
+      "final_state": "ok",
+      "last_seen_ts": 1783511480575,
+      "latency_ms": {
+        "max": 6.2459001541137695,
+        "p50": 4.6666669845581055,
+        "p90": 9.285714149475098
+      },
+      "log_counts": {
+        "error": 0,
+        "status": 0,
+        "warning": 0
+      },
+      "portal": 4,
+      "reboots": 0,
+      "rx": 16,
+      "sends": 16,
+      "silent_episodes": 0,
+      "timeouts": 0,
+      "top_logs": [],
+      "version": "sim-1.0"
+    },
+    {
+      "ack_pct": 93.75,
+      "calibration_ok": [
+        false,
+        false
+      ],
+      "col": 2,
+      "final_score": 75,
+      "final_state": "degraded",
+      "last_seen_ts": 1783511480579,
+      "latency_ms": {
+        "max": 6.1930999755859375,
+        "p50": 4.0,
+        "p90": 8.333333969116211
+      },
+      "log_counts": {
+        "error": 14,
+        "status": 0,
+        "warning": 0
+      },
+      "portal": 5,
+      "reboots": 0,
+      "rx": 15,
+      "sends": 16,
+      "silent_episodes": 0,
+      "timeouts": 1,
+      "top_logs": [
+        {
+          "count": 14,
+          "level": 20,
+          "message": "Switch not seen"
+        }
+      ],
+      "version": "sim-1.0"
+    },
+    {
+      "ack_pct": 100.0,
+      "calibration_ok": [
+        false,
+        false
+      ],
+      "col": 2,
+      "final_score": 89,
+      "final_state": "ok",
+      "last_seen_ts": 1783511480584,
+      "latency_ms": {
+        "max": 6.222799777984619,
+        "p50": 4.181818008422852,
+        "p90": 9.0
+      },
+      "log_counts": {
+        "error": 0,
+        "status": 0,
+        "warning": 0
+      },
+      "portal": 6,
+      "reboots": 0,
+      "rx": 16,
+      "sends": 16,
+      "silent_episodes": 0,
+      "timeouts": 0,
+      "top_logs": [],
+      "version": "sim-1.0"
+    },
+    {
+      "ack_pct": 0.0,
+      "calibration_ok": [
+        null,
+        null
+      ],
+      "col": 2,
+      "final_score": 45,
+      "final_state": "silent",
+      "last_seen_ts": null,
+      "latency_ms": {
+        "max": 0.0,
+        "p50": 0.0,
+        "p90": 0.0
+      },
+      "log_counts": {
+        "error": 0,
+        "status": 0,
+        "warning": 0
+      },
+      "portal": 7,
+      "reboots": 0,
+      "rx": 0,
+      "sends": 16,
+      "silent_episodes": 1,
+      "timeouts": 16,
+      "top_logs": [],
+      "version": null
+    },
+    {
+      "ack_pct": 100.0,
+      "calibration_ok": [
+        false,
+        false
+      ],
+      "col": 2,
+      "final_score": 89,
+      "final_state": "ok",
+      "last_seen_ts": 1783511480890,
+      "latency_ms": {
+        "max": 6.279000282287598,
+        "p50": 4.6666669845581055,
+        "p90": 9.285714149475098
+      },
+      "log_counts": {
+        "error": 0,
+        "status": 0,
+        "warning": 0
+      },
+      "portal": 8,
+      "reboots": 0,
+      "rx": 16,
+      "sends": 16,
+      "silent_episodes": 0,
+      "timeouts": 0,
+      "top_logs": [],
+      "version": "sim-1.0"
+    },
+    {
+      "ack_pct": 87.5,
+      "calibration_ok": [
+        false,
+        false
+      ],
+      "col": 2,
+      "final_score": 83,
+      "final_state": "ok",
+      "last_seen_ts": 1783511480895,
+      "latency_ms": {
+        "max": 6.066500186920166,
+        "p50": 3.75,
+        "p90": 7.5
+      },
+      "log_counts": {
+        "error": 0,
+        "status": 0,
+        "warning": 0
+      },
+      "portal": 9,
+      "reboots": 0,
+      "rx": 14,
+      "sends": 16,
+      "silent_episodes": 0,
+      "timeouts": 2,
+      "top_logs": [],
+      "version": "sim-1.0"
+    },
+    {
+      "ack_pct": 100.0,
+      "calibration_ok": [
+        false,
+        false
+      ],
+      "col": 2,
+      "final_score": 89,
+      "final_state": "ok",
+      "last_seen_ts": 1783511480901,
+      "latency_ms": {
+        "max": 6.273399829864502,
+        "p50": 4.6666669845581055,
+        "p90": 9.285714149475098
+      },
+      "log_counts": {
+        "error": 0,
+        "status": 0,
+        "warning": 0
+      },
+      "portal": 10,
+      "reboots": 0,
+      "rx": 16,
+      "sends": 16,
+      "silent_episodes": 0,
+      "timeouts": 0,
+      "top_logs": [],
+      "version": "sim-1.0"
+    },
+    {
+      "ack_pct": 100.0,
+      "calibration_ok": [
+        false,
+        false
+      ],
+      "col": 2,
+      "final_score": 89,
+      "final_state": "ok",
+      "last_seen_ts": 1783511480906,
+      "latency_ms": {
+        "max": 6.425099849700928,
+        "p50": 3.846153974533081,
+        "p90": 8.333333969116211
+      },
+      "log_counts": {
+        "error": 0,
+        "status": 0,
+        "warning": 0
+      },
+      "portal": 11,
+      "reboots": 0,
+      "rx": 16,
+      "sends": 16,
+      "silent_episodes": 0,
+      "timeouts": 0,
+      "top_logs": [],
+      "version": "sim-1.0"
+    },
+    {
+      "ack_pct": 100.0,
+      "calibration_ok": [
+        false,
+        false
+      ],
+      "col": 2,
+      "final_score": 89,
+      "final_state": "ok",
+      "last_seen_ts": 1783511480911,
+      "latency_ms": {
+        "max": 6.319799900054932,
+        "p50": 3.846153974533081,
+        "p90": 8.333333969116211
+      },
+      "log_counts": {
+        "error": 0,
+        "status": 0,
+        "warning": 0
+      },
+      "portal": 12,
+      "reboots": 0,
+      "rx": 16,
+      "sends": 16,
+      "silent_episodes": 0,
+      "timeouts": 0,
+      "top_logs": [],
+      "version": "sim-1.0"
+    },
+    {
+      "ack_pct": 100.0,
+      "calibration_ok": [
+        false,
+        false
+      ],
+      "col": 2,
+      "final_score": 89,
+      "final_state": "ok",
+      "last_seen_ts": 1783511480916,
+      "latency_ms": {
+        "max": 6.427499771118164,
+        "p50": 4.0,
+        "p90": 8.75
+      },
+      "log_counts": {
+        "error": 0,
+        "status": 0,
+        "warning": 0
+      },
+      "portal": 13,
+      "reboots": 0,
+      "rx": 16,
+      "sends": 16,
+      "silent_episodes": 0,
+      "timeouts": 0,
+      "top_logs": [],
+      "version": "sim-1.0"
+    },
+    {
+      "ack_pct": 100.0,
+      "calibration_ok": [
+        false,
+        false
+      ],
+      "col": 2,
+      "final_score": 89,
+      "final_state": "ok",
+      "last_seen_ts": 1783511480922,
+      "latency_ms": {
+        "max": 6.094799995422363,
+        "p50": 3.846153974533081,
+        "p90": 8.333333969116211
+      },
+      "log_counts": {
+        "error": 0,
+        "status": 0,
+        "warning": 0
+      },
+      "portal": 14,
+      "reboots": 0,
+      "rx": 16,
+      "sends": 16,
+      "silent_episodes": 0,
+      "timeouts": 0,
+      "top_logs": [],
+      "version": "sim-1.0"
+    },
+    {
+      "ack_pct": 100.0,
+      "calibration_ok": [
+        false,
+        false
+      ],
+      "col": 2,
+      "final_score": 89,
+      "final_state": "ok",
+      "last_seen_ts": 1783511480927,
+      "latency_ms": {
+        "max": 5.815199851989746,
+        "p50": 3.7142858505249023,
+        "p90": 7.5
+      },
+      "log_counts": {
+        "error": 0,
+        "status": 0,
+        "warning": 0
+      },
+      "portal": 15,
+      "reboots": 0,
+      "rx": 16,
+      "sends": 16,
+      "silent_episodes": 0,
+      "timeouts": 0,
+      "top_logs": [],
+      "version": "sim-1.0"
+    },
+    {
+      "ack_pct": 100.0,
+      "calibration_ok": [
+        false,
+        false
+      ],
+      "col": 2,
+      "final_score": 89,
+      "final_state": "ok",
+      "last_seen_ts": 1783511480932,
+      "latency_ms": {
+        "max": 6.036499977111816,
+        "p50": 3.7142858505249023,
+        "p90": 7.5
+      },
+      "log_counts": {
+        "error": 0,
+        "status": 0,
+        "warning": 0
+      },
+      "portal": 16,
+      "reboots": 0,
+      "rx": 16,
+      "sends": 16,
+      "silent_episodes": 0,
+      "timeouts": 0,
+      "top_logs": [],
+      "version": "sim-1.0"
+    },
+    {
+      "ack_pct": 100.0,
+      "calibration_ok": [
+        false,
+        false
+      ],
+      "col": 2,
+      "final_score": 89,
+      "final_state": "ok",
+      "last_seen_ts": 1783511480937,
+      "latency_ms": {
+        "max": 6.209400177001953,
+        "p50": 4.0,
+        "p90": 8.75
+      },
+      "log_counts": {
+        "error": 0,
+        "status": 0,
+        "warning": 0
+      },
+      "portal": 17,
+      "reboots": 0,
+      "rx": 16,
+      "sends": 16,
+      "silent_episodes": 0,
+      "timeouts": 0,
+      "top_logs": [],
+      "version": "sim-1.0"
+    },
+    {
+      "ack_pct": 93.75,
+      "calibration_ok": [
+        false,
+        false
+      ],
+      "col": 2,
+      "final_score": 85,
+      "final_state": "ok",
+      "last_seen_ts": 1783511480944,
+      "latency_ms": {
+        "max": 12.59160041809082,
+        "p50": 4.400000095367432,
+        "p90": 10.0
+      },
+      "log_counts": {
+        "error": 0,
+        "status": 0,
+        "warning": 0
+      },
+      "portal": 18,
+      "reboots": 0,
+      "rx": 15,
+      "sends": 16,
+      "silent_episodes": 0,
+      "timeouts": 1,
+      "top_logs": [],
+      "version": "sim-1.0"
+    },
+    {
+      "ack_pct": 100.0,
+      "calibration_ok": [
+        false,
+        false
+      ],
+      "col": 3,
+      "final_score": 89,
+      "final_state": "ok",
+      "last_seen_ts": 1783511480264,
+      "latency_ms": {
+        "max": 5.998800277709961,
+        "p50": 4.181818008422852,
+        "p90": 9.0
+      },
+      "log_counts": {
+        "error": 0,
+        "status": 0,
+        "warning": 0
+      },
+      "portal": 1,
+      "reboots": 0,
+      "rx": 16,
+      "sends": 16,
+      "silent_episodes": 0,
+      "timeouts": 0,
+      "top_logs": [],
+      "version": "sim-1.0"
+    },
+    {
+      "ack_pct": 0.0,
+      "calibration_ok": [
+        null,
+        null
+      ],
+      "col": 3,
+      "final_score": 45,
+      "final_state": "silent",
+      "last_seen_ts": null,
+      "latency_ms": {
+        "max": 0.0,
+        "p50": 0.0,
+        "p90": 0.0
+      },
+      "log_counts": {
+        "error": 0,
+        "status": 0,
+        "warning": 0
+      },
+      "portal": 2,
+      "reboots": 0,
+      "rx": 0,
+      "sends": 16,
+      "silent_episodes": 1,
+      "timeouts": 16,
+      "top_logs": [],
+      "version": null
+    },
+    {
+      "ack_pct": 100.0,
+      "calibration_ok": [
+        false,
+        false
+      ],
+      "col": 3,
+      "final_score": 89,
+      "final_state": "ok",
+      "last_seen_ts": 1783511480569,
+      "latency_ms": {
+        "max": 6.580700397491455,
+        "p50": 4.400000095367432,
+        "p90": 9.166666030883789
+      },
+      "log_counts": {
+        "error": 0,
+        "status": 0,
+        "warning": 0
+      },
+      "portal": 3,
+      "reboots": 0,
+      "rx": 16,
+      "sends": 16,
+      "silent_episodes": 0,
+      "timeouts": 0,
+      "top_logs": [],
+      "version": "sim-1.0"
+    },
+    {
+      "ack_pct": 100.0,
+      "calibration_ok": [
+        false,
+        false
+      ],
+      "col": 3,
+      "final_score": 89,
+      "final_state": "ok",
+      "last_seen_ts": 1783511480575,
+      "latency_ms": {
+        "max": 6.267699718475342,
+        "p50": 4.6666669845581055,
+        "p90": 9.285714149475098
+      },
+      "log_counts": {
+        "error": 0,
+        "status": 0,
+        "warning": 0
+      },
+      "portal": 4,
+      "reboots": 0,
+      "rx": 16,
+      "sends": 16,
+      "silent_episodes": 0,
+      "timeouts": 0,
+      "top_logs": [],
+      "version": "sim-1.0"
+    },
+    {
+      "ack_pct": 93.75,
+      "calibration_ok": [
+        false,
+        false
+      ],
+      "col": 3,
+      "final_score": 75,
+      "final_state": "degraded",
+      "last_seen_ts": 1783511480579,
+      "latency_ms": {
+        "max": 6.19789981842041,
+        "p50": 4.0,
+        "p90": 8.333333969116211
+      },
+      "log_counts": {
+        "error": 14,
+        "status": 0,
+        "warning": 0
+      },
+      "portal": 5,
+      "reboots": 0,
+      "rx": 15,
+      "sends": 16,
+      "silent_episodes": 0,
+      "timeouts": 1,
+      "top_logs": [
+        {
+          "count": 14,
+          "level": 20,
+          "message": "Switch not seen"
+        }
+      ],
+      "version": "sim-1.0"
+    },
+    {
+      "ack_pct": 100.0,
+      "calibration_ok": [
+        false,
+        false
+      ],
+      "col": 3,
+      "final_score": 89,
+      "final_state": "ok",
+      "last_seen_ts": 1783511480584,
+      "latency_ms": {
+        "max": 6.248199939727783,
+        "p50": 4.0,
+        "p90": 8.75
+      },
+      "log_counts": {
+        "error": 0,
+        "status": 0,
+        "warning": 0
+      },
+      "portal": 6,
+      "reboots": 0,
+      "rx": 16,
+      "sends": 16,
+      "silent_episodes": 0,
+      "timeouts": 0,
+      "top_logs": [],
+      "version": "sim-1.0"
+    },
+    {
+      "ack_pct": 0.0,
+      "calibration_ok": [
+        null,
+        null
+      ],
+      "col": 3,
+      "final_score": 45,
+      "final_state": "silent",
+      "last_seen_ts": null,
+      "latency_ms": {
+        "max": 0.0,
+        "p50": 0.0,
+        "p90": 0.0
+      },
+      "log_counts": {
+        "error": 0,
+        "status": 0,
+        "warning": 0
+      },
+      "portal": 7,
+      "reboots": 0,
+      "rx": 0,
+      "sends": 16,
+      "silent_episodes": 1,
+      "timeouts": 16,
+      "top_logs": [],
+      "version": null
+    },
+    {
+      "ack_pct": 100.0,
+      "calibration_ok": [
+        false,
+        false
+      ],
+      "col": 3,
+      "final_score": 89,
+      "final_state": "ok",
+      "last_seen_ts": 1783511480890,
+      "latency_ms": {
+        "max": 6.3078999519348145,
+        "p50": 4.6666669845581055,
+        "p90": 9.285714149475098
+      },
+      "log_counts": {
+        "error": 0,
+        "status": 0,
+        "warning": 0
+      },
+      "portal": 8,
+      "reboots": 0,
+      "rx": 16,
+      "sends": 16,
+      "silent_episodes": 0,
+      "timeouts": 0,
+      "top_logs": [],
+      "version": "sim-1.0"
+    },
+    {
+      "ack_pct": 87.5,
+      "calibration_ok": [
+        false,
+        false
+      ],
+      "col": 3,
+      "final_score": 83,
+      "final_state": "ok",
+      "last_seen_ts": 1783511480895,
+      "latency_ms": {
+        "max": 6.0792999267578125,
+        "p50": 3.615384578704834,
+        "p90": 5.0
+      },
+      "log_counts": {
+        "error": 0,
+        "status": 0,
+        "warning": 0
+      },
+      "portal": 9,
+      "reboots": 0,
+      "rx": 14,
+      "sends": 16,
+      "silent_episodes": 0,
+      "timeouts": 2,
+      "top_logs": [],
+      "version": "sim-1.0"
+    },
+    {
+      "ack_pct": 100.0,
+      "calibration_ok": [
+        false,
+        false
+      ],
+      "col": 3,
+      "final_score": 89,
+      "final_state": "ok",
+      "last_seen_ts": 1783511480901,
+      "latency_ms": {
+        "max": 6.2129998207092285,
+        "p50": 4.6666669845581055,
+        "p90": 9.285714149475098
+      },
+      "log_counts": {
+        "error": 0,
+        "status": 0,
+        "warning": 0
+      },
+      "portal": 10,
+      "reboots": 0,
+      "rx": 16,
+      "sends": 16,
+      "silent_episodes": 0,
+      "timeouts": 0,
+      "top_logs": [],
+      "version": "sim-1.0"
+    },
+    {
+      "ack_pct": 100.0,
+      "calibration_ok": [
+        false,
+        false
+      ],
+      "col": 3,
+      "final_score": 89,
+      "final_state": "ok",
+      "last_seen_ts": 1783511480906,
+      "latency_ms": {
+        "max": 6.430099964141846,
+        "p50": 3.7142858505249023,
+        "p90": 7.5
+      },
+      "log_counts": {
+        "error": 0,
+        "status": 0,
+        "warning": 0
+      },
+      "portal": 11,
+      "reboots": 0,
+      "rx": 16,
+      "sends": 16,
+      "silent_episodes": 0,
+      "timeouts": 0,
+      "top_logs": [],
+      "version": "sim-1.0"
+    },
+    {
+      "ack_pct": 100.0,
+      "calibration_ok": [
+        false,
+        false
+      ],
+      "col": 3,
+      "final_score": 89,
+      "final_state": "ok",
+      "last_seen_ts": 1783511480911,
+      "latency_ms": {
+        "max": 6.338099956512451,
+        "p50": 4.0,
+        "p90": 8.75
+      },
+      "log_counts": {
+        "error": 0,
+        "status": 0,
+        "warning": 0
+      },
+      "portal": 12,
+      "reboots": 0,
+      "rx": 16,
+      "sends": 16,
+      "silent_episodes": 0,
+      "timeouts": 0,
+      "top_logs": [],
+      "version": "sim-1.0"
+    },
+    {
+      "ack_pct": 100.0,
+      "calibration_ok": [
+        false,
+        false
+      ],
+      "col": 3,
+      "final_score": 89,
+      "final_state": "ok",
+      "last_seen_ts": 1783511480916,
+      "latency_ms": {
+        "max": 6.427599906921387,
+        "p50": 4.0,
+        "p90": 8.75
+      },
+      "log_counts": {
+        "error": 0,
+        "status": 0,
+        "warning": 0
+      },
+      "portal": 13,
+      "reboots": 0,
+      "rx": 16,
+      "sends": 16,
+      "silent_episodes": 0,
+      "timeouts": 0,
+      "top_logs": [],
+      "version": "sim-1.0"
+    },
+    {
+      "ack_pct": 100.0,
+      "calibration_ok": [
+        false,
+        false
+      ],
+      "col": 3,
+      "final_score": 89,
+      "final_state": "ok",
+      "last_seen_ts": 1783511480922,
+      "latency_ms": {
+        "max": 6.2490997314453125,
+        "p50": 3.846153974533081,
+        "p90": 8.333333969116211
+      },
+      "log_counts": {
+        "error": 0,
+        "status": 0,
+        "warning": 0
+      },
+      "portal": 14,
+      "reboots": 0,
+      "rx": 16,
+      "sends": 16,
+      "silent_episodes": 0,
+      "timeouts": 0,
+      "top_logs": [],
+      "version": "sim-1.0"
+    },
+    {
+      "ack_pct": 100.0,
+      "calibration_ok": [
+        false,
+        false
+      ],
+      "col": 3,
+      "final_score": 89,
+      "final_state": "ok",
+      "last_seen_ts": 1783511480927,
+      "latency_ms": {
+        "max": 5.818399906158447,
+        "p50": 3.6000001430511475,
+        "p90": 5.0
+      },
+      "log_counts": {
+        "error": 0,
+        "status": 0,
+        "warning": 0
+      },
+      "portal": 15,
+      "reboots": 0,
+      "rx": 16,
+      "sends": 16,
+      "silent_episodes": 0,
+      "timeouts": 0,
+      "top_logs": [],
+      "version": "sim-1.0"
+    },
+    {
+      "ack_pct": 100.0,
+      "calibration_ok": [
+        false,
+        false
+      ],
+      "col": 3,
+      "final_score": 89,
+      "final_state": "ok",
+      "last_seen_ts": 1783511480932,
+      "latency_ms": {
+        "max": 6.061700344085693,
+        "p50": 3.7142858505249023,
+        "p90": 7.5
+      },
+      "log_counts": {
+        "error": 0,
+        "status": 0,
+        "warning": 0
+      },
+      "portal": 16,
+      "reboots": 0,
+      "rx": 16,
+      "sends": 16,
+      "silent_episodes": 0,
+      "timeouts": 0,
+      "top_logs": [],
+      "version": "sim-1.0"
+    },
+    {
+      "ack_pct": 100.0,
+      "calibration_ok": [
+        false,
+        false
+      ],
+      "col": 3,
+      "final_score": 89,
+      "final_state": "ok",
+      "last_seen_ts": 1783511480937,
+      "latency_ms": {
+        "max": 6.277699947357178,
+        "p50": 4.181818008422852,
+        "p90": 9.0
+      },
+      "log_counts": {
+        "error": 0,
+        "status": 0,
+        "warning": 0
+      },
+      "portal": 17,
+      "reboots": 0,
+      "rx": 16,
+      "sends": 16,
+      "silent_episodes": 0,
+      "timeouts": 0,
+      "top_logs": [],
+      "version": "sim-1.0"
+    },
+    {
+      "ack_pct": 93.75,
+      "calibration_ok": [
+        false,
+        false
+      ],
+      "col": 3,
+      "final_score": 85,
+      "final_state": "ok",
+      "last_seen_ts": 1783511480944,
+      "latency_ms": {
+        "max": 6.211299896240234,
+        "p50": 4.181818008422852,
+        "p90": 8.75
+      },
+      "log_counts": {
+        "error": 0,
+        "status": 0,
+        "warning": 0
+      },
+      "portal": 18,
+      "reboots": 0,
+      "rx": 15,
+      "sends": 16,
+      "silent_episodes": 0,
+      "timeouts": 1,
+      "top_logs": [],
+      "version": "sim-1.0"
+    }
+  ],
+  "session": {
+    "app_version": "router-headless 0.1.0",
+    "clean_exit": true,
+    "config": {
+      "columnWidth": 3,
+      "columns": 4,
+      "rows": 6,
+      "simulate": true
+    },
+    "dropped_events": 0,
+    "duration_ms": 47269,
+    "end_ts": 1783511483353,
+    "host": "DESKTOP-0HV24C7",
+    "ndjson_files": [
+      "session-20260708T115036Z.ndjson"
+    ],
+    "start_ts": 1783511436080
+  },
+  "top_offenders": {
+    "most_timeouts": [
+      {
+        "ack_pct": 0.0,
+        "col": 0,
+        "error_logs": 0,
+        "portal": 2,
+        "reboots": 0,
+        "state": "silent",
+        "timeouts": 16
+      },
+      {
+        "ack_pct": 0.0,
+        "col": 0,
+        "error_logs": 0,
+        "portal": 7,
+        "reboots": 0,
+        "state": "silent",
+        "timeouts": 16
+      },
+      {
+        "ack_pct": 0.0,
+        "col": 1,
+        "error_logs": 0,
+        "portal": 2,
+        "reboots": 0,
+        "state": "silent",
+        "timeouts": 16
+      },
+      {
+        "ack_pct": 0.0,
+        "col": 1,
+        "error_logs": 0,
+        "portal": 7,
+        "reboots": 0,
+        "state": "silent",
+        "timeouts": 16
+      },
+      {
+        "ack_pct": 0.0,
+        "col": 2,
+        "error_logs": 0,
+        "portal": 2,
+        "reboots": 0,
+        "state": "silent",
+        "timeouts": 16
+      },
+      {
+        "ack_pct": 0.0,
+        "col": 2,
+        "error_logs": 0,
+        "portal": 7,
+        "reboots": 0,
+        "state": "silent",
+        "timeouts": 16
+      },
+      {
+        "ack_pct": 0.0,
+        "col": 3,
+        "error_logs": 0,
+        "portal": 2,
+        "reboots": 0,
+        "state": "silent",
+        "timeouts": 16
+      },
+      {
+        "ack_pct": 0.0,
+        "col": 3,
+        "error_logs": 0,
+        "portal": 7,
+        "reboots": 0,
+        "state": "silent",
+        "timeouts": 16
+      },
+      {
+        "ack_pct": 87.5,
+        "col": 0,
+        "error_logs": 0,
+        "portal": 9,
+        "reboots": 0,
+        "state": "ok",
+        "timeouts": 2
+      },
+      {
+        "ack_pct": 87.5,
+        "col": 1,
+        "error_logs": 0,
+        "portal": 9,
+        "reboots": 0,
+        "state": "ok",
+        "timeouts": 2
+      }
+    ],
+    "noisiest_loggers": [
+      {
+        "ack_pct": 93.75,
+        "col": 0,
+        "error_logs": 14,
+        "portal": 5,
+        "reboots": 0,
+        "state": "degraded",
+        "timeouts": 1
+      },
+      {
+        "ack_pct": 93.75,
+        "col": 1,
+        "error_logs": 14,
+        "portal": 5,
+        "reboots": 0,
+        "state": "degraded",
+        "timeouts": 1
+      },
+      {
+        "ack_pct": 93.75,
+        "col": 2,
+        "error_logs": 14,
+        "portal": 5,
+        "reboots": 0,
+        "state": "degraded",
+        "timeouts": 1
+      },
+      {
+        "ack_pct": 93.75,
+        "col": 3,
+        "error_logs": 14,
+        "portal": 5,
+        "reboots": 0,
+        "state": "degraded",
+        "timeouts": 1
+      },
+      {
+        "ack_pct": 100.0,
+        "col": 0,
+        "error_logs": 0,
+        "portal": 1,
+        "reboots": 0,
+        "state": "ok",
+        "timeouts": 0
+      },
+      {
+        "ack_pct": 0.0,
+        "col": 0,
+        "error_logs": 0,
+        "portal": 2,
+        "reboots": 0,
+        "state": "silent",
+        "timeouts": 16
+      },
+      {
+        "ack_pct": 100.0,
+        "col": 0,
+        "error_logs": 0,
+        "portal": 3,
+        "reboots": 0,
+        "state": "ok",
+        "timeouts": 0
+      },
+      {
+        "ack_pct": 100.0,
+        "col": 0,
+        "error_logs": 0,
+        "portal": 4,
+        "reboots": 0,
+        "state": "ok",
+        "timeouts": 0
+      },
+      {
+        "ack_pct": 100.0,
+        "col": 0,
+        "error_logs": 0,
+        "portal": 6,
+        "reboots": 0,
+        "state": "ok",
+        "timeouts": 0
+      },
+      {
+        "ack_pct": 0.0,
+        "col": 0,
+        "error_logs": 0,
+        "portal": 7,
+        "reboots": 0,
+        "state": "silent",
+        "timeouts": 16
+      }
+    ],
+    "rebooters": [
+      {
+        "ack_pct": 100.0,
+        "col": 0,
+        "error_logs": 0,
+        "portal": 1,
+        "reboots": 0,
+        "state": "ok",
+        "timeouts": 0
+      },
+      {
+        "ack_pct": 0.0,
+        "col": 0,
+        "error_logs": 0,
+        "portal": 2,
+        "reboots": 0,
+        "state": "silent",
+        "timeouts": 16
+      },
+      {
+        "ack_pct": 100.0,
+        "col": 0,
+        "error_logs": 0,
+        "portal": 3,
+        "reboots": 0,
+        "state": "ok",
+        "timeouts": 0
+      },
+      {
+        "ack_pct": 100.0,
+        "col": 0,
+        "error_logs": 0,
+        "portal": 4,
+        "reboots": 0,
+        "state": "ok",
+        "timeouts": 0
+      },
+      {
+        "ack_pct": 93.75,
+        "col": 0,
+        "error_logs": 14,
+        "portal": 5,
+        "reboots": 0,
+        "state": "degraded",
+        "timeouts": 1
+      },
+      {
+        "ack_pct": 100.0,
+        "col": 0,
+        "error_logs": 0,
+        "portal": 6,
+        "reboots": 0,
+        "state": "ok",
+        "timeouts": 0
+      },
+      {
+        "ack_pct": 0.0,
+        "col": 0,
+        "error_logs": 0,
+        "portal": 7,
+        "reboots": 0,
+        "state": "silent",
+        "timeouts": 16
+      },
+      {
+        "ack_pct": 100.0,
+        "col": 0,
+        "error_logs": 0,
+        "portal": 8,
+        "reboots": 0,
+        "state": "ok",
+        "timeouts": 0
+      },
+      {
+        "ack_pct": 87.5,
+        "col": 0,
+        "error_logs": 0,
+        "portal": 9,
+        "reboots": 0,
+        "state": "ok",
+        "timeouts": 2
+      },
+      {
+        "ack_pct": 100.0,
+        "col": 0,
+        "error_logs": 0,
+        "portal": 10,
+        "reboots": 0,
+        "state": "ok",
+        "timeouts": 0
+      }
+    ],
+    "worst_ack": [
+      {
+        "ack_pct": 0.0,
+        "col": 0,
+        "error_logs": 0,
+        "portal": 2,
+        "reboots": 0,
+        "state": "silent",
+        "timeouts": 16
+      },
+      {
+        "ack_pct": 0.0,
+        "col": 0,
+        "error_logs": 0,
+        "portal": 7,
+        "reboots": 0,
+        "state": "silent",
+        "timeouts": 16
+      },
+      {
+        "ack_pct": 0.0,
+        "col": 1,
+        "error_logs": 0,
+        "portal": 2,
+        "reboots": 0,
+        "state": "silent",
+        "timeouts": 16
+      },
+      {
+        "ack_pct": 0.0,
+        "col": 1,
+        "error_logs": 0,
+        "portal": 7,
+        "reboots": 0,
+        "state": "silent",
+        "timeouts": 16
+      },
+      {
+        "ack_pct": 0.0,
+        "col": 2,
+        "error_logs": 0,
+        "portal": 2,
+        "reboots": 0,
+        "state": "silent",
+        "timeouts": 16
+      },
+      {
+        "ack_pct": 0.0,
+        "col": 2,
+        "error_logs": 0,
+        "portal": 7,
+        "reboots": 0,
+        "state": "silent",
+        "timeouts": 16
+      },
+      {
+        "ack_pct": 0.0,
+        "col": 3,
+        "error_logs": 0,
+        "portal": 2,
+        "reboots": 0,
+        "state": "silent",
+        "timeouts": 16
+      },
+      {
+        "ack_pct": 0.0,
+        "col": 3,
+        "error_logs": 0,
+        "portal": 7,
+        "reboots": 0,
+        "state": "silent",
+        "timeouts": 16
+      },
+      {
+        "ack_pct": 87.5,
+        "col": 0,
+        "error_logs": 0,
+        "portal": 9,
+        "reboots": 0,
+        "state": "ok",
+        "timeouts": 2
+      },
+      {
+        "ack_pct": 87.5,
+        "col": 1,
+        "error_logs": 0,
+        "portal": 9,
+        "reboots": 0,
+        "state": "ok",
+        "timeouts": 2
+      }
+    ]
+  },
+  "totals": {
+    "acks": 1008,
+    "cobs_errors": 32,
+    "dropped_events": 0,
+    "msgpack_errors": 0,
+    "portal_error_logs": 56,
+    "reconnects": 0,
+    "rx": 1008,
+    "timeouts": 144,
+    "tx": 1152
+  },
+  "v": 1
+}
