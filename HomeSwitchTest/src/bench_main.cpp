@@ -164,7 +164,7 @@ static int    autoCross[kAutoMaxPoints];
 // only the deep dip reads ACTIVE. The dip floor is only ever a go/no-go
 // depth gate and is never used to derive the threshold.
 static const int      kFastBgMargin      = 10;     // T_op = background crossing - this
-static const int      kFastDepthMargin   = 2;      // centre crossing must be <= T_op - this
+static const int      kFastDepthBelowBg  = 6;      // dip probe must read <= anchorBg - this
                                                    // (dip floor can sit only ~4-8 below T_op on
                                                    // shallow days; background reads T_op + margin)
 static const int      kFastCalBracketLo  = 140;    // settled-probe search bracket [lo, 255]
@@ -1062,9 +1062,10 @@ static bool fastTwoEdgePass(StepsPerSecond vEdge, uint32_t deadline,
 //                Self-heals a drifted threshold: cannot-clear -> T down,
 //                nothing-found -> T up (bounded).
 //   2. GATES   - depth: settled crossing at the estimated centre must sit
-//                kFastDepthMargin below T_op (cold runs); shoulder: a
-//                clearance below the lead must read INACTIVE; width: the
-//                measured flag width must be plausible.
+//                kFastDepthBelowBg below the anchor background (cold runs;
+//                decided at the arming point where the anchor is measured);
+//                shoulder: a clearance below the lead must read INACTIVE;
+//                width: the measured flag width must be plausible.
 //   3. PRECISE - one forward pass at vEdge latching leading + trailing edge in
 //                the same engaged frame; home = midpoint (backlash-free).
 //   4. BACKLASH- walk past the trailing edge (no reversal), verify disengaged,
@@ -1173,24 +1174,26 @@ static void fastHome(StepsPerSecond vEdge, int m, StepsPerSecond vSeek,
 
     // ---- Phase 2+3: gates and the precise pass (with false-feature retry) ---
     Steps lead = 0, trail = 0;
+    int coldDepth = -1;
     while (true) {
         bool accepted = true;
 
-        // Depth gate (cold runs; warm runs trust the cache - the shoulder and
-        // width gates below still protect): the settled crossing at the
-        // estimated centre must sit well below T_op.
+        // Depth probe (cold runs; warm runs trust the cache - the shoulder and
+        // width gates below still protect): settled crossing at the estimated
+        // centre. Measure only - the verdict needs the anchor background,
+        // measured at the arming point below (the probe sits ~200 usteps past
+        // the true centre because the seek lag shifts coarseLead forward, so
+        // it reads a shallow flank; judging it against T, which itself sits
+        // only ~4 counts above the floor, false-rejected real flags).
         if (!warm) {
             motion->goTo(coarseLead + kFastHalfWidthGuess, motion->getDefaultSpeed());
             if (motion->aborted()) { fastHomeFail("abort", t0); return; }
             int glo, ghi;
             int cc = measureCrossingSettledFast(kFastCalBracketLo, glo, ghi);
             if (cc == -2) { fastHomeFail("abort", t0); return; }
-            const int cEff = normCrossing(cc, glo);
-            accepted = (cEff <= T - kFastDepthMargin);
+            coldDepth = normCrossing(cc, glo);
             Modules::HomeSwitchOptical::setThreshold((uint8_t) T);
             if (!waitServiced(kFastGateSettleMs)) { fastHomeFail("abort", t0); return; }
-            snprintf(line, sizeof(line), "O,gate,depth,%d,%d", accepted ? 1 : 0, cEff);
-            testSerial.println(line);
         }
 
         if (accepted) {
@@ -1201,7 +1204,41 @@ static void fastHome(StepsPerSecond vEdge, int m, StepsPerSecond vSeek,
             if (motion->aborted()) { fastHomeFail("abort", t0); return; }
             if (!waitServiced(kFastGateSettleMs / 2)) { fastHomeFail("abort", t0); return; }
 
-            if (motion->sensorActive()) {
+            if (!warm) {
+                // Threshold anchor (cold runs): the background level varies by
+                // ring sector, so a T calibrated at the arbitrary start
+                // position is bistable (bench: 231 vs 239; at 239 the flag
+                // reads near its shoulders - ~2x width, ~2.5x backlash, 10x
+                // worse repeatability). Re-derive T at THIS spot, the same
+                // fixed offset below the lead every run.
+                int alo, ahi;
+                int ac = measureCrossingSettledFast(kFastCalBracketLo, alo, ahi);
+                if (ac == -2) { fastHomeFail("abort", t0); return; }
+                const int anchorBg = normCrossing(ac, alo);
+                int Tc = anchorBg - kFastBgMargin;
+                if (Tc < 16)  Tc = 16;
+                if (Tc > 250) Tc = 250;
+                if (Tc != T) {
+                    T = Tc;
+                    snprintf(line, sizeof(line), "O,thr,%d,anchor", T);
+                    testSerial.println(line);
+                }
+                // Depth verdict: the dip must sit well below the LOCAL
+                // background (floor is 10-14 counts below it; false features
+                // read within 2-3). Robust against hour-scale profile drift.
+                if (coldDepth >= 0) {
+                    accepted = (coldDepth <= anchorBg - kFastDepthBelowBg);
+                    snprintf(line, sizeof(line), "O,gate,depth,%d,%d",
+                        accepted ? 1 : 0, coldDepth);
+                    testSerial.println(line);
+                }
+                Modules::HomeSwitchOptical::setThreshold((uint8_t) T);
+                if (!waitServiced(kFastGateSettleMs)) { fastHomeFail("abort", t0); return; }
+            }
+
+            if (!accepted) {
+                // fall through to the reject path below
+            } else if (motion->sensorActive()) {
                 // Shoulder gate: a clearance below the lead must read off-flag.
                 accepted = false;
                 snprintf(line, sizeof(line), "O,gate,shoulder,0,0");

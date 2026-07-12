@@ -132,7 +132,7 @@ hand in a serial terminal).
 | `F <N>` | coarse-to-fine peak search over ±N µsteps (keeps only the peak) |
 | `K <N> [step] [dutyMin] [dutyMax]` | home-shape grid scan (dutyMin default 200, must be < the lowest real crossing) |
 | `A <N> [step]` | self-calibrating two-edge dip home (finds its own threshold) |
-| `O [vEdge] [M] [vSeek] [accel] [forceCal]` | **fast home + backlash** — the production-candidate routine (see below) |
+| `O [vEdge] [M] [vSeek] [accel] [forceCal] [passes]` | **fast home + backlash** — the production-candidate routine (see below) |
 | `N [T] [vmax] [accel] [M]` | full-rev sensor **census** at fixed threshold T: one ramped lap, dumps every debounced transition |
 | `Y <dµsteps> [vmax] [accel]` | ramped (trapezoid) relative move — speed/accel probing |
 | `W` | debug: 100-sample burst comparing digitalRead vs the ISR's direct register read |
@@ -234,11 +234,16 @@ forward-engaged pass at µstep resolution), the **switch size**, and the
 **gear backlash** (engage-vs-release at the trailing edge), and it
 **self-calibrates the comparator threshold** from the live background
 (`T = background − 10`; the profile drifts 15–25 duty counts day-to-day so no
-fixed threshold survives). Phases: calibrate (cold only, cached) → ramped
-seek (24 k µsteps/s; the motor stalls above ~30 k at 100 k/s² accel) →
-validation gates (depth / shoulder / width, so a false feature can't be
-adopted as home) → precise two-edge pass (debounced ISR latch, M=32
-consecutive µsteps, immune to flank-dither blips) → backlash → park + zero.
+fixed threshold survives — and the background also varies ~8 counts by ring
+sector, so on cold runs the final T is **re-anchored at a flag-referenced
+spot**, the pass arming point at `lead − 5000`, the same physical place every
+run). Phases: provisional calibrate (cold only, cached) → ramped seek
+(24 k µsteps/s; the motor stalls above ~30 k at 100 k/s² accel) → threshold
+anchor + validation gates (depth is judged against the anchor background −6,
+where the real dip sits 10–14 counts down and false features only 2–3;
+shoulder / width, so a false feature can't be adopted as home) → precise
+two-edge pass (debounced ISR latch, M=32 consecutive µsteps, immune to
+flank-dither blips) → backlash → park + zero.
 
 The precise measurement runs **two averaged forward passes** at 2000 µsteps/s
 (a third tie-breaks if they disagree >12 µsteps): repeatability is
@@ -252,10 +257,24 @@ ends with `O,done,0,...,"reason"` and clears the threshold cache.
 µsteps/rev is the exact rational **189,704** (the truncated 189,696 is 7.9
 short — confirmed by rotation tests, residual +3.9 ± 7).
 
+**Overnight resilience bake** (2026-07-10 → 11, 15.5 h, `reports/bake/`):
+**2,337 / 2,338 homes succeeded** from starts covering the whole circle
+(golden-angle uniform sweep + adversarial starts at home / inside the flag /
+on both edges / worst-case wrap / ±179.9°, alternating approach directions,
+forced cold recalibration every 10th home, ±2-rev detours every 50th). The
+single failure exposed the sector-bistable cold threshold and a depth gate
+with ~1 count of margin — both fixed (the anchor scheme above); after the fix
+**1,955 / 1,955 clean**. Back-to-back warm homes at unchanged T repeated to
+**σ 5.2 / max 14 µsteps (<0.03°) across the entire night**; T self-tracked
+228–234; backlash breathed 412–796 µsteps with temperature. One caveat for
+production: a **cold** home's datum can sit up to ~114 µsteps (0.2°) off the
+warm datum (calibration probing perturbs the thermo-optical profile), so run
+a warm re-home right after any cold calibration and keep the warm datum.
+
 The headless harness `monitor/bench_harness.py` drives the experiment suite
-(census / knee / matrix / backlash — results land in `reports/`), and
-`portalfw_port/` contains the PortalFW-ready implementation
-(`FastHomeRoutine.cpp` + `PORTING.md`).
+(census / knee / matrix / backlash / stability / rotation / bake — results
+land in `reports/`), and `portalfw_port/` contains the PortalFW-ready
+implementation (`FastHomeRoutine.cpp` + `PORTING.md`).
 
 **`monitor/fast_home_gui.py`** is a focused GUI for this routine: a ring-dial
 visualisation of the prism motion (needle + fading trail, flag arc and home

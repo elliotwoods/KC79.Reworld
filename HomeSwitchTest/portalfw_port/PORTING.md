@@ -22,6 +22,7 @@ Bench results (side A rig, 189,696 µsteps/rev):
 | 0.01° feasibility | not consistent on this hardware: floor = per-pass noise σ≈4 + thermo-optical drift σ≈2–4 (equilibrium batches reach max 6 = 0.011°) |
 | backlash | 569 ± 17 µsteps at vEdge=4000; true (0-speed extrapolated) ≈ 530; inflates ≈ 9 µsteps per 1000 µsteps/s of pass speed (sensor lag ≈ 4–5 ms) |
 | acceptance | 40/40 homes from −90°…+180° starts; 4.5–6.5 s short-seek, 8.4–12.3 s wrap-seek |
+| overnight resilience bake (2026-07-10→11, 15.5 h) | **2,337/2,338 homes** from full-circle starts (uniform sweep + on-edge/in-flag/wrap/boundary adversarial, alternating approach directions, cold recal every 10th, ±2-rev detours). The 1 failure exposed the sector-bistable threshold + fragile depth gate (both fixed, see below); **1,955/1,955 clean after the fix**. Warm back-to-back repeatability at unchanged T held sd 5.2 / max 14 µsteps (<0.03°) across the whole night; T self-tracked 228–234; backlash breathed 412–796 with temperature |
 | sensor lag cross-check | home datum immune to vEdge (fwd/fwd midpoint cancels lag — measured, mean shift < 30 µsteps 2k→8k) |
 | threshold drift observed across 3 days | 15–25 duty counts (whole profile) |
 
@@ -38,6 +39,17 @@ Bench results (side A rig, 189,696 µsteps/rev):
    only a power-on placeholder. The routine measures the local background at
    run time and sets `T = background − 10`, then self-heals with bounded
    ±adjustments if the world disagrees (can't-clear → T−8; empty lap → T+6).
+   **And the background also varies ~8 duty counts by ring sector** (overnight
+   bake, 2026-07-11): a T derived at the arbitrary starting position is
+   bistable (231 vs 239 on the rig; at 239 the flag reads near its shoulders —
+   ~2× width, ~2.5× backlash, ~10× worse repeatability, and within ~60 µsteps
+   of the width gate). The final T must therefore be **anchored at a
+   flag-referenced spot** — the routine re-derives it from a settled probe at
+   `lead − CLEARANCE` (the pass arming point) on every cold run, and the depth
+   gate verdict is `dip ≤ anchorBg − 6` (floor sits 10–14 counts below the
+   background, false features 2–3; judging depth against T is fragile because
+   T sits only ~4 counts above the floor — evening drift false-rejected the
+   real flag on the bench).
 3. **The threshold DAC is RC-filtered (τ ≈ 100 ms).** Any measurement that
    sweeps the duty quickly reads ~20+ counts high. Every measurement that
    feeds a threshold decision must be **settled** (≥ 2 τ per probe). The
@@ -152,7 +164,13 @@ Bench results (side A rig, 189,696 µsteps/rev):
    `measureBacklashRoutine(); homeRoutine();` pair with
    `fastHomeRoutine();` for optical builds. Optionally expose a
    per-axis msgpack key `"fastHome"` next to `"home"` in
-   `processIncomingByKey`.
+   `processIncomingByKey`. **Run it twice when cold**: a cold run's datum
+   sits up to ~114 µsteps (0.2°) off the warm datum (the calibration
+   probing dwells inside the flag and perturbs the thermo-optical profile
+   just before the precise pass — overnight-bake measurement, corr −0.54
+   between a cold home's error and the next home's correction). The second,
+   warm run (~11 s) lands on the production datum; warm homes then repeat
+   to σ ≈ 7 µsteps across a whole night, drift included.
 
 8. **Shared threshold DAC (PC15) — policy decision.** `setThreshold` is
    static: ONE RC-filtered PWM feeds BOTH axes' comparators. Each axis has

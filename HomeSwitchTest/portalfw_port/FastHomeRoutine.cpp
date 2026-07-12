@@ -26,9 +26,19 @@
 //   1 SEEK       forward up to 1.25 rev with the (debounced) switch latch
 //                armed, at a RAISED motion profile. Self-heals a drifted
 //                threshold: cannot-clear -> T down, lap-empty -> T up.
-//   2 GATES      depth (settled crossing at centre estimate must sit below
-//                T - 2), shoulder (a clearance below the lead must read
-//                inactive), width (plausible flag width).
+//   1b ANCHOR    (cold runs) re-derive T from a settled background probe at
+//                lead - CLEARANCE - the SAME physical spot every run. The
+//                background varies ~8 duty counts by ring sector, so a T
+//                calibrated at the arbitrary phase-0 position is bistable
+//                (bench: 231 vs 239; at 239 the flag reads near its
+//                shoulders: ~2x width, ~2.5x backlash, 10x worse
+//                repeatability).
+//   2 GATES      depth (settled crossing at centre estimate must sit >= 6
+//                counts below the ANCHOR background - the dip floor is 10-14
+//                below it, false features 2-3; judging against T is fragile
+//                since T sits only ~4 above the floor), shoulder (a
+//                clearance below the lead must read inactive), width
+//                (plausible flag width).
 //   3 PRECISE    ONE forward pass latches leading + trailing edges in the
 //                same engaged frame -> midpoint needs no backlash model.
 //   4 BACKLASH   walk 32 fullsteps past the trailing edge (no reversal),
@@ -36,6 +46,14 @@
 //                backlash = trail - reenter  (same arithmetic as
 //                measureBacklashRoutine's engage-vs-release).
 //   5 APPLY      position -= home; park via a forward-engaged approach.
+//
+// CALLER POLICY (Routines::calibrate): after a COLD run (threshold was not
+// cached), immediately run the routine ONCE MORE - the second run is warm
+// (~11 s) and its datum is the one to keep. Bench-measured over an overnight
+// bake: cold-run datums sit up to ~114 usteps (0.2 deg) off the warm datum
+// (the calibration probing dwells inside the flag and perturbs the
+// thermo-optical profile right before the precise pass); warm homes at the
+// same threshold repeat to sd ~7 usteps across a whole night.
 //
 // ---------------------------------------------------------------------------
 // ADD TO MotionControl.h (members):
@@ -49,8 +67,8 @@
 //
 // TUNABLES (bench-frozen values; see PORTING.md for provenance):
 // ---------------------------------------------------------------------------
-#define FASTHOME_BG_MARGIN        10     // T = background crossing - this
-#define FASTHOME_DEPTH_MARGIN     2      // centre crossing <= T - this
+#define FASTHOME_BG_MARGIN        10     // T = anchor background crossing - this
+#define FASTHOME_DEPTH_BELOW_BG   6      // dip probe <= anchor background - this
 #define FASTHOME_CAL_BRACKET_LO   140    // settled-probe bracket [lo..255]
 #define FASTHOME_CAL_ITERS        5      // binary probes (resolution ~4 duty)
 #define FASTHOME_CAL_SETTLE_MS    220    // per probe; threshold RC tau ~100 ms
@@ -224,17 +242,18 @@ MotionControl::fastHomeRoutine(const MeasureRoutineSettings& settings)
 		HAL_Delay(FASTHOME_SETTLE_MS);
 	}
 
-	// ---- Phase 2 : depth gate (cold runs) -------------------------------------
+	// ---- Phase 2 : depth probe (cold runs; measure only) ----------------------
+	// The probe sits ~200 usteps past the true centre (seek lag shifts
+	// coarseLead forward) so it reads a shallow flank; the verdict is made
+	// against the anchor background below, not against T.
+	int coldDepth = -1;
 	if(!warm) {
 		auto r = this->routineMoveTo(coarseLead + FASTHOME_HALF_WIDTH, timeoutTime);
 		if(r.exception) { this->setMotionProfile(normalProfile); return fail("abort"); }
 		bool rail;
 		int cc = settledCrossingProbe(this->homeSwitch, rail, timeoutTime);
 		if(cc == -2) { this->setMotionProfile(normalProfile); return fail("abort"); }
-		if(normCrossing(cc, rail) > T - FASTHOME_DEPTH_MARGIN) {
-			this->setMotionProfile(normalProfile);
-			return fail("depth gate: not the home dip");   // (bench: reject+reseek)
-		}
+		coldDepth = normCrossing(cc, rail);
 		HomeSwitch::setThreshold((uint8_t) T);
 		HAL_Delay(FASTHOME_SETTLE_MS);
 	}
@@ -247,6 +266,22 @@ MotionControl::fastHomeRoutine(const MeasureRoutineSettings& settings)
 		if(r.exception) { this->setMotionProfile(normalProfile); return fail(r.exception.message); }
 		r = this->routineMoveTo(coarseLead - FASTHOME_CLEARANCE, timeoutTime);
 		if(r.exception) { this->setMotionProfile(normalProfile); return fail(r.exception.message); }
+	}
+	// ---- Phase 1b : threshold anchor + depth verdict (cold runs) ---------------
+	if(!warm) {
+		bool rail;
+		int ac = settledCrossingProbe(this->homeSwitch, rail, timeoutTime);
+		if(ac == -2) { this->setMotionProfile(normalProfile); return fail("abort"); }
+		const int anchorBg = normCrossing(ac, rail);
+		T = anchorBg - FASTHOME_BG_MARGIN;
+		if(T < 16)  T = 16;
+		if(T > 250) T = 250;
+		if(coldDepth >= 0 && coldDepth > anchorBg - FASTHOME_DEPTH_BELOW_BG) {
+			this->setMotionProfile(normalProfile);
+			return fail("depth gate: not the home dip");   // (bench: reject+reseek)
+		}
+		HomeSwitch::setThreshold((uint8_t) T);
+		HAL_Delay(FASTHOME_SETTLE_MS);
 	}
 	if(this->homeSwitch.getForwardsActive()) {
 		this->setMotionProfile(normalProfile);

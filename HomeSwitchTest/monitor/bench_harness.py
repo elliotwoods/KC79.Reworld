@@ -17,6 +17,8 @@ Usage (from HomeSwitchTest/monitor, using the shared venv):
 
 import argparse
 import csv
+import datetime
+import json
 import os
 import sys
 import time
@@ -588,6 +590,295 @@ def exp_backlash(b, n, vedge, m):
 
 
 # ------------------------------------------------------------------------
+# resilience bake (overnight): home from every starting angle, log everything
+# ------------------------------------------------------------------------
+
+BAKE_DIR = os.path.join(REPORTS_DIR, "bake")
+BAKE_LOG = os.path.join(BAKE_DIR, "bake_log.jsonl")
+BAKE_FAIL_DIR = os.path.join(BAKE_DIR, "failures")
+GOLDEN_DEG = 137.50776405003785
+BAKE_OVERSHOOT = 2000          # final approach leg, sets the mesh direction
+BAKE_ADV = 8                   # adversarial entries per lap
+BAKE_LAP = 24 + BAKE_ADV + 1   # + 1 stay-at-park entry
+
+
+def keep_awake():
+    """Stop Windows sleeping mid-bake (auto-released when the process exits)."""
+    if os.name == "nt":
+        import ctypes
+        ES_CONTINUOUS, ES_SYSTEM_REQUIRED = 0x80000000, 0x00000001
+        ctypes.windll.kernel32.SetThreadExecutionState(
+            ES_CONTINUOUS | ES_SYSTEM_REQUIRED)
+
+
+def bake_plan(cycle, width, rev):
+    """Deterministic start spec for a cycle -> (kind, target_usteps|None, approach).
+
+    Lap = 24 uniform angles (rotated by the golden angle each lap so the circle
+    fills in densely) + adversarial starts on/inside the flag and at the seek
+    boundaries + one home-from-park. Approach direction alternates per cycle.
+    """
+    lap, idx = divmod(cycle, BAKE_LAP)
+    approach = +1 if cycle % 2 == 0 else -1
+    half = max(1, width // 2)
+    if idx < 24:
+        deg = (idx * 15.0 + lap * GOLDEN_DEG) % 360.0
+        if deg > 180.0:
+            deg -= 360.0
+        return (f"uniform{deg:+.1f}", int(rev * deg / 360.0), approach)
+    adv = (
+        ("at-home",        0),
+        ("in-flag+",       half // 2),
+        ("in-flag-",       -half // 2),
+        ("lead-edge",      -half - 100),
+        ("trail-edge",     half + 100),
+        ("wrap+0.5deg",    int(rev * 0.5 / 360.0)),
+        ("bound+179.9deg", int(rev * 179.9 / 360.0)),
+        ("bound-179.9deg", int(-rev * 179.9 / 360.0)),
+    )
+    j = idx - 24
+    if j < len(adv):
+        return (adv[j][0], adv[j][1], approach)
+    return ("stay-at-park", None, 0)
+
+
+def bake_reposition(b, target, approach, multi_rev=0):
+    """Move to `target` arriving in the `approach` direction (overshoot + return);
+    optional +/-N full-rev detour first. Returns (final_pos, seconds)."""
+    t0 = time.time()
+    if multi_rev:
+        b.ramped_jog(multi_rev * b.usteps_per_rev, 24000, 100000)
+    if target is not None:
+        pos = b.last_status["pos"] if b.last_status else 0
+        pre = target - approach * BAKE_OVERSHOOT
+        if pre != pos:
+            b.ramped_jog(pre - pos, 24000, 100000)
+        b.ramped_jog(approach * BAKE_OVERSHOOT, 14000, 100000)
+    pos = b.last_status["pos"] if b.last_status else target
+    return pos, time.time() - t0
+
+
+def bake_forensics(b, nfail, note, lines):
+    """Freeze the evidence for a hard failure: transcript + W debug + census
+    laps around the current threshold. Never raises."""
+    os.makedirs(BAKE_FAIL_DIR, exist_ok=True)
+    ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    path = os.path.join(BAKE_FAIL_DIR, f"fail_{nfail:03d}_{ts}.txt")
+    out = [f"# {ts}  {note}", f"# last_status: {b.last_status}"]
+    out += ["# --- run transcript ---"] + list(lines or [])
+    try:
+        b.send("X")
+        b.drain(1.0)
+        out.append("# --- W debug burst ---")
+        b.send("W")
+        t0 = time.time()
+        while time.time() - t0 < 3.0:
+            ln = b.readline()
+            if ln and not ln.startswith("S,"):
+                out.append(ln)
+        T = (b.last_status or {}).get("thr", 0)
+        for dT in (-6, 0, 6):
+            if not 16 <= T + dT <= 250:
+                continue
+            out.append(f"# --- census at T={T + dT} ---")
+            try:
+                r = b.census(T + dT, vmax=20000)
+                out.append(f"# edges={r['count']} aborted={r['aborted']} "
+                           f"start={r['start']}")
+                out += [f"{pos},{state}" for pos, state in r["edges"]]
+            except Exception as e:
+                out.append(f"# census failed: {e!r}")
+    except Exception as e:
+        out.append(f"# forensics aborted: {e!r}")
+    with open(path, "w") as f:
+        f.write("\n".join(out) + "\n")
+    print(f"  forensics -> {path}")
+    return path
+
+
+def bake_reopen(b):
+    """Serial dropped: reopen the same port (board keeps running)."""
+    port = b.port
+    b.close()
+    for attempt in range(5):
+        time.sleep(2.0)
+        try:
+            nb = Bench(port=port)
+            print(f"  serial reopened on {port} (attempt {attempt + 1})")
+            return nb
+        except Exception as e:
+            print(f"  reopen attempt {attempt + 1} failed: {e!r}")
+    raise RuntimeError(f"could not reopen {port}")
+
+
+def bake_recover(b, vedge, m, passes):
+    """After a hard failure: abort whatever is running, forced cold home.
+    Never raises: returns an ok=0 dict on any exception."""
+    try:
+        b.send("X")
+        b.drain(1.0)
+        return b.fast_home(vedge, m, 0, 0, 1, passes, timeout=150)
+    except Exception as e:
+        return {"ok": 0, "msg": f"recover: {e!r}", "switch": None, "T": None}
+
+
+def bake_anomalies(rec, cold):
+    a = []
+    if rec["home_err"] is not None and abs(rec["home_err"]) > 300:
+        a.append("home_err>300")
+    if rec["backlash"] is not None and not 400 <= rec["backlash"] <= 700:
+        a.append("backlash-band")
+    if not cold and rec["fw_ms"] is not None and rec["fw_ms"] > 40000:
+        a.append("slow>40s")
+    if rec["pass_spread"] is not None and rec["pass_spread"] > 25:
+        a.append("pass-spread>25")
+    return a
+
+
+def exp_bake(b, until_iso, max_minutes, cold_every, vedge, m, passes, epoch):
+    keep_awake()
+    os.makedirs(BAKE_FAIL_DIR, exist_ok=True)
+    rev = b.usteps_per_rev
+
+    deadline = time.time() + max_minutes * 60.0
+    if until_iso:
+        until_ts = datetime.datetime.fromisoformat(until_iso).timestamp()
+        deadline = min(deadline, until_ts)
+    if deadline <= time.time():
+        print("deadline already passed; nothing to do")
+        return b
+
+    # resume global cycle numbering from the existing log
+    cycle = 0
+    if os.path.exists(BAKE_LOG):
+        with open(BAKE_LOG) as f:
+            for line in f:
+                try:
+                    cycle = max(cycle, json.loads(line)["cycle"] + 1)
+                except Exception:
+                    pass
+    print(f"bake: starting at cycle {cycle}, "
+          f"{(deadline - time.time()) / 60.0:.1f} min budget, "
+          f"rev={rev}, epoch={epoch}")
+
+    def log(rec):
+        with open(BAKE_LOG, "a") as f:
+            f.write(json.dumps(rec) + "\n")
+
+    # baseline home: establish the frame + current width
+    r0 = b.fast_home(vedge, m, 0, 0, 0, passes, timeout=150)
+    if not r0["ok"]:
+        print(f"baseline warm home FAILED ({r0['msg']}); trying cold ...")
+        bake_forensics(b, 0, f"baseline warm fail: {r0['msg']}", r0["lines"])
+        r0 = b.fast_home(vedge, m, 0, 0, 1, passes, timeout=150)
+        if not r0["ok"]:
+            with open(os.path.join(BAKE_DIR, "HALT.txt"), "w") as f:
+                f.write(f"baseline cold home failed: {r0['msg']}\n")
+            print("HALT: baseline cold home failed")
+            return b
+    width = r0["switch"]
+
+    n_ok = n_fail = n_anom = 0
+    t_first = t_last = r0["T"]
+    w_lo = w_hi = width
+    consec_recover_fails = 0
+    fail_seq = len(os.listdir(BAKE_FAIL_DIR)) if os.path.isdir(BAKE_FAIL_DIR) else 0
+
+    while time.time() < deadline:
+        kind, target, approach = bake_plan(cycle, width, rev)
+        multi = 0
+        if cycle % 50 == 49:
+            multi = 2 if (cycle // 50) % 2 == 0 else -2
+        cold = 1 if (cold_every and cycle % cold_every == cold_every - 1) else 0
+        rec = {
+            "ts": datetime.datetime.now().isoformat(timespec="seconds"),
+            "cycle": cycle, "epoch": epoch, "kind": kind,
+            "target": target, "approach": approach, "multi_rev": multi,
+            "cold": cold, "ok": 0, "msg": "", "home": None, "home_err": None,
+            "lead": None, "trail": None, "switch": None, "backlash": None,
+            "reenter": None, "T": None, "fw_ms": None, "repos_s": None,
+            "start_pos": None, "pass_mids": [], "pass_spread": None,
+            "thr_events": [], "gate_events": [], "anomalies": [],
+        }
+        r = None
+        try:
+            start_pos, repos_s = bake_reposition(b, target, approach, multi)
+            rec["start_pos"], rec["repos_s"] = start_pos, round(repos_s, 2)
+            r = b.fast_home(vedge, m, 0, 0, cold, passes, timeout=150)
+            rec["ok"], rec["msg"] = r["ok"], r["msg"]
+            rec["home"], rec["lead"], rec["trail"] = r["home"], r["lead"], r["trail"]
+            rec["switch"], rec["backlash"], rec["reenter"] = \
+                r["switch"], r["backlash"], r["reenter"]
+            rec["T"], rec["fw_ms"] = r["T"], r["fw_ms"]
+            rec["thr_events"] = [ln for ln in r["lines"] if ln.startswith("O,thr,")]
+            rec["gate_events"] = [ln for ln in r["lines"] if ln.startswith("O,gate,")]
+            if r["ok"]:
+                k = round(r["home"] / rev)
+                rec["home_err"] = r["home"] - k * rev
+                mids = [(l + t) / 2 for l, t in r["passes"]]
+                rec["pass_mids"] = mids
+                if len(mids) > 1:
+                    rec["pass_spread"] = round(max(mids) - min(mids))
+                rec["anomalies"] = bake_anomalies(rec, cold)
+                width = r["switch"]
+                t_last = r["T"]
+                w_lo, w_hi = min(w_lo, width), max(w_hi, width)
+                n_ok += 1
+                consec_recover_fails = 0
+                if rec["anomalies"]:
+                    n_anom += 1
+                flag = " !! " + ",".join(rec["anomalies"]) if rec["anomalies"] else ""
+                print(f"c{cycle:4d} {kind:>15s} {'C' if cold else 'w'} "
+                      f"err={rec['home_err']:+4d} w={width} B={r['backlash']} "
+                      f"T={r['T']} {r['fw_ms'] / 1000.0:4.1f}s{flag}")
+            else:
+                raise RuntimeError(f"O failed: {r['msg']}")
+        except (serial.SerialException, OSError) as e:
+            rec["msg"] = f"serial: {e!r}"
+            print(f"c{cycle:4d} {kind:>15s} SERIAL FAIL {e!r}")
+            n_fail += 1
+            fail_seq += 1
+            try:
+                b = bake_reopen(b)
+                rr = bake_recover(b, vedge, m, passes)
+                consec_recover_fails = 0 if rr["ok"] else consec_recover_fails + 1
+            except Exception as e2:
+                rec["msg"] += f" / reopen: {e2!r}"
+                consec_recover_fails += 1
+        except (RuntimeError, TimeoutError) as e:
+            lines = r["lines"] if isinstance(r, dict) else []
+            rec["msg"] = rec["msg"] or str(e)
+            print(f"c{cycle:4d} {kind:>15s} HARD FAIL: {rec['msg']}")
+            n_fail += 1
+            fail_seq += 1
+            bake_forensics(b, fail_seq, f"cycle {cycle} {kind}: {rec['msg']}", lines)
+            rr = bake_recover(b, vedge, m, passes)
+            if rr["ok"]:
+                consec_recover_fails = 0
+                width = rr["switch"]
+                print(f"  recovered (cold home ok, T={rr['T']})")
+            else:
+                consec_recover_fails += 1
+                print(f"  recovery cold home FAILED: {rr['msg']} "
+                      f"({consec_recover_fails} consecutive)")
+        log(rec)
+        cycle += 1
+        if consec_recover_fails >= 2:
+            with open(os.path.join(BAKE_DIR, "HALT.txt"), "w") as f:
+                f.write(f"cycle {cycle}: {consec_recover_fails} consecutive "
+                        f"recovery failures; last msg: {rec['msg']}\n")
+            print("HALT: two consecutive recovery failures — stopping batch "
+                  "for triage")
+            break
+
+    print(f"\nBAKE BATCH SUMMARY: cycles={n_ok + n_fail} ok={n_ok} "
+          f"hardfail={n_fail} anomalies={n_anom} "
+          f"T {t_first}->{t_last} width [{w_lo}..{w_hi}] "
+          f"next_cycle={cycle}")
+    return b
+
+
+# ------------------------------------------------------------------------
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
@@ -639,6 +930,16 @@ def main():
     p.add_argument("--m", type=int, default=32)
     p.add_argument("--passes", type=int, default=2)
 
+    p = sub.add_parser("bake")
+    p.add_argument("--until", default=None,
+                   help="ISO datetime hard deadline, e.g. 2026-07-11T09:30")
+    p.add_argument("--max-minutes", type=float, default=55.0)
+    p.add_argument("--cold-every", type=int, default=10)
+    p.add_argument("--vedge", type=int, default=0)   # 0 = firmware default
+    p.add_argument("--m", type=int, default=0)
+    p.add_argument("--passes", type=int, default=0)
+    p.add_argument("--epoch", default="f4bbc77")
+
     p = sub.add_parser("cmd")
     p.add_argument("text")
     p.add_argument("--timeout", type=float, default=90.0)
@@ -661,6 +962,9 @@ def main():
             exp_stability(b, args.n, args.vedge, args.m, args.passes, args.tag)
         elif args.exp == "rotation":
             exp_rotation(b, args.n, args.vedge, args.m, args.passes)
+        elif args.exp == "bake":
+            b = exp_bake(b, args.until, args.max_minutes, args.cold_every,
+                         args.vedge, args.m, args.passes, args.epoch)
         elif args.exp == "cmd":
             b.verbose = True
             tag = args.text.strip()[0].upper()
