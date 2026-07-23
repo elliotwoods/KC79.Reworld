@@ -1,0 +1,17 @@
+# 20260721_173418  cycle 2604 bound+179.9deg: motor detect out of range
+# last_status: {'ms': 4666856, 'level': 1, 'thr': 228, 'pos': 219853, 'degx10': 8579, 'running': 1, 'enabled': 1, 'fault': 0, 'homed': 1}
+# --- run transcript ---
+O,begin,37715,0,2000,48,14000,2
+O,cal,238,241,241,231
+O,seek,109477
+O,motor,0,109881
+O,done,0,0,0,0,0,0,228,17421,"motor detect out of range"
+# --- W debug burst ---
+W,100,100,228,16384,219881
+# --- census at T=222 ---
+# edges=1 aborted=0 start=219881
+220173,0
+# --- census at T=228 ---
+# edges=0 aborted=0 start=313978
+# --- census at T=234 ---
+# edges=0 aborted=0 start=408075

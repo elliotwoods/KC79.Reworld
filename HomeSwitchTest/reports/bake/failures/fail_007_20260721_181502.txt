@@ -1,0 +1,21 @@
+# 20260721_181502  cycle 2619 uniform-116.9: motor detect out of range
+# last_status: {'ms': 7110938, 'level': 1, 'thr': 231, 'pos': 224058, 'degx10': 8744, 'running': 1, 'enabled': 1, 'fault': 0, 'homed': 1}
+# --- run transcript ---
+O,begin,50719,0,2000,48,14000,2
+O,cal,241,238,241,231
+O,seek,112781
+O,motor,0,110743
+O,done,0,0,0,0,0,0,231,16790,"motor detect out of range"
+# --- W debug burst ---
+W,100,100,231,16384,224065
+# --- census at T=225 ---
+# edges=1 aborted=0 start=224065
+224629,0
+# --- census at T=231 ---
+# edges=0 aborted=0 start=318162
+# --- census at T=237 ---
+# edges=4 aborted=0 start=412259
+493546,1
+493568,0
+499036,1
+499069,0

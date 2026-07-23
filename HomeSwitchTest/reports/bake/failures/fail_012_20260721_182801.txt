@@ -1,0 +1,37 @@
+# 20260721_182801  cycle 2644 uniform-99.4: motor detect: flag not found
+# last_status: {'ms': 7890900, 'level': 0, 'thr': 233, 'pos': 280297, 'degx10': 10938, 'running': 1, 'enabled': 1, 'fault': 0, 'homed': 1}
+# --- run transcript ---
+O,begin,74629,0,2000,48,14000,2
+O,cal,241,241,241,231
+O,seek,162159
+O,done,0,0,0,0,0,0,233,19105,"motor detect: flag not found"
+# --- W debug burst ---
+W,0,0,233,16384,280298
+# --- census at T=227 ---
+# edges=2 aborted=0 start=280298
+314918,1
+322789,0
+# --- census at T=233 ---
+# edges=0 aborted=0 start=374395
+# --- census at T=239 ---
+# edges=20 aborted=0 start=468492
+469434,1
+469687,0
+471003,1
+471336,0
+475288,1
+478593,0
+489820,1
+489846,0
+490011,1
+492842,0
+505519,1
+511343,0
+521814,1
+521845,0
+522039,1
+525094,0
+534293,1
+540594,0
+560019,1
+561966,0

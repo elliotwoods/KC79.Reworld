@@ -1,0 +1,20 @@
+# 20260721_182238  cycle 2634 lead-edge: motor detect: flag not found
+# last_status: {'ms': 7567489, 'level': 0, 'thr': 235, 'pos': 248496, 'degx10': 9697, 'running': 1, 'enabled': 1, 'fault': 0, 'homed': 1}
+# --- run transcript ---
+O,begin,62209,0,2000,48,14000,2
+O,cal,241,238,241,231
+O,seek,130753
+O,done,0,0,0,0,0,0,235,17708,"motor detect: flag not found"
+# --- W debug burst ---
+W,0,0,235,16384,248521
+# --- census at T=229 ---
+# edges=2 aborted=0 start=248521
+249122,1
+251612,0
+# --- census at T=235 ---
+# edges=0 aborted=0 start=342618
+# --- census at T=241 ---
+# edges=3 aborted=0 start=436715
+437296,1
+437798,0
+438856,1

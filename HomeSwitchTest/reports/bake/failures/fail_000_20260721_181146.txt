@@ -1,0 +1,31 @@
+# 20260721_181146  baseline warm fail: motor detect out of range
+# last_status: {'ms': 6914910, 'level': 1, 'thr': 231, 'pos': 210709, 'degx10': 8223, 'running': 1, 'enabled': 1, 'fault': 0, 'homed': 1}
+# --- run transcript ---
+O,begin,0,0,2000,48,14000,2
+O,cal,220,241,241,231
+O,seek,108627
+O,motor,0,101540
+O,done,0,0,0,0,0,0,231,19457,"motor detect out of range"
+# --- W debug burst ---
+W,100,100,231,16384,210710
+# --- census at T=225 ---
+# edges=1 aborted=0 start=210710
+210906,0
+# --- census at T=231 ---
+# edges=0 aborted=0 start=304807
+# --- census at T=237 ---
+# edges=14 aborted=0 start=398904
+461579,1
+461601,0
+464079,1
+464102,0
+478824,1
+478854,0
+479079,1
+479103,0
+487081,1
+487103,0
+487334,1
+487353,0
+487576,1
+487603,0
