@@ -175,30 +175,73 @@ static const uint32_t kFastGateSettleMs  = 250;    // RC settle for small DAC st
 static const int      kFastTAdjustDown   = 8;      // cannot find inactive background -> T down
 static const int      kFastTAdjustUp     = 6;      // seek found nothing in a lap -> T up
 static const int      kFastMaxTAdjust    = 4;      // adaptive bumps before giving up
-static const Steps    kFastClearance     = 5000;   // back-off before an armed forward pass (> backlash)
-static const Steps    kFastTakeup        = 2000;   // overshoot-return so approaches are forward-engaged
-static const Steps    kFastWidthMin      = 700;    // plausible flag width at T_op (usteps)
-static const Steps    kFastWidthMax      = 4200;
-static const Steps    kFastHalfWidthGuess = 900;   // centre estimate = coarseLead + this
-static const Steps    kFastBacklashWalk  = 1024;   // == production debounceDistance (32 fullsteps x 32)
-static const Steps    kFastBacklashMax   = 3000;   // backlash outside [-32, max] fails the routine
-static const StepsPerSecond kFastEdgeSpeedDefault = 2000;    // v_edge: at 2000+M32 the edge
-                                                             // loci repeat to ~1 ustep within
-                                                             // a run (knee data); 4000 trades
-                                                             // ~2x width noise for 1.7 s
-static const uint16_t kFastDebounceDefault        = 32;      // latch debounce M (usteps of
-                                                             // consecutive agreement; flank
-                                                             // dither blips are ~10-35 usteps)
 static const int      kFastPassesDefault          = 2;       // precise passes averaged per home
 static const Steps    kFastPassDisagree           = 12;      // 2 passes apart by more than this
                                                              // -> take a 3rd, use the median
-// Seek cruise: the motor STALLS above ~30-32k usteps/s when ramped at
-// 100k/s^2 (measured on this rig; it can cruise 36k+ only with accel <=20k/s^2,
-// which wins no time). 24k = 20% below the stall cliff.
-static const StepsPerSecond kFastSeekSpeed        = 24000;
-static const StepsPerSecondPerSecond kFastAccel   = 100000;  // ramp acceleration
 static const uint32_t kFastTimeoutMs     = 60000;
 static const int      kFastMaxRejects    = 3;      // false features skipped before giving up
+
+// Per-motor parameter sets, named by output gear ratio. Two module
+// generations exist: the original 32:1 and the 2x-faster 16:1 (same physical
+// flag/backlash geometry, so every microstep-denominated LENGTH halves; the
+// SPEEDS are motor-side pulse rates, carried over as starting points and then
+// re-tuned on the bench per motor). The active set is selected by fast home's
+// motor detection (or forced with the U command).
+struct MotorParams {
+    uint8_t                 ratio;          // output gear ratio (set name)
+    StepsPerSecond          seekSpeed;      // ramped-seek cruise (forward; slip here
+                                            // is harmless - the seek is coarse)
+    StepsPerSecondPerSecond seekAccel;      // ramp acceleration
+    StepsPerSecond          reposSpeed;     // datum-critical approach moves (the
+                                            // backward re-approaches between passes:
+                                            // slip THERE biases the datum)
+    StepsPerSecond          edgeSpeed;      // v_edge for precise passes
+    uint16_t                debounceM;      // latch debounce M
+    Steps                   clearance;      // back-off before an armed forward pass (> backlash)
+    Steps                   takeup;         // overshoot-return so approaches are forward-engaged
+    Steps                   widthMin;       // plausible flag width at T_op (usteps)
+    Steps                   widthMax;
+    Steps                   halfWidthGuess; // centre estimate = coarseLead + this
+    Steps                   backlashWalk;   // 32:1: == production debounceDistance (32 fullsteps x 32)
+    Steps                   backlashMax;    // backlash outside [-32, max] fails the routine
+};
+// 32:1 speeds: the motor STALLS above ~30-32k usteps/s when ramped at
+// 100k/s^2 (measured on this rig; it can cruise 36k+ only with accel
+// <=20k/s^2, which wins no time). 24k = 20% below the stall cliff. v_edge
+// 2000 + M32: edge loci repeat to ~1 ustep within a run (knee data); flank
+// dither blips are ~10-35 usteps.
+static const MotorParams kParams32 = { 32, 24000, 100000, 24000, 2000, 32,
+                                       5000, 2000, 700, 4200, 900, 1024, 3000 };
+// 16:1, bench-tuned Jul 20-21 2026: forward stall cliff 17-19k @ 100k/s^2
+// (halved gearing doubles the reflected torque) -> seek 14k. BACKWARD has a
+// mid-band resonance that stalls the motor DEAD at a 5-6k cruise when cold
+// (and swallows 10-14k when hot) while 4k and 7-10k run clean - so all
+// datum-critical approach moves run at 4k, below any band, where torque is
+// also maximal. The new sensor's dip is ~24 counts deep (vs 10-14 on 32:1)
+// with steep flanks: vEdge 2000 + M48 measured sd 2.1 usteps / span 6 over 8
+// stay-at-park homes - as repeatable as vEdge 500 and 3x faster; 3000 is
+// past the knee. Flag width ~830 usteps at T_op; backlash 144-476
+// (motor-gearbox dominated).
+static const MotorParams kParams16 = { 16, 14000, 100000, 4000, 2000, 48,
+                                       2500, 1000, 350, 2100, 450, 512, 1500 };
+
+// Active set + whether the gear ratio has been confirmed (by detection or a
+// U override) since power-up. Unconfirmed runs use 32:1 budgets - the larger
+// of the two, safe for both motors.
+static const MotorParams * mp = &kParams32;
+static bool motorConfirmed = false;
+
+// Announce the geometry so the host can convert microsteps <-> degrees.
+// Printed at boot and re-printed whenever the gear ratio changes (motor
+// detection / U command) - the host tools adopt any "# ... usteps_per_rev="
+// line, so a mid-session change needs no extra host-side parsing.
+static void emitBanner() {
+    char buf[80];
+    snprintf(buf, sizeof(buf), "# usteps_per_rev=%ld default_threshold=%d gear_ratio=%d",
+        (long) motion->getMicrostepsPerPrismRotation(), (int) threshold,
+        (int) motion->getGearRatio());
+    testSerial.println(buf);
+}
 
 // Calibrated operating threshold, cached across runs (0 = not calibrated).
 // Warm runs skip the ~3.5 s calibration; any routine failure clears it.
@@ -272,6 +315,29 @@ static void emitLog(int level, const char * msg) {
 }
 
 // ---------------------------------------------------------------------------
+// Idle driver sleep: no holding torque is required while static, and holding
+// current is the dominant heat source on the small 16:1 motor (measured:
+// sustained duty collapses its stall envelope within ~20 min). After
+// kIdleSleepMs of no motion (and not mid-routine) the driver is put to sleep
+// (nSLEEP low = outputs off); any motion command wakes it first. NB sleep
+// resets the driver's microstep indexer, so the rotor can snap to a nearby
+// phase position on wake - fine between operations (the next home
+// re-references everything), never used inside a routine (busy holds it off).
+// ---------------------------------------------------------------------------
+static const uint32_t kIdleSleepMs = 1000;
+static bool     driverAsleep = false;
+static uint32_t lastActiveMs = 0;
+
+static void driverWake() {
+    if (driverAsleep) {
+        motorSettings->setSleep(false);
+        delay(2);                        // tWAKE ~1 ms; give margin
+        driverAsleep = false;
+    }
+    lastActiveMs = millis();
+}
+
+// ---------------------------------------------------------------------------
 // Command parser
 // ---------------------------------------------------------------------------
 static void ensureMovableMode() {
@@ -281,6 +347,7 @@ static void ensureMovableMode() {
         mode = MODE_TRACK;
         Modules::HomeSwitchOptical::setThreshold(threshold);
     }
+    driverWake();
 }
 
 // Defined below (used by the command handler).
@@ -335,6 +402,7 @@ static void handleCommand(char * line) {
             break;
         }
         case 'E': {
+            if (atoi(args) != 0) driverWake();
             motion->enable(atoi(args) != 0);
             break;
         }
@@ -431,13 +499,10 @@ static void handleCommand(char * line) {
             bool forceCal = tok5 ? (atoi(tok5) != 0) : false;
             char * tok6 = strtok(nullptr, " \t");
             int passes = tok6 ? atoi(tok6) : 0;
-            if (vEdge <= 0) vEdge = kFastEdgeSpeedDefault;
-            if (m     <= 0) m     = kFastDebounceDefault;
-            if (m     > 64) m     = 64;
-            if (vSeek <= 0) vSeek = kFastSeekSpeed;
-            if (accel <= 0) accel = kFastAccel;
-            if (passes <= 0) passes = kFastPassesDefault;
-            if (passes > 8) passes = 8;
+            // Zeros mean "active set's default" - resolved inside fastHome so
+            // a mid-run motor detection can re-resolve them for the new set.
+            if (m      > 64) m      = 64;
+            if (passes > 8)  passes = 8;
             busy = true;
             motion->clearAbort();
             fastHome(vEdge, m, vSeek, accel, forceCal, passes);
@@ -452,9 +517,9 @@ static void handleCommand(char * line) {
             char * tok2 = strtok(nullptr, " \t");
             StepsPerSecond vmax = tok2 ? (StepsPerSecond) atol(tok2) : 20000;
             char * tok3 = strtok(nullptr, " \t");
-            StepsPerSecondPerSecond accel = tok3 ? (StepsPerSecondPerSecond) atol(tok3) : kFastAccel;
+            StepsPerSecondPerSecond accel = tok3 ? (StepsPerSecondPerSecond) atol(tok3) : mp->seekAccel;
             char * tok4 = strtok(nullptr, " \t");
-            int m = tok4 ? atoi(tok4) : kFastDebounceDefault;
+            int m = tok4 ? atoi(tok4) : mp->debounceM;
             if (T < 0) T = 0; if (T > 255) T = 255;
             if (vmax <= 0) vmax = 20000;
             if (m <= 0) m = 1; if (m > 64) m = 64;
@@ -463,6 +528,55 @@ static void handleCommand(char * line) {
             censusRun(T, vmax, accel, (uint16_t) m);
             busy = false;
             emitStatus();
+            break;
+        }
+        case 'D': {                                // driver: D <resCode 0..8> [current_mA]
+            // Resolution codes = MotorDriverSettings::MicrostepResolution
+            // (0=full step, 5=1/32 default). Full-step mode is the motor
+            // bring-up tool: maximum torque, unambiguous 1.8-degree steps.
+            char * tok = strtok(args, " \t");
+            int res = tok ? atoi(tok) : -1;
+            char * tok2 = strtok(nullptr, " \t");
+            int mA = tok2 ? atoi(tok2) : 0;
+            if (res >= 0 && res <= 8 && res != 6) {
+                motorSettings->setMicrostepResolution(
+                    (Modules::MotorDriverSettings::MicrostepResolution) res);
+            }
+            if (mA > 0) {
+                motorSettings->setCurrent((float) mA / 1000.0f);   // clamped to 0.25 A in the driver module
+            }
+            char b[48];
+            snprintf(b, sizeof(b), "D,%d,%d",
+                (int) motorSettings->getMicrostepResolution(),
+                (int) (motorSettings->getCurrent() * 1000.0f + 0.5f));
+            testSerial.println(b);
+            emitBanner();   // usteps_per_rev follows the resolution
+            break;
+        }
+        case 'U': {                                // gear ratio: U 32|16 force, U 0 = re-detect
+            char * tok = strtok(args, " \t");
+            int r = tok ? atoi(tok) : -1;
+            if (r == 0) {
+                // Back to auto: the next O run re-measures the revolution.
+                // Clear the homing caches too - "unknown motor" also means the
+                // cached threshold/width anchor may belong to another module.
+                motorConfirmed = false;
+                fastTCached = 0;
+                fastWidthAnchor = 0;
+                testSerial.println("U,auto");
+            } else if (r == 16 || r == 32) {
+                motion->setGearRatio((uint8_t) r);
+                mp = (r == 16) ? &kParams16 : &kParams32;
+                motorConfirmed = true;
+                fastTCached = 0;
+                fastWidthAnchor = 0;
+                char b[32];
+                snprintf(b, sizeof(b), "U,forced,%d", r);
+                testSerial.println(b);
+                emitBanner();
+            } else {
+                testSerial.println("U,err,\"want 32, 16 or 0\"");
+            }
             break;
         }
         case 'Y': {                                // ramped jog (speed/accel probing)
@@ -1043,7 +1157,7 @@ static bool fastTwoEdgePass(StepsPerSecond vEdge, uint32_t deadline,
         snprintf(line, sizeof(line), "O,edge,1,%ld", (long) trailOut);
         testSerial.println(line);
 
-        if (trailOut - leadOut >= kFastWidthMin || blipSkips >= 3) {
+        if (trailOut - leadOut >= mp->widthMin || blipSkips >= 3) {
             return true;
         }
         snprintf(line, sizeof(line), "O,gate,width,0,%ld",
@@ -1061,6 +1175,11 @@ static bool fastTwoEdgePass(StepsPerSecond vEdge, uint32_t deadline,
 //                finds a coarse leading edge anywhere in ~1.25 revolutions.
 //                Self-heals a drifted threshold: cannot-clear -> T down,
 //                nothing-found -> T up (bounded).
+//   1b. DETECT - (gear ratio unconfirmed, or forceCal) continue the seek one
+//                more lap to the NEXT leading edge: the lead-to-lead distance
+//                is one full revolution, classifying the module as 32:1
+//                (~189,704 usteps) or 16:1 (~94,852). Selects the matching
+//                MotorParams set + steps/rev and re-prints the banner.
 //   2. GATES   - depth: settled crossing at the estimated centre must sit
 //                kFastDepthBelowBg below the anchor background (cold runs;
 //                decided at the arming point where the anchor is measured);
@@ -1077,9 +1196,28 @@ static void fastHome(StepsPerSecond vEdge, int m, StepsPerSecond vSeek,
                      StepsPerSecondPerSecond accel, bool forceCal, int passes) {
     const uint32_t t0 = millis();
     const uint32_t deadline = t0 + kFastTimeoutMs;
-    const Steps rev = motion->getMicrostepsPerPrismRotation();
-    const Steps travelBudgetTotal = rev + rev / 4;   // 1.25 rev per seek attempt
     char line[128];
+
+    // Zero args mean "the active set's default". Remember which were
+    // defaulted: if the detection phase switches sets mid-run, those are
+    // re-resolved against the new set (explicit values always win).
+    const bool defVEdge = (vEdge <= 0), defM = (m <= 0),
+               defVSeek = (vSeek <= 0), defAccel = (accel <= 0);
+    if (defVEdge) vEdge = mp->edgeSpeed;
+    if (defM)     m     = mp->debounceM;
+    if (defVSeek) vSeek = mp->seekSpeed;
+    if (defAccel) accel = mp->seekAccel;
+    if (defVSeek && !motorConfirmed) {
+        // The attached motor could be either generation: seek at the slower
+        // of the two cruise speeds until it is identified (the 16:1 motor
+        // stalls hard at the 32:1 cruise - 17-19k cliff vs 24k).
+        if (kParams16.seekSpeed < vSeek) vSeek = kParams16.seekSpeed;
+        if (kParams32.seekSpeed < vSeek) vSeek = kParams32.seekSpeed;
+    }
+    if (passes <= 0) passes = kFastPassesDefault;
+
+    Steps rev = motion->getMicrostepsPerPrismRotation();
+    Steps travelBudgetTotal = rev + rev / 4;   // 1.25 rev per seek attempt
 
     motion->setLatchDebounce((uint16_t) m);
     motion->enable(true);
@@ -1096,7 +1234,7 @@ static void fastHome(StepsPerSecond vEdge, int m, StepsPerSecond vSeek,
         int lo1, hi1, lo2, hi2;
         int c1 = measureCrossingSettledFast(kFastCalBracketLo, lo1, hi1);
         if (c1 == -2) { fastHomeFail("abort", t0); return; }
-        motion->goTo(motion->getPosition() + 3000, motion->getDefaultSpeed());
+        motion->goToRamped(motion->getPosition() + 3000, mp->reposSpeed, accel);
         if (motion->aborted()) { fastHomeFail("abort", t0); return; }
         int c2 = measureCrossingSettledFast(kFastCalBracketLo, lo2, hi2);
         if (c2 == -2) { fastHomeFail("abort", t0); return; }
@@ -1124,8 +1262,8 @@ static void fastHome(StepsPerSecond vEdge, int m, StepsPerSecond vSeek,
             // background. Exit backward, BOUNDED - an unbounded clear at a
             // too-high threshold never terminates (whole rev active).
             const Steps bound = motion->getPosition()
-                - (kFastWidthMax + kFastClearance);
-            if (motion->moveUntilSensor(false, false, motion->getDefaultSpeed(),
+                - (mp->widthMax + mp->clearance);
+            if (motion->moveUntilSensor(false, false, mp->reposSpeed,
                     true, bound, deadline)) {
                 coarseLead = motion->getPosition();
                 break;
@@ -1172,6 +1310,57 @@ static void fastHome(StepsPerSecond vEdge, int m, StepsPerSecond vSeek,
     snprintf(line, sizeof(line), "O,seek,%ld", (long) coarseLead);
     testSerial.println(line);
 
+    // ---- Phase 1b: motor detection (lead-to-lead = one revolution) ----------
+    // Classification only needs coarse edges: the candidate revs differ by a
+    // factor of 2 (~95k usteps) while seek-lag / backlash / branch asymmetries
+    // contribute well under 2k. The precise steps/rev then comes from the
+    // selected set's exact rational, not from this measurement.
+    if (!motorConfirmed || forceCal) {
+        bool okD;
+        if (motion->sensorActive()) {
+            motion->seekLatch(true, false, vSeek, accel,
+                mp->widthMax + mp->takeup, deadline, okD);
+            if (!okD) {
+                fastHomeFail(motion->aborted() ? "abort" : "stuck active", t0);
+                return;
+            }
+        }
+        motion->goToRamped(motion->getPosition() + mp->takeup, mp->reposSpeed, accel);
+        if (motion->aborted()) { fastHomeFail("abort", t0); return; }
+        const Steps lead2 = motion->seekLatch(true, true, vSeek, accel,
+            travelBudgetTotal, deadline, okD);
+        if (!okD) {
+            fastHomeFail(motion->aborted() ? "abort" : "motor detect: flag not found", t0);
+            return;
+        }
+        const Steps measuredRev = lead2 - coarseLead;
+        const Steps usteps = motion->getMicrostepsPerStep();
+        uint8_t ratio = 0;
+        for (uint8_t cand = 16; cand <= 32; cand += 16) {
+            const Steps expect = Bench::Motion::microstepsPerPrismRotationFor(cand, usteps);
+            if (measuredRev > expect - expect / 10 && measuredRev < expect + expect / 10) {
+                ratio = cand;
+            }
+        }
+        snprintf(line, sizeof(line), "O,motor,%d,%ld", (int) ratio, (long) measuredRev);
+        testSerial.println(line);
+        if (ratio == 0) { fastHomeFail("motor detect out of range", t0); return; }
+
+        motion->setGearRatio(ratio);
+        mp = (ratio == 16) ? &kParams16 : &kParams32;
+        motorConfirmed = true;
+        emitBanner();
+
+        rev = motion->getMicrostepsPerPrismRotation();
+        travelBudgetTotal = rev + rev / 4;
+        if (defVEdge) vEdge = mp->edgeSpeed;
+        if (defM)     { m = mp->debounceM; motion->setLatchDebounce((uint16_t) m); }
+        if (defVSeek) vSeek = mp->seekSpeed;
+        if (defAccel) accel = mp->seekAccel;
+
+        coarseLead = lead2;   // continue the routine from the re-found lead
+    }
+
     // ---- Phase 2+3: gates and the precise pass (with false-feature retry) ---
     Steps lead = 0, trail = 0;
     int coldDepth = -1;
@@ -1186,7 +1375,7 @@ static void fastHome(StepsPerSecond vEdge, int m, StepsPerSecond vSeek,
         // it reads a shallow flank; judging it against T, which itself sits
         // only ~4 counts above the floor, false-rejected real flags).
         if (!warm) {
-            motion->goTo(coarseLead + kFastHalfWidthGuess, motion->getDefaultSpeed());
+            motion->goToRamped(coarseLead + mp->halfWidthGuess, mp->reposSpeed, accel);
             if (motion->aborted()) { fastHomeFail("abort", t0); return; }
             int glo, ghi;
             int cc = measureCrossingSettledFast(kFastCalBracketLo, glo, ghi);
@@ -1199,8 +1388,8 @@ static void fastHome(StepsPerSecond vEdge, int m, StepsPerSecond vSeek,
         if (accepted) {
             // Reposition below the lead, forward-engaged; the moves double as
             // most of the RC settle back to T, topped up before arming.
-            motion->goToRamped(coarseLead - kFastClearance - kFastTakeup, vSeek, accel);
-            motion->goTo(coarseLead - kFastClearance, motion->getDefaultSpeed());
+            motion->goToRamped(coarseLead - mp->clearance - mp->takeup, mp->reposSpeed, accel);
+            motion->goToRamped(coarseLead - mp->clearance, mp->reposSpeed, accel);
             if (motion->aborted()) { fastHomeFail("abort", t0); return; }
             if (!waitServiced(kFastGateSettleMs / 2)) { fastHomeFail("abort", t0); return; }
 
@@ -1252,7 +1441,7 @@ static void fastHome(StepsPerSecond vEdge, int m, StepsPerSecond vSeek,
                 }
 
                 const Steps width = passTrail - passLead;
-                const bool widthOk = (width >= kFastWidthMin && width <= kFastWidthMax);
+                const bool widthOk = (width >= mp->widthMin && width <= mp->widthMax);
                 if (!widthOk) {
                     accepted = false;
                     coarseLead = passLead;   // reject relative to the measured feature
@@ -1273,13 +1462,13 @@ static void fastHome(StepsPerSecond vEdge, int m, StepsPerSecond vSeek,
             bool okX;
             if (motion->sensorActive()) {
                 motion->seekLatch(true, false, vSeek, accel,
-                    kFastWidthMax + kFastTakeup, deadline, okX);
+                    mp->widthMax + mp->takeup, deadline, okX);
                 if (!okX) {
                     fastHomeFail(motion->aborted() ? "abort" : "stuck active", t0);
                     return;
                 }
             }
-            motion->goTo(motion->getPosition() + kFastTakeup, motion->getDefaultSpeed());
+            motion->goToRamped(motion->getPosition() + mp->takeup, mp->reposSpeed, accel);
             coarseLead = motion->seekLatch(true, true, vSeek, accel,
                 travelBudgetTotal, deadline, okX);
             if (!okX) {
@@ -1306,8 +1495,8 @@ static void fastHome(StepsPerSecond vEdge, int m, StepsPerSecond vSeek,
     const Steps passAnchor = lead;   // stable repositioning target
     int wantPasses = passes;
     while (npass < wantPasses && npass < 8) {
-        motion->goToRamped(passAnchor - kFastClearance - kFastTakeup, vSeek, accel);
-        motion->goTo(passAnchor - kFastClearance, motion->getDefaultSpeed());
+        motion->goToRamped(passAnchor - mp->clearance - mp->takeup, mp->reposSpeed, accel);
+        motion->goToRamped(passAnchor - mp->clearance, mp->reposSpeed, accel);
         if (motion->aborted()) { fastHomeFail("abort", t0); return; }
         if (motion->sensorActive()) {
             fastHomeFail("active at pass arming point", t0);
@@ -1319,7 +1508,7 @@ static void fastHome(StepsPerSecond vEdge, int m, StepsPerSecond vSeek,
             fastHomeFail(why, t0);
             return;
         }
-        if (tr - l < kFastWidthMin || tr - l > kFastWidthMax) {
+        if (tr - l < mp->widthMin || tr - l > mp->widthMax) {
             fastHomeFail("width gate on repeat pass", t0);
             return;
         }
@@ -1358,13 +1547,13 @@ static void fastHome(StepsPerSecond vEdge, int m, StepsPerSecond vSeek,
     const Steps switchSize = (Steps) (widthSum / npass);
 
     // ---- Phase 4: backlash at the trailing edge -----------------------------
-    Steps walkTo = trail + kFastBacklashWalk;
+    Steps walkTo = trail + mp->backlashWalk;
     for (int extend = 0; ; extend++) {
-        motion->goTo(walkTo, motion->getDefaultSpeed());
+        motion->goToRamped(walkTo, mp->reposSpeed, accel);
         if (motion->aborted()) { fastHomeFail("abort", t0); return; }
         if (!motion->sensorActive()) break;   // properly disengaged
         if (extend >= 2) { fastHomeFail("no disengage after trailing edge", t0); return; }
-        walkTo += 512;
+        walkTo += mp->backlashWalk / 2;
     }
     bool okB;
     const Steps reenter = motion->approachEdge(false, true, vEdge, deadline, okB);
@@ -1375,16 +1564,16 @@ static void fastHome(StepsPerSecond vEdge, int m, StepsPerSecond vSeek,
     Steps backlash = trail - reenter;
     snprintf(line, sizeof(line), "O,backlash,%ld,%ld", (long) backlash, (long) reenter);
     testSerial.println(line);
-    if (backlash < -32 || backlash > kFastBacklashMax) {
+    if (backlash < -32 || backlash > mp->backlashMax) {
         fastHomeFail("backlash out of range", t0);
         return;
     }
     if (backlash < 0) backlash = 0;   // tiny negative = quantisation slack only
 
     // ---- Phase 5: park at home, forward-engaged, exact frame shift ----------
-    motion->goToRamped(home - kFastClearance - kFastTakeup, vSeek, accel);
-    motion->goTo(home - kFastClearance, motion->getDefaultSpeed());
-    motion->goTo(home, motion->getDefaultSpeed());
+    motion->goToRamped(home - mp->clearance - mp->takeup, mp->reposSpeed, accel);
+    motion->goToRamped(home - mp->clearance, mp->reposSpeed, accel);
+    motion->goToRamped(home, mp->reposSpeed, accel);
     if (motion->aborted()) { fastHomeFail("abort", t0); return; }
 
     motion->shiftFrame(home);
@@ -1508,7 +1697,7 @@ void setup() {
     testSerial.begin(115200);
     testSerial.println();
     testSerial.println("# HomeSwitchTest bench - Side A: sensor + threshold + motor + homing");
-    testSerial.println("# cmds: T M E J G V H Z X P R C Q F K A O N Y  (see bench_main.cpp header)");
+    testSerial.println("# cmds: T M E J G V H Z X P R C Q F K A O N U D Y  (see bench_main.cpp header)");
 
     if (u8x8_stm32_init_i2c()) {
         u8g2_Setup_ssd1306_i2c_128x64_noname_f(u8g2.getU8g2(), U8G2_R2,
@@ -1520,22 +1709,20 @@ void setup() {
         testSerial.println("# WARNING: OLED not detected");
     }
 
-    sensorA = new Modules::HomeSwitchOptical(Modules::HomeSwitchOptical::Config::A());
+    sensorA = new Modules::HomeSwitchOptical(Modules::HomeSwitchOptical::Config::B());   // TEMP: probing sensor-B wiring
     sensorA->setup();   // starts the shared TIM6 software-PWM threshold generator
 
     motorSettings = new Modules::MotorDriverSettings(Modules::MotorDriverSettings::Config());
-    motorDriverA = new Modules::MotorDriver(Modules::MotorDriver::Config::MotorA());
+    // The 16:1 module on the bench (Jul 2026) has its assembled motor on the
+    // B channel while the assembled optical sensor is side A.
+    motorDriverA = new Modules::MotorDriver(Modules::MotorDriver::Config::MotorB());
     motion = new Bench::Motion(*motorSettings, *motorDriverA, *sensorA);
     motion->setup();
     motion->setServiceCallback(serviceTick);
 
     Modules::HomeSwitchOptical::setThreshold(threshold);
 
-    // Announce the geometry so the host can convert microsteps <-> degrees.
-    char buf[64];
-    snprintf(buf, sizeof(buf), "# usteps_per_rev=%ld default_threshold=%d",
-        (long) motion->getMicrostepsPerPrismRotation(), (int) threshold);
-    testSerial.println(buf);
+    emitBanner();
 }
 
 void loop() {
@@ -1554,6 +1741,15 @@ void loop() {
 
     digitalWrite(PB3, motion->sensorActive() ? HIGH : LOW);
     digitalWrite(PB4, motion->getRunning() ? HIGH : LOW);
+
+    // Idle driver sleep (see driverWake above).
+    if (busy || motion->getRunning()) {
+        lastActiveMs = millis();
+    } else if (motion->getEnabled() && !driverAsleep
+               && millis() - lastActiveMs > kIdleSleepMs) {
+        motorSettings->setSleep(true);
+        driverAsleep = true;
+    }
 
     // Skip the OLED (its full-frame I2C write blocks ~90 ms) while the motor is
     // running, so the loop stays fast: crisp jog-dial stop and ~60 Hz status.

@@ -27,11 +27,11 @@
 namespace Bench {
 
 	// --- Constants mirrored from MotionControl.h (kept in sync by hand) ---------
-	// One full prism/ring rotation in *full* motor steps (integer arithmetic,
-	// matched exactly to MOTION_STEPS_PER_PRISM_ROTATION so degree readouts agree
-	// with production): 32 * 118 * 9759 / 296 / 21.
-	static const Steps BENCH_STEPS_PER_PRISM_ROTATION =
-		(Steps)(32L * 118L * 9759L / 296L / 21L);
+	// One full prism/ring rotation is gearRatio * 118 * 9759 / (296 * 21) full
+	// steps (32:1 modules -> 189,704 microsteps at 32 microsteps/step, 16:1
+	// modules -> 94,852). The gear ratio is a runtime property of Motion (see
+	// setGearRatio) because the two module generations differ only in that
+	// leading factor.
 
 	// Distance to clear a switch before a slow re-approach (full steps).
 	// == MOTION_CLEAR_SWITCH_STEPS (20000 / 128).
@@ -86,6 +86,16 @@ namespace Bench {
 		bool  getFault() const;
 		Steps getMicrostepsPerStep() const;
 		Steps getMicrostepsPerPrismRotation() const;
+
+		// The steps-per-rotation rational for an arbitrary ratio (used by the
+		// fast-home motor detection to classify a measured revolution).
+		static Steps microstepsPerPrismRotationFor(uint8_t ratio, Steps microstepsPerStep);
+
+		// Output gear ratio of the attached module (32 or 16). Feeds the
+		// steps-per-rotation rational; set by fast home's motor detection or the
+		// U command. Defaults to 32 (the original modules).
+		void    setGearRatio(uint8_t ratio) { if (ratio == 16 || ratio == 32) this->gearRatio = ratio; }
+		uint8_t getGearRatio() const { return this->gearRatio; }
 
 		void setDefaultSpeed(StepsPerSecond speed);
 		StepsPerSecond getDefaultSpeed() const { return this->defaultSpeed; }
@@ -175,6 +185,7 @@ namespace Bench {
 		} timer;
 
 		StepsPerSecond defaultSpeed = BENCH_DEFAULT_SPEED;
+		uint8_t gearRatio = 32;
 		bool enabled = false;
 		bool running = false;
 

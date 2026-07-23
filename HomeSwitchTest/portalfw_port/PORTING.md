@@ -210,5 +210,40 @@ they are straight copies.
   blip widths: `HomeSwitchTest/reports/` + the experiment log in the
   project README. Raw scans: repo root `home_scan_*.csv`.
 * Production constants referenced: `MOTION_CLEAR_SWITCH_STEPS` (156 full
-  steps ≈ 4992 µsteps ≈ FASTHOME_CLEARANCE), `debounceDistance` (32 full
-  steps = 1024 µsteps = the backlash walk), `slowMoveSpeed` 2000.
+  steps ≈ 4992 µsteps ≈ the 32:1 clearance), `debounceDistance` (32 full
+  steps = 1024 µsteps = the 32:1 backlash walk), `slowMoveSpeed` 2000.
+
+## The two module generations (FastHomeParams)
+
+Bench session Jul 20 2026 (16:1 module, side-B motor + side-B sensor):
+
+| quantity | 32:1 (original) | 16:1 (2026) | note |
+|---|---|---|---|
+| µsteps/rev | 189,704 (exact rational) | **92,252 measured ±2** | nominal half (94,852) is wrong by 2.8%; implied gearbox ≈15.562:1 |
+| stall cliff @100k/s² | 30–32k | forward 17–19k; **backward resonance band 5–6k cold, swallows 10–14k hot** | halved gearing doubles reflected torque |
+| seek cruise (fwd) | 24,000 | 14,000 | ≥20% margin; seek slip is self-correcting |
+| approach/repos speed | 24,000 | **4,000** | below any resonance band; slip on the inter-pass re-approach biases the datum (~300 µsteps/pass measured at 14k) |
+| vEdge / M | 2000 / 32 | 2000 / 48 | 16:1 dip is ~24 counts deep (vs 10–14), steep flanks; 3000 is past the knee |
+| flag width @T_op | 1263–1821 (breathes) | ~760–842 | |
+| backlash | 412–796 (overnight) | 144–476 seen | motor-gearbox dominated — does NOT scale with rev |
+| stay-at-park sd / max datum err | 5.2 / 14 µsteps overnight | 3.0 / 7 µsteps (30 homes, reposSpeed fix) | 16:1 max datum error 0.027° — inside the 0.03° bar; note the bar is 2× harder per µstep at 16:1 |
+| warm home time | ~11–14 s | ~8.1 s mean | |
+
+Detection (Phase 1c) measured rev spread over 5 runs: 92,145–92,416 —
+coarse but far inside the ±10% classification window. The ±2 precision
+number comes from the k-rev homing ladder (jog k·rev, home, home/k).
+
+Two additional 16:1 operating rules (bench, Jul 21):
+
+* **Sleep the driver when static.** Holding current is the dominant heat
+  source and sustained heat collapses the 16:1 stall envelope within
+  ~20 min (backward first, then forward). Measured: de-energize/re-energize
+  across an idle period adds **no datum error** beyond the noise floor —
+  geartrain friction holds the rotor (the bench auto-sleeps nSLEEP after 3 s
+  idle, never mid-routine). Production should do the same; note nSLEEP
+  resets the driver's microstep indexer, so only sleep between operations.
+* **No constant-speed standing starts.** A hot 16:1 motor slips hundreds of
+  µsteps on an unramped start at the old 14,080 default (measured ~780 on
+  the park legs — a direct datum error). Every in-routine positioning move
+  must ramp (the bench now uses ramped moves at `reposSpeed` throughout;
+  production's profile moves already ramp).

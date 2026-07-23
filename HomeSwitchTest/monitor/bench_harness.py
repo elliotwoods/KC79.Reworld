@@ -27,8 +27,10 @@ import serial
 import serial.tools.list_ports
 
 BAUD = 115200
-# Exact rational, rounded (the double-truncated form 189696 is 7.9 short/rev);
-# the firmware banner overrides this on connect anyway.
+# Exact rational, rounded (the double-truncated form 189696 is 7.9 short/rev).
+# This is the 32:1 module's value; 16:1 modules have half (94,852). The firmware
+# banner overrides this on connect AND whenever fast home's motor detection (or
+# the U command) changes the gear ratio, so it self-corrects per module.
 USTEPS_PER_REV_DEFAULT = (32 * 118 * 9759 * 32 + (296 * 21) // 2) // (296 * 21)  # 189704
 
 REPORTS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "reports"))
@@ -83,18 +85,21 @@ class Bench:
 
     # -- line level -----------------------------------------------------------
     def _handle_passive(self, line):
-        if line.startswith("S,"):
-            p = line.split(",")
-            if len(p) >= 10:
-                self.last_status = {
-                    "ms": int(p[1]), "level": int(p[2]), "thr": int(p[3]),
-                    "pos": int(p[4]), "degx10": int(p[5]), "running": int(p[6]),
-                    "enabled": int(p[7]), "fault": int(p[8]), "homed": int(p[9]),
-                }
-        elif line.startswith("#") and "usteps_per_rev=" in line:
-            for tok in line.split():
-                if tok.startswith("usteps_per_rev="):
-                    self.usteps_per_rev = int(tok.split("=")[1])
+        try:
+            if line.startswith("S,"):
+                p = line.split(",")
+                if len(p) >= 10:
+                    self.last_status = {
+                        "ms": int(p[1]), "level": int(p[2]), "thr": int(p[3]),
+                        "pos": int(p[4]), "degx10": int(p[5]), "running": int(p[6]),
+                        "enabled": int(p[7]), "fault": int(p[8]), "homed": int(p[9]),
+                    }
+            elif line.startswith("#") and "usteps_per_rev=" in line:
+                for tok in line.split():
+                    if tok.startswith("usteps_per_rev="):
+                        self.usteps_per_rev = int(tok.split("=")[1])
+        except ValueError:
+            pass   # collided/truncated line - the 60 Hz stream replaces it shortly
 
     def readline(self):
         raw = self.ser.readline()
@@ -187,6 +192,7 @@ class Bench:
             "trail": int(p[5]), "switch": int(p[6]), "backlash": int(p[7]),
             "T": int(p[8]), "fw_ms": int(p[9]), "host_ms": host_ms,
             "msg": msg, "lines": lines, "passes": [], "reenter": None,
+            "motor": None,
         }
         for ln in lines:
             q = ln.split(",")
@@ -194,6 +200,8 @@ class Bench:
                 res["passes"].append((int(q[3]), int(q[4])))
             elif ln.startswith("O,backlash,"):
                 res["reenter"] = int(q[3])
+            elif ln.startswith("O,motor,"):
+                res["motor"] = (int(q[2]), int(q[3]))   # (ratio, measured_rev)
         return res
 
     def census(self, T, vmax=20000, accel=100000, m=8, timeout=60.0):
@@ -642,18 +650,43 @@ def bake_plan(cycle, width, rev):
     return ("stay-at-park", None, 0)
 
 
+def bake_cruise(b, delta):
+    """Safe cruise speed for a reposition jog of `delta` on the attached
+    module. 32:1: cliff ~30-32k both ways -> 24k. 16:1: forward cliff 17-19k
+    -> 14k; BACKWARD collapses with temperature (a 5-6k resonance band cold
+    that swallows everything >=4k warm; 1.5k crawls clean even warm) ->
+    backward legs at 2k crawl."""
+    if b.usteps_per_rev > 120000:
+        return 24000
+    return 14000 if delta >= 0 else 2000
+
+
+def bake_fwd_delta(b, delta):
+    """16:1 modules avoid LONG backward travel entirely (the warm backward
+    envelope is tiny): any backward leg beyond a short hop is converted to
+    the equivalent forward journey the long way around the ring."""
+    if b.usteps_per_rev > 120000 or delta >= -6000:
+        return delta
+    return delta % b.usteps_per_rev   # python %: result is positive
+
+
 def bake_reposition(b, target, approach, multi_rev=0):
     """Move to `target` arriving in the `approach` direction (overshoot + return);
     optional +/-N full-rev detour first. Returns (final_pos, seconds)."""
     t0 = time.time()
     if multi_rev:
-        b.ramped_jog(multi_rev * b.usteps_per_rev, 24000, 100000)
+        if b.usteps_per_rev < 120000:
+            multi_rev = abs(multi_rev)   # 16:1: no long backward travel
+        d = multi_rev * b.usteps_per_rev
+        b.ramped_jog(d, bake_cruise(b, d), 100000)
     if target is not None:
         pos = b.last_status["pos"] if b.last_status else 0
         pre = target - approach * BAKE_OVERSHOOT
         if pre != pos:
-            b.ramped_jog(pre - pos, 24000, 100000)
-        b.ramped_jog(approach * BAKE_OVERSHOOT, 14000, 100000)
+            d = bake_fwd_delta(b, pre - pos)
+            b.ramped_jog(d, bake_cruise(b, d), 100000)
+        d = approach * BAKE_OVERSHOOT
+        b.ramped_jog(d, min(14000, bake_cruise(b, d)), 100000)
     pos = b.last_status["pos"] if b.last_status else target
     return pos, time.time() - t0
 
@@ -722,11 +755,16 @@ def bake_recover(b, vedge, m, passes):
         return {"ok": 0, "msg": f"recover: {e!r}", "switch": None, "T": None}
 
 
-def bake_anomalies(rec, cold):
+def bake_anomalies(rec, cold, rev=USTEPS_PER_REV_DEFAULT):
+    # Backlash bands are per module generation and do NOT scale with rev -
+    # the hysteresis is dominated by the motor gearbox (motor-side usteps):
+    # 32:1 measured 412-796 overnight (band 400-700 flags the extremes);
+    # 16:1 measured 144-444 on the Jul-20 bench session.
+    lo, hi = (400, 700) if rev > 120000 else (100, 700)
     a = []
     if rec["home_err"] is not None and abs(rec["home_err"]) > 300:
         a.append("home_err>300")
-    if rec["backlash"] is not None and not 400 <= rec["backlash"] <= 700:
+    if rec["backlash"] is not None and not lo <= rec["backlash"] <= hi:
         a.append("backlash-band")
     if not cold and rec["fw_ms"] is not None and rec["fw_ms"] > 40000:
         a.append("slow>40s")
@@ -765,8 +803,11 @@ def exp_bake(b, until_iso, max_minutes, cold_every, vedge, m, passes, epoch):
         with open(BAKE_LOG, "a") as f:
             f.write(json.dumps(rec) + "\n")
 
-    # baseline home: establish the frame + current width
-    r0 = b.fast_home(vedge, m, 0, 0, 0, passes, timeout=150)
+    # baseline home: establish the frame + current width. FORCED COLD so the
+    # detection lap runs and re-prints the banner - the harness then has the
+    # right usteps_per_rev for home_err math from cycle one (warm homes never
+    # reprint it).
+    r0 = b.fast_home(vedge, m, 0, 0, 1, passes, timeout=150)
     if not r0["ok"]:
         print(f"baseline warm home FAILED ({r0['msg']}); trying cold ...")
         bake_forensics(b, 0, f"baseline warm fail: {r0['msg']}", r0["lines"])
@@ -785,6 +826,7 @@ def exp_bake(b, until_iso, max_minutes, cold_every, vedge, m, passes, epoch):
     fail_seq = len(os.listdir(BAKE_FAIL_DIR)) if os.path.isdir(BAKE_FAIL_DIR) else 0
 
     while time.time() < deadline:
+        rev = b.usteps_per_rev   # motor detection may retune this mid-batch
         kind, target, approach = bake_plan(cycle, width, rev)
         multi = 0
         if cycle % 50 == 49:
@@ -798,7 +840,7 @@ def exp_bake(b, until_iso, max_minutes, cold_every, vedge, m, passes, epoch):
             "lead": None, "trail": None, "switch": None, "backlash": None,
             "reenter": None, "T": None, "fw_ms": None, "repos_s": None,
             "start_pos": None, "pass_mids": [], "pass_spread": None,
-            "thr_events": [], "gate_events": [], "anomalies": [],
+            "thr_events": [], "gate_events": [], "anomalies": [], "motor": None,
         }
         r = None
         try:
@@ -812,6 +854,7 @@ def exp_bake(b, until_iso, max_minutes, cold_every, vedge, m, passes, epoch):
             rec["T"], rec["fw_ms"] = r["T"], r["fw_ms"]
             rec["thr_events"] = [ln for ln in r["lines"] if ln.startswith("O,thr,")]
             rec["gate_events"] = [ln for ln in r["lines"] if ln.startswith("O,gate,")]
+            rec["motor"] = r.get("motor")
             if r["ok"]:
                 k = round(r["home"] / rev)
                 rec["home_err"] = r["home"] - k * rev
@@ -819,7 +862,7 @@ def exp_bake(b, until_iso, max_minutes, cold_every, vedge, m, passes, epoch):
                 rec["pass_mids"] = mids
                 if len(mids) > 1:
                     rec["pass_spread"] = round(max(mids) - min(mids))
-                rec["anomalies"] = bake_anomalies(rec, cold)
+                rec["anomalies"] = bake_anomalies(rec, cold, rev)
                 width = r["switch"]
                 t_last = r["T"]
                 w_lo, w_hi = min(w_lo, width), max(w_hi, width)

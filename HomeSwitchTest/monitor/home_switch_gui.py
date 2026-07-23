@@ -43,8 +43,9 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
 BAUD_DEFAULT = 115200
 VREF = 3.3
-# Exact rational, rounded (the double-truncated integer form is 7.9 short/rev);
-# the firmware banner overrides this on connect.
+# Exact rational, rounded (the double-truncated integer form is 7.9 short/rev).
+# 32:1 modules; 16:1 modules measure 92,252. The firmware banner overrides this
+# on connect and again whenever fast home's motor detection changes the ratio.
 DEFAULT_USTEPS_PER_REV = (32 * 118 * 9759 * 32 + (296 * 21) // 2) // (296 * 21)  # 189704
 LIVE_WINDOW_S = 30.0
 SWEEP_WINDOW_S = 60.0

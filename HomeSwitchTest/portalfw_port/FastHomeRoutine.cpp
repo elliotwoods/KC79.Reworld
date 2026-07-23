@@ -26,6 +26,15 @@
 //   1 SEEK       forward up to 1.25 rev with the (debounced) switch latch
 //                armed, at a RAISED motion profile. Self-heals a drifted
 //                threshold: cannot-clear -> T down, lap-empty -> T up.
+//                UNTIL THE GEAR RATIO IS CONFIRMED the seek runs at the
+//                SLOWER of the two generations' cruise speeds - the 16:1
+//                motor stalls hard at the 32:1 cruise (17-19k cliff vs 24k).
+//   1c DETECT    (ratio unconfirmed) continue the seek one more lap to the
+//                NEXT leading edge: lead-to-lead distance = one revolution,
+//                classifying the module as 32:1 (189,704 usteps) or 16:1
+//                (92,252 measured - NOT the nominal half-rational 94,852).
+//                Selects the matching FastHomeParams set; costs one extra
+//                rev on the first cold run per power-up only.
 //   1b ANCHOR    (cold runs) re-derive T from a settled background probe at
 //                lead - CLEARANCE - the SAME physical spot every run. The
 //                background varies ~8 duty counts by ring sector, so a T
@@ -64,8 +73,16 @@
 //     int16_t opticalThresholdCached = 0;   // 0 = not calibrated
 //     // Debounced ISR latch (see PORTING.md "ISR debounce" patch):
 //     volatile uint16_t switchLatchDebounce = 32;   // microsteps of agreement
+//     // Motor generation (set by Phase 1c detection; RAM only, re-detected
+//     // each power-up. If the fleet's BOM is known per unit, hard-code the
+//     // set instead and skip detection):
+//     const FastHomeParams * fastHomeParams = &FASTHOME_32;
+//     bool fastHomeRatioConfirmed = false;
 //
 // TUNABLES (bench-frozen values; see PORTING.md for provenance):
+// Optics/time-domain constants are SHARED between module generations; every
+// geometry- or motor-dependent value lives in FastHomeParams (one instance
+// per generation, named by output gear ratio).
 // ---------------------------------------------------------------------------
 #define FASTHOME_BG_MARGIN        10     // T = anchor background crossing - this
 #define FASTHOME_DEPTH_BELOW_BG   6      // dip probe <= anchor background - this
@@ -76,23 +93,49 @@
 #define FASTHOME_T_DOWN           8      // cannot-clear adjustment
 #define FASTHOME_T_UP             6      // empty-lap adjustment
 #define FASTHOME_MAX_T_ADJUST     4
-#define FASTHOME_CLEARANCE        5000   // microsteps; > backlash, room to arm
-#define FASTHOME_TAKEUP           2000   // overshoot-return, forward-engaged
-#define FASTHOME_WIDTH_MIN        700    // plausible dip width at T
-#define FASTHOME_WIDTH_MAX        4200
-#define FASTHOME_HALF_WIDTH       900    // centre estimate = lead + this
-#define FASTHOME_BACKLASH_MAX     3000
-#define FASTHOME_SEEK_SPEED       24000  // usteps/s   } stall cliff measured at
-#define FASTHOME_SEEK_ACCEL       100000 // usteps/s^2 } 30-32k @ 100k/s^2
-#define FASTHOME_EDGE_SPEED       2000   // usteps/s (precise pass; datum depends
-                                         // on it - keep fixed. At 2000+M32 the
-                                         // edge loci repeat to ~1 ustep in-run)
 #define FASTHOME_PASSES           2      // precise passes averaged per home.
-                                         // 2 is the measured sweet spot: sd of
-                                         // successive homes 7.4 -> 2.7 usteps;
-                                         // MORE passes get WORSE (4 passes ->
-                                         // 5.0) because the longer run lets
-                                         // thermal/mesh drift outpace averaging.
+                                         // 2 is the measured sweet spot on both
+                                         // generations (32:1: sd 7.4 -> 2.7,
+                                         // 4 passes -> 5.0; 16:1: passes=3 only
+                                         // sd 4.4 -> 3.8 for +2 s) - longer
+                                         // runs let thermal drift outpace
+                                         // averaging.
+
+struct FastHomeParams {
+	uint8_t                 ratio;         // output gear ratio (set name)
+	StepsPerSecond          seekSpeed;     // forward seek cruise, >=20% below the
+	                                       // stall cliff (slip here is harmless -
+	                                       // the seek is coarse)
+	StepsPerSecondPerSecond seekAccel;
+	StepsPerSecond          reposSpeed;    // datum-critical approach moves (the
+	                                       // backward re-approaches between passes:
+	                                       // slip THERE biases the datum)
+	StepsPerSecond          edgeSpeed;     // precise pass; datum depends on it
+	uint16_t                debounceM;     // -> switchLatchDebounce
+	Steps                   clearance;     // > backlash, room to arm
+	Steps                   takeup;        // overshoot-return, forward-engaged
+	Steps                   widthMin;      // plausible dip width at T
+	Steps                   widthMax;
+	Steps                   halfWidth;     // centre estimate = lead + this
+	Steps                   backlashMax;
+	Steps                   ustepsPerRev;  // MUST match getMicrostepsPerPrismRotation()
+	                                       // for the selected generation
+};
+// 32:1 (original modules): stall cliff 30-32k @ 100k/s^2 -> seek 24k; vEdge
+// 2000 + M32 repeats edge loci to ~1 ustep in-run. Rev = exact rational
+// 32*118*9759*32/(296*21) rounded.
+static const FastHomeParams FASTHOME_32 =
+	{ 32, 24000, 100000, 24000, 2000, 32, 5000, 2000, 700, 4200, 900, 3000, 189704 };
+// 16:1 (2026 modules, bench-tuned Jul 20-21 2026): forward stall cliff
+// 17-19k (halved gearing doubles reflected torque) -> seek 14k. BACKWARD has
+// a mid-band resonance that stalls the motor DEAD at a 5-6k cruise cold (and
+// swallows 10-14k hot) - all datum-critical approaches run at 4k, below any
+// band, where torque is also maximal (with that fix: sd 3.0 usteps, max
+// datum error 7 usteps = 0.027 deg over 30 homes). Deeper dip (~24 counts vs
+// 10-14) with steep flanks: vEdge 2000 + M48. Rev = 92,252 MEASURED (nominal
+// half-rational 94,852 is wrong by 2.8% - implied gearbox ~15.562:1).
+static const FastHomeParams FASTHOME_16 =
+	{ 16, 14000, 100000, 4000, 2000, 48, 2500, 1000, 350, 2100, 450, 1500, 92252 };
 
 namespace Modules {
 
@@ -150,10 +193,9 @@ MotionControl::fastHomeRoutine(const MeasureRoutineSettings& settings)
 		return Exception(moduleName, "No hardware timer");
 	}
 	const auto microstepsPerStep = this->motorDriverSettings.getMicrostepsPerStep();
-	const Steps rev = this->getMicrostepsPerPrismRotation();
-	const Steps lapBudget = rev + rev / 4;
+	const FastHomeParams * p = this->fastHomeParams;
+	Steps lapBudget = p->ustepsPerRev + p->ustepsPerRev / 4;
 	const uint32_t timeoutTime = millis() + (uint32_t) settings.timeout_s * 1000U;
-	const StepsPerSecond vEdge = FASTHOME_EDGE_SPEED;
 
 	auto endRoutine = [this]() {
 		this->stop();
@@ -168,10 +210,19 @@ MotionControl::fastHomeRoutine(const MeasureRoutineSettings& settings)
 	};
 
 	// Raised profile for the seek + repositioning moves; restored on exit.
+	// Until the gear ratio is confirmed, cruise at the slower generation's
+	// speed - the 16:1 motor stalls hard at the 32:1 cruise.
+	StepsPerSecond seekSpeed = p->seekSpeed;
+	if(!this->fastHomeRatioConfirmed) {
+		if(FASTHOME_16.seekSpeed < seekSpeed) seekSpeed = FASTHOME_16.seekSpeed;
+		if(FASTHOME_32.seekSpeed < seekSpeed) seekSpeed = FASTHOME_32.seekSpeed;
+	}
+	StepsPerSecond vEdge = p->edgeSpeed;
+	this->switchLatchDebounce = p->debounceM;
 	const MotionProfile normalProfile = this->getMotionProfile();
 	MotionProfile seekProfile;
-	seekProfile.maximumSpeed = FASTHOME_SEEK_SPEED;
-	seekProfile.acceleration = FASTHOME_SEEK_ACCEL;     // NB int32 overflow fix
+	seekProfile.maximumSpeed = seekSpeed;
+	seekProfile.acceleration = p->seekAccel;            // NB int32 overflow fix
 	seekProfile.minimumSpeed = 1000;                    // in calculateMotionState
 	this->setMotionProfile(seekProfile);                // - see PORTING.md
 
@@ -242,13 +293,66 @@ MotionControl::fastHomeRoutine(const MeasureRoutineSettings& settings)
 		HAL_Delay(FASTHOME_SETTLE_MS);
 	}
 
+	// ---- Phase 1c : motor detection (lead-to-lead = one revolution) -----------
+	// Classification only needs coarse edges: the candidate revs differ by a
+	// factor of ~2 while seek-lag / backlash asymmetries contribute well under
+	// 2k usteps. The precise steps/rev then comes from the selected set.
+	if(!this->fastHomeRatioConfirmed) {
+		if(this->homeSwitch.getForwardsActive()) {
+			// Exit the flag forward (inverted latch = becoming INACTIVE).
+			this->inInterrupt.invertSwitches = true;
+			this->updateStepsAndSwitches();
+			auto r = this->routineMoveToUntilSeeSwitch(
+				this->getPosition() + p->widthMax + p->takeup,
+				SwitchesMask{ true, false }, timeoutTime);
+			this->inInterrupt.invertSwitches = false;
+			if(r.exception || !r.frameSwitchEvents.forwards.seen) {
+				this->setMotionProfile(normalProfile);
+				return fail("motor detect: stuck active");
+			}
+		}
+		auto r = this->routineMoveTo(this->getPosition() + p->takeup, timeoutTime);
+		if(r.exception) { this->setMotionProfile(normalProfile); return fail(r.exception.message); }
+		r = this->routineMoveToUntilSeeSwitch(this->getPosition() + lapBudget,
+			SwitchesMask{ true, false }, timeoutTime);
+		if(r.exception || !r.frameSwitchEvents.forwards.seen) {
+			this->setMotionProfile(normalProfile);
+			return fail("motor detect: flag not found");
+		}
+		const Steps lead2 = r.frameSwitchEvents.forwards.positionSeen;
+		const Steps measuredRev = lead2 - coarseLead;
+		const FastHomeParams * detected = nullptr;
+		for(const FastHomeParams * cand : { &FASTHOME_16, &FASTHOME_32 }) {
+			const Steps expect = cand->ustepsPerRev;
+			if(measuredRev > expect - expect / 10 && measuredRev < expect + expect / 10) {
+				detected = cand;
+			}
+		}
+		if(!detected) {
+			this->setMotionProfile(normalProfile);
+			return fail("motor detect: rev out of range");
+		}
+		this->fastHomeParams = detected;
+		this->fastHomeRatioConfirmed = true;
+		p = detected;
+		lapBudget = p->ustepsPerRev + p->ustepsPerRev / 4;
+		vEdge = p->edgeSpeed;
+		this->switchLatchDebounce = p->debounceM;
+		seekProfile.maximumSpeed = p->seekSpeed;    // confirmed: full cruise
+		seekProfile.acceleration = p->seekAccel;
+		this->setMotionProfile(seekProfile);
+		coarseLead = lead2;                         // continue from the re-found lead
+		// NB: the caller should reconcile getMicrostepsPerPrismRotation()
+		// with p->ustepsPerRev (degree conversions, frame wrap math).
+	}
+
 	// ---- Phase 2 : depth probe (cold runs; measure only) ----------------------
 	// The probe sits ~200 usteps past the true centre (seek lag shifts
 	// coarseLead forward) so it reads a shallow flank; the verdict is made
 	// against the anchor background below, not against T.
 	int coldDepth = -1;
 	if(!warm) {
-		auto r = this->routineMoveTo(coarseLead + FASTHOME_HALF_WIDTH, timeoutTime);
+		auto r = this->routineMoveTo(coarseLead + p->halfWidth, timeoutTime);
 		if(r.exception) { this->setMotionProfile(normalProfile); return fail("abort"); }
 		bool rail;
 		int cc = settledCrossingProbe(this->homeSwitch, rail, timeoutTime);
@@ -261,10 +365,16 @@ MotionControl::fastHomeRoutine(const MeasureRoutineSettings& settings)
 	// ---- Phase 3 : precise forward two-edge pass ------------------------------
 	// Overshoot-return: approach the arming point from below so the pass runs
 	// forward-engaged (backlash taken up before the first edge).
+	// DATUM-CRITICAL approach moves (mostly backward) run at reposSpeed, not
+	// seekSpeed: slip during a re-approach shifts the frame between passes and
+	// biases the averaged datum (measured ~300 usteps/pass on 16:1 at 14k).
+	MotionProfile reposProfile = seekProfile;
+	reposProfile.maximumSpeed = p->reposSpeed;
 	{
-		auto r = this->routineMoveTo(coarseLead - FASTHOME_CLEARANCE - FASTHOME_TAKEUP, timeoutTime);
-		if(r.exception) { this->setMotionProfile(normalProfile); return fail(r.exception.message); }
-		r = this->routineMoveTo(coarseLead - FASTHOME_CLEARANCE, timeoutTime);
+		this->setMotionProfile(reposProfile);
+		auto r = this->routineMoveTo(coarseLead - p->clearance - p->takeup, timeoutTime);
+		if(!r.exception) r = this->routineMoveTo(coarseLead - p->clearance, timeoutTime);
+		this->setMotionProfile(seekProfile);
 		if(r.exception) { this->setMotionProfile(normalProfile); return fail(r.exception.message); }
 	}
 	// ---- Phase 1b : threshold anchor + depth verdict (cold runs) ---------------
@@ -294,9 +404,12 @@ MotionControl::fastHomeRoutine(const MeasureRoutineSettings& settings)
 	Steps midSum = 0, widthSum = 0;
 	for(int pass = 0; pass < FASTHOME_PASSES; pass++) {
 		if(pass > 0) {
-			// Re-approach the arming point forward-engaged for the next pass.
-			auto r = this->routineMoveTo(coarseLead - FASTHOME_CLEARANCE - FASTHOME_TAKEUP, timeoutTime);
-			if(!r.exception) r = this->routineMoveTo(coarseLead - FASTHOME_CLEARANCE, timeoutTime);
+			// Re-approach the arming point forward-engaged for the next pass
+			// (reposSpeed - see the datum-critical note above).
+			this->setMotionProfile(reposProfile);
+			auto r = this->routineMoveTo(coarseLead - p->clearance - p->takeup, timeoutTime);
+			if(!r.exception) r = this->routineMoveTo(coarseLead - p->clearance, timeoutTime);
+			this->setMotionProfile(seekProfile);
 			if(r.exception) { this->setMotionProfile(normalProfile); return fail(r.exception.message); }
 			if(this->homeSwitch.getForwardsActive()) {
 				this->setMotionProfile(normalProfile);
@@ -320,7 +433,7 @@ MotionControl::fastHomeRoutine(const MeasureRoutineSettings& settings)
 		}
 		trail = r.frameSwitchEvents.forwards.positionSeen;
 
-		if(trail - lead < FASTHOME_WIDTH_MIN || trail - lead > FASTHOME_WIDTH_MAX) {
+		if(trail - lead < p->widthMin || trail - lead > p->widthMax) {
 			this->setMotionProfile(normalProfile);
 			return fail("width gate");                // (bench: blip-retry+reseek)
 		}
@@ -354,17 +467,20 @@ MotionControl::fastHomeRoutine(const MeasureRoutineSettings& settings)
 		reenter = r.frameSwitchEvents.backwards.positionSeen;
 	}
 	Steps backlash = trail - reenter;
-	if(backlash < -32 || backlash > FASTHOME_BACKLASH_MAX) {
+	if(backlash < -32 || backlash > p->backlashMax) {
 		this->setMotionProfile(normalProfile);
 		return fail("backlash out of range");
 	}
 	if(backlash < 0) backlash = 0;
 
 	// ---- Phase 5 : apply -------------------------------------------------------
-	{	// park via a forward-engaged approach (same frame as the edge pass)
-		auto r = this->routineMoveTo(home - FASTHOME_CLEARANCE - FASTHOME_TAKEUP, timeoutTime);
-		if(!r.exception) r = this->routineMoveTo(home - FASTHOME_CLEARANCE, timeoutTime);
+	{	// park via a forward-engaged approach (same frame as the edge pass;
+		// reposSpeed - the backward leg crosses the resonance band otherwise)
+		this->setMotionProfile(reposProfile);
+		auto r = this->routineMoveTo(home - p->clearance - p->takeup, timeoutTime);
+		if(!r.exception) r = this->routineMoveTo(home - p->clearance, timeoutTime);
 		if(!r.exception) r = this->routineMoveTo(home, timeoutTime);
+		this->setMotionProfile(seekProfile);
 		if(r.exception) { this->setMotionProfile(normalProfile); return fail(r.exception.message); }
 	}
 

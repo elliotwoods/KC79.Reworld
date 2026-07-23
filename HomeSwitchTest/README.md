@@ -134,6 +134,8 @@ hand in a serial terminal).
 | `A <N> [step]` | self-calibrating two-edge dip home (finds its own threshold) |
 | `O [vEdge] [M] [vSeek] [accel] [forceCal] [passes]` | **fast home + backlash** — the production-candidate routine (see below) |
 | `N [T] [vmax] [accel] [M]` | full-rev sensor **census** at fixed threshold T: one ramped lap, dumps every debounced transition |
+| `U <32\|16\|0>` | gear ratio: force 32:1 / 16:1, or 0 = clear to auto (next `O` re-detects). Clears the homing caches |
+| `D <resCode> [mA]` | driver settings: microstep resolution code (0=full step … 5=1/32 default) + coil current (clamped 250 mA). Full-step is the motor bring-up tool |
 | `Y <dµsteps> [vmax] [accel]` | ramped (trapezoid) relative move — speed/accel probing |
 | `W` | debug: 100-sample burst comparing digitalRead vs the ISR's direct register read |
 
@@ -151,9 +153,11 @@ hand in a serial terminal).
   · `A,thr,T,cmin,pmin,dipDepth` · `A,edge,0|1,pos` (leading/trailing)
   · `A,done,ok,home,lead,trail,switch,T,dipDepth,"message"` — auto-home (`A`).
 - `O,begin,pos,T,vEdge,M,vSeek` (T=0 → will calibrate) · `O,cal,c1,c2,bg,T` ·
-  `O,thr,T,up|down` (adaptive bump) · `O,seek,coarseLead` · `O,gate,name,pass,info` ·
-  `O,edge,0|1,pos` · `O,backlash,µsteps,reenterPos` ·
+  `O,thr,T,up|down` (adaptive bump) · `O,seek,coarseLead` ·
+  `O,motor,ratio,measuredRev` (gear-ratio detection; followed by a fresh `#` banner) ·
+  `O,gate,name,pass,info` · `O,edge,0|1,pos` · `O,backlash,µsteps,reenterPos` ·
   `O,done,ok,home,lead,trail,switch,backlash,T,ms,"message"` — fast home (`O`).
+- `U,auto` / `U,forced,ratio` — gear-ratio override (`U`) · `D,resCode,mA` — driver (`D`).
 - `N,begin,pos,T,vmax,lap` · `N,edge,i,pos,state` · `N,end,count,aborted` — census (`N`).
 - `L,level,message` — progress/log · `#…` — banner (announces `usteps_per_rev`)
 
@@ -237,25 +241,46 @@ forward-engaged pass at µstep resolution), the **switch size**, and the
 fixed threshold survives — and the background also varies ~8 counts by ring
 sector, so on cold runs the final T is **re-anchored at a flag-referenced
 spot**, the pass arming point at `lead − 5000`, the same physical place every
-run). Phases: provisional calibrate (cold only, cached) → ramped seek
-(24 k µsteps/s; the motor stalls above ~30 k at 100 k/s² accel) → threshold
-anchor + validation gates (depth is judged against the anchor background −6,
-where the real dip sits 10–14 counts down and false features only 2–3;
-shoulder / width, so a false feature can't be adopted as home) → precise
-two-edge pass (debounced ISR latch, M=32 consecutive µsteps, immune to
-flank-dither blips) → backlash → park + zero.
+run). Phases: provisional calibrate (cold only, cached) → ramped seek →
+**motor detection** (first run per power-up, or `forceCal` / after `U 0`: the
+seek continues one extra lap to the next leading edge; the lead-to-lead
+distance is one revolution and classifies the module as **32:1 or 16:1**,
+selecting that generation's full parameter set — speeds, gates, geometry —
+and re-printing the `#` banner so the host tools adopt the new µsteps/rev;
+until the ratio is confirmed the seek runs at the slower generation's cruise
+speed since the 16:1 motor stalls at the 32:1 cruise) → threshold anchor +
+validation gates (depth is judged against the anchor background −6; shoulder /
+width, so a false feature can't be adopted as home) → precise two-edge pass
+(debounced ISR latch, immune to flank-dither blips) → backlash → park + zero.
 
-The precise measurement runs **two averaged forward passes** at 2000 µsteps/s
-(a third tie-breaks if they disagree >12 µsteps): repeatability is
-**σ ≈ 5 µsteps with every home within 0.03°** (worst 14 µsteps over 86
-consecutive homes; ≈0.011° at thermal equilibrium). A width servo trims the
-cached threshold ±1 count when the flag width drifts >45 µsteps from its
-calibration anchor (thermo-optical drift tracking). Typical timings on this
-rig: **~11 s warm** (threshold cached; single-pass ~7 s at σ 7.4), **~21 s
-cold** including calibration and a worst-case full-rev seek. Failure always
-ends with `O,done,0,...,"reason"` and clears the threshold cache.
-µsteps/rev is the exact rational **189,704** (the truncated 189,696 is 7.9
-short — confirmed by rotation tests, residual +3.9 ± 7).
+The precise measurement runs **two averaged forward passes** (a third
+tie-breaks if they disagree >12 µsteps). A width servo trims the cached
+threshold ±1 count when the flag width drifts >45 µsteps from its calibration
+anchor (thermo-optical drift tracking). Failure always ends with
+`O,done,0,...,"reason"` and clears the threshold cache.
+
+**Per-generation parameter sets** (`MotorParams`, selected by detection or `U`):
+
+| | 32:1 (original) | 16:1 (2026, bench-tuned Jul 20) |
+|---|---|---|
+| µsteps/rev | **189,704** exact rational (truncated 189,696 is 7.9 short; rotation residual +3.9 ± 7) | **92,252 measured ±2** (k-rev homing ladder; the nominal half, 94,852, is 2.8% wrong — implied gearbox ≈15.562:1) |
+| stall cliff @100 k/s² | 30–32 k → seek 24 k | forward 17–19 k → seek 14 k; **backward resonance band** stalls a 5–6 k cruise dead when cold and swallows 10–14 k hot → all datum-critical approach moves at 4 k (`reposSpeed`) |
+| vEdge / debounce M | 2000 / 32 | 2000 / 48 (dip ~24 counts deep vs 10–14, steep flanks; 3000 past the knee) |
+| repeatability | σ 5.2 / max 14 µsteps overnight (<0.03°) | sd 3.0 / max datum err 7 µsteps = 0.027° over 30 stay-at-park homes (with the 4 k approach fix; the 0.03° bar is 2× harder per µstep here) |
+| backlash seen | 412–796 (breathes overnight) | 144–476 (motor-gearbox dominated; does **not** scale with rev) |
+| warm home | ~11 s (seek-dominated) | **6.2–8.4 s** |
+
+The 16:1 module on the bench has its assembled **motor and sensor on the B
+channels** (the bench build drives motor B, reads sensor B).
+
+Thermal management (critical on the small 16:1 motor — sustained holding
+current collapses its stall envelope within ~20 min, backward direction
+first): the firmware **auto-sleeps the driver** (nSLEEP low, zero coil
+current) after 3 s without motion, waking on any motion command — measured
+to add no datum error (geartrain friction holds the rotor). All in-routine
+positioning moves are ramped at the set's `reposSpeed`; a hot motor slips
+hundreds of µsteps on unramped 14 k standing starts (was a direct
+~780 µstep park/datum error before the fix).
 
 **Overnight resilience bake** (2026-07-10 → 11, 15.5 h, `reports/bake/`):
 **2,337 / 2,338 homes succeeded** from starts covering the whole circle

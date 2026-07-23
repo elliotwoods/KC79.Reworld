@@ -126,12 +126,28 @@ namespace Bench {
 	Steps
 	Motion::getMicrostepsPerPrismRotation() const
 	{
-		// Exact rational, rounded: 32*118*9759/(296*21) = 5928.247 full steps
-		// per prism rotation. The truncated-integer form (5928, as production's
-		// MOTION_STEPS_PER_PRISM_ROTATION) is 7.9 microsteps/rev short at 32
-		// microsteps - measurable as a systematic homing shift after commanded
-		// full rotations.
-		const int64_t num = 32LL * 118LL * 9759LL * (int64_t) this->getMicrostepsPerStep();
+		// Exact rational, rounded: gearRatio*118*9759/(296*21) full steps per
+		// prism rotation (32:1 -> 5928.247, 16:1 -> 2964.123). The truncated-
+		// integer form (5928, as production's MOTION_STEPS_PER_PRISM_ROTATION)
+		// is 7.9 microsteps/rev short at 32 microsteps - measurable as a
+		// systematic homing shift after commanded full rotations.
+		return microstepsPerPrismRotationFor(this->gearRatio, this->getMicrostepsPerStep());
+	}
+
+	//----------
+	Steps
+	Motion::microstepsPerPrismRotationFor(uint8_t ratio, Steps microstepsPerStep)
+	{
+		if (ratio == 16) {
+			// The "16:1" modules do NOT follow the 32:1 rational with a halved
+			// leading factor (nominal half = 94,852): bench-measured
+			// 92,252 +/- 2 usteps/rev at 1/32 microstepping (Jul 2026, k-rev
+			// homing ladder, k = 3..5). Implied true motor-gearbox ratio
+			// ~15.562:1. Stored at 1/32 and scaled so other resolutions stay
+			// consistent.
+			return (Steps)((92252LL * (int64_t) microstepsPerStep + 16) / 32);
+		}
+		const int64_t num = (int64_t) ratio * 118LL * 9759LL * (int64_t) microstepsPerStep;
 		const int64_t den = 296LL * 21LL;
 		return (Steps) ((num + den / 2) / den);
 	}
