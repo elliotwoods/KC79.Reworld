@@ -13,6 +13,12 @@ class source on both sides. You can stop reading as soon as you have the
 level of detail you need; nothing later in the document is required to use
 the system at the level described in [§1](#1-quick-start-simple-usage-patterns).
 
+This document focuses on the RS485-based protocol itself — the wire
+format between the Router and the Portals. The Router also exposes OSC
+and REST network control surfaces built on top of it; those are covered
+separately in [Appendix A](#appendix-a-osc--rest-control-surfaces) since
+they're a layer above the protocol, not part of it.
+
 Everything here describes the protocol **as currently implemented**. For a
 list of known weaknesses and a proposed hardening plan (CRC, real
 sequence-numbered ACKs, retransmission), see
@@ -41,6 +47,8 @@ Jargon is defined the first time it's used and again in the
 12. [Source map](#12-source-map)
 13. [Glossary](#glossary)
 
+**Appendix:** [OSC & REST control surfaces](#appendix-a-osc--rest-control-surfaces)
+
 ---
 
 ## 1. Quick start: simple usage patterns
@@ -55,57 +63,31 @@ model to follow the examples below.)
 
 ### Router side
 
-**Simplest: OSC.** The Router listens for OSC on UDP port 4000 by default
-(`Router/src/Modules/OSC/`). Any of the 12 broadcastable actions
-(`Portal::getActions()`, `Router/src/Modules/Hardware/Portal.cpp`) can be
-triggered by OSC address, at three different scopes — the whole
-installation, one Column, or one Portal
-(`Router/src/OSC/Routes.cpp:270-313`):
-
-```
-/ping                → ping every Portal in every Column
-/0/home              → run the home routine on every Portal in Column 0
-/0/8/seeThrough      → set Portal 8 in Column 0 to the "see through" position
-```
-
-(Column indices are 0-based, like an array index; Portal target IDs are
-1-based, since `0` is reserved for the host — see §2.)
-
-The 12 action names are: `ping`, `init`, `calibrate`, `home`, `flashLEDs`,
-`goHome`, `seeThrough`, `disableDebugLights`, `enableDebugLights`, `unjam`,
-`escapeFromRoutine`, `reboot`. A couple of routes take explicit arguments
-instead of being a bare action, e.g. moving a portal to a normalised pilot
-position (`Routes.cpp:28-54`):
-
-```
-/move <column_id> <portal_id> <x> <y>
-```
-
-**Also simple: REST.** A `crow`-based HTTP server (port 8080 by default,
-`Router/src/Modules/REST/Server.cpp`) exposes plain GET routes:
-
-```
-curl http://localhost:8080/0/8/getPosition
-curl http://localhost:8080/0/8/setPosition/0.5,0.0
-curl http://localhost:8080/0/8/pollPosition
-```
-
-**One level down: the C++ API.** If you're writing Router code directly
-(a new GUI button, a test harness, a headless script), you call plain
-methods on a `Portal` object — no protocol code in sight:
+**Simplest: the C++ API.** If you're writing Router code directly (a new
+GUI button, a test harness, a headless script), you call plain methods on
+a `Portal` object — no protocol code in sight:
 
 ```cpp
 auto portal = column->getPortalByTargetID(8);
 
 portal->ping();               // Portal.cpp:494 — sendToPortal(MsgPack(), "")
 portal->poll();                // Portal.cpp:501 — requests a full status report
-portal->performAction(action); // trigger any of the 12 actions above
+portal->performAction(action); // trigger any of the 12 broadcastable actions
+                                // (ping, init, calibrate, home, flashLEDs,
+                                // goHome, seeThrough, disableDebugLights,
+                                // enableDebugLights, unjam,
+                                // escapeFromRoutine, reboot)
 ```
 
 None of this builds an envelope, encodes MessagePack, or waits for an ACK
 by hand — `sendToPortal()` (§5) builds and queues the message, and a
 background thread per Column (§4, §7) takes care of encoding, sending, and
 waiting for the reply.
+
+(The Router also exposes these same actions over OSC and REST for
+network/operator control — see [Appendix A](#appendix-a-osc--rest-control-surfaces)
+— but those sit on top of this C++ API and the RS485 protocol below it,
+rather than being part of the protocol itself.)
 
 ### PortalFW side
 
@@ -893,3 +875,53 @@ class itself on both sides.
 - **Gateway (RS485↔Ethernet)** — a hardware box that bridges a TCP/IP
   network connection to a physical RS485 bus, so a host without a direct
   serial adapter can still reach the bus over Ethernet.
+
+---
+
+## Appendix A: OSC & REST control surfaces
+
+These are network-facing control surfaces the Router exposes on top of
+the C++ API in §1 — for external operators, show-control software, or
+network scripts. They are not part of the RS485 protocol itself: every
+call below ultimately goes through the same `Portal`/`Column` API, and
+from there through everything described in §3 onward.
+
+### OSC
+
+The Router listens for **OSC** (Open Sound Control — a simple, address-based
+network message protocol) on UDP port 4000 by default
+(`Router/src/Modules/OSC/`). Any of the 12 broadcastable actions
+(`Portal::getActions()`, `Router/src/Modules/Hardware/Portal.cpp`) can be
+triggered by OSC address, at three different scopes — the whole
+installation, one Column, or one Portal
+(`Router/src/OSC/Routes.cpp:270-313`):
+
+```
+/ping                → ping every Portal in every Column
+/0/home              → run the home routine on every Portal in Column 0
+/0/8/seeThrough      → set Portal 8 in Column 0 to the "see through" position
+```
+
+(Column indices are 0-based, like an array index; Portal target IDs are
+1-based, since `0` is reserved for the host — see §2.)
+
+The 12 action names are: `ping`, `init`, `calibrate`, `home`, `flashLEDs`,
+`goHome`, `seeThrough`, `disableDebugLights`, `enableDebugLights`, `unjam`,
+`escapeFromRoutine`, `reboot`. A couple of routes take explicit arguments
+instead of being a bare action, e.g. moving a portal to a normalised pilot
+position (`Routes.cpp:28-54`):
+
+```
+/move <column_id> <portal_id> <x> <y>
+```
+
+### REST
+
+A `crow`-based HTTP server (port 8080 by default,
+`Router/src/Modules/REST/Server.cpp`) exposes plain GET routes:
+
+```
+curl http://localhost:8080/0/8/getPosition
+curl http://localhost:8080/0/8/setPosition/0.5,0.0
+curl http://localhost:8080/0/8/pollPosition
+```
