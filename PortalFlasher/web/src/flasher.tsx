@@ -1,10 +1,11 @@
 /**
  * The rig's page.
  *
- * Laid out as the order of operations, left to right: **probe → firmware → flash** down the left
- * column, and what is actually on the board down the right. An operator working properly is not
- * looking at it — they are listening — so the screen's job is to answer the question they have
- * *after* a tone surprised them, and to make the setup obvious before they start.
+ * Three bands. The **console** across the top carries the verdict and the two controls that act on
+ * it; **probe** and **firmware** are the setup underneath; the **evidence** — what is on the board,
+ * what has happened this session — is below that. An operator working properly is not looking at
+ * any of it — they are listening — so the screen's job is to answer the question they have *after*
+ * a tone surprised them, and to make the setup obvious before they start.
  *
  * Two things here are safety mechanisms rather than decoration:
  *
@@ -367,7 +368,20 @@ function FirmwarePanel({ hasImage }: { hasImage: boolean }) {
  */
 const CONFIRM_WINDOW_MS = 5_000;
 
-function FlashPanel({ rig }: { rig: RigState }) {
+/**
+ * The console: what the rig is, and the two controls that change it.
+ *
+ * These used to be a status strip across the top and a "3 · Flash" panel three columns away. That
+ * put the sentence telling an operator what to do at one end of the screen and the button doing it
+ * at the other — and worse, it made the status line look like decoration. It is not: `Ready` and
+ * `No board` are the difference between a press that flashes and a press that does nothing, so the
+ * button belongs inside the thing that says which it is.
+ *
+ * Everything that changes while a pass runs is here too — the progress bar, the confirm, the
+ * arming note. An operator watching a chip erase should not have to look anywhere else.
+ */
+function RigConsole({ rig }: { rig: RigState }) {
+  const tile = tileFor(rig);
   const flashNow = useAction('/actions/flash_now');
   const flash = flashNowState(rig);
   const progress = stepSummary(rig);
@@ -391,49 +405,85 @@ function FlashPanel({ rig }: { rig: RigState }) {
   }, [flash.enabled, rig.targetPresent, rig.hasImage]);
 
   return (
-    <Panel title="3 · Flash">
-      <div className="device-tools">
-        <Button
-          onClick={() => {
-            if (armedPress) {
-              setArmedPress(false);
-              flashNow();
-            } else {
-              setArmedPress(true);
-            }
-          }}
-          variant={armedPress ? 'danger' : 'primary'}
-          disabled={!flash.enabled}
-          title={flash.reason}
-          busy={rig.busy}
-          busyLabel={progress ? progress.label : 'Flashing…'}
-        >
-          {armedPress ? 'Confirm — erase and flash' : 'Flash now'}
-        </Button>
-        {!flash.enabled && flash.reason && <span className="fw-hint">{flash.reason}</span>}
+    <section className="rig-console" data-av-surface="device-state" data-tone={tile.tone}>
+      <div className="rig-console-head">
+        <div className="rig-status">
+          <span className="rig-headline">{tile.headline}</span>
+          <span className="rig-instruction">{tile.instruction}</span>
+        </div>
+
+        <div className="rig-controls" data-av-surface="operator-controls">
+          <div className="rig-action">
+            <Button
+              onClick={() => {
+                if (armedPress) {
+                  setArmedPress(false);
+                  flashNow();
+                } else {
+                  setArmedPress(true);
+                }
+              }}
+              variant={armedPress ? 'danger' : 'primary'}
+              disabled={!flash.enabled}
+              title={flash.reason}
+              busy={rig.busy}
+              busyLabel={progress ? progress.label : 'Flashing…'}
+            >
+              {armedPress ? 'Confirm — erase and flash' : 'Flash now'}
+            </Button>
+            {!flash.enabled && flash.reason && <span className="fw-hint">{flash.reason}</span>}
+          </div>
+
+          {/* Separated by a rule rather than by space: this is a mode switch, not another
+              button, and the two must not be reachable by the same careless click. */}
+          <div className="rig-mode">
+            <span className="rig-mode-label">Auto-flash</span>
+            <Toggle path="/mode/desired" />
+            <Badge tone={rig.armed ? 'active' : 'idle'}>{rig.armed ? 'armed' : 'off'}</Badge>
+            <span className="rig-mode-hint">Hands-free: seat, tone, cycle, tone</span>
+          </div>
+        </div>
       </div>
+
+      {/* A pass is seconds long and the middle of it is irreversible. The bar is full width and
+          directly under the button that started it. */}
+      {progress && (
+        <div className="rig-progress" data-committed={progress.committed ? '' : undefined}>
+          <div
+            className="rig-progress-track"
+            role="progressbar"
+            aria-label={progress.label}
+            aria-valuemin={progress.determinate ? 0 : undefined}
+            aria-valuemax={progress.determinate ? 100 : undefined}
+            aria-valuenow={
+              progress.determinate ? Math.round(rig.stepFraction * 100) : undefined
+            }
+          >
+            <div
+              className="rig-progress-fill"
+              data-indeterminate={progress.determinate ? undefined : ''}
+              style={
+                progress.determinate
+                  ? { width: `${Math.max(1, Math.round(rig.stepFraction * 100))}%` }
+                  : undefined
+              }
+            />
+          </div>
+          <span className="rig-progress-label">
+            {progress.committed ? `${progress.label} — do not lift the board` : `${progress.label}…`}
+          </span>
+        </div>
+      )}
+
       {armedPress && (
         <Banner tone="warn">
           This erases the whole chip before writing. Press again to go ahead.
         </Banner>
       )}
-      {progress && (
-        <Banner tone={progress.committed ? 'warn' : 'info'}>
-          {progress.committed
-            ? `${progress.label} — do not lift the board`
-            : `${progress.label}…`}
-        </Banner>
-      )}
-      <Row label="Auto-flash" hint="Hands-free: seat, tone, cycle, tone">
-        <Toggle path="/mode/desired" />
-      </Row>
-      <Row label="Armed">
-        <Badge tone={rig.armed ? 'active' : 'idle'}>{rig.armed ? 'armed' : 'off'}</Badge>
-      </Row>
-      {rig.mode === 'auto' && !rig.armed && (
+      {rig.mode === 'auto' && !rig.armed && !progress && (
         <Banner tone="info">Arming — the fixture must be empty first.</Banner>
       )}
-    </Panel>
+    </section>
   );
 }
 
@@ -572,7 +622,6 @@ function App() {
     stepFraction,
   };
 
-  const tile = tileFor(rig);
   const status = statusSummary(rig);
   const simulated = Boolean(schema?.params?.some?.((p) => p.path === '/sim/board_present'));
 
@@ -595,22 +644,15 @@ function App() {
         sub={schema ? (simulated ? 'simulated target' : 'STM32G070RBT6 over SWD') : 'connecting…'}
       />
       <div className="app-body flasher-layout">
-        {/* One line, across the width: what the rig is, and what to do about it. */}
-        <section data-av-surface="device-state">
-          <div className="rig-strip" data-tone={tile.tone}>
-            <span className="rig-headline">{tile.headline}</span>
-            <span className="rig-instruction">{tile.instruction}</span>
-          </div>
-        </section>
+        {/* Across the width: what the rig is, and the controls that change it. */}
+        <RigConsole rig={rig} />
 
-        {/* The order of operations, left to right. */}
+        {/* Setup, left to right. The action used to be a third panel here and is now above,
+            where the sentence saying whether it will work already was. */}
         <div className="flasher-steps">
           <ProbePanel connected={probeConnected} />
           <section data-av-surface="image-source">
             <FirmwarePanel hasImage={hasImage} />
-          </section>
-          <section data-av-surface="operator-controls">
-            <FlashPanel rig={rig} />
           </section>
         </div>
 

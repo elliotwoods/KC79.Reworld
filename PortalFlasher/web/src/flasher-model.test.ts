@@ -227,3 +227,33 @@ describe('stepSummary', () => {
     expect(stepSummary(state({ step: 'erase', stepFraction: 1 }))?.label).toBe('erase 100%');
   });
 });
+
+describe('stepSummary determinacy', () => {
+  it('is determinate exactly where a fraction is reported', () => {
+    // These three walk the whole part and report as they go, so a bar can be filled honestly.
+    for (const step of ['erase', 'program', 'readback'] as const) {
+      expect(stepSummary(state({ step }))?.determinate).toBe(true);
+    }
+    // These are single events. A bar at 0% through one of them reads as stuck, which is the
+    // wrong thing to say about the seconds immediately before an erase.
+    for (const step of ['attach', 'option-bytes', 'reset-run'] as const) {
+      expect(stepSummary(state({ step }))?.determinate).toBe(false);
+    }
+  });
+
+  it('never claims determinacy without a label to match', () => {
+    // The two must agree: a percentage in the label and an indeterminate bar underneath it would
+    // be the page contradicting itself mid-erase.
+    for (const step of [
+      'attach',
+      'option-bytes',
+      'erase',
+      'program',
+      'readback',
+      'reset-run',
+    ] as const) {
+      const summary = stepSummary(state({ step, stepFraction: 0.5 }));
+      expect(summary?.label.includes('%')).toBe(summary?.determinate);
+    }
+  });
+});

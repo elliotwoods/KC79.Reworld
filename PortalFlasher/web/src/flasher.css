@@ -1,6 +1,6 @@
 /*
- * This page's own two things: a verdict tile big enough to read across a bench, and the firmware
- * map.
+ * This page's own two things: a console big enough to read and press across a bench, and the
+ * firmware map.
  *
  * Colours come from the AV tokens rather than literals, so a retheme cannot desynchronise this
  * from the panels around it. `data-` attributes rather than interpolated class names, because the
@@ -14,21 +14,19 @@
 /*
  * Three bands, not three equal columns.
  *
- *   ┌ verdict ──────────┬ firmware map ─────────────────────┐   what you read at a glance
- *   ├ 1 Probe ─┬ 2 Firmware ─┬ 3 Flash ─────────────────────┤   the order of operations
- *   └ Device ──┴ Faults ─────┴ Session ─────────────────────┘   the evidence
+ *   ┌ console: verdict · Flash now · Auto-flash · progress ──┐   what you read, and what you press
+ *   ├ 1 Probe ──────────────┬ 2 Firmware ───────────────────┤   setup
+ *   └ Flash contents ───────┴ Session ──────────────────────┘   the evidence
  *
- * The two elements that genuinely want width — the verdict an operator reads across a bench, and
- * the map, which is 256 buckets wide — get the full width of the window. The three *steps* sit in
- * equal columns underneath, so the order of operations reads left to right instead of as a
- * scroll. Splitting the page down the middle instead would have given the map half a window and
- * the steps a column each of nothing.
+ * The elements that genuinely want width get the full width of the window: the console, which an
+ * operator reads across a bench, and the sector map. The setup panels sit in equal columns
+ * underneath. Splitting the page down the middle instead would have given the map half a window
+ * and the steps a column each of nothing.
  *
- * `auto-fit` rather than the framework's `.columns` (`auto-fill`): with exactly three panels,
- * auto-fill leaves a fourth empty track at wide widths and the row stops filling the space, which
- * is the thing this layout exists to fix. Reflow is by track size alone — three columns above
- * ~1080px of content, two above ~700px, one below — so there are no width breakpoints to keep in
- * step with the panel count.
+ * `auto-fit` rather than the framework's `.columns` (`auto-fill`): auto-fill leaves empty tracks
+ * at wide widths and the row stops filling the space, which is the thing this layout exists to
+ * fix. Reflow is by track size alone, so there are no width breakpoints to keep in step with the
+ * panel count — which is what let the Flash panel move into the console without touching this.
  */
 .flasher-layout {
   display: grid;
@@ -62,24 +60,64 @@
   }
 }
 
-/* ---------------------------------------------------------------- the verdict tile */
+/* ---------------------------------------------------------------- the console */
 
 /*
- * One line across the width rather than a tall box in a column.
+ * The verdict and the controls that change it, in one box.
  *
- * As a box it wasted a column of space on two short strings, and sitting inside a panel titled
- * "Rig" it read as a fourth thing to understand rather than as the answer. A strip is what a
- * status line is.
+ * They were a status strip here and a "3 · Flash" panel three columns away, which put the sentence
+ * saying whether a press would work at one end of the screen and the button at the other. Worse,
+ * it made the status line look like decoration; `Ready` versus `No board` is the difference
+ * between a press that flashes and one that does nothing.
+ *
+ * The tone stripe down the left edge is the part that carries across a bench. Colour on the
+ * headline alone is a word changing colour; a 4px bar changes the shape of the whole box, which is
+ * legible from further away than any text.
  */
-.rig-strip {
+.rig-console {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  padding-left: calc(var(--space-4) - 3px);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface-sunken);
+}
+
+.rig-console[data-tone='ok'] {
+  border-left-color: var(--ok);
+}
+.rig-console[data-tone='warn'] {
+  border-left-color: var(--warn);
+}
+.rig-console[data-tone='error'] {
+  border-left-color: var(--danger);
+}
+.rig-console[data-tone='active'] {
+  border-left-color: var(--accent);
+}
+
+/*
+ * Status left, controls right, and the gap between them collapses first. `space-between` with
+ * `flex-wrap` rather than a two-column grid: at narrow widths the controls drop under the status
+ * and keep their own alignment, where a grid would have squeezed the button into a column too
+ * narrow for "Confirm — erase and flash".
+ */
+.rig-console-head {
   display: flex;
   flex-wrap: wrap;
-  align-items: baseline;
-  gap: var(--space-2) var(--space-4);
-  padding: var(--space-3) var(--space-4);
-  border-radius: var(--radius-md);
-  border: 1px solid var(--border);
-  background: var(--surface-sunken);
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-3) var(--space-5);
+}
+
+.rig-status {
+  display: grid;
+  gap: var(--space-1);
+  /* Enough to hold the longest headline without wrapping mid-phrase, and small enough that the
+     controls stay on the same line on a 1280px bench screen. */
+  min-width: 18ch;
 }
 
 .rig-headline {
@@ -95,14 +133,145 @@
   color: var(--text-muted);
 }
 
-.rig-strip[data-tone='ok'] .rig-headline {
+.rig-console[data-tone='ok'] .rig-headline {
   color: var(--ok);
 }
-.rig-strip[data-tone='error'] .rig-headline {
+.rig-console[data-tone='warn'] .rig-headline {
+  color: var(--warn);
+}
+.rig-console[data-tone='error'] .rig-headline {
   color: var(--danger);
 }
-.rig-strip[data-tone='active'] .rig-headline {
+.rig-console[data-tone='active'] .rig-headline {
   color: var(--accent);
+}
+
+.rig-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3) var(--space-4);
+}
+
+.rig-action {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+/* The one button on this page that erases a chip. It should not look like Rescan. */
+.rig-action .btn {
+  font-size: var(--text-lg);
+  padding: var(--space-3) var(--space-5);
+}
+
+/*
+ * A rule, not a gap.
+ *
+ * Auto-flash is a mode switch sitting beside the button that flashes immediately. Whitespace alone
+ * makes them read as two buttons; a divider says they are different kinds of thing, which is worth
+ * a pixel of border on a control that runs unattended.
+ */
+.rig-mode {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding-left: var(--space-4);
+  border-left: 1px solid var(--border);
+}
+
+.rig-mode-label {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.rig-mode-hint {
+  font: var(--type-label);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+/* Below ~720px the divider becomes a line in the middle of nowhere. */
+@media (max-width: 720px) {
+  .rig-mode {
+    padding-left: 0;
+    border-left: none;
+  }
+}
+
+/* ---------------------------------------------------------------- the pass in progress */
+
+.rig-progress {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.rig-progress-track {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.rig-progress-fill {
+  height: 100%;
+  background: var(--accent);
+  /* Only the width animates. `transform` would be cheaper and would also scale the rounded end
+     into an ellipse at low percentages. */
+  transition: width 120ms linear;
+}
+
+/*
+ * Erase and program are the stages where lifting the board leaves it half-written. The bar says so
+ * in colour as well as in words, because the words are what an operator is not reading.
+ */
+.rig-progress[data-committed] .rig-progress-fill {
+  background: var(--warn);
+}
+
+.rig-progress[data-committed] .rig-progress-label {
+  color: var(--warn);
+  font-weight: 600;
+}
+
+/*
+ * Attach, the option-byte write and reset-run report no fraction. A bar sitting at 0% through one
+ * of them reads as stuck, which is the wrong thing to say about the seconds before an erase.
+ */
+.rig-progress-fill[data-indeterminate] {
+  width: 30%;
+  transition: none;
+  animation: rig-progress-sweep 1.1s ease-in-out infinite;
+}
+
+@keyframes rig-progress-sweep {
+  0% {
+    margin-left: -30%;
+  }
+  100% {
+    margin-left: 100%;
+  }
+}
+
+/* A sweep is motion for its own sake to anyone who asked for less of it; a still bar still says
+   "something is happening" by being there at all. */
+@media (prefers-reduced-motion: reduce) {
+  .rig-progress-fill[data-indeterminate] {
+    animation: none;
+    width: 100%;
+  }
+  .rig-progress-fill {
+    transition: none;
+  }
+}
+
+.rig-progress-label {
+  font: var(--type-label);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--text-muted);
 }
 
 /* An inline reason next to a disabled button, so "why can I not press this" needs no hover. */
