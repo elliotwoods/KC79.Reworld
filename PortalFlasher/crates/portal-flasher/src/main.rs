@@ -21,6 +21,7 @@
 //! not a mode anyone should flash boards in. The worker disarms itself when no session is
 //! connected or the page's heartbeat goes stale, so this is enforced rather than documented.
 
+mod device_api;
 mod schema;
 mod worker;
 
@@ -31,7 +32,9 @@ use av_gui_host::HostConfig;
 use av_operator_app::{AppBuilder, AppResult, OperatorApp, RunContext, WindowSpec};
 use portal_swd::{ImageBundle, OptionBytePolicy, Region, RegionName, RunCheckSpec, SimRig};
 
-use worker::{NoRig, Worker};
+use worker::Worker;
+
+use std::sync::Mutex;
 
 /// Fixed rather than ephemeral: an operator bookmarks it, and a fixture PC runs one of these.
 const HTTP_PORT: u16 = 8761;
@@ -71,10 +74,15 @@ impl OperatorApp for PortalFlasherApp {
         &mut self,
         _context: &RunContext,
         live: &Arc<LiveBus>,
-        _app: &mut AppBuilder,
+        app: &mut AppBuilder,
     ) -> AppResult<()> {
         let bus = live.current();
         let params = schema::Params::resolve(&bus).map_err(std::io::Error::other)?;
+
+        // The device report is structured state, not a control surface, so it travels over a
+        // namespaced route rather than the bus. See `device_api`.
+        let device: device_api::DeviceState = Arc::new(Mutex::new(None));
+        app.routes(device_api::routes(Arc::clone(&device)));
 
         let bundle = self.simulate.then(synthetic_bundle);
         let (rig, fixture): (Box<dyn portal_swd::Rig>, _) = if self.simulate {
@@ -82,7 +90,10 @@ impl OperatorApp for PortalFlasherApp {
             let fixture = sim.fixture();
             (Box::new(sim), Some(fixture))
         } else {
-            (Box::new(NoRig), None)
+            // No probe selector yet: a single-station rig takes the first probe it finds. The
+            // page writes an explicit one once it has enumerated, which is what makes a second
+            // ST-Link on the bench unambiguous rather than a coin toss.
+            (Box::new(portal_swd::ProbeRsRig::new(None)), None)
         };
 
         println!(
@@ -94,7 +105,7 @@ impl OperatorApp for PortalFlasherApp {
 
         // A plain OS thread rather than a service: it blocks for seconds inside a flash pass, and
         // it must keep timing the removal gate whether or not anything is being rendered.
-        let worker = Worker::new(bus, params, rig, bundle, fixture);
+        let worker = Worker::new(bus, params, rig, bundle, device, fixture);
         std::thread::Builder::new()
             .name("portal-flasher-rig".into())
             .spawn(move || worker.run())
@@ -116,7 +127,7 @@ impl OperatorApp for PortalFlasherApp {
 ///
 /// Marked [`Provenance::Synthetic`] so the page says so: a simulated run that looked like a real
 /// one in the log would be worse than no simulation at all.
-fn synthetic_bundle() -> ImageBundle {
+pub(crate) fn synthetic_bundle() -> ImageBundle {
     let mut application = vec![0u8; 60_000];
     application[0..4].copy_from_slice(&0x2000_9000u32.to_le_bytes());
     application[4..8].copy_from_slice(&(portal_swd::addr::APP_BASE + 0x241).to_le_bytes());

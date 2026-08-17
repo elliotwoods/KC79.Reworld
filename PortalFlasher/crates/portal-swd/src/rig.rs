@@ -224,6 +224,14 @@ pub trait Rig: Send {
     /// The cheap poll. Must not halt, reset, or write anything to the target.
     fn poll(&mut self) -> Result<Presence, RigError>;
 
+    /// Read the whole device without halting or resetting it.
+    ///
+    /// This is what the operator's "Read device" does, and what the firmware map draws. It is on
+    /// the trait rather than only on the real rig so the page behaves identically against a
+    /// simulated target — a map that only worked with hardware attached would be untestable in
+    /// exactly the situation it is most useful.
+    fn read_device(&mut self) -> Result<crate::device::DeviceImage, RigError>;
+
     fn flash(
         &mut self,
         bundle: &ImageBundle,
@@ -380,6 +388,28 @@ impl Rig for SimRig {
             Presence::Present
         } else {
             Presence::Absent
+        })
+    }
+
+    fn read_device(&mut self) -> Result<crate::device::DeviceImage, RigError> {
+        if !self.opened {
+            return Err(RigError::new(RigErrorKind::ProbeGone, "probe not open"));
+        }
+        if !self.is_present() {
+            return Err(RigError::new(
+                RigErrorKind::ContactLost,
+                "no target in the fixture",
+            ));
+        }
+        Ok(crate::device::DeviceImage {
+            flash: self.flash.clone(),
+            optr: self.optr,
+            idcode: Some(0x2001_6460),
+            // A stable made-up id. Nothing keys on it, and a simulated run that produced a
+            // plausible real UID would be worse than one that obviously did not.
+            uid: [0x5111_0000, 0x5111_0001, 0x5111_0002],
+            flash_kb: 128,
+            rcc_csr: 0,
         })
     }
 

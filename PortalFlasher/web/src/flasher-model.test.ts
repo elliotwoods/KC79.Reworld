@@ -2,15 +2,35 @@ import { describe, expect, it } from 'vitest';
 
 import {
   type Cue,
+  type Layout,
   type Phase,
+  type RigState,
+  flashNowState,
+  layoutSummary,
+  readDeviceState,
   shortHash,
   soundFor,
   statusSummary,
   tileFor,
 } from './flasher-model';
 
+function state(over: Partial<RigState> = {}): RigState {
+  return {
+    mode: 'manual',
+    armed: false,
+    phase: 'disarmed',
+    expect: 'flash',
+    lastCue: 'none',
+    probeConnected: true,
+    targetPresent: false,
+    busy: false,
+    hasImage: true,
+    ...over,
+  };
+}
+
 describe('tileFor', () => {
-  it('tells the operator what to physically do in every phase', () => {
+  it('always says what to physically do', () => {
     const phases: Phase[] = [
       'disarmed',
       'idle',
@@ -21,44 +41,81 @@ describe('tileFor', () => {
       'probe-lost',
     ];
     for (const phase of phases) {
-      const tile = tileFor(phase, 'flash', 'none');
-      expect(tile.headline, phase).not.toBe('');
-      expect(tile.instruction, phase).not.toBe('');
+      for (const mode of ['manual', 'auto'] as const) {
+        const tile = tileFor(state({ mode, phase }));
+        expect(tile.headline, `${mode}/${phase}`).not.toBe('');
+        expect(tile.instruction, `${mode}/${phase}`).not.toBe('');
+      }
     }
   });
 
-  it('distinguishes the three ways of waiting for a removal', () => {
-    // The phase alone cannot say which of these it is, which is why the last cue is an input.
-    expect(tileFor('await-removal', 'run-check', 'flashed-cycle-it').headline).toBe('Flashed');
-    expect(tileFor('await-removal', 'flash', 'pass').headline).toBe('Pass');
-    expect(tileFor('await-removal', 'flash', 'fail').headline).toBe('Failed');
+  it('reports a missing probe above everything else', () => {
+    // Every other state is meaningless without one, including a phase that says "flashing".
+    const tile = tileFor(state({ probeConnected: false, mode: 'auto', phase: 'flashing' }));
+    expect(tile.headline).toBe('No probe');
+    expect(tile.tone).toBe('error');
   });
 
-  it('asks for a re-seat after a flash and a fresh board after a pass', () => {
-    expect(tileFor('await-removal', 'run-check', 'flashed-cycle-it').instruction).toMatch(/re-seat/i);
-    expect(tileFor('await-removal', 'flash', 'pass').instruction).toMatch(/done/i);
-    expect(tileFor('idle', 'flash', 'rearmed').instruction).toMatch(/seat a board/i);
-    expect(tileFor('idle', 'run-check', 'rearmed').instruction).toMatch(/again/i);
+  it('manual asks for a board, then offers to flash it', () => {
+    expect(tileFor(state({ targetPresent: false })).instruction).toMatch(/seat a board/i);
+    expect(tileFor(state({ targetPresent: true })).instruction).toMatch(/flash now/i);
   });
 
-  it('draws a failure and a pass in different tones', () => {
-    expect(tileFor('await-removal', 'flash', 'fail').tone).toBe('error');
-    expect(tileFor('await-removal', 'flash', 'pass').tone).toBe('ok');
+  it('manual will not offer to flash without an image', () => {
+    const tile = tileFor(state({ targetPresent: true, hasImage: false }));
+    expect(tile.headline).toBe('No image');
+    expect(tile.instruction).toMatch(/choose firmware/i);
   });
 
-  it('says do not lift while a pass is running', () => {
-    for (const phase of ['flashing', 'run-check'] as Phase[]) {
-      expect(tileFor(phase, 'flash', 'busy').instruction).toMatch(/do not lift/i);
-    }
+  it('auto distinguishes the three ways of waiting for a removal', () => {
+    const auto = { mode: 'auto', phase: 'await-removal' } as const;
+    expect(tileFor(state({ ...auto, expect: 'run-check', lastCue: 'flashed-cycle-it' })).headline)
+      .toBe('Flashed');
+    expect(tileFor(state({ ...auto, lastCue: 'pass' })).headline).toBe('Pass');
+    expect(tileFor(state({ ...auto, lastCue: 'fail' })).headline).toBe('Failed');
+  });
+
+  it('says do not lift while anything is being written', () => {
+    expect(tileFor(state({ busy: true })).instruction).toMatch(/do not lift/i);
+    expect(tileFor(state({ mode: 'auto', phase: 'flashing' })).instruction).toMatch(/do not lift/i);
+    expect(tileFor(state({ mode: 'auto', phase: 'run-check' })).instruction).toMatch(/do not lift/i);
+  });
+});
+
+describe('flashNowState', () => {
+  it('is offered only when everything it needs is true', () => {
+    expect(flashNowState(state({ targetPresent: true })).enabled).toBe(true);
+  });
+
+  it('is refused while auto-flash is armed, and says so', () => {
+    // The two paths must never run at once: the machine owns the probe during a pass.
+    const refused = flashNowState(state({ mode: 'auto', targetPresent: true }));
+    expect(refused.enabled).toBe(false);
+    expect(refused.reason).toMatch(/auto-flash/);
+  });
+
+  it('gives a specific reason for every refusal', () => {
+    expect(flashNowState(state({ probeConnected: false })).reason).toMatch(/probe/);
+    expect(flashNowState(state({ targetPresent: true, hasImage: false })).reason).toMatch(/image/);
+    expect(flashNowState(state({ targetPresent: false })).reason).toMatch(/fixture/);
+    expect(flashNowState(state({ targetPresent: true, busy: true })).reason).toMatch(/busy/);
+  });
+});
+
+describe('readDeviceState', () => {
+  it('needs no image, because reading is not flashing', () => {
+    expect(readDeviceState(state({ targetPresent: true, hasImage: false })).enabled).toBe(true);
+  });
+
+  it('still needs a probe and a board', () => {
+    expect(readDeviceState(state({ targetPresent: false })).enabled).toBe(false);
+    expect(readDeviceState(state({ probeConnected: false })).enabled).toBe(false);
   });
 });
 
 describe('soundFor', () => {
   it('makes busy a loop and everything else a one-shot', () => {
-    // The held level is the point: its *absence* is what an operator notices when a contact is
-    // lost mid-write.
     expect(soundFor('busy')).toEqual({ kind: 'loop' });
-
     const oneShots: Cue[] = ['armed', 'disarmed', 'flashed-cycle-it', 'pass', 'fail', 'rearmed'];
     for (const cue of oneShots) {
       expect(soundFor(cue).kind, cue).toBe('play');
@@ -67,33 +124,54 @@ describe('soundFor', () => {
 
   it('gives the two success cues different sounds', () => {
     // An operator who cannot hear the difference never performs the second insertion.
-    const flashed = soundFor('flashed-cycle-it');
-    const passed = soundFor('pass');
-    expect(flashed).not.toEqual(passed);
+    expect(soundFor('flashed-cycle-it')).not.toEqual(soundFor('pass'));
   });
 
   it('reserves the failure sound for failures', () => {
-    const failureSounds = (['armed', 'disarmed', 'busy', 'flashed-cycle-it', 'pass', 'rearmed'] as Cue[])
+    const wrong = (['armed', 'disarmed', 'busy', 'flashed-cycle-it', 'pass', 'rearmed'] as Cue[])
       .map(soundFor)
-      .filter((action) => action.kind === 'play' && action.name === 'failure');
-    expect(failureSounds).toEqual([]);
+      .filter((a) => a.kind === 'play' && a.name === 'failure');
+    expect(wrong).toEqual([]);
     expect(soundFor('fail')).toEqual({ kind: 'play', name: 'failure' });
   });
+});
 
-  it('says nothing for the initial no-cue state', () => {
-    expect(soundFor('none')).toEqual({ kind: 'none' });
+describe('layoutSummary', () => {
+  it('describes every layout the Rust side can report', () => {
+    const layouts: Layout[] = ['unknown', 'erased', 'split', 'flat', 'unrecognised'];
+    for (const layout of layouts) {
+      const summary = layoutSummary(layout);
+      expect(summary.label, layout).not.toBe('');
+      expect(summary.detail, layout).not.toBe('');
+    }
+  });
+
+  it('calls a flat image out as unable to take a field update', () => {
+    // This is the board actually on the bench, and the fact an operator most needs: it runs, but
+    // the RS485 updater has no bootloader to talk to.
+    const flat = layoutSummary('flat');
+    expect(flat.detail).toMatch(/no_bootloader/);
+    expect(flat.detail).toMatch(/field update/);
+    expect(flat.tone).not.toBe('ok');
+  });
+
+  it('treats the split arrangement as the production one', () => {
+    expect(layoutSummary('split').tone).toBe('ok');
   });
 });
 
 describe('statusSummary', () => {
   it('reports a missing probe above everything else', () => {
-    expect(statusSummary(true, 'flashing', false)).toEqual({ value: 'no probe', tone: 'error' });
+    expect(statusSummary(state({ probeConnected: false }))).toEqual({
+      value: 'no probe',
+      tone: 'error',
+    });
   });
 
-  it('distinguishes armed-and-working from armed-and-waiting', () => {
-    expect(statusSummary(true, 'flashing', true).tone).toBe('active');
-    expect(statusSummary(true, 'idle', true).tone).toBe('ok');
-    expect(statusSummary(false, 'disarmed', true).tone).toBe('idle');
+  it('names the mode, and the phase only when it means something', () => {
+    expect(statusSummary(state()).value).toBe('manual');
+    expect(statusSummary(state({ busy: true })).value).toMatch(/flashing/);
+    expect(statusSummary(state({ mode: 'auto', phase: 'idle' })).value).toBe('auto · idle');
   });
 });
 

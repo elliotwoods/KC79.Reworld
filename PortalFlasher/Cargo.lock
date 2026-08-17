@@ -1455,7 +1455,9 @@ dependencies = [
  "av-gui-host",
  "av-gui-shell",
  "av-operator-app",
+ "axum",
  "portal-swd",
+ "serde",
 ]
 
 [[package]]

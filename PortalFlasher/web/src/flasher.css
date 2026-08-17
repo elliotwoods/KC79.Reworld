@@ -1,20 +1,45 @@
 /*
- * The one thing this page draws that the shared controls do not: a verdict tile big enough to
- * read from across a bench.
+ * This page's own two things: a verdict tile big enough to read across a bench, and the firmware
+ * map.
  *
  * Colours come from the AV tokens rather than literals, so a retheme cannot desynchronise this
- * from the panels around it. `data-tone` rather than an interpolated class name, because
- * `styles.test.ts` in the framework only checks literal class tokens and an interpolated one
- * would remove this from its view.
+ * from the panels around it. `data-` attributes rather than interpolated class names, because the
+ * framework's `styles.test.ts` only checks literal class tokens and an interpolated one would
+ * remove these rules from its view.
+ *
+ * No `opacity`, `filter`, `backdrop-filter` or `mix-blend-mode` anywhere: constraints.md §4
+ * forbids them on anything that could paint over a viewport punch region. Dim by token instead.
  */
+
+/*
+ * Two columns, setup on the left and the device on the right, collapsing to one under 1100px.
+ *
+ * Shaped after `.electra-layout` rather than reusing it — that class is named for a different
+ * product, and a shared name would make a change to either page a change to both.
+ */
+.flasher-layout {
+  display: grid;
+  grid-template-columns: minmax(360px, 0.85fr) minmax(520px, 1.15fr);
+  gap: var(--space-4);
+  min-height: 0;
+}
+
+@media (max-width: 1100px) {
+  .flasher-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ---------------------------------------------------------------- the verdict tile */
+
 .rig-tile {
   display: flex;
   flex-direction: column;
-  gap: var(--space-1, 4px);
-  padding: var(--space-4, 16px);
-  border-radius: var(--radius-md, 6px);
-  border: 1px solid var(--border-subtle, #333);
-  background: var(--surface-sunken, #1b1d21);
+  gap: var(--space-1);
+  padding: var(--space-4);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--surface-sunken);
 }
 
 .rig-headline {
@@ -22,14 +47,81 @@
   line-height: 1.1;
   font-weight: 600;
   letter-spacing: -0.01em;
+  color: var(--text);
 }
 
 .rig-instruction {
-  font-size: 1rem;
-  color: var(--text-muted, #9aa0a6);
+  font-size: var(--text-lg);
+  color: var(--text-muted);
 }
 
-.rig-tile[data-tone='ok'] .rig-headline { color: var(--tone-ok, #4caf50); }
-.rig-tile[data-tone='error'] .rig-headline { color: var(--tone-error, #e05a5a); }
-.rig-tile[data-tone='active'] .rig-headline { color: var(--tone-active, #58a6ff); }
-.rig-tile[data-tone='idle'] .rig-headline { color: var(--text-default, #e6e6e6); }
+.rig-tile[data-tone='ok'] .rig-headline {
+  color: var(--ok);
+}
+.rig-tile[data-tone='error'] .rig-headline {
+  color: var(--danger);
+}
+.rig-tile[data-tone='active'] .rig-headline {
+  color: var(--accent);
+}
+
+/* ---------------------------------------------------------------- the firmware map */
+
+.fw-map-wrap {
+  /* The SVG scales to the panel; the wrapper is what gives it a height, because
+     preserveAspectRatio="none" means the viewBox alone will not. */
+  width: 100%;
+  padding: var(--space-2) 0 var(--space-3);
+}
+
+.fw-map {
+  width: 100%;
+  height: 96px;
+  display: block;
+}
+
+.fw-map-label,
+.fw-map-tick-label {
+  font: var(--type-label);
+  letter-spacing: var(--tracking-label);
+  fill: var(--text-muted);
+  text-transform: uppercase;
+}
+
+.fw-map-tick-label {
+  fill: var(--ruler-label);
+  text-transform: none;
+}
+
+.fw-map-track {
+  fill: var(--surface-sunken);
+  stroke: var(--border);
+  stroke-width: 1;
+}
+
+.fw-map-cell[data-fill='programmed'] {
+  fill: var(--chart-1);
+}
+
+/* Partly-programmed reads as present-but-not-full. A single byte in an otherwise blank sector is
+   exactly the thing an operator wants to see rather than have rounded away. */
+.fw-map-cell[data-fill='partial'] {
+  fill: var(--chart-3);
+}
+
+/* A disagreement between the lanes overrides what either lane contains: which side has more bytes
+   matters far less than that they differ. */
+.fw-map-cell[data-differs='yes'] {
+  fill: var(--warn);
+}
+
+.fw-map-split {
+  stroke: var(--border-strong);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+}
+
+.fw-map-tick {
+  stroke: var(--ruler-tick);
+  stroke-width: 1;
+}

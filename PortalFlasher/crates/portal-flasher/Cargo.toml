@@ -12,6 +12,10 @@ name = "portal-flasher"
 path = "src/main.rs"
 
 [dependencies]
+# Matching av-gui-host's own axum, so the router this app merges in is the same type.
+axum.workspace = true
+serde.workspace = true
+
 av-gui-bus.workspace = true
 av-gui-host.workspace = true
 av-gui-shell.workspace = true

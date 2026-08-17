@@ -1,16 +1,22 @@
 //! The one thread that owns the probe and runs the state machine.
 //!
-//! It is a plain OS thread, not a Tokio task, and deliberately so: it blocks for seconds at a
-//! time inside a flash pass, and it must keep ticking whether or not anyone is looking at the
-//! UI. The page is a view. Every decision is made here.
+//! A plain OS thread, not a Tokio task, and deliberately so: it blocks for seconds at a time
+//! inside a flash pass, and it must keep ticking whether or not anyone is looking at the UI. The
+//! page is a view. Every decision is made here.
 //!
-//! The framework's bus has no write-notification callback — an application core polls it, the
-//! way `example-console`'s does. That suits this worker exactly, because it already has a clock
-//! of its own.
+//! # Two modes, one of which is armed
+//!
+//! **Manual** is the default: the operator picks firmware and presses Flash now. **Auto-flash**
+//! is the hands-free rhythm — debounce, flash, cycle, run-check — and it is auto-flash that gets
+//! armed. Only auto-flash feeds the state machine; a manual press is a direct action, because
+//! the machine's debounce and removal gate exist for a rhythm a deliberate press is not part of.
+//!
+//! The framework's bus has no write-notification callback — an application core polls it, the way
+//! `example-console`'s does. That suits this worker, which already has a clock of its own.
 
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::{Duration, Instant};
+use std::sync::Arc;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use av_gui_bus::{Bus, Value};
 use portal_swd::{
@@ -18,15 +24,16 @@ use portal_swd::{
     Timing,
 };
 
+use crate::device_api::{DeviceJson, DeviceState};
 use crate::schema::{self, Params};
 
-/// What the worker drives, and what it reports through.
 pub struct Worker {
     bus: Arc<Bus>,
     params: Params,
     machine: Machine,
     rig: Box<dyn Rig>,
     bundle: Option<ImageBundle>,
+    device: DeviceState,
     started: Instant,
     poll_period: Duration,
     cue_seq: i64,
@@ -36,8 +43,15 @@ pub struct Worker {
     probe_open: bool,
     /// Last heartbeat value seen on the bus, to notice the page actually moving it.
     last_heartbeat_value: i64,
-    /// Tracks the armed edge, so a self-disarm can retract the operator request that caused it.
+    /// Tracks the armed edge, so a self-disarm can retract the request that caused it.
     was_armed: bool,
+    /// Action counters, so a repeated press works and a reconnecting page re-triggers nothing.
+    last_rescan: i64,
+    last_read: i64,
+    last_flash: i64,
+    probes: Vec<portal_swd::ProbeDescriptor>,
+    /// Whether the most recent poll saw a target. Drives whether Flash now is offered.
+    target_present: bool,
     /// Present only under `--simulate`: the shared fixture the page's switch drives.
     fixture: Option<Arc<AtomicBool>>,
 }
@@ -48,6 +62,7 @@ impl Worker {
         params: Params,
         rig: Box<dyn Rig>,
         bundle: Option<ImageBundle>,
+        device: DeviceState,
         fixture: Option<Arc<AtomicBool>>,
     ) -> Self {
         let timing = Timing::default();
@@ -57,6 +72,7 @@ impl Worker {
             machine: Machine::new(timing),
             rig,
             bundle,
+            device,
             started: Instant::now(),
             poll_period: Duration::from_millis(timing.idle_poll_ms),
             cue_seq: 0,
@@ -66,6 +82,11 @@ impl Worker {
             probe_open: false,
             last_heartbeat_value: 0,
             was_armed: false,
+            last_rescan: 0,
+            last_read: 0,
+            last_flash: 0,
+            probes: Vec::new(),
+            target_present: false,
             fixture,
         }
     }
@@ -76,6 +97,7 @@ impl Worker {
 
     pub fn run(mut self) {
         self.publish_image();
+        self.rescan();
         loop {
             std::thread::sleep(self.poll_period);
             let now = self.now();
@@ -86,40 +108,40 @@ impl Worker {
     /// One pass of the loop, at a caller-supplied instant.
     ///
     /// Split out from `run` so the dead-man can be tested in milliseconds rather than by waiting
-    /// three real seconds — and so it is tested at all, which the browser check that found the
-    /// re-arming bug was not a substitute for.
+    /// three real seconds.
     fn tick_at(&mut self, now: Millis) {
         // ---- the UI's own liveness, from two independent facts.
         //
         // `live_sessions` catches a closed tab; the heartbeat catches a page whose script has
         // wedged while its socket stays open. Either alone would miss one of them.
-        let heartbeat = schema::get_i64(&self.bus, self.params.arm_heartbeat);
+        let heartbeat = schema::get_i64(&self.bus, self.params.heartbeat);
         let page_moving = heartbeat != self.last_heartbeat_value;
         self.last_heartbeat_value = heartbeat;
         if page_moving && self.bus.live_sessions() > 0 {
             self.step(now, Input::Heartbeat);
         }
 
-        // ---- the operator's request
-        let desired = schema::get_bool(&self.bus, self.params.arm_desired);
-        if desired && !self.machine.armed() {
+        // ---- mode. Only auto-flash arms the machine.
+        let wants_auto = schema::get_enum(&self.bus, self.params.mode_desired) == 1;
+        if wants_auto && !self.machine.armed() {
             self.step(now, Input::Arm);
-        } else if !desired && self.machine.armed() {
+        } else if !wants_auto && self.machine.armed() {
             self.step(now, Input::Disarm);
         }
+
+        self.handle_actions(now);
 
         // ---- keep the probe open, and say so
         if !self.probe_open {
             match self.rig.open() {
-                Ok(info) => {
+                Ok(_info) => {
                     self.probe_open = true;
-                    let _ = self.bus.set(self.params.probe_present, Value::Bool(true));
-                    let _ = self.bus.set_text(self.params.probe_name, &info.name);
+                    let _ = self.bus.set(self.params.probe_connected, Value::Bool(true));
+                    self.set_detail("");
                     self.step(now, Input::ProbeRecovered);
                 }
                 Err(err) => {
-                    let _ = self.bus.set(self.params.probe_present, Value::Bool(false));
-                    let _ = self.bus.set_text(self.params.probe_name, "");
+                    let _ = self.bus.set(self.params.probe_connected, Value::Bool(false));
                     self.set_detail(&err.detail);
                     self.step(now, Input::ProbeError);
                 }
@@ -127,44 +149,215 @@ impl Worker {
         }
 
         // ---- poll, unless a pass owns the probe
+        //
+        // The poll runs in both modes. Manual needs it too: Flash now should only be offered when
+        // something is actually answering, and the page has no other way to know.
         if self.probe_open && !self.machine.pass_in_flight() {
             self.sync_simulation();
             match self.rig.poll() {
-                Ok(Presence::Present) => self.step(now, Input::PollPresent),
-                Ok(Presence::Absent) => self.step(now, Input::PollAbsent),
-                Err(err) => self.on_rig_error(now, err),
+                Ok(Presence::Present) => {
+                    self.target_present = true;
+                    self.step(now, Input::PollPresent);
+                }
+                Ok(Presence::Absent) => {
+                    self.target_present = false;
+                    self.step(now, Input::PollAbsent);
+                }
+                Err(err) => {
+                    self.target_present = false;
+                    self.on_rig_error(now, err);
+                }
             }
         }
 
         self.step(now, Input::Tick);
-        // Last, deliberately. The machine can disarm itself part-way through this tick — the
-        // dead-man trips inside whichever `step` happens to run after the deadline, usually a
-        // poll — and the falling edge has to be observed *after* all of that. Checked before the
-        // polls, it never sees the transition at all, and the next tick's arm decision reads a
-        // `/arm/desired` nothing has cleared and arms straight back up.
-        self.settle_arm_intent();
+        // Last, deliberately. The machine can disarm itself part-way through this tick -- the
+        // dead-man trips inside whichever `step` runs after the deadline, usually a poll -- and
+        // the falling edge has to be observed after all of that. Checked before the polls, it
+        // never sees the transition, and the next tick re-arms from a request nothing cleared.
+        self.settle_mode();
         self.publish_state();
     }
 
-    /// Retract the operator's request when the rig disarms itself.
+    // ---------------------------------------------------------------- actions
+
+    fn handle_actions(&mut self, now: Millis) {
+        let rescan = schema::get_i64(&self.bus, self.params.act_rescan);
+        if rescan != self.last_rescan {
+            self.last_rescan = rescan;
+            self.rescan();
+        }
+
+        let read = schema::get_i64(&self.bus, self.params.act_read_device);
+        if read != self.last_read {
+            self.last_read = read;
+            self.read_device(now);
+        }
+
+        let flash = schema::get_i64(&self.bus, self.params.act_flash_now);
+        if flash != self.last_flash {
+            self.last_flash = flash;
+            self.flash_now(now);
+        }
+    }
+
+    /// Re-enumerate, publish the list, and adopt the operator's selection.
+    fn rescan(&mut self) {
+        self.probes = portal_swd::list_probes();
+        let _ = self
+            .bus
+            .set(self.params.probe_count, Value::I32(self.probes.len() as i32));
+
+        for (slot, (id, name, serial, kind)) in self.params.probe_slots.iter().enumerate() {
+            let found = self.probes.get(slot);
+            let _ = self.bus.set_text(*id, found.map_or("", |p| p.id.as_str()));
+            let _ = self.bus.set_text(*name, found.map_or("", |p| p.name.as_str()));
+            let _ = self.bus.set_text(
+                *serial,
+                found.and_then(|p| p.serial.as_deref()).unwrap_or(""),
+            );
+            let _ = self.bus.set_text(*kind, found.map_or("", |p| p.kind.as_str()));
+        }
+
+        // If nothing is selected yet, adopt the only probe there is. With more than one, leave it
+        // unselected: guessing which ST-Link on a bench is the fixture is exactly the kind of
+        // helpfulness that flashes the wrong board.
+        let selected = schema::get_text(&self.bus, self.params.probe_selected);
+        if selected.is_empty() && self.probes.len() == 1 {
+            let _ = self
+                .bus
+                .set_text(self.params.probe_selected, &self.probes[0].id);
+        }
+    }
+
+    fn read_device(&mut self, now: Millis) {
+        if !self.probe_open {
+            self.set_detail("no probe");
+            return;
+        }
+        if self.machine.pass_in_flight() {
+            self.set_detail("a pass is running");
+            return;
+        }
+
+        match self.rig.read_device() {
+            Ok(image) => {
+                let report = image.analyse();
+                let read_at_ms = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .map(|d| d.as_millis() as u64)
+                    .unwrap_or_default();
+                let json = DeviceJson::build(&image, &report, self.bundle.as_ref(), read_at_ms);
+
+                let p = &self.params;
+                let _ = self.bus.set(p.device_read, Value::Bool(true));
+                let _ = self.bus.set(
+                    p.device_layout,
+                    Value::Enum(schema::layout_index(Some(report.layout))),
+                );
+                let _ = self.bus.set_text(p.device_uid, &report.uid);
+                let banner = report
+                    .application
+                    .banner
+                    .clone()
+                    .or_else(|| report.bootloader.banner.clone())
+                    .unwrap_or_default();
+                let _ = self.bus.set_text(p.device_banner, &banner);
+                let warnings = report
+                    .options
+                    .warnings()
+                    .iter()
+                    .map(|w| w.to_string())
+                    .collect::<Vec<_>>()
+                    .join("; ");
+                let _ = self.bus.set_text(p.device_warnings, &warnings);
+                let _ = self
+                    .bus
+                    .set(p.device_programmed, Value::I32(report.programmed_bytes as i32));
+                let _ = self
+                    .bus
+                    .set(p.device_rdp, Value::I32(i32::from(report.options.rdp_level())));
+                self.set_detail("");
+
+                if let Ok(mut guard) = self.device.lock() {
+                    *guard = Some(json);
+                }
+            }
+            Err(err) => {
+                self.set_detail(&err.detail);
+                self.faults += 1;
+                if err.is_probe_loss() {
+                    self.probe_open = false;
+                    self.step(now, Input::ProbeError);
+                }
+            }
+        }
+    }
+
+    /// A deliberate single flash of whatever is in the fixture.
+    ///
+    /// Not routed through the state machine: the debounce and the removal gate exist for a
+    /// hands-free rhythm, and a button press is not that. Gating on "not armed" keeps the two
+    /// paths from ever running at once.
+    fn flash_now(&mut self, now: Millis) {
+        if self.machine.armed() {
+            self.set_detail("disengage auto-flash before flashing manually");
+            return;
+        }
+        if !self.probe_open {
+            self.set_detail("no probe");
+            return;
+        }
+        if !self.target_present {
+            self.set_detail("nothing is answering in the fixture");
+            return;
+        }
+        let Some(bundle) = self.bundle.clone() else {
+            self.set_detail("no image selected");
+            return;
+        };
+
+        let _ = self.bus.set(self.params.busy, Value::Bool(true));
+        self.emit_cue(Cue::Busy);
+        let mut progress = |_step, _done, _total| {};
+        let outcome = self.rig.flash(&bundle, &mut progress);
+        let _ = self.bus.set(self.params.busy, Value::Bool(false));
+
+        match outcome {
+            Ok(_) => {
+                self.set_detail("");
+                self.passed += 1;
+                self.emit_cue(Cue::Pass);
+            }
+            Err(err) => {
+                self.set_detail(&err.detail);
+                self.failed += 1;
+                self.faults += 1;
+                if err.is_probe_loss() {
+                    self.probe_open = false;
+                    self.step(now, Input::ProbeError);
+                }
+                self.emit_cue(Cue::Fail);
+            }
+        }
+    }
+
+    // ---------------------------------------------------------------- plumbing
+
+    /// Retract the operator's request when the rig drops out of auto-flash on its own.
     ///
     /// Without this the dead-man does not work at all, and the failure is silent: the machine
-    /// notices the page has gone and drops `armed`, then the very next tick reads `/arm/desired`
-    /// — still `true`, because nothing cleared it — and arms straight back up. Measured, not
-    /// theorised: closing the tab left the rig reading ARMED with nobody able to hear it.
-    ///
-    /// So a self-disarm retracts the request too, and coming back means a deliberate press. An
-    /// operator who walked away does not return to an armed rig.
-    fn settle_arm_intent(&mut self) {
+    /// notices the page has gone and disarms, then the very next tick reads `/mode/desired` —
+    /// still `auto`, because nothing changed it — and arms straight back up. Measured, not
+    /// theorised: closing the tab left the rig armed with nobody able to hear it.
+    fn settle_mode(&mut self) {
         let armed = self.machine.armed();
         if self.was_armed && !armed {
-            let _ = self.bus.set(self.params.arm_desired, Value::Bool(false));
+            let _ = self.bus.set(self.params.mode_desired, Value::Enum(0));
         }
         self.was_armed = armed;
     }
 
-    /// Mirror the page's fixture switch onto the simulated target, so the fixture an operator
-    /// toggles and the fixture the poll sees are the same thing.
     fn sync_simulation(&mut self) {
         let (Some(id), Some(fixture)) = (self.params.sim_board_present, self.fixture.as_ref())
         else {
@@ -177,7 +370,7 @@ impl Worker {
         self.set_detail(&err.detail);
         if err.is_probe_loss() {
             self.probe_open = false;
-            let _ = self.bus.set(self.params.probe_present, Value::Bool(false));
+            let _ = self.bus.set(self.params.probe_connected, Value::Bool(false));
             self.step(now, Input::ProbeError);
         } else {
             // Not the probe: the target went away, which is an ordinary operator event and the
@@ -186,7 +379,6 @@ impl Worker {
         }
     }
 
-    /// Feed the machine and carry out whatever it asked for.
     fn step(&mut self, now: Millis, input: Input) {
         for action in self.machine.step(now, input) {
             match action {
@@ -205,8 +397,8 @@ impl Worker {
             return;
         };
 
-        // One-shot failure injection, so an operator can hear the fail tone and watch the
-        // removal gate without having to sabotage a board. Cleared as it is consumed.
+        // One-shot failure injection, so an operator can hear the fail tone and watch the removal
+        // gate without having to sabotage a board. Cleared as it is consumed.
         if let Some(id) = self.params.sim_fail_next
             && schema::get_bool(&self.bus, id)
         {
@@ -214,17 +406,14 @@ impl Worker {
             self.set_detail("simulated failure");
             self.failed += 1;
             self.faults += 1;
-            // Same instant: the machine does not time passes, and a fabricated clock in a test
-            // should not have real time leak into it here.
             self.step(now, Input::PassDone { pass, ok: false });
             return;
         }
 
+        let _ = self.bus.set(self.params.busy, Value::Bool(true));
         let outcome = match pass {
             Pass::Flash => {
-                let mut progress = |step, done, total| {
-                    let _ = (step, done, total);
-                };
+                let mut progress = |_step, _done, _total| {};
                 self.rig
                     .flash(&bundle, &mut progress)
                     .map(|report| report.readback_sha256)
@@ -236,6 +425,7 @@ impl Worker {
                     .map_err(|fault| RigError::new(RigErrorKind::NotRunning, fault.to_string()))
             }),
         };
+        let _ = self.bus.set(self.params.busy, Value::Bool(false));
 
         let ok = match outcome {
             Ok(_) => {
@@ -262,8 +452,6 @@ impl Worker {
             self.faults += 1;
         }
 
-        // Re-entrant into `step`, which is fine: the machine is a value, not a lock.
-
         self.step(now, Input::PassDone { pass, ok });
     }
 
@@ -281,9 +469,11 @@ impl Worker {
 
     fn publish_state(&self) {
         let p = &self.params;
+        let armed = self.machine.armed();
+        let _ = self.bus.set(p.autoflash_armed, Value::Bool(armed));
         let _ = self
             .bus
-            .set(p.arm_observed, Value::Bool(self.machine.armed()));
+            .set(p.mode_observed, Value::Enum(u32::from(armed)));
         let _ = self.bus.set(
             p.phase,
             Value::Enum(schema::phase_index(self.machine.phase())),
@@ -334,48 +524,11 @@ impl Worker {
     }
 }
 
-/// A rig for a machine with no probe backend compiled in yet.
-///
-/// It reports the probe as gone rather than pretending, which puts the page into `probe-lost`
-/// with the reason on screen. That is the honest state for a build that cannot talk to hardware,
-/// and it exercises the same recovery path a real USB dropout would.
-#[derive(Debug, Default)]
-pub struct NoRig;
-
-impl Rig for NoRig {
-    fn open(&mut self) -> Result<portal_swd::ProbeInfo, RigError> {
-        Err(RigError::new(
-            RigErrorKind::ProbeGone,
-            "no probe backend in this build; run with --simulate",
-        ))
-    }
-
-    fn poll(&mut self) -> Result<Presence, RigError> {
-        Err(RigError::new(RigErrorKind::ProbeGone, "no probe backend"))
-    }
-
-    fn flash(
-        &mut self,
-        _bundle: &ImageBundle,
-        _progress: &mut portal_swd::rig::Progress<'_>,
-    ) -> Result<portal_swd::FlashReport, RigError> {
-        Err(RigError::new(RigErrorKind::ProbeGone, "no probe backend"))
-    }
-
-    fn run_check(
-        &mut self,
-        _spec: &portal_swd::RunCheckSpec,
-    ) -> Result<portal_swd::RunCheckReport, RigError> {
-        Err(RigError::new(RigErrorKind::ProbeGone, "no probe backend"))
-    }
-
-    fn close(&mut self) {}
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use av_gui_bus::SchemaBuilder;
+    use std::sync::Mutex;
     use portal_swd::SimRig;
 
     /// A worker wired to a real sealed bus and a simulated target, with a clock we control.
@@ -384,7 +537,7 @@ mod tests {
         bus: Arc<Bus>,
         params: Params,
         now: Millis,
-        /// Held so `live_sessions()` is non-zero: a rig with no session is a rig nobody can hear.
+        /// Held so `live_sessions()` is non-zero: a rig with no session is one nobody can hear.
         _session: av_gui_bus::Session,
     }
 
@@ -400,9 +553,10 @@ mod tests {
             let fixture = sim.fixture();
             let worker = Worker::new(
                 Arc::clone(&bus),
-                params,
+                params.clone(),
                 Box::new(sim),
                 Some(crate::synthetic_bundle()),
+                Arc::new(Mutex::new(None)),
                 Some(fixture),
             );
 
@@ -415,23 +569,24 @@ mod tests {
             }
         }
 
-        /// Advance and tick, optionally delivering the heartbeat a live page would have sent.
         fn tick(&mut self, ms: Millis, page_alive: bool) {
             self.now += ms;
             if page_alive {
                 let _ = self
                     .bus
-                    .set(self.params.arm_heartbeat, Value::I64(self.now as i64));
+                    .set(self.params.heartbeat, Value::I64(self.now as i64));
             }
             self.worker.tick_at(self.now);
         }
 
-        fn set_desired(&self, armed: bool) {
-            let _ = self.bus.set(self.params.arm_desired, Value::Bool(armed));
+        fn set_mode_auto(&self, auto: bool) {
+            let _ = self
+                .bus
+                .set(self.params.mode_desired, Value::Enum(u32::from(auto)));
         }
 
-        fn desired(&self) -> bool {
-            crate::schema::get_bool(&self.bus, self.params.arm_desired)
+        fn mode_is_auto(&self) -> bool {
+            schema::get_enum(&self.bus, self.params.mode_desired) == 1
         }
 
         fn armed(&self) -> bool {
@@ -439,65 +594,59 @@ mod tests {
         }
 
         fn arm(&mut self) {
-            self.set_desired(true);
+            self.set_mode_auto(true);
             for _ in 0..20 {
                 self.tick(80, true);
             }
             assert!(self.armed(), "the harness failed to arm");
         }
+
+        fn seat_board(&self) {
+            let _ = self
+                .bus
+                .set(self.params.sim_board_present.expect("sim"), Value::Bool(true));
+        }
     }
 
     #[test]
-    fn a_live_page_keeps_the_rig_armed() {
+    fn a_live_page_keeps_auto_flash_armed() {
         let mut h = Harness::new();
         h.arm();
         for _ in 0..100 {
             h.tick(100, true);
         }
         assert!(h.armed());
-        assert!(h.desired());
+        assert!(h.mode_is_auto());
     }
 
     /// The property the application contract requires: losing the UI cannot preserve arming.
-    ///
-    /// Sound lives in the browser, so an armed rig with no page is a rig flashing boards that
-    /// nobody can hear pass or fail.
     #[test]
-    fn losing_the_page_disarms_the_rig() {
+    fn losing_the_page_drops_out_of_auto_flash() {
         let mut h = Harness::new();
         h.arm();
-
-        // The page stops answering. Nothing else changes.
         for _ in 0..60 {
             h.tick(100, false);
         }
-
         assert!(!h.armed(), "the rig stayed armed with no page watching it");
     }
 
     /// The regression. Found by closing the tab and watching the rig read ARMED again.
-    ///
-    /// The machine disarmed correctly; the worker then read `/arm/desired`, still `true` because
-    /// nothing had cleared it, and armed straight back up on the next tick. The dead-man was
-    /// therefore completely inert while every one of its own unit tests passed, because they
-    /// tested the machine rather than the loop around it.
     #[test]
-    fn a_self_disarm_retracts_the_request_that_caused_it() {
+    fn dropping_out_of_auto_flash_retracts_the_request_that_caused_it() {
         let mut h = Harness::new();
         h.arm();
-        assert!(h.desired());
+        assert!(h.mode_is_auto());
 
         for _ in 0..60 {
             h.tick(100, false);
         }
         assert!(!h.armed());
         assert!(
-            !h.desired(),
-            "/arm/desired survived the disarm, so the next tick will re-arm and the dead-man \
-             does nothing at all"
+            !h.mode_is_auto(),
+            "/mode/desired survived the disarm, so the next tick re-arms and the dead-man does \
+             nothing at all"
         );
 
-        // And it stays down: no amount of further ticking brings it back without a fresh press.
         for _ in 0..60 {
             h.tick(100, true);
         }
@@ -505,16 +654,91 @@ mod tests {
     }
 
     #[test]
-    fn a_deliberate_press_arms_again_after_a_self_disarm() {
+    fn manual_is_the_default_and_does_not_arm_anything() {
+        let mut h = Harness::new();
+        for _ in 0..40 {
+            h.tick(100, true);
+        }
+        assert!(!h.armed());
+        assert!(!h.mode_is_auto());
+    }
+
+    #[test]
+    fn a_deliberate_switch_arms_again_after_a_drop_out() {
         let mut h = Harness::new();
         h.arm();
         for _ in 0..60 {
             h.tick(100, false);
         }
         assert!(!h.armed());
-
-        // The operator comes back and presses arm.
         h.arm();
         assert!(h.armed());
+    }
+
+    // ---------------------------------------------------------------- actions
+
+    #[test]
+    fn read_device_publishes_a_report_and_the_map_document() {
+        let mut h = Harness::new();
+        h.seat_board();
+        h.tick(100, true);
+
+        let _ = h.bus.set(h.params.act_read_device, Value::I64(1));
+        h.tick(100, true);
+
+        assert!(
+            schema::get_bool(&h.bus, h.params.device_read),
+            "a read should mark the device as read"
+        );
+        let guard = h.worker.device.lock().unwrap();
+        let json = guard.as_ref().expect("the map document should exist");
+        assert_eq!(json.occupancy.len(), crate::device_api::BUCKETS);
+        assert_eq!(json.total_bytes, 128 * 1024);
+        assert!(
+            json.selected_occupancy.is_some(),
+            "an image is selected, so the map should have a second lane to compare against"
+        );
+    }
+
+    #[test]
+    fn an_action_counter_fires_once_per_press() {
+        let mut h = Harness::new();
+        h.seat_board();
+        h.tick(100, true);
+
+        let _ = h.bus.set(h.params.act_read_device, Value::I64(7));
+        h.tick(100, true);
+        assert_eq!(h.worker.last_read, 7);
+
+        // Ticking again without a new press must not re-read -- otherwise a reconnecting page
+        // would re-trigger every action it had ever sent.
+        let reads = h.worker.device.lock().unwrap().as_ref().map(|d| d.read_at_ms);
+        h.tick(100, true);
+        let again = h.worker.device.lock().unwrap().as_ref().map(|d| d.read_at_ms);
+        assert_eq!(reads, again, "a tick without a press re-ran the action");
+    }
+
+    #[test]
+    fn manual_flash_is_refused_while_auto_flash_is_armed() {
+        let mut h = Harness::new();
+        h.arm();
+        let _ = h.bus.set(h.params.act_flash_now, Value::I64(1));
+        h.tick(100, true);
+        assert!(
+            schema::get_text(&h.bus, h.params.detail).contains("auto-flash"),
+            "the two paths must never run at once"
+        );
+    }
+
+    #[test]
+    fn manual_flash_is_refused_with_an_empty_fixture() {
+        let mut h = Harness::new();
+        h.tick(100, true);
+        let _ = h.bus.set(h.params.act_flash_now, Value::I64(1));
+        h.tick(100, true);
+        assert!(
+            schema::get_text(&h.bus, h.params.detail).contains("answering"),
+            "flashing nothing should say so rather than failing obscurely"
+        );
     }
 }

@@ -1,19 +1,22 @@
 /**
  * The page's pure half.
  *
- * Everything that decides what the rig *says* is a function of plain values, tested without a
- * bus and without jsdom, so the component is left with nothing but subscriptions and markup.
- * Same discipline as the framework's own `web/src/vision/devices.ts`.
+ * Everything that decides what the rig *says* is a function of plain values, tested without a bus
+ * and without jsdom, so the component is left with nothing but subscriptions and markup. Same
+ * discipline as the framework's own `web/src/vision/devices.ts`.
  *
  * # Enum values are read by name
  *
- * Never by discriminant. The Rust side declares `/rig/phase` and `/rig/cue` as enumerations with
- * names, and a page keyed on `3` would invert silently the moment someone reordered the variant
- * list in `schema.rs`.
+ * Never by discriminant. The Rust side declares `/mode/*`, `/rig/phase` and `/rig/cue` as
+ * enumerations with names, and a page keyed on `3` would invert silently the moment someone
+ * reordered the variant list in `schema.rs`.
  */
 
 /** Tone vocabulary shared with the framework's pills and status items. */
-export type Tone = 'idle' | 'active' | 'ok' | 'error' | 'offline';
+export type Tone = 'idle' | 'active' | 'ok' | 'warn' | 'error' | 'offline';
+
+/** `/mode/desired`, by name. */
+export type Mode = 'manual' | 'auto';
 
 /** `/rig/phase`, by name. */
 export type Phase =
@@ -39,12 +42,27 @@ export type Cue =
   | 'fail'
   | 'rearmed';
 
+/** `/device/layout`, by name. */
+export type Layout = 'unknown' | 'erased' | 'split' | 'flat' | 'unrecognised';
+
 export interface Tile {
   /** Big enough to read across a bench. */
   headline: string;
-  /** What the operator should physically do next. Empty when there is nothing to do. */
+  /** What the operator should physically do next. Never empty. */
   instruction: string;
   tone: Tone;
+}
+
+export interface RigState {
+  mode: Mode;
+  armed: boolean;
+  phase: Phase;
+  expect: Expect;
+  lastCue: Cue;
+  probeConnected: boolean;
+  targetPresent: boolean;
+  busy: boolean;
+  hasImage: boolean;
 }
 
 /**
@@ -54,16 +72,41 @@ export interface Tile {
  * glances at it when a tone surprises them, and "cycle it" versus "next board" is the one thing
  * they need at that moment — the two success tones are otherwise only distinguishable by ear.
  */
-export function tileFor(phase: Phase, expect: Expect, lastCue: Cue): Tile {
-  switch (phase) {
+export function tileFor(state: RigState): Tile {
+  if (!state.probeConnected) {
+    return { headline: 'No probe', instruction: 'Connect an ST-Link, then Rescan', tone: 'error' };
+  }
+  return state.mode === 'auto' ? autoTile(state) : manualTile(state);
+}
+
+/**
+ * Manual is the default and has no armed state at all — it is a person pressing a button.
+ * The tile therefore reports readiness rather than a phase.
+ */
+function manualTile(state: RigState): Tile {
+  if (state.busy) {
+    return { headline: 'Flashing', instruction: 'Do not lift', tone: 'active' };
+  }
+  if (!state.hasImage) {
+    return { headline: 'No image', instruction: 'Choose firmware to flash', tone: 'idle' };
+  }
+  if (!state.targetPresent) {
+    return { headline: 'Manual', instruction: 'Seat a board', tone: 'idle' };
+  }
+  return { headline: 'Ready', instruction: 'Read device, or Flash now', tone: 'ok' };
+}
+
+/** Auto-flash is the hands-free rhythm, and it is *this* that gets armed. */
+function autoTile(state: RigState): Tile {
+  switch (state.phase) {
     case 'disarmed':
-      return { headline: 'Disarmed', instruction: 'Arm to begin', tone: 'idle' };
+      return { headline: 'Auto-flash', instruction: 'Arming…', tone: 'idle' };
     case 'probe-lost':
       return { headline: 'No probe', instruction: 'Check the ST-Link', tone: 'error' };
     case 'idle':
       return {
-        headline: 'Ready',
-        instruction: expect === 'flash' ? 'Seat a board' : 'Seat the flashed board again',
+        headline: 'Armed',
+        instruction: state.expect === 'flash' ? 'Seat a board' : 'Seat the flashed board again',
         tone: 'active',
       };
     case 'debouncing':
@@ -73,7 +116,7 @@ export function tileFor(phase: Phase, expect: Expect, lastCue: Cue): Tile {
     case 'run-check':
       return { headline: 'Checking', instruction: 'Do not lift', tone: 'active' };
     case 'await-removal':
-      return awaitRemovalTile(expect, lastCue);
+      return awaitRemovalTile(state.expect, state.lastCue);
   }
 }
 
@@ -97,7 +140,26 @@ function awaitRemovalTile(expect: Expect, lastCue: Cue): Tile {
   return { headline: 'Waiting', instruction: 'Clear the fixture', tone: 'idle' };
 }
 
-/** What the browser should do with `SystemSounds` when a cue arrives. */
+/** Whether Flash now can do anything right now, and why not when it cannot. */
+export function flashNowState(state: RigState): { enabled: boolean; reason: string } {
+  if (state.mode === 'auto') {
+    return { enabled: false, reason: 'auto-flash is armed' };
+  }
+  if (!state.probeConnected) return { enabled: false, reason: 'no probe' };
+  if (!state.hasImage) return { enabled: false, reason: 'no image selected' };
+  if (!state.targetPresent) return { enabled: false, reason: 'nothing in the fixture' };
+  if (state.busy) return { enabled: false, reason: 'busy' };
+  return { enabled: true, reason: '' };
+}
+
+/** Whether Read device can do anything right now. Reading needs no image. */
+export function readDeviceState(state: RigState): { enabled: boolean; reason: string } {
+  if (!state.probeConnected) return { enabled: false, reason: 'no probe' };
+  if (!state.targetPresent) return { enabled: false, reason: 'nothing in the fixture' };
+  if (state.busy) return { enabled: false, reason: 'busy' };
+  return { enabled: true, reason: '' };
+}
+
 export type SoundAction =
   | { kind: 'none' }
   /** Loop until superseded. The held busy level. */
@@ -127,11 +189,38 @@ export function soundFor(cue: Cue): SoundAction {
       return { kind: 'play', name: 'failure' };
     case 'armed':
     case 'rearmed':
-      return { kind: 'play', name: 'tick_small' };
     case 'disarmed':
       return { kind: 'play', name: 'tick_small' };
     case 'none':
       return { kind: 'none' };
+  }
+}
+
+/** How a detected layout should read, and whether it is a production arrangement. */
+export function layoutSummary(layout: Layout): { label: string; detail: string; tone: Tone } {
+  switch (layout) {
+    case 'split':
+      return {
+        label: 'bootloader + application',
+        detail: 'the production arrangement; RS485 field update can reach it',
+        tone: 'ok',
+      };
+    case 'flat':
+      return {
+        label: 'single flat image',
+        detail: 'a no_bootloader build — it runs, but RS485 field update cannot reach it',
+        tone: 'warn',
+      };
+    case 'erased':
+      return { label: 'erased', detail: 'nothing programmed', tone: 'idle' };
+    case 'unrecognised':
+      return {
+        label: 'unrecognised',
+        detail: 'programmed, but no valid vector table where one should be',
+        tone: 'error',
+      };
+    case 'unknown':
+      return { label: 'not read', detail: 'press Read device', tone: 'idle' };
   }
 }
 
@@ -141,12 +230,13 @@ export function shortHash(sha: string): string {
 }
 
 /** The status bar's one-line summary of the rig. */
-export function statusSummary(
-  armed: boolean,
-  phase: Phase,
-  probePresent: boolean,
-): { value: string; tone: Tone } {
-  if (!probePresent) return { value: 'no probe', tone: 'error' };
-  if (!armed) return { value: 'disarmed', tone: 'idle' };
-  return { value: phase, tone: phase === 'flashing' || phase === 'run-check' ? 'active' : 'ok' };
+export function statusSummary(state: RigState): { value: string; tone: Tone } {
+  if (!state.probeConnected) return { value: 'no probe', tone: 'error' };
+  if (state.mode === 'manual') {
+    return { value: state.busy ? 'manual · flashing' : 'manual', tone: 'ok' };
+  }
+  return {
+    value: `auto · ${state.phase}`,
+    tone: state.phase === 'flashing' || state.phase === 'run-check' ? 'active' : 'ok',
+  };
 }
