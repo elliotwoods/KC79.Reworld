@@ -54,6 +54,24 @@ If you change the state machine, run the mutation check as well as the tests —
 removal gate, or make a failure keep the same pass, and confirm the suite goes red. A green
 suite over a machine nothing constrains is the failure mode this design is most exposed to.
 
+## The three scripts
+
+```powershell
+tools\bootstrap.ps1     # a fresh clone -> something that builds. Idempotent; safe to re-run.
+tools\build.ps1         # web bundle, then the application. -Release for the bench.
+tools\test.ps1          # everything below that does not need hardware. -Fast for Rust only.
+```
+
+`test.ps1` runs `cargo test`, `vitest`, `tsc`, a **scoped** `clippy`, `check-av-app.ps1`, and then
+checks the submodule is still clean — that last one because the clippy above it used to be what
+dirtied it. None of the three touches a probe.
+
+Two Windows PowerShell traps they exist to encapsulate, both of which cost time before they were
+understood. `npm --prefix <dir> install` installs into `<dir>` but reads `package.json` from the
+*working* directory, so it must be run from inside `web/` (whereas `npm --prefix <dir> run <script>`
+does the right thing). And `2>&1` on a native executable wraps its stderr in `ErrorRecord`s, which
+under `$ErrorActionPreference = 'Stop'` turns rustup's ordinary progress output into a fatal error.
+
 ## Definition of done
 
 A successful compilation, HTTP 200, host process, or bootstrap page is not product completion.
