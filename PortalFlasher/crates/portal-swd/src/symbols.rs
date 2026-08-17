@@ -337,6 +337,31 @@ mod tests {
         assert!(err.to_string().contains("does-not-exist.elf"));
     }
 
+    /// The one test here that reads a real linker's output.
+    ///
+    /// Everything above is synthesised, which is right for testing the *reading* of a layout and
+    /// proves nothing about the layout PlatformIO's arm-none-eabi actually emits. Skipped rather
+    /// than failed when PortalFW has not been built, because a fresh clone has not.
+    #[test]
+    fn the_real_portalfw_build_resolves_if_it_has_been_built() {
+        let elf = crate::artefacts::repo_root()
+            .join("PortalFW/.pio/build/application_bank/firmware.elf");
+        if !elf.is_file() {
+            eprintln!("skipping: PortalFW has not been built here");
+            return;
+        }
+
+        let address = liveness_address(&elf).expect("g_liveness_counter should resolve");
+        // Deliberately not asserting the value: it is a linker output and moves with any edit
+        // that shifts `.bss`, which is the entire reason it is read rather than written down.
+        // What is asserted is everything the run-check depends on.
+        assert!(
+            (addr::RAM_BASE..addr::RAM_END).contains(&address),
+            "{address:#010X} should be in RAM"
+        );
+        assert_eq!(address % 4, 0, "the probe reads it as an aligned word");
+    }
+
     #[test]
     fn a_file_that_is_not_an_elf_is_reported_as_such() {
         let path = write_temp("notelf", b"this is a .bin, not a .elf");
