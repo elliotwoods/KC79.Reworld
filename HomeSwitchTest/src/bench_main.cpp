@@ -1709,13 +1709,13 @@ void setup() {
         testSerial.println("# WARNING: OLED not detected");
     }
 
-    sensorA = new Modules::HomeSwitchOptical(Modules::HomeSwitchOptical::Config::B());   // TEMP: probing sensor-B wiring
+    sensorA = new Modules::HomeSwitchOptical(Modules::HomeSwitchOptical::Config::A());
     sensorA->setup();   // starts the shared TIM6 software-PWM threshold generator
 
     motorSettings = new Modules::MotorDriverSettings(Modules::MotorDriverSettings::Config());
-    // The 16:1 module on the bench (Jul 2026) has its assembled motor on the
-    // B channel while the assembled optical sensor is side A.
-    motorDriverA = new Modules::MotorDriver(Modules::MotorDriver::Config::MotorB());
+    // Aug 2026: back on side A (32:1) for the injection-moulded ring gear tests.
+    // (The Jul 2026 16:1 module was assembled on the B motor + B sensor channels.)
+    motorDriverA = new Modules::MotorDriver(Modules::MotorDriver::Config::MotorA());
     motion = new Bench::Motion(*motorSettings, *motorDriverA, *sensorA);
     motion->setup();
     motion->setServiceCallback(serviceTick);
