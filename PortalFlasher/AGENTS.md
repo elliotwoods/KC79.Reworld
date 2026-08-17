@@ -81,6 +81,28 @@ Before calling this application operational, provide:
   pass/fail WAVs are served from there and from nowhere else; without it the tones are silent
   and nothing fails visibly.
 
+## Never run `cargo fmt --all` or `cargo clippy --fix` unscoped here
+
+Both reach **into the pinned framework submodule** and rewrite it. `crates/av-gui-subprocess`
+path-depends on `third_party/av-frameworks/crates/av-gui-cef-sys`, and those tools apply
+machine-applicable fixes to every locally-pathed crate they can see — not just workspace members.
+It has happened twice, each time silently reformatting 62 files of `av-frameworks`. The gitlink is
+unaffected, so nothing wrong reaches a commit, but the submodule ends up dirty and every later
+`git status` is noise.
+
+Name the packages instead:
+
+```powershell
+cargo fmt -p portal-swd -p portal-flasher -p av-gui-subprocess
+cargo clippy --fix -p portal-swd -p portal-flasher --all-targets
+```
+
+The same hazard applies to a drifting working directory: `cargo build --manifest-path Cargo.toml`
+resolves `Cargo.toml` **relative to the cwd**, so if the shell has wandered into
+`third_party/av-frameworks` that command builds the framework's own workspace instead. Use an
+absolute `--manifest-path`, and if the submodule does end up dirty, restore it with
+`git -C third_party/av-frameworks checkout -- .` before committing anything.
+
 ## Two things about this checkout
 
 - **`vendor/cef` is a junction** to `C:\dev\av-frameworks\vendor\cef`, to avoid a second 420 MB

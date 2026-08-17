@@ -26,6 +26,14 @@ av-operator-app = { path = "third_party/av-frameworks/crates/av-operator-app" }
 av-app-icon = { path = "third_party/av-frameworks/crates/av-app-icon" }
 
 axum = "0.8"
+# Pinned exactly: 0.32.0 is the only 0.32.x release, and the API this is written against was
+# verified signature-by-signature at that tag.
+#
+# `default-features = false` drops `cmsisdap_v1`, which is the only thing pulling in the `hidapi`
+# C dependency. ST-Link is bulk USB via `nusb` and needs none of it. `builtin-targets` is what
+# carries the STM32G070RBTx description; `builtin-formats` is deliberately absent because raw
+# bytes go through `FlashLoader::add_data`, not `load_image`.
+probe-rs = { version = "=0.32.0", default-features = false, features = ["builtin-targets"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"

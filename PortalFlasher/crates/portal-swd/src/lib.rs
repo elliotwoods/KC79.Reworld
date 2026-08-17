@@ -20,9 +20,12 @@
 //! | Application | `0x08006000`, 104 kB — built by `PortalFW`, sets `VTOR` to its own base |
 //! | Debug | SWD on PA13/PA14. **PA14 is also BOOT0**, which is why `nBOOT_SEL` matters |
 
+pub mod device;
 pub mod image;
 pub mod machine;
 pub mod rig;
+
+pub use device::{DeviceImage, DeviceReport, Layout, OptionBytes, OptionWarning, VectorTable};
 
 pub use image::{BundleFault, ImageBundle, OptionBytePolicy, Region, RegionName, RunCheckSpec};
 pub use machine::{Action, Cue, Input, Machine, Millis, Pass, Phase, Timing};
@@ -49,6 +52,12 @@ pub mod addr {
     pub const APP_BASE: u32 = FLASH_BASE + BOOTLOADER_BYTES;
     /// One past the end of flash on the 128 kB part.
     pub const FLASH_END: u32 = 0x0802_0000;
+
+    /// SRAM, 36 kB. `RAM_END` is one past the last byte, which is also where a valid initial
+    /// stack pointer sits — the stack grows down, so `0x20009000` is correct rather than
+    /// out of range.
+    pub const RAM_BASE: u32 = 0x2000_0000;
+    pub const RAM_END: u32 = 0x2000_9000;
     /// Bytes available to the application.
     pub const APP_BANK_BYTES: u32 = FLASH_END - APP_BASE;
 
