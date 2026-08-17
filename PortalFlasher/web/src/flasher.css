@@ -12,20 +12,50 @@
  */
 
 /*
- * Two columns, setup on the left and the device on the right, collapsing to one under 1100px.
+ * Three bands, not three equal columns.
  *
- * Shaped after `.electra-layout` rather than reusing it — that class is named for a different
- * product, and a shared name would make a change to either page a change to both.
+ *   ┌ verdict ──────────┬ firmware map ─────────────────────┐   what you read at a glance
+ *   ├ 1 Probe ─┬ 2 Firmware ─┬ 3 Flash ─────────────────────┤   the order of operations
+ *   └ Device ──┴ Faults ─────┴ Session ─────────────────────┘   the evidence
+ *
+ * The two elements that genuinely want width — the verdict an operator reads across a bench, and
+ * the map, which is 256 buckets wide — get the full width of the window. The three *steps* sit in
+ * equal columns underneath, so the order of operations reads left to right instead of as a
+ * scroll. Splitting the page down the middle instead would have given the map half a window and
+ * the steps a column each of nothing.
+ *
+ * `auto-fit` rather than the framework's `.columns` (`auto-fill`): with exactly three panels,
+ * auto-fill leaves a fourth empty track at wide widths and the row stops filling the space, which
+ * is the thing this layout exists to fix. Reflow is by track size alone — three columns above
+ * ~1080px of content, two above ~700px, one below — so there are no width breakpoints to keep in
+ * step with the panel count.
  */
 .flasher-layout {
   display: grid;
-  grid-template-columns: minmax(360px, 0.85fr) minmax(520px, 1.15fr);
   gap: var(--space-4);
-  min-height: 0;
+  align-content: start;
 }
 
-@media (max-width: 1100px) {
-  .flasher-layout {
+.flasher-head {
+  display: grid;
+  grid-template-columns: minmax(240px, 320px) minmax(0, 1fr);
+  gap: var(--space-4);
+  align-items: stretch;
+}
+
+.flasher-steps,
+.flasher-detail {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  gap: var(--space-4);
+  /* Natural heights. Stretched panels would pad a short one to match the tallest and make the
+     row look like a table it is not. */
+  align-items: start;
+}
+
+/* The verdict and the map stop sharing a row before either becomes unreadable. */
+@media (max-width: 860px) {
+  .flasher-head {
     grid-template-columns: 1fr;
   }
 }
@@ -35,6 +65,10 @@
 .rig-tile {
   display: flex;
   flex-direction: column;
+  /* Fills its panel and centres, so the verdict and the map read as one band rather than as a
+     short box beside a tall one. */
+  height: 100%;
+  justify-content: center;
   gap: var(--space-1);
   padding: var(--space-4);
   border-radius: var(--radius-md);

@@ -473,6 +473,9 @@ impl Worker {
         let _ = self.bus.set(p.autoflash_armed, Value::Bool(armed));
         let _ = self
             .bus
+            .set(p.probe_target_present, Value::Bool(self.target_present));
+        let _ = self
+            .bus
             .set(p.mode_observed, Value::Enum(u32::from(armed)));
         let _ = self.bus.set(
             p.phase,

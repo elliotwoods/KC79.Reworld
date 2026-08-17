@@ -230,6 +230,17 @@ pub fn declare(builder: &mut SchemaBuilder, simulated: bool) -> Result<(), Strin
             .read_only()
             .register(),
     );
+    // Whether the last poll saw a target. Published rather than left for the page to infer from
+    // the phase: in manual mode the phase never leaves `disarmed`, so inferring it meant Read
+    // device stayed disabled until something had been read — which nothing could be.
+    check(
+        builder
+            .param("/probe/target_present")
+            .bool(false)
+            .label("Board")
+            .read_only()
+            .register(),
+    );
     for slot in 0..PROBE_SLOTS {
         for (leaf, label) in [("id", "Id"), ("name", "Name"), ("serial", "Serial"), ("kind", "Kind")]
         {
@@ -351,6 +362,7 @@ pub struct Params {
     pub probe_selected: ParamId,
     pub probe_count: ParamId,
     pub probe_connected: ParamId,
+    pub probe_target_present: ParamId,
     /// `(id, name, serial, kind)` per slot.
     pub probe_slots: Vec<(ParamId, ParamId, ParamId, ParamId)>,
 
@@ -411,6 +423,7 @@ impl Params {
             probe_selected: id("/probe/selected")?,
             probe_count: id("/probe/count")?,
             probe_connected: id("/probe/connected")?,
+            probe_target_present: id("/probe/target_present")?,
             probe_slots,
 
             act_rescan: id("/actions/rescan")?,

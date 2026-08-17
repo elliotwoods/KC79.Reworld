@@ -334,28 +334,38 @@ function FlashPanel({ rig }: { rig: RigState }) {
   );
 }
 
-function DevicePanel({ report, model }: { report: DeviceJson | null; model: MapModel }) {
-  const layout = useEnumName<Layout>('/device/layout', 'unknown');
-  const summary = layoutSummary(layout);
+/**
+ * The map gets the full width of the window, because it is 256 buckets wide and the comparison
+ * between the two lanes is the whole point of drawing it.
+ */
+function MapPanel({ report, model }: { report: DeviceJson | null; model: MapModel }) {
   const comparison = comparisonSummary(model);
-
   return (
     <Panel
-      title="Device"
-      right={<Badge tone={summary.tone}>{summary.label}</Badge>}
+      title="Flash contents"
+      right={report ? <Badge tone={comparison.tone}>{comparison.label}</Badge> : null}
     >
+      {report ? (
+        <div className="fw-map-wrap">
+          <FirmwareMap model={model} />
+        </div>
+      ) : (
+        <EmptyState inline detail="Nothing read yet. Seat a board and press Read device." />
+      )}
+    </Panel>
+  );
+}
+
+function DevicePanel({ report }: { report: DeviceJson | null }) {
+  const layout = useEnumName<Layout>('/device/layout', 'unknown');
+  const summary = layoutSummary(layout);
+
+  return (
+    <Panel title="Device" right={<Badge tone={summary.tone}>{summary.label}</Badge>}>
       {!report ? (
-        <EmptyState detail="Nothing read yet. Seat a board and press Read device." />
+        <EmptyState inline detail="Not read." />
       ) : (
         <>
-          <div className="fw-map-wrap">
-            <FirmwareMap model={model} />
-          </div>
-          <Row label="Comparison">
-            <Badge tone={comparison.tone}>
-              {comparison.label}
-            </Badge>
-          </Row>
           <Row label="Layout" hint={summary.detail}>
             {summary.label}
           </Row>
@@ -420,12 +430,10 @@ function App() {
 
   useCueSounds(sounds, lastCue, cueSeq);
 
-  // The poll answers "is a board answering", which is what gates Flash now. Presence is derived
-  // from the phase rather than published separately: any phase past idle means the poll saw one.
-  const targetPresent =
-    phase === 'debouncing' || phase === 'flashing' || phase === 'run-check' || busy
-      ? true
-      : Boolean(report) && phase !== 'probe-lost';
+  // Straight from the poll, not inferred. Deriving it from the phase looked reasonable and was
+  // a deadlock: in manual mode the phase never leaves `disarmed`, so Read device stayed disabled
+  // until something had been read, which nothing could be.
+  const targetPresent = useFlag('/probe/target_present');
 
   const rig: RigState = {
     mode,
@@ -460,7 +468,8 @@ function App() {
         sub={schema ? (simulated ? 'simulated target' : 'STM32G070RBT6 over SWD') : 'connecting…'}
       />
       <div className="app-body flasher-layout">
-        <div className="stack">
+        {/* What an operator reads at a glance, across the full width. */}
+        <div className="flasher-head">
           <section data-av-surface="device-state">
             <Panel title="Rig">
               <div className="rig-tile" data-tone={tile.tone}>
@@ -469,27 +478,23 @@ function App() {
               </div>
             </Panel>
           </section>
+          <MapPanel report={report} model={model} />
+        </div>
+
+        {/* The order of operations, left to right. */}
+        <div className="flasher-steps">
           <ProbePanel connected={probeConnected} />
           <section data-av-surface="image-source">
             <FirmwarePanel hasImage={hasImage} />
           </section>
           <section data-av-surface="operator-controls">
             <FlashPanel rig={rig} />
-            {simulated && (
-              <Panel title="Simulation">
-                <Row label="Board in fixture" hint="Stands in for seating and lifting a board">
-                  <Toggle path="/sim/board_present" />
-                </Row>
-                <Row label="Fail the next pass">
-                  <Toggle path="/sim/fail_next_pass" />
-                </Row>
-              </Panel>
-            )}
           </section>
         </div>
 
-        <div className="stack">
-          <DevicePanel report={report} model={model} />
+        {/* The evidence. */}
+        <div className="flasher-detail">
+          <DevicePanel report={report} />
           <section data-av-surface="faults">
             <Panel title="Faults">
               {faults > 0 ? (
@@ -508,6 +513,16 @@ function App() {
               <Row label="Boards">
                 {passed} pass · {failed} fail
               </Row>
+              {simulated && (
+                <Section title="Simulation" defaultOpen>
+                  <Row label="Board in fixture" hint="Stands in for seating and lifting a board">
+                    <Toggle path="/sim/board_present" />
+                  </Row>
+                  <Row label="Fail the next pass">
+                    <Toggle path="/sim/fail_next_pass" />
+                  </Row>
+                </Section>
+              )}
               <Section title="Parameters" defaultOpen={false}>
                 <ParamTree />
               </Section>
