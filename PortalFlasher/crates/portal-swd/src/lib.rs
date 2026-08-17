@@ -26,6 +26,7 @@ pub mod image;
 pub mod machine;
 pub mod program;
 pub mod rig;
+pub mod symbols;
 
 #[cfg(feature = "probe")]
 pub mod probe;

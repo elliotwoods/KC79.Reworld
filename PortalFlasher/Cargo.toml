@@ -26,6 +26,12 @@ av-operator-app = { path = "third_party/av-frameworks/crates/av-operator-app" }
 av-app-icon = { path = "third_party/av-frameworks/crates/av-app-icon" }
 
 axum = "0.8"
+# One job: read `g_liveness_counter`'s address out of firmware.elf's symbol table. Trimmed to the
+# ELF reader — no writing, no DWARF, no Mach-O/PE — which is a few hundred lines of parsing rather
+# than the whole crate. Hand-rolling it was the alternative; this is a format where a bounds check
+# missed in an unusual file is a real bug, and getting that wrong to save a dependency would be a
+# poor trade.
+object = { version = "0.37", default-features = false, features = ["read_core", "elf", "std"] }
 # Pinned exactly: 0.32.0 is the only 0.32.x release, and the API this is written against was
 # verified signature-by-signature at that tag.
 #

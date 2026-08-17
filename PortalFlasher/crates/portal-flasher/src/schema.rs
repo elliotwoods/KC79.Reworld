@@ -371,6 +371,10 @@ pub fn declare(builder: &mut SchemaBuilder, simulated: bool) -> Result<(), Strin
         // What is missing and how to produce it. A fresh clone has never built PortalFW, and
         // "run `pio run -e application_bank`" is more use than an empty list.
         ("/image/hint", "Hint"),
+        // Whether this image can be *proved* to run after it is flashed. Absent is a legitimate
+        // state, not a fault -- but the operator should learn it before arming auto-flash, not
+        // from a run-check that fails on a board that is actually fine.
+        ("/image/run_check", "Run-check"),
     ] {
         check(
             builder
@@ -507,6 +511,7 @@ pub struct Params {
     pub image_slots: Vec<(ParamId, ParamId, ParamId, ParamId, ParamId, ParamId)>,
     pub image_scope: ParamId,
     pub image_hint: ParamId,
+    pub image_run_check: ParamId,
     pub image_name: ParamId,
     pub image_source: ParamId,
     pub image_build_id: ParamId,
@@ -586,6 +591,7 @@ impl Params {
             image_slots,
             image_scope: id("/image/scope")?,
             image_hint: id("/image/hint")?,
+            image_run_check: id("/image/run_check")?,
             image_name: id("/image/name")?,
             image_source: id("/image/source")?,
             image_build_id: id("/image/build_id")?,

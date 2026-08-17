@@ -17,6 +17,7 @@ probe = ["dep:probe-rs"]
 # Deliberately no av-* dependency. Everything the rig knows how to do is testable from a plain
 # `cargo test`, and usable from a CLI, without the GUI stack being present at all.
 [dependencies]
+object = { workspace = true }
 probe-rs = { workspace = true, optional = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

@@ -433,6 +433,7 @@ mod tests {
 // ---------------------------------------------------------------- loading
 
 use crate::image::{ImageBundle, OptionBytePolicy, Provenance, Region, RunCheckSpec};
+use crate::symbols;
 
 /// Why a selection could not be turned into something flashable.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -499,6 +500,37 @@ impl Discovery {
     /// An unselected region is left **erased** rather than preserved: a pass mass-erases before
     /// programming, so anything not supplied genuinely will be `0xFF` afterwards, and an image
     /// that claimed otherwise would make the map lie.
+    /// The run-check spec for this selection, resolved from the application's ELF where it can be.
+    ///
+    /// Deliberately not an error when it cannot. Three ordinary situations produce no liveness
+    /// address — a bootloader-only flash, a build from before `g_liveness_counter` existed, and an
+    /// artefact shipped as a `.bin` with no `.elf` beside it — and none of them is a reason to
+    /// refuse to programme a good image. `ImageBundle::warnings` reports it, the operator sees it,
+    /// and `Rig::run_check` refuses on its own if anyone tries to run one anyway.
+    ///
+    /// `vtor` is always set: it is the application's load address, a fact about the layout rather
+    /// than about the build, and it is what catches the specific failure of a board that came out
+    /// of reset into the system ROM instead of into our firmware.
+    fn run_check_for(&self, selection: &Selection) -> RunCheckSpec {
+        let spec = RunCheckSpec::default();
+        let Some(elf) = selection
+            .application
+            .as_deref()
+            .and_then(|id| self.by_id(id))
+            .and_then(|artefact| artefact.elf.as_deref())
+        else {
+            return spec;
+        };
+        match symbols::liveness_address(elf) {
+            Ok(address) => RunCheckSpec {
+                liveness_address: address,
+                liveness_symbol: symbols::LIVENESS_SYMBOL.to_owned(),
+                ..spec
+            },
+            Err(_) => spec,
+        }
+    }
+
     pub fn load(&self, selection: &Selection) -> Result<ImageBundle, LoadError> {
         if selection.bootloader.is_none() && selection.application.is_none() {
             return Err(LoadError::NothingSelected);
@@ -525,9 +557,7 @@ impl Discovery {
             bootloader: Region::new(RegionName::Bootloader, addr::FLASH_BASE, boot_bytes),
             application: Region::new(RegionName::Application, addr::APP_BASE, app_bytes),
             option_bytes: OptionBytePolicy::default(),
-            // No ELF reader yet, so no liveness symbol. `ImageBundle::warnings` reports that;
-            // `validate` deliberately does not refuse it.
-            run_check: RunCheckSpec::default(),
+            run_check: self.run_check_for(selection),
             provenance: Provenance::Composed {
                 bootloader: boot_from,
                 application: app_from,
@@ -692,9 +722,10 @@ mod load_tests {
     }
 
     #[test]
-    fn a_loaded_bundle_warns_that_it_cannot_be_run_checked_yet() {
-        // No ELF reader, so no liveness symbol. Flashable, but not automatically verifiable --
-        // and that has to be visible rather than silently absent.
+    fn an_application_with_no_elf_beside_it_warns_rather_than_refuses() {
+        // `tree` writes a firmware.bin and no firmware.elf, which is what a `.bin` handed over on
+        // its own looks like. Flashable, but not automatically verifiable -- and that has to be
+        // visible rather than silently absent.
         let found = discover_in(&tree("warn"));
         let bundle = found
             .load(&Selection {
@@ -703,10 +734,73 @@ mod load_tests {
             })
             .unwrap();
         assert_eq!(bundle.validate(), vec![]);
+        assert_eq!(bundle.run_check.liveness_address, 0);
         assert!(
             bundle
                 .warnings()
                 .contains(&crate::image::BundleFault::NoLivenessAddress)
         );
+    }
+
+    /// The same tree, plus a firmware.elf that resolves.
+    fn tree_with_elf(name: &str, symbols: &[(&str, u64, u64)]) -> PathBuf {
+        let dir = tree(name);
+        let app = dir.join("PortalFW/.pio/build/application_bank");
+        std::fs::write(
+            app.join("firmware.elf"),
+            crate::symbols::elf_with(symbols),
+        )
+        .unwrap();
+        dir
+    }
+
+    #[test]
+    fn a_liveness_address_comes_from_the_elf_beside_the_binary() {
+        let root = tree_with_elf("liveness", &[("g_liveness_counter", 0x2000_0180, 4)]);
+        let found = discover_in(&root);
+        let bundle = found
+            .load(&Selection {
+                bootloader: None,
+                application: found.application().map(|a| a.id.clone()),
+            })
+            .unwrap();
+
+        assert_eq!(bundle.run_check.liveness_address, 0x2000_0180);
+        assert_eq!(bundle.run_check.liveness_symbol, "g_liveness_counter");
+        // VTOR is a fact about the layout, not about the build, so it is set either way.
+        assert_eq!(bundle.run_check.vtor, addr::APP_BASE);
+        assert_eq!(bundle.warnings(), vec![]);
+    }
+
+    #[test]
+    fn firmware_predating_the_counter_still_flashes() {
+        // Every build before the counter was added. Refusing to programme a perfectly good image
+        // because a *later* verification step cannot run would be the tail wagging the dog.
+        let root = tree_with_elf("old", &[("setup", 0x0800_6200, 4)]);
+        let found = discover_in(&root);
+        let bundle = found
+            .load(&Selection {
+                bootloader: None,
+                application: found.application().map(|a| a.id.clone()),
+            })
+            .expect("an older firmware is still flashable");
+
+        assert_eq!(bundle.validate(), vec![]);
+        assert_eq!(bundle.run_check.liveness_address, 0);
+    }
+
+    #[test]
+    fn a_bootloader_only_flash_has_nothing_to_run_check() {
+        // There is no application to run, so an absent liveness address is the correct answer
+        // rather than a degraded one -- and the reference bootloader has no ELF anyway.
+        let root = tree_with_elf("bootonly", &[("g_liveness_counter", 0x2000_0180, 4)]);
+        let found = discover_in(&root);
+        let bundle = found
+            .load(&Selection {
+                bootloader: found.bootloader().map(|a| a.id.clone()),
+                application: None,
+            })
+            .unwrap();
+        assert_eq!(bundle.run_check.liveness_address, 0);
     }
 }

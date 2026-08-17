@@ -318,6 +318,7 @@ function FirmwarePanel({ hasImage }: { hasImage: boolean }) {
   const bootSha = useText('/image/boot_sha');
   const appSha = useText('/image/app_sha');
   const hint = useText('/image/hint');
+  const runCheck = useText('/image/run_check');
 
   return (
     <Panel
@@ -347,6 +348,11 @@ function FirmwarePanel({ hasImage }: { hasImage: boolean }) {
           <Row label="Build">{buildId || '—'}</Row>
           <Row label="Bootloader">{shortHash(bootSha)}</Row>
           <Row label="Application">{shortHash(appSha)}</Row>
+          {/* Whether auto-flash can complete a pass with this image. Better learned here than
+              from a run-check that fails on a board which is in fact perfectly fine. */}
+          <Row label="Run-check" hint="How a flashed board is proved to be running">
+            <span className="fw-hint">{runCheck || '—'}</span>
+          </Row>
         </>
       )}
     </Panel>

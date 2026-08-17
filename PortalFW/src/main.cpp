@@ -4,6 +4,23 @@
 Modules::App app;
 
 /**
+ * @brief Proof, to an external debugger, that this loop is actually turning.
+ *
+ * The flasher's run-check reads this twice a few hundred milliseconds apart and calls the board
+ * good only if the value moved. It cannot ask the question any other way: ARMv6-M has no way to
+ * read the program counter without halting the core, and halting a board to find out whether it
+ * is running is a contradiction. A board stuck in HardFault_Handler, spinning in a watchdog reset
+ * loop, or sitting in the system ROM bootloader all present a perfectly healthy debug port.
+ *
+ * `volatile` so it survives optimisation -- nothing in this firmware ever reads it, and without
+ * the qualifier the increment is dead code the compiler is entitled to delete.
+ *
+ * Not `static`: the address is resolved from the symbol table of firmware.elf when a flash bundle
+ * is built, so the symbol has to have external linkage and keep this name.
+ */
+volatile uint32_t g_liveness_counter = 0;
+
+/**
  * @brief System Clock Configuration
  * @retval None
  */
@@ -56,7 +73,12 @@ void setup() {
 	app.setup();
 }
 
-void loop() {	
+void loop() {
+	// First thing in the loop, so it advances even if app.update() is where a fault would be.
+	// A counter that only moved on a healthy update() would answer a narrower question than the
+	// one being asked, which is simply "is this loop turning".
+	g_liveness_counter++;
+
 	app.update();
 
 	// We need some delay to allow for bigger numbers in MotionControl (otherwise can't accelerate)

@@ -698,6 +698,9 @@ impl Worker {
                 let _ = self
                     .bus
                     .set_text(p.image_app_sha, &bundle.application.sha256());
+                let _ = self
+                    .bus
+                    .set_text(p.image_run_check, &run_check_summary(bundle));
             }
             None => {
                 let _ = self.bus.set_text(p.image_name, "none");
@@ -705,6 +708,7 @@ impl Worker {
                 let _ = self.bus.set_text(p.image_build_id, "");
                 let _ = self.bus.set_text(p.image_boot_sha, "");
                 let _ = self.bus.set_text(p.image_app_sha, "");
+                let _ = self.bus.set_text(p.image_run_check, "");
             }
         }
     }
@@ -712,6 +716,23 @@ impl Worker {
 
 fn non_empty(text: String) -> Option<String> {
     (!text.is_empty()).then_some(text)
+}
+
+/// What the run-check will be able to prove about this bundle, in one line.
+///
+/// Three ordinary situations produce no liveness address -- a bootloader-only flash, a firmware
+/// built before `g_liveness_counter` existed, and an artefact handed over as a bare `.bin`. None
+/// of them stops a board being programmed, and all three stop auto-flash completing a pass, so
+/// the difference belongs on the screen before anyone arms it rather than in a failure afterwards.
+fn run_check_summary(bundle: &ImageBundle) -> String {
+    let spec = &bundle.run_check;
+    if spec.liveness_address == 0 {
+        return "not available -- auto-flash cannot prove this image runs".to_owned();
+    }
+    format!(
+        "{} @ {:#010X} · VTOR {:#010X}",
+        spec.liveness_symbol, spec.liveness_address, spec.vtor
+    )
 }
 
 /// `portal_swd::Step` as the `/rig/step` enum index.
