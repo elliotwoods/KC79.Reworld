@@ -1,3 +1,6 @@
 [submodule "PortalFW/lib/msgpack-arduino"]
 	path = PortalFW/lib/msgpack-arduino
 	url = https://github.com/elliotwoods/msgpack-arduino.git
+[submodule "PortalFlasher/third_party/av-frameworks"]
+	path = PortalFlasher/third_party/av-frameworks
+	url = https://github.com/AuroraVisionKC/av-frameworks.git

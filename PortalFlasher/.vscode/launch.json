@@ -1,0 +1,74 @@
+{
+  // For opening PortalFlasher/ as the workspace root. The repository-wide equivalents, with
+  // paths relative to KC79.Reworld, are in ../.vscode/launch.json.
+  //
+  // Needs the CodeLLDB extension (`vadimcn.vscode-lldb`).
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Portal Flasher (native)",
+      "type": "lldb",
+      "request": "launch",
+      "program": "${workspaceFolder}/target/debug/portal-flasher.exe",
+      "args": [],
+      "cwd": "${workspaceFolder}/target/debug",
+      "env": {
+        "RUST_LOG": "info,av_gui_host=info,av_gui_shell=info"
+      },
+      "terminal": "integrated",
+      "preLaunchTask": "Build: web + cargo (debug)",
+      "sourceLanguages": ["rust"]
+    },
+    {
+      // A modelled STM32G070 with a fixture switch on the page: the whole arm → flash → cycle →
+      // run-check → pass rhythm, with no probe and no board.
+      "name": "Portal Flasher (simulated target)",
+      "type": "lldb",
+      "request": "launch",
+      "program": "${workspaceFolder}/target/debug/portal-flasher.exe",
+      "args": ["--simulate"],
+      "cwd": "${workspaceFolder}/target/debug",
+      "env": {
+        "RUST_LOG": "info,av_gui_host=info,av_gui_shell=info"
+      },
+      "terminal": "integrated",
+      "preLaunchTask": "Build: web + cargo (debug)",
+      "sourceLanguages": ["rust"]
+    },
+    {
+      // Serves the page with no window. A SILENT rig — the tones are played by the browser — so
+      // this is a development mode, not one to flash boards in.
+      "name": "Portal Flasher (headless, opens browser)",
+      "type": "lldb",
+      "request": "launch",
+      "program": "${workspaceFolder}/target/debug/portal-flasher.exe",
+      "args": ["--headless", "--simulate"],
+      "cwd": "${workspaceFolder}/target/debug",
+      "env": {
+        "RUST_LOG": "info,av_gui_host=info"
+      },
+      "terminal": "console",
+      "preLaunchTask": "Build: web + cargo (debug)",
+      "serverReadyAction": {
+        "action": "openExternally",
+        "pattern": "portal-flasher: .* (http://\\S+)",
+        "uriFormat": "%s"
+      },
+      "sourceLanguages": ["rust"]
+    },
+    {
+      // The part worth stepping through. `portal-swd` has no av-* dependency, so its tests need
+      // no CEF, no Vulkan, no browser and no probe.
+      "name": "Debug portal-swd tests",
+      "type": "lldb",
+      "request": "launch",
+      "cargo": {
+        "args": ["test", "--no-run", "--package=portal-swd"],
+        "filter": { "kind": "test" }
+      },
+      "args": [],
+      "cwd": "${workspaceFolder}",
+      "sourceLanguages": ["rust"]
+    }
+  ]
+}

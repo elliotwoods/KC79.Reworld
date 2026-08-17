@@ -1,0 +1,35 @@
+/*
+ * The one thing this page draws that the shared controls do not: a verdict tile big enough to
+ * read from across a bench.
+ *
+ * Colours come from the AV tokens rather than literals, so a retheme cannot desynchronise this
+ * from the panels around it. `data-tone` rather than an interpolated class name, because
+ * `styles.test.ts` in the framework only checks literal class tokens and an interpolated one
+ * would remove this from its view.
+ */
+.rig-tile {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1, 4px);
+  padding: var(--space-4, 16px);
+  border-radius: var(--radius-md, 6px);
+  border: 1px solid var(--border-subtle, #333);
+  background: var(--surface-sunken, #1b1d21);
+}
+
+.rig-headline {
+  font-size: 2.25rem;
+  line-height: 1.1;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.rig-instruction {
+  font-size: 1rem;
+  color: var(--text-muted, #9aa0a6);
+}
+
+.rig-tile[data-tone='ok'] .rig-headline { color: var(--tone-ok, #4caf50); }
+.rig-tile[data-tone='error'] .rig-headline { color: var(--tone-error, #e05a5a); }
+.rig-tile[data-tone='active'] .rig-headline { color: var(--tone-active, #58a6ff); }
+.rig-tile[data-tone='idle'] .rig-headline { color: var(--text-default, #e6e6e6); }

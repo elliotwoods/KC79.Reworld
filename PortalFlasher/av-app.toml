@@ -1,0 +1,18 @@
+contract_version = 1
+class = "operator-app"
+native_default = true
+headless_supported = true
+rust_binary = "portal-flasher"
+web_manifest = "web/package.json"
+web_entry = "web/src/main.tsx"
+# The product's own acceptance inventory, not a framework-wide list. `preview` is deliberately
+# absent -- there is no camera or video here; the thing an operator watches is a phase tile and
+# the thing they listen to is a tone. `session-log` takes its place because a production run
+# that cannot show what it did to which board is not a production run.
+required_surfaces = [
+  "device-state",
+  "operator-controls",
+  "image-source",
+  "session-log",
+  "faults",
+]

@@ -1,0 +1,16 @@
+# The CEF renderer/GPU/utility-process helper.
+#
+# Not packaging boilerplate, and not optional: Cargo does not build binary targets belonging to
+# a dependency, while `av_gui_shell::run` returns `SubprocessMissing` unless `av-gui-subprocess.exe`
+# sits beside the application executable. Copied from the framework's own template; do not
+# replace it with a build script that hopes Cargo will build a dependency's binary.
+[package]
+name = "av-gui-subprocess"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+av-gui-cef-sys = { path = "../../third_party/av-frameworks/crates/av-gui-cef-sys" }

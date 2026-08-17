@@ -1,0 +1,18 @@
+[package]
+name = "portal-swd"
+description = "SWD flashing of KC79 Portal boards: the rig state machine, image bundles, and the probe."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# Deliberately no av-* dependency. Everything the rig knows how to do is testable from a plain
+# `cargo test`, and usable from a CLI, without the GUI stack being present at all.
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+
+[lints]
+workspace = true

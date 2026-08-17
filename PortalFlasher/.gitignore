@@ -1,0 +1,19 @@
+# Mirrors the convention in av-laserworkbench-app, the framework's reference downstream app.
+# The repository root ignores `node_modules/` and `build/` but not `target/` or `web/dist/`;
+# RouterRS/.gitignore solves the same problem the same way rather than editing the root file.
+/target/
+/web/dist/
+/web/node_modules/
+
+# The pinned framework's CEF payload is a junction to a sibling clone on this machine and is
+# ignored inside the submodule itself, but be explicit: it is 420 MB of vendored binaries.
+/third_party/av-frameworks/vendor/
+
+*.pdb
+*.log
+
+# Local editor and machine state. `launch.json` and `tasks.json` are deliberately NOT here --
+# they are how someone runs this app, and belong in the repository.
+/.idea/
+/.vscode/*.user
+*.user

@@ -1,0 +1,68 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      // Sequence, not convenience: `web_assets!` records a path at compile time but the files it
+      // points at come from the web build, so a Rust-only build produces a binary that starts
+      // and serves nothing.
+      "label": "Build: web + cargo (debug)",
+      "dependsOrder": "sequence",
+      "dependsOn": ["Web: build", "Cargo: build workspace (debug)"],
+      "group": { "kind": "build", "isDefault": true },
+      "problemMatcher": []
+    },
+    {
+      "label": "Web: build",
+      "type": "shell",
+      "command": "npm run build",
+      "options": { "cwd": "${workspaceFolder}/web" },
+      "problemMatcher": ["$tsc"]
+    },
+    {
+      "label": "Cargo: build workspace (debug)",
+      "type": "process",
+      "command": "cargo",
+      "args": ["build", "--workspace"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": ["$rustc"]
+    },
+    {
+      "label": "Test: rust + web",
+      "dependsOrder": "sequence",
+      "dependsOn": ["Cargo: test", "Web: test"],
+      "group": { "kind": "test", "isDefault": true },
+      "problemMatcher": []
+    },
+    {
+      "label": "Cargo: test",
+      "type": "process",
+      "command": "cargo",
+      "args": ["test"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": ["$rustc"]
+    },
+    {
+      "label": "Web: test",
+      "type": "shell",
+      "command": "npx vitest run",
+      "options": { "cwd": "${workspaceFolder}/web" },
+      "problemMatcher": []
+    },
+    {
+      "label": "Check: av-app conformance",
+      "type": "shell",
+      "command": "powershell",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "third_party/av-frameworks/tools/check-av-app.ps1",
+        "-AppPath",
+        "."
+      ],
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": []
+    }
+  ]
+}

@@ -1,0 +1,51 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/portal-flasher",
+    "crates/portal-swd",
+    "crates/av-gui-subprocess",
+]
+# The framework is a pinned checkout, not a workspace member. Cargo would otherwise auto-enrol
+# it and resolve features over a subgraph that is not the one either tree was tested against.
+exclude = ["third_party/av-frameworks"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.96.0"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[workspace.dependencies]
+# Path dependencies into the pinned framework checkout. One checkout feeds both ecosystems:
+# these, and web/package.json's `file:` dependency on the same directory.
+av-gui-bus = { path = "third_party/av-frameworks/crates/av-gui-bus" }
+av-gui-host = { path = "third_party/av-frameworks/crates/av-gui-host" }
+av-gui-shell = { path = "third_party/av-frameworks/crates/av-gui-shell" }
+av-operator-app = { path = "third_party/av-frameworks/crates/av-operator-app" }
+av-app-icon = { path = "third_party/av-frameworks/crates/av-app-icon" }
+
+axum = "0.8"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+thiserror = "2"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
+
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+missing_debug_implementations = "warn"
+
+[workspace.lints.clippy]
+undocumented_unsafe_blocks = "warn"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+debug = 1
+
+[profile.dev.package."*"]
+debug = "line-tables-only"
+
+[profile.dev.build-override]
+debug = 0
