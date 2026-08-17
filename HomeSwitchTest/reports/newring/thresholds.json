@@ -1,0 +1,59 @@
+{
+  "_comment": [
+    "Measured optical operating points for the injection-moulded ring gear,",
+    "side A, 32:1. Crossing duty is INVERSE to reflectance (lower = brighter);",
+    "the home feature is a reflector, ACTIVE when crossing < T.",
+    "These are reference / power-on fallback values. The homing routine is",
+    "self-calibrating (see HOME_ROUTINE_DESIGN.md) and should not depend on",
+    "them at runtime."
+  ],
+  "usteps_per_rev": 189704,
+  "gear_ratio": "32:1",
+  "axis": "A",
+  "variants": {
+    "unpainted": {
+      "measured": "2026-08-14T19:42 / 2026-08-15T13:42",
+      "lighting": "room ambient; unlit room overnight (NOT an enclosed sensor)",
+      "T_op": 247,
+      "T_op_range_observed": [246, 247],
+      "T_floor": 241,
+      "T_floor_range_observed": [240, 242],
+      "T_shoulder": 252,
+      "T_shoulder_range_observed": [252, 252],
+      "band_counts": 10,
+      "band_range_observed": [9, 11],
+      "background_crossing": null,
+      "background_note": "censored - never crosses at any threshold 0..255, in any lighting condition tested",
+      "flag_width_usteps": 163,
+      "flag_width_sd": 17.7,
+      "fixed_start_datum_sd_usteps": 2.8,
+      "fixed_start_datum_sd_deg": 0.0053,
+      "reliability": "3593/3593 homes over 18 h, 33 recalibrations, zero failures",
+      "home_time_s_mean": 11.1,
+      "enclosed_caveat": "with a physical cover over the sensor the band collapses to 2 counts (T=252-253) and T=253 becomes bimodal; an unlit room is NOT equivalent to an enclosure",
+      "source": "reports/newring/SESSION.md"
+    },
+    "painted_silver": {
+      "measured": "2026-08-17",
+      "lighting": "room ambient, uncovered",
+      "T_op": 226,
+      "T_op_rationale": "band centre (~26 counts margin each side) and top of the low-sensitivity width zone; NOT chosen for repeatability - no threshold showed a reproducible repeatability advantage",
+      "T_floor": 200,
+      "T_shoulder": 253,
+      "band_counts": 52,
+      "background_crossing": null,
+      "background_note": "still censored (>255); paint does not make T = background - k viable",
+      "flag_crossing_at_centre": 230,
+      "flag_width_usteps": 361,
+      "flag_width_sd": 13.4,
+      "fixed_start_datum_sd_usteps": 2.8,
+      "fixed_start_datum_sd_deg": 0.0053,
+      "reliability": "190/190 homes in one session (no overnight bake yet)",
+      "low_sensitivity_zone": [208, 226],
+      "specular_artefacts": "none found - single clean segment T=200..252",
+      "vs_unpainted": "band ~5x wider; home repeatability indistinguishable",
+      "untested": "band with the sensor cover fitted - the decisive test for enclosed modules",
+      "source": "reports/newring/PAINTED.md"
+    }
+  }
+}

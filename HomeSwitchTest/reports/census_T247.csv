@@ -1,0 +1,9 @@
+# threshold=247
+# vmax=10000
+# usteps_per_rev=189704
+# aborted=0
+# start_pos=-9
+index,pos_usteps,new_state,lap_usteps,lap_deg
+0,508,0,517,0.9811074094378611
+1,189065,1,189074,358.80445325348967
+2,190143,0,448,0.850166575296251
