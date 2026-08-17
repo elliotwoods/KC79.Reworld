@@ -148,7 +148,9 @@ namespace Modules {
 			auto dataPosition = data.data();
 			auto dataEnd = dataPosition + data.size();
 			uint32_t packetIndex = 0;
-			const auto frameSize = this->parameters.upload.frameSize;
+			// Snapshot the value rather than copying the ofParameter, so the frame size cannot
+			// change under the loop if the inspector is touched mid-upload.
+			const int frameSize = this->parameters.upload.frameSize.get();
 			uint32_t frameOffset = 0;
 
 			while (dataPosition < dataEnd) {
@@ -160,12 +162,18 @@ namespace Modules {
 				
 				if (remainingSize > frameSize) {
 					for (int i = 0; i < this->parameters.upload.frameRepetitions.get(); i++) {
+						// Must be frameSize, not FW_FRAME_SIZE: the pointer and frameOffset below
+						// advance by the parameter. Sending a fixed 32 bytes whilst striding by N
+						// makes the bootloader's continuity check reject frame 2 with
+						// "FW : Write position is ahead of ours" - which reads as "large images
+						// don't upload", since raising the frame size is what you try on a large
+						// image. RouterRS's fw_update.rs never had this bug.
 						uploadFirmwarePacket(frameOffset
 							, dataPosition
-							, FW_FRAME_SIZE);
+							, frameSize);
 					}
-					
-					
+
+
 					dataPosition += frameSize;
 					frameOffset += frameSize;
 				}

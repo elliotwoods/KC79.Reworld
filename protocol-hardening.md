@@ -617,3 +617,92 @@ Key points, in order of importance:
    in the wrong copy. Import `BootloaderCoup` the same way later if a
    bootloader replacement campaign is ever needed (it would then embed the
    PlatformIO-built `.bin` via bin2c as part of its build).
+
+### 7.3 Corrections to §7.2, found by reading the CubeIDE project
+
+Four things in the proposal above are wrong or unattainable. They were found while
+planning the import, before it was attempted.
+
+1. **`STM32G070RBTX_FLASH.ld` line 48 already says `LENGTH = 28K`, not 24K.**
+   The bank is 24 kB. A bootloader between 24,576 and 28,672 bytes therefore
+   links cleanly today and silently overlaps the application at `0x08006000`.
+   (The CubeIDE *Debug* build is 36,988 bytes — it cannot coexist with an
+   application at all.) Tightening `LENGTH` moves no bytes, so it does not
+   affect the comparison in point 5.
+2. **`-D MSGPACK_COBSRWSTREAM_BUFFER_SIZE=64` is inert.** That macro is an
+   unconditional `#define … 256` at `COBSRWStream.hpp:4`, not `#ifndef`-guarded,
+   so a command-line `-D` warns and loses. Accept 256 (≈264 B more `.bss` out of
+   36 kB, and it raises the real maximum frame body from ~49 to ~240 bytes), or
+   do the submodule two-step to add a guard.
+3. **`board_build.stm32cube.custom_config_header = yes` is required**, or
+   PlatformIO installs its own `stm32g0xx_hal_conf.h`, which enables far more HAL
+   modules than this project's ten and grows `.text` past the budget. **The
+   budget is 1,868 bytes**: the current image is 22,708 of 24,576.
+4. **Bit-for-bit comparison (point 5) is unattainable.** CubeIDE built with GCC
+   10.3-2021.10 and CMSIS 1.4.3; `ststm32@19.6.0` offers 6.3.1/8.2.1/9.2.1/12.3.1
+   only — there is no 10.3. Read point 5 as *behavioural equivalence,
+   structurally diffed*: section table, `.isr_vector` byte-compare, symbol-name
+   sets, `size`, string table, and disassembly of `flash_erase` / `flash_write` /
+   `run_application` / `FWUpdateApp::processIncoming`.
+
+Also: the msgpack snapshot has drifted **less** than §7.1 implies. A full `diff -r`
+shows `deserialize.*`, `serialize.*`, `Serializer.*`, `NotArduino.*`, `constants.h`
+and `Platform.hpp` are byte-identical — the whole protocol parse path is unchanged.
+Only `COBSRWStream` (64-byte double buffer → 256-byte lwrb ring), `Messaging`
+(virtual + `MSGPACK_DISABLE_ERROR_REPORT`) and an additive `isInt()` differ.
+
+### 7.4 The "16-bit address space limits file size" question, answered
+
+**There is no 16-bit truncation of `frameOffset` anywhere in the path.** Every hop
+was traced and every one is 32-bit: `dump_uint` (Rust) and `msgpack_pack_uint32`
+(C++) both emit `0xCE` above 65535; `getNextDataType` maps it; `readInt<uint32_t>`
+is explicitly instantiated and identical in the snapshot and the submodule;
+`FWUpdateApp::writePosition` is `uint32_t`; `flash_write` takes `uint32_t`; and
+`flash_erase` derives `NbPages` from the device's `FLASH_SIZE` register, giving
+`Page = 12, NbPages = 52` — the full 104 kB bank.
+
+This is now gated rather than argued. `PortalBootloader/test-native/` compiles the
+**real** msgpack sources on the non-Arduino path the bootloader uses and replays
+`FWUpdateApp::processIncoming`'s exact parse sequence over a real `COBSRWStream`
+for all **3,328** frame offsets of a completely full image, plus every msgpack
+width boundary, plus a deliberately 16-bit-narrowed key that must read back
+truncated (which is what keeps the other assertions from being vacuous).
+`RouterRS`'s `fw::tests::fw_frame_offset_spans_full_application_bank` pins the
+host's wire bytes for offset 106,464 as `CE 00 01 9F E0`. Run:
+
+```powershell
+powershell -File PortalBootloader\test-native\run.ps1
+cd RouterRS; cargo test -p router-proto fw::
+```
+
+**What the real constraints turned out to be:**
+
+- **`Router/src/Modules/Hardware/FWUpdate.cpp` was wired up wrong** — and this is
+  the most plausible origin of the folklore. It advanced `dataPosition` and
+  `frameOffset` by the GUI parameter `frameSize` but passed the hardcoded
+  `FW_FRAME_SIZE` (32) as the payload length. Left at the default the two agree;
+  raise "Frame size" — the obvious thing to try when a large image uploads
+  slowly — and every frame carries 32 bytes while the offset strides by N, so the
+  bootloader's continuity check fires ("FW : Write position is ahead of ours") and
+  the upload dies. It fails loudly rather than corrupting, but the failure has
+  nothing to do with file size and only shows up on large images, because that is
+  when anyone touches the setting. **Fixed.** `RouterRS`'s
+  `fw_update.rs:90` never had this bug.
+- **The COBS decode buffer, not the address, caps the frame size.** With the
+  fielded 64-byte buffer the usable body is ~49 bytes. `constants.h:7`'s
+  `FW_FRAME_SIZE 128` is **dead code** — nothing reads it — and is an invitation
+  to set the host to 128 and hit both problems at once. Delete it at import.
+- **`flash_write` rounds up to double-words** (`flash.cpp:65-87`). A final frame
+  whose length is not a multiple of 8 reads past the buffer into uninitialised
+  stack and programs it, so the image tail is non-deterministic — and the "Truncate
+  trailing 0xFF" option makes the final length arbitrary. Pad the tail to 8 bytes
+  with `0xFF`. This changes fielded behaviour, so it needs its own bench pass.
+- **`FWUpdateApp.cpp:110` allocates a VLA sized from a 16-bit wire field before
+  validating anything**, on a 1 kB stack. A corrupt `bin16` header claiming 60,000
+  bytes smashes the stack of a bootloader that can only be replaced by ST-Link.
+  An `if (size > 250) return MessageFormatError();` costs ~8 bytes of flash.
+
+The remaining acceptance test is still on the bench, because only it covers the
+fielded 64-byte buffer and the real flash: upload a deliberately >64 kB
+application over RS485, then read the bank back over SWD and byte-compare, with a
+<64 kB image as the negative control.
