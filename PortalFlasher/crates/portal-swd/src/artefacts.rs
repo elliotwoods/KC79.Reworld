@@ -413,12 +413,33 @@ mod tests {
             return;
         }
         let found = discover_in(&root);
+        // Not via `bootloader()`, which deliberately prefers a *built* one -- see
+        // `a_built_bootloader_wins_over_the_reference`. This test is about the reference being
+        // found at all, and reading it through the preference made it start failing the moment
+        // the PlatformIO port produced a build, which is the one outcome that should not break it.
         let boot = found
-            .bootloader()
+            .found
+            .iter()
+            .find(|a| a.region == RegionName::Bootloader && a.origin == Origin::Reference)
             .expect("the committed reference bootloader should be discoverable");
-        assert_eq!(boot.origin, Origin::Reference);
         assert_eq!(boot.bytes, 22_708, "the reference image is 22,708 bytes");
         assert!(boot.fits(), "it must fit the 24 kB bootloader bank");
+    }
+
+    #[test]
+    fn a_built_bootloader_in_this_repository_supersedes_the_reference() {
+        let root = repo_root();
+        let built = root.join("PortalBootloader/.pio/build/bootloader/firmware.bin");
+        if !built.is_file() {
+            eprintln!("skipping: PortalBootloader has not been built here");
+            return;
+        }
+        let found = discover_in(&root);
+        assert_eq!(
+            found.bootloader().map(|a| a.origin),
+            Some(Origin::Built),
+            "a built bootloader should win over the committed reference"
+        );
     }
 
     #[test]

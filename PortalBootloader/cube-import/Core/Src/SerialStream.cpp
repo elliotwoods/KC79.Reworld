@@ -23,9 +23,27 @@ SerialStream::SerialStream(UART_HandleTypeDef& uart, DMA_HandleTypeDef& dma)
 		, this
 	};
 
-	assert(lwrb_init(&this->ringBuffer
+	// Not inside an assert. `lwrb_init` is what gives this stream its ring buffer, and an
+	// `assert` compiles to nothing when NDEBUG is defined -- which a release build does -- so the
+	// call itself would disappear along with the check. The result is a SerialStream whose buffer
+	// was never initialised, in the release build only, in the firmware that receives updates
+	// over RS485. It happened not to bite because `ringBuffer` is a member of a
+	// statically-allocated object and therefore starts zeroed, which is close enough to
+	// initialised that the failure would have been intermittent rather than immediate.
+	//
+	// This is also why it did not compile here: CubeIDE's include list happened to pull `assert`
+	// in transitively, and PlatformIO's does not. A missing declaration is a much better way to
+	// find this than the alternative.
+	const auto ringBufferReady = lwrb_init(&this->ringBuffer
 		, this->ringBufferData
-		, BUFFER_SIZE) == 1);
+		, BUFFER_SIZE) == 1;
+	if (!ringBufferReady) {
+		// There is nowhere to report this to -- the object being constructed is what a log
+		// message would travel over -- so the honest response is to stop rather than to run on
+		// with a stream that silently drops everything.
+		while (true) {
+		}
+	}
 }
 
 //----------
