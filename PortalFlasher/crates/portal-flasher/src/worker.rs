@@ -15,7 +15,7 @@
 //! `example-console`'s does. That suits this worker, which already has a clock of its own.
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use av_gui_bus::{Bus, Value};
@@ -60,6 +60,11 @@ pub struct Worker {
     target_present: bool,
     /// Present only under `--simulate`: the shared fixture the page's switch drives.
     fixture: Option<Arc<AtomicBool>>,
+    /// The step the pass in flight has reached, written by the progress callback. Shared rather
+    /// than owned because the callback has to outlive any borrow of `self` for the whole pass.
+    reached: Arc<AtomicU32>,
+    /// Monotonic result counter, so a page can tell a fresh outcome from a repaint of an old one.
+    result_seq: i64,
 }
 
 impl Worker {
@@ -100,6 +105,8 @@ impl Worker {
             last_selection: (String::new(), String::new()),
             target_present: false,
             fixture,
+            reached: Arc::new(AtomicU32::new(0)),
+            result_seq: 0,
         }
     }
 
@@ -350,22 +357,30 @@ impl Worker {
             return;
         };
 
+        self.begin_pass();
         let _ = self.bus.set(self.params.busy, Value::Bool(true));
         self.emit_cue(Cue::Busy);
         let mut progress = self.progress_sink();
         let outcome = self.rig.flash(&bundle, &mut progress);
         drop(progress);
         let _ = self.bus.set(self.params.busy, Value::Bool(false));
+        let reached = self.reached_step();
         self.clear_progress();
 
         match outcome {
             Ok(_) => {
                 self.set_detail("");
+                self.record_pass(reached, "Programmed and verified.");
                 self.passed += 1;
                 self.emit_cue(Cue::Pass);
             }
             Err(err) => {
                 self.set_detail(&err.detail);
+                // Before anything else touches the bus. `set_detail` is a scratchpad the next
+                // probe-reopen clears, and a failed flash frequently *is* a probe loss -- so the
+                // reason for the failure used to vanish about a tick after the fail tone, which is
+                // exactly what happened the first time this ran on hardware.
+                self.record_failure(&err, reached);
                 self.failed += 1;
                 self.faults += 1;
                 if err.is_probe_loss() {
@@ -392,7 +407,13 @@ impl Worker {
         let bus = Arc::clone(&self.bus);
         let step_id = self.params.step;
         let fraction_id = self.params.step_fraction;
+        // Shared with the worker rather than read back off the bus afterwards: `clear_progress`
+        // resets the bus value to `idle`, and the step a pass *reached* is the most useful single
+        // fact about a failure -- `attach` and `erase` are the difference between a board that was
+        // never touched and one that must not leave the bench.
+        let reached = Arc::clone(&self.reached);
         move |step, done: u64, total: u64| {
+            reached.store(step_index(step), Ordering::Relaxed);
             let _ = bus.set(step_id, Value::Enum(step_index(step)));
             let fraction = if total == 0 {
                 0.0
@@ -401,6 +422,61 @@ impl Worker {
             };
             let _ = bus.set(fraction_id, Value::F64(fraction));
         }
+    }
+
+    /// Clear the record, so a pass in flight cannot be read as its own predecessor's result.
+    fn begin_pass(&mut self) {
+        self.reached.store(0, Ordering::Relaxed);
+        let p = &self.params;
+        let _ = self.bus.set(p.last_outcome, Value::Enum(0));
+        let _ = self.bus.set_text(p.last_detail, "");
+        let _ = self.bus.set_text(p.last_kind, "");
+        let _ = self.bus.set_text(p.last_advice, "");
+        let _ = self.bus.set(p.last_step, Value::Enum(0));
+        let _ = self.bus.set(p.last_may_have_written, Value::Bool(false));
+    }
+
+    /// How far the pass got, as a `/rig/step` index.
+    fn reached_step(&self) -> u32 {
+        self.reached.load(Ordering::Relaxed)
+    }
+
+    fn record_pass(&mut self, reached: u32, what: &str) {
+        let p = &self.params;
+        let _ = self.bus.set(p.last_outcome, Value::Enum(1));
+        let _ = self.bus.set_text(p.last_detail, what);
+        let _ = self.bus.set_text(p.last_kind, "");
+        let _ = self.bus.set_text(p.last_advice, "");
+        let _ = self.bus.set(p.last_step, Value::Enum(reached));
+        let _ = self.bus.set(p.last_may_have_written, Value::Bool(false));
+        self.bump_result_seq();
+    }
+
+    /// The record a failure leaves behind, and the reason this module has one at all.
+    ///
+    /// Three things beyond the message, because the message alone is often a probe-rs string
+    /// written for whoever wrote probe-rs: the *kind*, which is stable enough to grep a log for;
+    /// what to **do**, which is a different sentence from what went wrong and the one needed while
+    /// a board is still in the fixture; and whether flash may already have been written, which
+    /// decides between trying again and quarantining the board.
+    fn record_failure(&mut self, err: &RigError, reached: u32) {
+        let p = &self.params;
+        let _ = self.bus.set(p.last_outcome, Value::Enum(2));
+        let _ = self.bus.set_text(p.last_detail, &err.detail);
+        let _ = self.bus.set_text(p.last_kind, err.kind.as_str());
+        let _ = self.bus.set_text(p.last_advice, err.kind.advice());
+        let _ = self.bus.set(p.last_step, Value::Enum(reached));
+        let _ = self
+            .bus
+            .set(p.last_may_have_written, Value::Bool(err.kind.may_have_written()));
+        self.bump_result_seq();
+    }
+
+    /// Last, always. The page keys "this is new" on the sequence, so it must move only once every
+    /// other field is already in place.
+    fn bump_result_seq(&mut self) {
+        self.result_seq += 1;
+        let _ = self.bus.set(self.params.last_seq, Value::I64(self.result_seq));
     }
 
     /// Back to `idle`, whichever way the pass went.
@@ -463,6 +539,14 @@ impl Worker {
     fn run_pass(&mut self, now: Millis, pass: Pass) {
         let Some(bundle) = self.bundle.clone() else {
             self.set_detail("no image loaded");
+            // Recorded like any other failure. These two early exits used to leave the record
+            // untouched, which meant the fail tone played and the console still showed whatever
+            // the *previous* pass had said -- worse than showing nothing.
+            self.begin_pass();
+            self.record_failure(
+                &RigError::new(RigErrorKind::BadBundle, "no image is selected"),
+                0,
+            );
             self.faults += 1;
             self.step(now, Input::PassDone { pass, ok: false });
             return;
@@ -475,12 +559,21 @@ impl Worker {
         {
             let _ = self.bus.set(id, Value::Bool(false));
             self.set_detail("simulated failure");
+            self.begin_pass();
+            self.record_failure(
+                &RigError::new(RigErrorKind::Program, "simulated failure, injected from the page"),
+                schema::STEPS
+                    .iter()
+                    .position(|(_, name)| *name == "program")
+                    .unwrap_or(0) as u32,
+            );
             self.failed += 1;
             self.faults += 1;
             self.step(now, Input::PassDone { pass, ok: false });
             return;
         }
 
+        self.begin_pass();
         let _ = self.bus.set(self.params.busy, Value::Bool(true));
         let outcome = match pass {
             Pass::Flash => {
@@ -500,15 +593,24 @@ impl Worker {
             }),
         };
         let _ = self.bus.set(self.params.busy, Value::Bool(false));
+        let reached = self.reached_step();
         self.clear_progress();
 
         let ok = match outcome {
             Ok(_) => {
                 self.set_detail("");
+                self.record_pass(
+                    reached,
+                    match pass {
+                        Pass::Flash => "Programmed and verified. Cycle the board.",
+                        Pass::RunCheck => "Programmed, verified, and running.",
+                    },
+                );
                 true
             }
             Err(err) => {
                 self.set_detail(&err.detail);
+                self.record_failure(&err, reached);
                 if err.is_probe_loss() {
                     self.probe_open = false;
                 }
@@ -754,7 +856,7 @@ fn step_index(step: Step) -> u32 {
 mod tests {
     use super::*;
     use av_gui_bus::SchemaBuilder;
-    use portal_swd::SimRig;
+    use portal_swd::{SimRig, Trigger};
     use std::sync::Mutex;
 
     /// A worker wired to a real sealed bus and a simulated target, with a clock we control.
@@ -769,13 +871,18 @@ mod tests {
 
     impl Harness {
         fn new() -> Self {
+            Self::with_rig(SimRig::new())
+        }
+
+        /// The same, around a rig rigged to fail. `SimRig`'s fault injection is the only way to
+        /// reach the interesting states without destroying a board to get there.
+        fn with_rig(sim: SimRig) -> Self {
             let mut builder = SchemaBuilder::new();
             crate::schema::declare(&mut builder, true).expect("schema");
             let bus = Arc::new(builder.seal());
             let params = Params::resolve(&bus).expect("params");
             let session = bus.open_session().expect("session");
 
-            let sim = SimRig::new();
             let fixture = sim.fixture();
             let worker = Worker::new(
                 Arc::clone(&bus),
@@ -956,6 +1063,103 @@ mod tests {
             .as_ref()
             .map(|d| d.read_at_ms);
         assert_eq!(reads, again, "a tick without a press re-ran the action");
+    }
+
+    #[test]
+    fn a_failed_flash_leaves_a_record_the_probe_reopen_cannot_erase() {
+        // The bug this whole `/last/*` group exists for, and the first thing that went wrong on
+        // real hardware. `/rig/detail` is a scratchpad: a failed flash usually drops the probe,
+        // the next tick reopens it, and the reopen path clears the line -- so the reason for the
+        // failure was gone about 250 ms after the fail tone played.
+        let mut h = Harness::with_rig(
+            SimRig::new().with_fault(Trigger::DuringProgram(50), RigErrorKind::ProbeGone),
+        );
+        h.seat_board();
+        h.tick(100, true);
+
+        let _ = h.bus.set(h.params.act_flash_now, Value::I64(1));
+        h.tick(100, true);
+
+        assert_eq!(schema::get_enum(&h.bus, h.params.last_outcome), 2, "should read `fail`");
+        let detail = schema::get_text(&h.bus, h.params.last_detail);
+        assert!(!detail.is_empty(), "the failure left no message");
+
+        // The ticks that used to destroy it. Several, because the reopen only happens on the tick
+        // after the probe was marked lost.
+        for _ in 0..5 {
+            h.tick(100, true);
+        }
+
+        assert_eq!(
+            schema::get_text(&h.bus, h.params.last_detail),
+            detail,
+            "the record was overwritten by the probe reopen -- the original bug"
+        );
+        assert_eq!(schema::get_enum(&h.bus, h.params.last_outcome), 2);
+        assert_eq!(schema::get_text(&h.bus, h.params.last_kind), "probe-gone");
+        assert!(
+            !schema::get_text(&h.bus, h.params.last_advice).is_empty(),
+            "a failure with no advice is the state that sent us looking at the source"
+        );
+    }
+
+    #[test]
+    fn a_failure_records_how_far_the_pass_got() {
+        // `attach` and `program` are the difference between a board that was never touched and one
+        // that must not leave the bench, so the step is recorded rather than inferred.
+        let mut h = Harness::with_rig(
+            SimRig::new().with_fault(Trigger::DuringProgram(50), RigErrorKind::ContactLost),
+        );
+        h.seat_board();
+        h.tick(100, true);
+        let _ = h.bus.set(h.params.act_flash_now, Value::I64(1));
+        h.tick(100, true);
+
+        let step = schema::get_enum(&h.bus, h.params.last_step);
+        assert_eq!(
+            schema::STEPS.iter().find(|(v, _)| *v == step).map(|(_, n)| *n),
+            Some("program"),
+        );
+        assert!(
+            schema::get_bool(&h.bus, h.params.last_may_have_written),
+            "a contact lost mid-program leaves a half-written board and must say so"
+        );
+    }
+
+    #[test]
+    fn a_failure_before_anything_is_written_says_the_board_is_untouched() {
+        // The other direction, and just as important: a needless reflash is cheap, but a board
+        // wrongly reported as suspect wastes the operator's time on every pass.
+        let mut h = Harness::with_rig(
+            SimRig::new().with_fault(Trigger::OnAttach, RigErrorKind::WrongTarget),
+        );
+        h.seat_board();
+        h.tick(100, true);
+        let _ = h.bus.set(h.params.act_flash_now, Value::I64(1));
+        h.tick(100, true);
+
+        assert_eq!(schema::get_text(&h.bus, h.params.last_kind), "wrong-target");
+        assert!(!schema::get_bool(&h.bus, h.params.last_may_have_written));
+    }
+
+    #[test]
+    fn a_new_pass_clears_the_previous_result_before_it_starts() {
+        // Otherwise a pass in flight shows its predecessor's verdict, which is worse than showing
+        // nothing -- it is a stale answer that looks current.
+        let mut h = Harness::new();
+        h.seat_board();
+        h.tick(100, true);
+        let _ = h.bus.set(h.params.act_flash_now, Value::I64(1));
+        h.tick(100, true);
+        assert_eq!(schema::get_enum(&h.bus, h.params.last_outcome), 1, "should read `pass`");
+        let first = schema::get_i64(&h.bus, h.params.last_seq);
+
+        let _ = h.bus.set(h.params.act_flash_now, Value::I64(2));
+        h.tick(100, true);
+        assert!(
+            schema::get_i64(&h.bus, h.params.last_seq) > first,
+            "the sequence must move so a page can tell a fresh result from a repaint"
+        );
     }
 
     #[test]

@@ -81,6 +81,96 @@ pub enum RigErrorKind {
     BadBundle,
 }
 
+impl RigErrorKind {
+    /// A stable name, for the log and for the page.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            RigErrorKind::ProbeGone => "probe-gone",
+            RigErrorKind::ContactLost => "contact-lost",
+            RigErrorKind::WrongTarget => "wrong-target",
+            RigErrorKind::ResetIneffective => "reset-ineffective",
+            RigErrorKind::ReadoutProtected => "readout-protected",
+            RigErrorKind::Program => "program",
+            RigErrorKind::Verify => "verify",
+            RigErrorKind::OptionBytes => "option-bytes",
+            RigErrorKind::NotRunning => "not-running",
+            RigErrorKind::BadBundle => "bad-bundle",
+        }
+    }
+
+    /// What to do about it, in one line an operator can act on without reading this crate.
+    ///
+    /// The `detail` on a [`RigError`] says what went wrong and is often a probe-rs message written
+    /// for whoever wrote probe-rs. This says what to *do*, which is a different sentence and the
+    /// one that is actually needed while a board is sitting in the fixture.
+    pub fn advice(self) -> &'static str {
+        match self {
+            RigErrorKind::ProbeGone => {
+                "Check the ST-Link's USB cable, then Rescan. If it moved ports, reselect it."
+            }
+            RigErrorKind::ContactLost => {
+                "The target stopped answering. Reseat the board and check the SWD pins -- \
+                 SWDIO/SWCLK, ground, and that the board has power."
+            }
+            RigErrorKind::WrongTarget => {
+                "The part is not an STM32G070. Check the board is the one you meant to flash."
+            }
+            RigErrorKind::ResetIneffective => {
+                "NRST did not reset the part. Check the reset line is wired to the probe; without \
+                 it this refuses to erase rather than erasing a running target."
+            }
+            RigErrorKind::ReadoutProtected => {
+                "Readout protection is on. Clearing it is a mass erase that destroys the \
+                 contents, so it is never automatic -- use STM32CubeProgrammer deliberately."
+            }
+            RigErrorKind::Program => {
+                "Erase or programming failed. The board is very likely half-written: reflash it \
+                 before using it, and do not trust what is on it now."
+            }
+            RigErrorKind::Verify => {
+                "The readback did not match what was sent. Try a slower probe speed, and reflash \
+                 -- this board is not good."
+            }
+            RigErrorKind::OptionBytes => {
+                "The option-byte write did not take. The flash contents are unaffected; the boot \
+                 configuration may not be what was asked for."
+            }
+            RigErrorKind::NotRunning => {
+                "Flashed and verified, but the application is not running. Power-cycle the board \
+                 and read it back; if it stays dead the image may be linked for the wrong bank."
+            }
+            RigErrorKind::BadBundle => {
+                "The selected image was refused before anything was written. The board is \
+                 untouched. Pick a different artefact."
+            }
+        }
+    }
+
+    /// Whether flash contents may have been changed before this failed.
+    ///
+    /// The single most useful thing to know at the moment a pass fails: it is the difference
+    /// between "try again" and "that board is now half-written and must not leave the bench".
+    pub fn may_have_written(self) -> bool {
+        match self {
+            // Nothing has been written yet at these points, or the write is to option flash only.
+            RigErrorKind::ProbeGone
+            | RigErrorKind::WrongTarget
+            | RigErrorKind::ResetIneffective
+            | RigErrorKind::ReadoutProtected
+            | RigErrorKind::BadBundle
+            | RigErrorKind::OptionBytes => false,
+            // `ContactLost` is the ambiguous one and is deliberately counted as written: it can
+            // arrive during the attach, when nothing has happened, or 60% of the way through
+            // programming. Guessing wrong in the safe direction costs a needless reflash; guessing
+            // wrong in the other direction ships a half-written board.
+            RigErrorKind::ContactLost
+            | RigErrorKind::Program
+            | RigErrorKind::Verify
+            | RigErrorKind::NotRunning => true,
+        }
+    }
+}
+
 /// What a probe is, for the log and the status bar.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ProbeInfo {
@@ -266,6 +356,21 @@ pub struct Fault {
     pub kind: RigErrorKind,
 }
 
+/// Whether two triggers name the same injection point, ignoring how deep into it.
+///
+/// `DuringErase` and `DuringProgram` carry a percentage, and the erase and program loops construct
+/// a zero-valued one to look their fault up by. Comparing the payload as well meant
+/// `with_fault(DuringProgram(50), ProbeGone)` found nothing and fell back to a hard-coded
+/// `ContactLost` — the *kind* the caller asked for was silently discarded, so every test built on
+/// a mid-write injection was asserting against a different failure from the one it named.
+fn same_site(a: Trigger, b: Trigger) -> bool {
+    match (a, b) {
+        (Trigger::DuringErase(_), Trigger::DuringErase(_)) => true,
+        (Trigger::DuringProgram(_), Trigger::DuringProgram(_)) => true,
+        _ => a == b,
+    }
+}
+
 /// A modelled STM32G070, complete enough to be wrong in the ways a real one is.
 #[derive(Clone, Debug)]
 pub struct SimRig {
@@ -359,7 +464,7 @@ impl SimRig {
     fn trip(&self, at: Trigger) -> Option<RigError> {
         self.faults
             .iter()
-            .find(|f| f.at == at)
+            .find(|f| same_site(f.at, at))
             .map(|f| RigError::new(f.kind, format!("simulated fault at {:?}", f.at)))
     }
 }

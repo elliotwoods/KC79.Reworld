@@ -43,12 +43,15 @@ import { type MapModel, buildMap, comparisonSummary, formatBytes } from './firmw
 import {
   type Cue,
   type Expect,
+  type LastPass,
   type Layout,
   type Mode,
+  type Outcome,
   type Phase,
   type RigState,
   type Step,
   flashNowState,
+  lastPassSummary,
   layoutSummary,
   readDeviceState,
   shortHash,
@@ -386,6 +389,16 @@ function RigConsole({ rig }: { rig: RigState }) {
   const flash = flashNowState(rig);
   const progress = stepSummary(rig);
 
+  const last: LastPass = {
+    outcome: useEnumName<Outcome>('/last/outcome', 'none'),
+    detail: useText('/last/detail'),
+    kind: useText('/last/kind'),
+    step: useEnumName<Step>('/last/step', 'idle'),
+    advice: useText('/last/advice'),
+    mayHaveWritten: useFlag('/last/may_have_written'),
+  };
+  const result = lastPassSummary(last);
+
   // A flash pass is a chip erase. The button is the only thing standing between a misclick and an
   // unrecoverable board, and it sits next to Read device, which is harmless -- so it asks twice.
   //
@@ -482,6 +495,25 @@ function RigConsole({ rig }: { rig: RigState }) {
       )}
       {rig.mode === 'auto' && !rig.armed && !progress && (
         <Banner tone="info">Arming — the fixture must be empty first.</Banner>
+      )}
+
+      {/* The result of the last pass, which used to be nowhere. Hidden only until one has run —
+          never replaced by the next pass's progress, because "why did that fail" is asked while
+          the retry is already under way. */}
+      {result && (
+        <div className="rig-result" data-tone={result.tone}>
+          <div className="rig-result-head">
+            <span className="rig-result-heading">{result.heading}</span>
+            {last.kind && <Badge tone={result.tone}>{last.kind}</Badge>}
+          </div>
+          {result.detail && <p className="rig-result-detail">{result.detail}</p>}
+          {result.consequence && (
+            <p className="rig-result-consequence" data-written={last.mayHaveWritten ? '' : undefined}>
+              {result.consequence}
+            </p>
+          )}
+          {result.advice && <p className="rig-result-advice">{result.advice}</p>}
+        </div>
       )}
     </section>
   );

@@ -69,6 +69,61 @@ export interface RigState {
   stepFraction: number;
 }
 
+/** `/last/outcome`, by name. */
+export type Outcome = 'none' | 'pass' | 'fail';
+
+/** Everything `/last/*` carries about the pass that has finished. */
+export interface LastPass {
+  outcome: Outcome;
+  detail: string;
+  kind: string;
+  /** How far the pass got before it stopped. */
+  step: Step;
+  advice: string;
+  mayHaveWritten: boolean;
+}
+
+/**
+ * The status line under the button: what happened, and what it means for the board.
+ *
+ * This exists because the first flash attempted on real hardware failed, played the fail tone, and
+ * left nothing on the screen to say why. `/rig/detail` had the message for about a tick — a failed
+ * flash usually drops the probe, and the reopen that follows clears that line — so the record is
+ * separate and this reads it.
+ *
+ * `heading` is the sentence. `consequence` is the part that changes what an operator does next and
+ * is deliberately not merged into it: "that board is half-written" is a different kind of statement
+ * from "the ST-Link stopped answering", and burying it in a longer sentence is how it gets skimmed.
+ */
+export function lastPassSummary(
+  last: LastPass,
+): { tone: Tone; heading: string; detail: string; advice: string; consequence: string | null } | null {
+  if (last.outcome === 'none') return null;
+
+  if (last.outcome === 'pass') {
+    return {
+      tone: 'ok',
+      heading: 'Flashed',
+      detail: last.detail,
+      advice: '',
+      consequence: null,
+    };
+  }
+
+  // `attach` is worth naming because it is the one failure that means the board was never touched
+  // at all, and it is also the most common one — a board not seated properly.
+  const where = last.step === 'idle' ? '' : ` during ${last.step}`;
+  return {
+    tone: 'error',
+    heading: `Failed${where}`,
+    detail: last.detail,
+    advice: last.advice,
+    consequence: last.mayHaveWritten
+      ? 'This board may be half-written. Reflash it before it goes anywhere.'
+      : 'Flash contents were not changed.',
+  };
+}
+
 export type Step =
   | 'idle'
   | 'attach'

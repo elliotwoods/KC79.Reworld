@@ -59,6 +59,9 @@ pub const STEPS: &[(u32, &str)] = &[
     (6, "reset-run"),
 ];
 
+/// The result of the last completed pass. `none` until one has run.
+pub const OUTCOMES: &[(u32, &str)] = &[(0, "none"), (1, "pass"), (2, "fail")];
+
 pub const CUES: &[(u32, &str)] = &[
     (0, "none"),
     (1, "armed"),
@@ -219,6 +222,79 @@ pub fn declare(builder: &mut SchemaBuilder, simulated: bool) -> Result<(), Strin
             .f64(0.0)
             .range(0.0, 1.0)
             .label("Step progress")
+            .read_only()
+            .register(),
+    );
+
+    // ---------------------------------------------------------------- the last pass
+    //
+    // `/rig/detail` is a scratchpad: the probe-reopen path, `Read device` and the poll all
+    // overwrite it. That was survivable while it only ever carried "no probe", and became a real
+    // failure the first time a flash was attempted on hardware -- the pass failed, the fail tone
+    // played, and the reason was gone from the screen within a tick, because a failed flash often
+    // drops the probe and the reopen that follows clears the line.
+    //
+    // These are a *record*. Nothing clears them but the start of the next pass.
+    check(
+        builder
+            .param("/last/outcome")
+            .enumeration(0, OUTCOMES)
+            .label("Last pass")
+            .read_only()
+            .register(),
+    );
+    check(
+        builder
+            .param("/last/detail")
+            .text("")
+            .label("What happened")
+            .read_only()
+            .register(),
+    );
+    // The `RigErrorKind`, by name. Coarser than the detail and much more stable, so it is what a
+    // log greps for and what the advice below is keyed on.
+    check(
+        builder
+            .param("/last/kind")
+            .text("")
+            .label("Kind")
+            .read_only()
+            .register(),
+    );
+    // How far it got. `attach` and `erase` are the difference between a board that was never
+    // touched and one that must not leave the bench.
+    check(
+        builder
+            .param("/last/step")
+            .enumeration(0, STEPS)
+            .label("Reached")
+            .read_only()
+            .register(),
+    );
+    check(
+        builder
+            .param("/last/advice")
+            .text("")
+            .label("What to do")
+            .read_only()
+            .register(),
+    );
+    // Whether flash contents may have changed before it failed. The single most useful bit at the
+    // moment of a failure: try again, or quarantine the board.
+    check(
+        builder
+            .param("/last/may_have_written")
+            .bool(false)
+            .label("Board may be half-written")
+            .read_only()
+            .register(),
+    );
+    // Monotonic, so a page can tell a fresh result from a repaint of the same one.
+    check(
+        builder
+            .param("/last/seq")
+            .i64(0)
+            .label("Result sequence")
             .read_only()
             .register(),
     );
@@ -512,6 +588,14 @@ pub struct Params {
     pub image_scope: ParamId,
     pub image_hint: ParamId,
     pub image_run_check: ParamId,
+
+    pub last_outcome: ParamId,
+    pub last_detail: ParamId,
+    pub last_kind: ParamId,
+    pub last_step: ParamId,
+    pub last_advice: ParamId,
+    pub last_may_have_written: ParamId,
+    pub last_seq: ParamId,
     pub image_name: ParamId,
     pub image_source: ParamId,
     pub image_build_id: ParamId,
@@ -592,6 +676,14 @@ impl Params {
             image_scope: id("/image/scope")?,
             image_hint: id("/image/hint")?,
             image_run_check: id("/image/run_check")?,
+
+            last_outcome: id("/last/outcome")?,
+            last_detail: id("/last/detail")?,
+            last_kind: id("/last/kind")?,
+            last_step: id("/last/step")?,
+            last_advice: id("/last/advice")?,
+            last_may_have_written: id("/last/may_have_written")?,
+            last_seq: id("/last/seq")?,
             image_name: id("/image/name")?,
             image_source: id("/image/source")?,
             image_build_id: id("/image/build_id")?,

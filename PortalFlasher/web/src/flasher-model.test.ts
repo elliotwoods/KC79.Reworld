@@ -2,10 +2,12 @@ import { describe, expect, it } from 'vitest';
 
 import {
   type Cue,
+  type LastPass,
   type Layout,
   type Phase,
   type RigState,
   flashNowState,
+  lastPassSummary,
   layoutSummary,
   readDeviceState,
   shortHash,
@@ -255,5 +257,61 @@ describe('stepSummary determinacy', () => {
       const summary = stepSummary(state({ step, stepFraction: 0.5 }));
       expect(summary?.label.includes('%')).toBe(summary?.determinate);
     }
+  });
+});
+
+function lastPass(over: Partial<LastPass> = {}): LastPass {
+  return {
+    outcome: 'fail',
+    detail: 'could not attach under reset: Probe(Timeout)',
+    kind: 'contact-lost',
+    step: 'attach',
+    advice: 'Reseat the board.',
+    mayHaveWritten: true,
+    ...over,
+  };
+}
+
+describe('lastPassSummary', () => {
+  it('says nothing until a pass has run', () => {
+    expect(lastPassSummary(lastPass({ outcome: 'none' }))).toBeNull();
+  });
+
+  it('names the step a failure reached', () => {
+    // The most useful single fact about a failure. `attach` means the board was never touched;
+    // `erase` means it must not leave the bench.
+    expect(lastPassSummary(lastPass({ step: 'attach' }))?.heading).toBe('Failed during attach');
+    expect(lastPassSummary(lastPass({ step: 'erase' }))?.heading).toBe('Failed during erase');
+  });
+
+  it('does not invent a step it was never told', () => {
+    // `idle` means the pass failed before reporting any progress at all -- a refused bundle, say.
+    // "Failed during idle" would be worse than saying nothing about where.
+    expect(lastPassSummary(lastPass({ step: 'idle' }))?.heading).toBe('Failed');
+  });
+
+  it('states whether the board can still be trusted, either way', () => {
+    // Both directions matter. Silence on a board that *was* written reads as "probably fine",
+    // which is the expensive mistake; silence on one that was not costs a needless reflash.
+    expect(lastPassSummary(lastPass({ mayHaveWritten: true }))?.consequence).toContain(
+      'half-written',
+    );
+    expect(lastPassSummary(lastPass({ mayHaveWritten: false }))?.consequence).toContain(
+      'not changed',
+    );
+  });
+
+  it('carries the rig message through verbatim', () => {
+    // Never summarised or prettified. It is the only thing that distinguishes two failures of the
+    // same kind, and it is what gets read back to someone over a bench.
+    const detail = 'readback differs at 0x08006000: expected 0xFF, got 0x00';
+    expect(lastPassSummary(lastPass({ detail }))?.detail).toBe(detail);
+  });
+
+  it('a pass carries no advice and no warning about the board', () => {
+    const summary = lastPassSummary(lastPass({ outcome: 'pass', detail: 'Programmed.' }));
+    expect(summary?.tone).toBe('ok');
+    expect(summary?.advice).toBe('');
+    expect(summary?.consequence).toBeNull();
   });
 });

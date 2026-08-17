@@ -315,14 +315,15 @@
 }
 
 /*
- * One cell is one 2 kB sector. `aspect-ratio` keeps them square however wide the panel is, which
- * is what the SVG version could not do -- it stretched, and the result read as a texture rather
- * than as storage.
+ * One cell is one 2 kB sector. `aspect-ratio` keeps cells a fixed wide-and-short shape however
+ * wide the panel is, which is what the SVG version could not do -- it stretched non-uniformly,
+ * and the result read as a texture rather than as storage. Square cells did the same job but cost
+ * eight rows' worth of panel height for no more information; this is the same grid, just shorter.
  */
 .fw-cell {
   display: block;
-  aspect-ratio: 1;
-  min-height: 14px;
+  aspect-ratio: 5 / 1;
+  min-height: 8px;
   border-radius: var(--radius-xs);
   border: 1px solid var(--border);
   background: var(--surface-sunken);
@@ -375,4 +376,87 @@
   width: 12px;
   min-height: 12px;
   aspect-ratio: 1;
+}
+
+/* ---------------------------------------------------------------- the last result */
+
+/*
+ * What happened, kept until the next pass replaces it.
+ *
+ * This exists because the first flash attempted on real hardware failed, played the fail tone, and
+ * left nothing on screen. `/rig/detail` had the message for about a tick — a failed flash usually
+ * drops the probe, and the reopen that follows clears that line — so `/last/*` is a separate
+ * record and this draws it.
+ *
+ * Inset with its own left rule rather than given a `.panel` border: it is a consequence of the
+ * button above it, not a sibling of the panels below.
+ */
+.rig-result {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-3);
+  padding-left: var(--space-4);
+  border-left: 3px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+
+.rig-result[data-tone='ok'] {
+  border-left-color: var(--ok);
+}
+.rig-result[data-tone='error'] {
+  border-left-color: var(--danger);
+}
+
+.rig-result-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.rig-result-heading {
+  font-size: var(--text-lg);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.rig-result[data-tone='ok'] .rig-result-heading {
+  color: var(--ok);
+}
+.rig-result[data-tone='error'] .rig-result-heading {
+  color: var(--danger);
+}
+
+/*
+ * The message from the rig, verbatim. Monospace because it is frequently a probe-rs string with
+ * addresses and register names in it, and proportional type makes `0x08006000` hard to read back
+ * to someone across a bench.
+ */
+.rig-result-detail {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  /* A long probe-rs message must wrap rather than widen the console. */
+  overflow-wrap: anywhere;
+}
+
+/*
+ * Whether the board is still trustworthy. Its own line, in weight, because it is the one sentence
+ * that changes what happens to the hardware in your hand — and because merged into a longer
+ * paragraph it is exactly the sort of thing that gets skimmed.
+ */
+.rig-result-consequence {
+  margin: 0;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.rig-result-consequence[data-written] {
+  color: var(--warn);
+}
+
+.rig-result-advice {
+  margin: 0;
+  color: var(--text);
 }
