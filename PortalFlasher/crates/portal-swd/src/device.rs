@@ -346,6 +346,14 @@ pub fn first_banner(region: &[u8]) -> Option<String> {
     })
 }
 
+/// The hash of a blob of device bytes, in the one format the reports and the log both use.
+///
+/// Public because a flash pass hashes what it read *back* off the board rather than what it meant
+/// to send, and that hash has to be comparable with the per-region ones in a [`DeviceReport`].
+pub fn sha256_hex(bytes: &[u8]) -> String {
+    hex(&Sha256::digest(bytes))
+}
+
 fn hex(bytes: &[u8]) -> String {
     use core::fmt::Write;
     let mut out = String::with_capacity(bytes.len() * 2);

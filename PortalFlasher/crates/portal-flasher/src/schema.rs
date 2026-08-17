@@ -44,6 +44,21 @@ pub const PHASES: &[(u32, &str)] = &[
 
 pub const EXPECTS: &[(u32, &str)] = &[(0, "flash"), (1, "run-check")];
 
+/// The stages of a flash pass, in the order they happen.
+///
+/// `idle` is index 0 so a session that connects between passes reads the right thing rather than
+/// a stale `reset-run` from the last board. The rest mirror `portal_swd::Step` exactly; the
+/// mapping in `worker.rs` is exhaustive so a new variant there cannot silently go unreported.
+pub const STEPS: &[(u32, &str)] = &[
+    (0, "idle"),
+    (1, "attach"),
+    (2, "option-bytes"),
+    (3, "erase"),
+    (4, "program"),
+    (5, "readback"),
+    (6, "reset-run"),
+];
+
 pub const CUES: &[(u32, &str)] = &[
     (0, "none"),
     (1, "armed"),
@@ -183,6 +198,27 @@ pub fn declare(builder: &mut SchemaBuilder, simulated: bool) -> Result<(), Strin
             .param("/rig/busy")
             .bool(false)
             .label("Busy")
+            .read_only()
+            .register(),
+    );
+
+    // A flash pass is the one operation long enough for `busy` alone to look like a hang: a chip
+    // erase plus 50 kB of programming plus a 128 kB readback is seconds, not milliseconds. These
+    // two say which of those is happening and how far in.
+    check(
+        builder
+            .param("/rig/step")
+            .enumeration(0, STEPS)
+            .label("Step")
+            .read_only()
+            .register(),
+    );
+    check(
+        builder
+            .param("/rig/step_fraction")
+            .f64(0.0)
+            .range(0.0, 1.0)
+            .label("Step progress")
             .read_only()
             .register(),
     );
@@ -448,6 +484,8 @@ pub struct Params {
     pub expect: ParamId,
     pub detail: ParamId,
     pub busy: ParamId,
+    pub step: ParamId,
+    pub step_fraction: ParamId,
     pub cue: ParamId,
     pub cue_seq: ParamId,
 
@@ -527,6 +565,8 @@ impl Params {
             expect: id("/rig/expect")?,
             detail: id("/rig/detail")?,
             busy: id("/rig/busy")?,
+            step: id("/rig/step")?,
+            step_fraction: id("/rig/step_fraction")?,
             cue: id("/rig/cue")?,
             cue_seq: id("/rig/cue_seq")?,
 

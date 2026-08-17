@@ -11,6 +11,7 @@ import {
   shortHash,
   soundFor,
   statusSummary,
+  stepSummary,
   tileFor,
 } from './flasher-model';
 
@@ -25,6 +26,8 @@ function state(over: Partial<RigState> = {}): RigState {
     targetPresent: false,
     busy: false,
     hasImage: true,
+    step: 'idle',
+    stepFraction: 0,
     ...over,
   };
 }
@@ -189,5 +192,38 @@ describe('shortHash', () => {
   it('shortens a hash and marks an absent one', () => {
     expect(shortHash('0123456789abcdef0123')).toBe('0123456789ab');
     expect(shortHash('')).toBe('—');
+  });
+});
+
+describe('stepSummary', () => {
+  it('says nothing between passes', () => {
+    expect(stepSummary(state())).toBeNull();
+    // `busy` on its own is not a step: the pass may not have reported one yet.
+    expect(stepSummary(state({ busy: true }))).toBeNull();
+  });
+
+  it('marks exactly the stages where lifting the board leaves it half-written', () => {
+    // The distinction this whole function exists for. Attach and the option-byte write are both
+    // recoverable -- nothing in flash has changed yet -- and the readback is a pure read, so a
+    // board lifted during it is already fully programmed and verified up to that point.
+    expect(stepSummary(state({ step: 'attach' }))?.committed).toBe(false);
+    expect(stepSummary(state({ step: 'option-bytes' }))?.committed).toBe(false);
+    expect(stepSummary(state({ step: 'erase' }))?.committed).toBe(true);
+    expect(stepSummary(state({ step: 'program' }))?.committed).toBe(true);
+    expect(stepSummary(state({ step: 'readback' }))?.committed).toBe(false);
+    expect(stepSummary(state({ step: 'reset-run' }))?.committed).toBe(false);
+  });
+
+  it('shows a percentage only where one means something', () => {
+    // Erase, program and readback each move through the whole part. Attach and reset-run are
+    // single events, and "attach 0%" would suggest a progress bar that is stuck.
+    expect(stepSummary(state({ step: 'program', stepFraction: 0.5 }))?.label).toBe('program 50%');
+    expect(stepSummary(state({ step: 'attach', stepFraction: 0 }))?.label).toBe('attach');
+    expect(stepSummary(state({ step: 'reset-run', stepFraction: 1 }))?.label).toBe('reset-run');
+  });
+
+  it('rounds rather than truncating, so a finished stage reads as finished', () => {
+    expect(stepSummary(state({ step: 'erase', stepFraction: 0.999 }))?.label).toBe('erase 100%');
+    expect(stepSummary(state({ step: 'erase', stepFraction: 1 }))?.label).toBe('erase 100%');
   });
 });

@@ -46,12 +46,14 @@ import {
   type Mode,
   type Phase,
   type RigState,
+  type Step,
   flashNowState,
   layoutSummary,
   readDeviceState,
   shortHash,
   soundFor,
   statusSummary,
+  stepSummary,
   tileFor,
 } from './flasher-model';
 
@@ -351,25 +353,71 @@ function FirmwarePanel({ hasImage }: { hasImage: boolean }) {
   );
 }
 
+/**
+ * How long the confirm stays armed before it forgets, in milliseconds.
+ *
+ * Long enough to read the label and move the mouse; short enough that a confirm left armed while
+ * the operator turned away does not still fire when they come back and click something.
+ */
+const CONFIRM_WINDOW_MS = 5_000;
+
 function FlashPanel({ rig }: { rig: RigState }) {
   const flashNow = useAction('/actions/flash_now');
   const flash = flashNowState(rig);
+  const progress = stepSummary(rig);
+
+  // A flash pass is a chip erase. The button is the only thing standing between a misclick and an
+  // unrecoverable board, and it sits next to Read device, which is harmless -- so it asks twice.
+  //
+  // Only here, in manual mode. Auto-flash is the rapid path and it is already gated by arming
+  // (which additionally requires an empty fixture), so putting a confirm in front of every board
+  // there would defeat the point of the mode without adding any safety it does not already have.
+  const [armedPress, setArmedPress] = useState(false);
+  useEffect(() => {
+    if (!armedPress) return;
+    const timer = window.setTimeout(() => setArmedPress(false), CONFIRM_WINDOW_MS);
+    return () => window.clearTimeout(timer);
+  }, [armedPress]);
+  // Anything that changes what the press would *do* retracts it: a board lifted, an image
+  // swapped, the probe dropped. A confirm is consent to one specific action.
+  useEffect(() => {
+    setArmedPress(false);
+  }, [flash.enabled, rig.targetPresent, rig.hasImage]);
 
   return (
     <Panel title="3 · Flash">
       <div className="device-tools">
         <Button
-          onClick={flashNow}
-          variant="primary"
+          onClick={() => {
+            if (armedPress) {
+              setArmedPress(false);
+              flashNow();
+            } else {
+              setArmedPress(true);
+            }
+          }}
+          variant={armedPress ? 'danger' : 'primary'}
           disabled={!flash.enabled}
           title={flash.reason}
           busy={rig.busy}
-          busyLabel="Flashing…"
+          busyLabel={progress ? progress.label : 'Flashing…'}
         >
-          Flash now
+          {armedPress ? 'Confirm — erase and flash' : 'Flash now'}
         </Button>
         {!flash.enabled && flash.reason && <span className="fw-hint">{flash.reason}</span>}
       </div>
+      {armedPress && (
+        <Banner tone="warn">
+          This erases the whole chip before writing. Press again to go ahead.
+        </Banner>
+      )}
+      {progress && (
+        <Banner tone={progress.committed ? 'warn' : 'info'}>
+          {progress.committed
+            ? `${progress.label} — do not lift the board`
+            : `${progress.label}…`}
+        </Banner>
+      )}
       <Row label="Auto-flash" hint="Hands-free: seat, tone, cycle, tone">
         <Toggle path="/mode/desired" />
       </Row>
@@ -483,6 +531,8 @@ function App() {
   const cueSeq = useNumber('/rig/cue_seq');
   const detail = useText('/rig/detail');
   const busy = useFlag('/rig/busy');
+  const step = useEnumName<Step>('/rig/step', 'idle');
+  const stepFraction = useNumber('/rig/step_fraction');
 
   const probeConnected = useFlag('/probe/connected');
   const imageName = useText('/image/name');
@@ -512,6 +562,8 @@ function App() {
     targetPresent,
     busy,
     hasImage,
+    step,
+    stepFraction,
   };
 
   const tile = tileFor(rig);

@@ -24,6 +24,7 @@ pub mod artefacts;
 pub mod device;
 pub mod image;
 pub mod machine;
+pub mod program;
 pub mod rig;
 
 #[cfg(feature = "probe")]

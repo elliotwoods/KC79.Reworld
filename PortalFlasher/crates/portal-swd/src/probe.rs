@@ -22,19 +22,20 @@
 
 use std::time::Duration;
 
-use probe_rs::MemoryInterface;
 use probe_rs::architecture::arm::{
     ArmDebugInterface, ArmError, FullyQualifiedApAddress, dp::DpAddress,
     sequences::DefaultArmSequence,
 };
+use probe_rs::flashing::{DownloadOptions, FlashProgress, ProgressEvent, ProgressOperation};
 use probe_rs::probe::{DebugProbeSelector, Probe, WireProtocol, list::Lister};
+use probe_rs::{MemoryInterface, Permissions, Session};
 
-use crate::addr;
 use crate::device::DeviceImage;
 use crate::image::{ImageBundle, RunCheckSpec};
 use crate::rig::{
-    FlashReport, Presence, ProbeInfo, Progress, Rig, RigError, RigErrorKind, RunCheckReport,
+    FlashReport, Presence, ProbeInfo, Progress, Rig, RigError, RigErrorKind, RunCheckReport, Step,
 };
+use crate::{addr, bits, program};
 
 /// The chip name in probe-rs's built-in registry.
 pub const TARGET: &str = "STM32G070RBTx";
@@ -242,6 +243,188 @@ impl ProbeRsRig {
     pub fn speed_khz(&self) -> u32 {
         self.speed_khz
     }
+
+    /// Open a fresh probe and connect with NRST held.
+    ///
+    /// Under reset, not `attach`, for one reason: the board in the fixture is running unknown
+    /// firmware. It may be reconfiguring SWD pins, spinning in a watchdog loop, or sitting in
+    /// `WFI`. Halting a running target and erasing it is the sequence that produces half-written
+    /// boards; holding reset while the debug port comes up does not depend on the application
+    /// cooperating at all.
+    ///
+    /// Erase-all permission is granted here because a pass is a chip erase by design. It is
+    /// scoped to this session and nothing else in the crate constructs one.
+    fn attach_under_reset(&mut self) -> Result<Session, RigError> {
+        let probe = self.open_probe()?;
+        probe
+            .attach_under_reset(TARGET, Permissions::new().allow_erase_all())
+            .map_err(|err| {
+                // Which layer failed decides whether the operator reseats a board or looks at the
+                // equipment, so it is worth getting right rather than reporting one flat error.
+                let kind = match &err {
+                    probe_rs::Error::Probe(_) => RigErrorKind::ProbeGone,
+                    _ => RigErrorKind::ContactLost,
+                };
+                RigError::new(kind, format!("could not attach under reset: {err}"))
+            })
+    }
+}
+
+/// What is worth reading off a halted part before anything is written to it.
+struct Survey {
+    idcode: u32,
+    dev_id: u32,
+    optr: u32,
+    rcc_csr: u32,
+}
+
+/// Halt, freeze the watchdog, and read the identity registers.
+///
+/// `attach_under_reset` leaves the core halted, so the halt here is a belt-and-braces check
+/// rather than the mechanism: if the core is *running* at this point then reset did not take, and
+/// erasing a running target with a live watchdog is precisely the thing to refuse.
+fn survey(session: &mut Session) -> Result<Survey, RigError> {
+    let mut core = session.core(0).map_err(session_error)?;
+    if !core.core_halted().map_err(session_error)? {
+        core.halt(HALT_TIMEOUT).map_err(|err| {
+            RigError::new(
+                RigErrorKind::ResetIneffective,
+                format!("the core did not halt after connect-under-reset: {err}"),
+            )
+        })?;
+    }
+
+    // Before the identity reads, so a watchdog cannot land between them and the erase.
+    {
+        let mut port = MemPort(&mut core);
+        program::freeze_watchdog(&mut port, true).map_err(|fault| {
+            RigError::new(
+                RigErrorKind::ContactLost,
+                format!("could not freeze the watchdog: {fault}"),
+            )
+        })?;
+    }
+
+    let read = |core: &mut probe_rs::Core<'_>, at: u32, what: &str| {
+        core.read_word_32(u64::from(at)).map_err(|err| {
+            RigError::new(
+                RigErrorKind::ContactLost,
+                format!("could not read {what}: {err}"),
+            )
+        })
+    };
+
+    // DBGMCU is clocked by now, so unlike the non-invasive poll this can rely on IDCODE.
+    let idcode = read(&mut core, addr::DBGMCU_IDCODE, "DBGMCU_IDCODE")?;
+    let optr = read(&mut core, addr::FLASH_OPTR, "FLASH_OPTR")?;
+    let rcc_csr = read(&mut core, addr::RCC_CSR, "RCC_CSR")?;
+
+    Ok(Survey {
+        idcode,
+        dev_id: idcode & 0xFFF,
+        optr,
+        rcc_csr,
+    })
+}
+
+/// The same, for the re-attach after an option-byte reload.
+///
+/// Separate only so the intent reads: at this point the part has already been surveyed once and
+/// accepted, and what is being established is whether the new option bytes came back.
+fn survey_after_reload(session: &mut Session) -> Result<Survey, RigError> {
+    survey(session).map_err(|err| {
+        // A part that will not come back after `OBL_LAUNCH` is an option-byte failure, whatever
+        // the layer underneath called it -- and it is the failure the operator most needs named,
+        // because it is the one that can leave a board unusable.
+        RigError::new(
+            RigErrorKind::OptionBytes,
+            format!("the part did not come back after the option-byte reload: {err}"),
+        )
+    })
+}
+
+/// Adapts a probe-rs memory interface to the narrow port [`program`] is written against.
+struct MemPort<'a>(&'a mut dyn MemoryInterface<probe_rs::Error>);
+
+impl program::Mem for MemPort<'_> {
+    fn read32(&mut self, at: u32) -> Result<u32, String> {
+        self.0
+            .read_word_32(u64::from(at))
+            .map_err(|err| err.to_string())
+    }
+
+    fn write32(&mut self, at: u32, value: u32) -> Result<(), String> {
+        self.0
+            .write_word_32(u64::from(at), value)
+            .map_err(|err| err.to_string())?;
+        // These are control registers, not RAM. A write still sitting in the probe's buffer has
+        // not happened, and the next thing this code does is nearly always read back the bit it
+        // just set to find out whether it did.
+        self.0.flush().map_err(|err| err.to_string())
+    }
+}
+
+/// Bridge probe-rs's flash progress onto the crate's own [`Step`] callback.
+///
+/// probe-rs reports each page as a delta; the operator page wants a running total against a
+/// known denominator. `total` is the fallback denominator for the case where probe-rs does not
+/// announce one, so a progress bar never divides by zero.
+fn flash_progress<'a>(sink: &'a mut Progress<'_>, total: u64) -> FlashProgress<'a> {
+    let mut erase_total = total;
+    let mut program_total = total;
+    let mut erased = 0u64;
+    let mut written = 0u64;
+
+    FlashProgress::new(move |event| match event {
+        ProgressEvent::AddProgressBar {
+            operation,
+            total: Some(announced),
+        } => match operation {
+            ProgressOperation::Erase => erase_total = announced,
+            ProgressOperation::Program => program_total = announced,
+            _ => {}
+        },
+        ProgressEvent::Progress {
+            operation, size, ..
+        } => match operation {
+            ProgressOperation::Erase => {
+                erased = (erased + size).min(erase_total);
+                sink(Step::Erase, erased, erase_total);
+            }
+            ProgressOperation::Program => {
+                written = (written + size).min(program_total);
+                sink(Step::Program, written, program_total);
+            }
+            _ => {}
+        },
+        // The deltas do not always reach the announced total exactly; the page should still land
+        // on a full bar rather than on 99%.
+        ProgressEvent::Finished(ProgressOperation::Erase) => {
+            sink(Step::Erase, erase_total, erase_total)
+        }
+        ProgressEvent::Finished(ProgressOperation::Program) => {
+            sink(Step::Program, program_total, program_total)
+        }
+        _ => {}
+    })
+}
+
+fn session_error(err: probe_rs::Error) -> RigError {
+    let kind = match &err {
+        probe_rs::Error::Probe(_) => RigErrorKind::ProbeGone,
+        _ => RigErrorKind::ContactLost,
+    };
+    RigError::new(kind, err.to_string())
+}
+
+fn option_error(fault: program::FlashFault) -> RigError {
+    let kind = match fault {
+        // The target stopped answering, which is a lifted board rather than an option-byte
+        // problem -- and it matters, because the removal gate handles one and not the other.
+        program::FlashFault::Bus(_) => RigErrorKind::ContactLost,
+        _ => RigErrorKind::OptionBytes,
+    };
+    RigError::new(kind, fault.to_string())
 }
 
 impl Rig for ProbeRsRig {
@@ -300,24 +483,219 @@ impl Rig for ProbeRsRig {
 
     fn flash(
         &mut self,
-        _bundle: &ImageBundle,
-        _progress: &mut Progress<'_>,
+        bundle: &ImageBundle,
+        progress: &mut Progress<'_>,
     ) -> Result<FlashReport, RigError> {
-        // Deliberately not implemented yet rather than half-implemented. The write path is its own
-        // step, it runs first on a scrap board, and a plausible-looking stub here is exactly the
-        // thing that would get trusted by accident.
-        Err(RigError::new(
-            RigErrorKind::Program,
-            "the write path is not implemented yet; this build can read a device but not \
-             programme one",
-        ))
+        // Before the probe is touched at all: a bundle that cannot be flashed correctly should
+        // never get as far as erasing a board.
+        let faults = bundle.validate();
+        if !faults.is_empty() {
+            return Err(RigError::new(
+                RigErrorKind::BadBundle,
+                faults
+                    .iter()
+                    .map(|f| f.to_string())
+                    .collect::<Vec<_>>()
+                    .join("; "),
+            ));
+        }
+
+        // A `Session` needs the raw probe, and `Observing` is holding it.
+        self.close();
+
+        progress(Step::Attach, 0, 1);
+        let mut session = self.attach_under_reset()?;
+        let mut survey = survey(&mut session)?;
+        progress(Step::Attach, 1, 1);
+
+        if survey.dev_id != 0 && survey.dev_id != bits::DEV_ID_STM32G07X {
+            return Err(RigError::new(
+                RigErrorKind::WrongTarget,
+                format!(
+                    "the part reports DEV_ID {:#05X}; this bundle is for {:#05X} ({TARGET})",
+                    survey.dev_id,
+                    bits::DEV_ID_STM32G07X
+                ),
+            ));
+        }
+        if survey.optr & bits::OPTR_RDP_MASK != bits::OPTR_RDP_LEVEL0 {
+            // Recovering costs a mass erase with RDP regression, which is a deliberate,
+            // operator-confirmed act and never something a routine pass performs on its own.
+            return Err(RigError::new(
+                RigErrorKind::ReadoutProtected,
+                format!(
+                    "FLASH_OPTR reads {:#010X}, so RDP is not level 0",
+                    survey.optr
+                ),
+            ));
+        }
+
+        let optr_before = survey.optr;
+        let mut option_bytes_programmed = false;
+        if bundle.option_bytes.needs_programming(optr_before) {
+            progress(Step::OptionBytes, 0, 1);
+            let wanted = bundle.option_bytes.desired(optr_before);
+            {
+                let mut core = session.core(0).map_err(session_error)?;
+                let mut port = MemPort(&mut core);
+                program::program_option_bytes(&mut port, wanted).map_err(option_error)?;
+                // From here the part is about to reset itself, so nothing may be inferred from
+                // this session again.
+                program::launch_option_bytes(&mut port);
+            }
+            drop(session);
+            session = self.attach_under_reset()?;
+            survey = survey_after_reload(&mut session)?;
+            if survey.optr != wanted {
+                return Err(option_error(program::FlashFault::NotTaken {
+                    wanted,
+                    found: survey.optr,
+                }));
+            }
+            option_bytes_programmed = true;
+            progress(Step::OptionBytes, 1, 1);
+        }
+
+        // Erase and program. Only the regions that have bytes are staged -- writing 0xFF over the
+        // rest would be 128 kB on the wire to reach a state the chip erase already produced.
+        let mut loader = session.target().flash_loader();
+        for region in [&bundle.bootloader, &bundle.application] {
+            if region.bytes.is_empty() {
+                continue;
+            }
+            loader
+                .add_data(u64::from(region.load_address), &region.bytes)
+                .map_err(|err| {
+                    RigError::new(
+                        RigErrorKind::Program,
+                        format!("could not stage the {} region: {err}", region.name.as_str()),
+                    )
+                })?;
+        }
+
+        let expected = bundle.expected_flash_image();
+        let total = expected.len() as u64;
+        {
+            // A chip erase rather than sector erase, and no `keep_unwritten_bytes`, because "the
+            // other bank is left erased" is the promise the firmware map draws. Sector-erasing
+            // only what is written would leave a stale bootloader under a new application and the
+            // map would show two regions that were never flashed together.
+            let mut options = DownloadOptions::default();
+            options.keep_unwritten_bytes = false;
+            options.do_chip_erase = true;
+            // probe-rs's own verify is a second pass through the flash algorithm. The readback
+            // below is a plain memory read of the whole part, which is both stricter and evidence
+            // -- it produces the bytes that get hashed into the report.
+            options.verify = false;
+            options.progress = flash_progress(progress, total);
+            loader.commit(&mut session, options).map_err(|err| {
+                RigError::new(RigErrorKind::Program, format!("programming failed: {err}"))
+            })?;
+        }
+
+        // Readback, against the device rather than against what was sent to it.
+        progress(Step::Readback, 0, total);
+        let mut actual = vec![0u8; expected.len()];
+        {
+            let mut core = session.core(0).map_err(session_error)?;
+            core.read(u64::from(addr::FLASH_BASE), &mut actual)
+                .map_err(|err| {
+                    RigError::new(
+                        RigErrorKind::Verify,
+                        format!("could not read the device back: {err}"),
+                    )
+                })?;
+        }
+        if let Some(at) = actual.iter().zip(expected.iter()).position(|(a, b)| a != b) {
+            return Err(RigError::new(
+                RigErrorKind::Verify,
+                format!(
+                    "readback differs at {:#010X}: expected {:#04X}, got {:#04X}",
+                    addr::FLASH_BASE as usize + at,
+                    expected[at],
+                    actual[at]
+                ),
+            ));
+        }
+        progress(Step::Readback, total, total);
+        let readback_sha256 = crate::device::sha256_hex(&actual);
+
+        // Let the watchdog run again before the application does, then let go.
+        progress(Step::ResetRun, 0, 1);
+        {
+            let mut core = session.core(0).map_err(session_error)?;
+            let mut port = MemPort(&mut core);
+            // Best-effort: the freeze lives in DBGMCU, which the reset below clears anyway. A
+            // board that has just verified clean should not be reported as failed because the
+            // tidying-up write did not land.
+            let _ = program::freeze_watchdog(&mut port, false);
+            core.reset().map_err(|err| {
+                RigError::new(
+                    RigErrorKind::Program,
+                    format!("programmed and verified, but the reset-run failed: {err}"),
+                )
+            })?;
+        }
+        drop(session);
+        self.link = Link::Closed;
+        progress(Step::ResetRun, 1, 1);
+
+        Ok(FlashReport {
+            idcode: survey.idcode,
+            optr_before,
+            optr_after: survey.optr,
+            option_bytes_programmed,
+            rcc_csr: survey.rcc_csr,
+            readback_sha256,
+        })
     }
 
-    fn run_check(&mut self, _spec: &RunCheckSpec) -> Result<RunCheckReport, RigError> {
-        Err(RigError::new(
-            RigErrorKind::NotRunning,
-            "the run-check is not implemented yet",
-        ))
+    fn run_check(&mut self, spec: &RunCheckSpec) -> Result<RunCheckReport, RigError> {
+        if spec.liveness_address == 0 {
+            return Err(RigError::new(
+                RigErrorKind::NotRunning,
+                "this bundle has no liveness address, so a run-check could only prove the \
+                 bootloader jumped somewhere -- not that anything is running",
+            ));
+        }
+
+        // No `Session`, deliberately: probe-rs's STM32G0 attach sequence read-modify-writes
+        // `RCC_APBENR1` and writes `DBGMCU_CR`, which is a real race against the application this
+        // is supposed to be observing.
+        let iface = self.observe()?;
+        iface
+            .select_debug_port(DpAddress::Default)
+            .map_err(|err| target_error("select the debug port", err))?;
+        let ap = FullyQualifiedApAddress::v1_with_default_dp(0);
+        let mut mem = iface
+            .memory_interface(&ap)
+            .map_err(|err| target_error("open the memory interface", err))?;
+
+        let read32 = |mem: &mut dyn MemoryInterface<ArmError>, at: u32| {
+            mem.read_word_32(u64::from(at))
+                .map_err(|err| target_error("read a register during the run-check", err))
+        };
+
+        let vtor = read32(&mut *mem, addr::SCB_VTOR)?;
+        // First, because `S_RESET_ST` is sticky and clears on read: this read establishes the
+        // window, and the second one below is the one that means something.
+        let dhcsr_first = read32(&mut *mem, addr::DHCSR)?;
+        let liveness_first = read32(&mut *mem, spec.liveness_address)?;
+
+        std::thread::sleep(Duration::from_millis(spec.window_ms));
+
+        let dhcsr_second = read32(&mut *mem, addr::DHCSR)?;
+        let liveness_second = read32(&mut *mem, spec.liveness_address)?;
+        let rcc_csr = read32(&mut *mem, addr::RCC_CSR)?;
+
+        Ok(RunCheckReport {
+            vtor,
+            dhcsr_first,
+            dhcsr_second,
+            liveness_first,
+            liveness_second,
+            rcc_csr,
+        })
     }
 
     fn close(&mut self) {

@@ -544,7 +544,10 @@ impl Rig for SimRig {
             optr_after: self.optr,
             option_bytes_programmed: programmed_options,
             rcc_csr: 1 << 26, // PINRSTF, as a connect-under-reset should leave it
-            readback_sha256: bundle.sha256(),
+            // Of the array, not of the bundle. The field says "what was read back off the
+            // device", and the real rig hashes exactly that -- a simulation that quietly hashed
+            // the input instead would be the one place the two could never be compared.
+            readback_sha256: crate::device::sha256_hex(&self.flash),
         })
     }
 

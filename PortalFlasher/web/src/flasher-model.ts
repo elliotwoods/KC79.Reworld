@@ -63,6 +63,39 @@ export interface RigState {
   targetPresent: boolean;
   busy: boolean;
   hasImage: boolean;
+  /** Which stage of a flash pass is running. `idle` between passes. */
+  step: Step;
+  /** How far through that stage, 0..1. */
+  stepFraction: number;
+}
+
+export type Step =
+  | 'idle'
+  | 'attach'
+  | 'option-bytes'
+  | 'erase'
+  | 'program'
+  | 'readback'
+  | 'reset-run';
+
+/**
+ * What to say while a pass is running, and whether the board can still be lifted.
+ *
+ * The second half is the reason this exists. `busy` is one bit, and it covers both the seconds
+ * where lifting the board costs nothing and the seconds where it leaves a half-erased part. An
+ * operator cannot be expected to know which is which by watching a spinner.
+ */
+export function stepSummary(state: RigState): { label: string; committed: boolean } | null {
+  if (state.step === 'idle') return null;
+  const percent = Math.round(state.stepFraction * 100);
+  // Attach and the option-byte write both precede the erase; everything from the erase onward has
+  // already changed the part, and stopping there is the state the whole removal gate exists for.
+  const committed = state.step === 'erase' || state.step === 'program';
+  const label =
+    state.step === 'erase' || state.step === 'program' || state.step === 'readback'
+      ? `${state.step} ${percent}%`
+      : state.step;
+  return { label, committed };
 }
 
 /**

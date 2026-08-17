@@ -21,7 +21,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use av_gui_bus::{Bus, Value};
 use portal_swd::{
     Action, Cue, ImageBundle, Input, Machine, Millis, Pass, Presence, Rig, RigError, RigErrorKind,
-    Timing,
+    Step, Timing,
 };
 
 use crate::device_api::{DeviceJson, DeviceState};
@@ -352,9 +352,11 @@ impl Worker {
 
         let _ = self.bus.set(self.params.busy, Value::Bool(true));
         self.emit_cue(Cue::Busy);
-        let mut progress = |_step, _done, _total| {};
+        let mut progress = self.progress_sink();
         let outcome = self.rig.flash(&bundle, &mut progress);
+        drop(progress);
         let _ = self.bus.set(self.params.busy, Value::Bool(false));
+        self.clear_progress();
 
         match outcome {
             Ok(_) => {
@@ -376,6 +378,40 @@ impl Worker {
     }
 
     // ---------------------------------------------------------------- plumbing
+
+    /// A progress callback that publishes to the bus.
+    ///
+    /// It clones the `Arc<Bus>` and the two ids rather than borrowing `self`, because the rig is
+    /// borrowed mutably for the whole pass and a callback holding `&self` could not coexist with
+    /// that. The bus is designed for exactly this — it is the shared, lock-free part.
+    ///
+    /// A flash pass is seconds long. Without this the page shows `busy` and nothing else, which
+    /// is indistinguishable from a hang at the very moment an operator most wants to know the
+    /// difference: the erase is the irreversible part.
+    fn progress_sink(&self) -> impl FnMut(Step, u64, u64) + use<> {
+        let bus = Arc::clone(&self.bus);
+        let step_id = self.params.step;
+        let fraction_id = self.params.step_fraction;
+        move |step, done: u64, total: u64| {
+            let _ = bus.set(step_id, Value::Enum(step_index(step)));
+            let fraction = if total == 0 {
+                0.0
+            } else {
+                (done as f64 / total as f64).clamp(0.0, 1.0)
+            };
+            let _ = bus.set(fraction_id, Value::F64(fraction));
+        }
+    }
+
+    /// Back to `idle`, whichever way the pass went.
+    ///
+    /// Leaving the last step showing would make a *failed* pass look like one still in progress,
+    /// which is the reading that matters most to get right — an operator who thinks a board is
+    /// mid-erase will wait rather than lift it.
+    fn clear_progress(&self) {
+        let _ = self.bus.set(self.params.step, Value::Enum(0));
+        let _ = self.bus.set(self.params.step_fraction, Value::F64(0.0));
+    }
 
     /// Retract the operator's request when the rig drops out of auto-flash on its own.
     ///
@@ -448,10 +484,13 @@ impl Worker {
         let _ = self.bus.set(self.params.busy, Value::Bool(true));
         let outcome = match pass {
             Pass::Flash => {
-                let mut progress = |_step, _done, _total| {};
-                self.rig
+                let mut progress = self.progress_sink();
+                let outcome = self
+                    .rig
                     .flash(&bundle, &mut progress)
-                    .map(|report| report.readback_sha256)
+                    .map(|report| report.readback_sha256);
+                drop(progress);
+                outcome
             }
             Pass::RunCheck => self.rig.run_check(&bundle.run_check).and_then(|report| {
                 report
@@ -461,6 +500,7 @@ impl Worker {
             }),
         };
         let _ = self.bus.set(self.params.busy, Value::Bool(false));
+        self.clear_progress();
 
         let ok = match outcome {
             Ok(_) => {
@@ -672,6 +712,21 @@ impl Worker {
 
 fn non_empty(text: String) -> Option<String> {
     (!text.is_empty()).then_some(text)
+}
+
+/// `portal_swd::Step` as the `/rig/step` enum index.
+///
+/// Exhaustive on purpose — no wildcard arm — so adding a step to the rig is a compile error here
+/// rather than a stage that silently reports as whatever came before it.
+fn step_index(step: Step) -> u32 {
+    match step {
+        Step::Attach => 1,
+        Step::OptionBytes => 2,
+        Step::Erase => 3,
+        Step::Program => 4,
+        Step::Readback => 5,
+        Step::ResetRun => 6,
+    }
 }
 
 #[cfg(test)]
