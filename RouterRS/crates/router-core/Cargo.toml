@@ -1,0 +1,24 @@
+[package]
+name = "router-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "GUI-free domain model, transports, and servers for the RouterRS app"
+
+[dependencies]
+router-proto = { path = "../router-proto" }
+router-report = { path = "../router-report" }
+glam = "0.29"
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+serialport = "4"
+rosc = "0.11"
+tiny_http = "0.12"
+ab_glyph = "0.2"
+ffmpeg-sidecar = "2"
+
+[features]
+# Spout GPU texture receiving (Windows; requires the SpoutDX shim, see
+# src/image/sources/spout.rs)
+spout = []

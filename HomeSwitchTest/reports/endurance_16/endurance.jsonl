@@ -1,0 +1,762 @@
+{"ts": "2026-07-21T10:06:44", "event": "rest_begin", "minutes": 45.0}
+{"ts": "2026-07-21T10:27:46", "event": "probe", "healthy": false, "home_ok": 1, "err_fwd": 41, "err_bwd": -92295, "detect_rev": 92166, "T": 231, "backlash": 403}
+{"ts": "2026-07-21T10:45:21", "event": "probe", "healthy": true, "home_ok": 1, "err_fwd": 54, "err_bwd": 3, "detect_rev": null, "T": 231, "backlash": 400}
+{"ts": "2026-07-21T11:06:51", "event": "probe", "healthy": false, "home_ok": 1, "err_fwd": 1224, "err_bwd": -92319, "detect_rev": null, "T": 231, "backlash": 48}
+{"ts": "2026-07-21T11:06:54", "event": "rest_begin", "minutes": 10.0}
+{"ts": "2026-07-21T11:16:54", "event": "rest_end"}
+{"ts": "2026-07-21T11:19:56", "event": "probe", "healthy": false, "home_ok": 1, "err_fwd": 167, "err_bwd": -90371, "detect_rev": null, "T": 231, "backlash": 390}
+{"ts": "2026-07-21T11:28:01", "event": "probe", "healthy": false, "home_ok": 1, "err_fwd": 67, "err_bwd": -91163, "detect_rev": null, "T": 231, "backlash": 463}
+{"ts": "2026-07-21T11:28:04", "event": "rest_begin", "minutes": 15.0}
+{"ts": "2026-07-21T11:43:04", "event": "rest_end"}
+{"ts": "2026-07-21T11:44:29", "event": "probe", "healthy": false, "home_ok": 1, "err_fwd": 431, "err_bwd": -90768, "detect_rev": null, "T": 231, "backlash": 399}
+{"ts": "2026-07-21T12:02:38", "event": "probe", "healthy": true, "home_ok": 1, "err_fwd": 124, "err_bwd": -90, "detect_rev": null, "T": 231, "backlash": 442}
+{"ts": "2026-07-21T12:24:35", "event": "probe", "healthy": false, "home_ok": 1, "err_fwd": 150, "err_bwd": -92360, "detect_rev": null, "T": 231, "backlash": 419}
+{"ts": "2026-07-21T12:24:38", "event": "rest_begin", "minutes": 15.0}
+{"ts": "2026-07-21T12:39:38", "event": "rest_end"}
+{"ts": "2026-07-21T12:41:36", "event": "probe", "healthy": true, "home_ok": 1, "err_fwd": -22, "err_bwd": -114, "detect_rev": null, "T": 231, "backlash": 419}
+{"ts": "2026-07-21T12:43:50", "event": "probe", "healthy": false, "home_ok": 1, "err_fwd": 181, "err_bwd": -92317, "detect_rev": null, "T": 231, "backlash": 443}
+{"ts": "2026-07-21T13:05:44", "event": "probe", "healthy": false, "home_ok": 1, "err_fwd": 343, "err_bwd": -92301, "detect_rev": null, "T": 231, "backlash": 416}
+{"ts": "2026-07-21T13:05:47", "event": "rest_begin", "minutes": 15.0}
+{"ts": "2026-07-21T13:20:47", "event": "rest_end"}
+{"ts": "2026-07-21T13:22:35", "event": "probe", "healthy": false, "home_ok": 1, "err_fwd": -48, "err_bwd": -92298, "detect_rev": null, "T": 231, "backlash": 495}
+{"ts": "2026-07-21T13:23:08", "event": "rest_begin", "minutes": 60.0}
+{"ts": "2026-07-21T14:23:08", "event": "rest_end"}
+{"ts": "2026-07-21T14:24:57", "event": "probe", "healthy": false, "home_ok": 1, "err_fwd": 95, "err_bwd": -92167, "detect_rev": null, "T": 231, "backlash": 394}
+{"ts": "2026-07-21T16:16:33", "event": "session_cycle", "i": 0, "of": 1}
+{"ts": "2026-07-21T16:18:40", "event": "probe", "healthy": true, "home_ok": 1, "err_fwd": 133, "err_bwd": -88, "detect_rev": null, "T": 231, "backlash": 417}
+{"ts": "2026-07-21T16:21:40", "event": "probe", "healthy": false, "home_ok": 1, "err_fwd": 200, "err_bwd": -92293, "detect_rev": null, "T": 231, "backlash": 436}
+{"ts": "2026-07-21T16:21:41", "event": "rest_begin", "minutes": 0.1}
+{"ts": "2026-07-21T16:21:47", "event": "rest_end"}
+{"ts": "2026-07-21T16:22:05", "event": "session_cycle", "i": 0, "of": 3}
+{"ts": "2026-07-21T16:23:52", "event": "probe", "healthy": false, "home_ok": 1, "err_fwd": 97, "err_bwd": -92303, "detect_rev": null, "T": 231, "backlash": 446}
+{"ts": "2026-07-21T16:45:38", "event": "probe", "healthy": false, "home_ok": 1, "err_fwd": 99, "err_bwd": -92277, "detect_rev": null, "T": 231, "backlash": 420}
+{"ts": "2026-07-21T16:45:38", "event": "rest_begin", "minutes": 30.0}
+{"ts": "2026-07-21T17:15:38", "event": "rest_end"}
+{"ts": "2026-07-21T17:15:38", "event": "session_cycle", "i": 1, "of": 3}
+{"ts": "2026-07-21T17:17:25", "event": "probe", "healthy": false, "home_ok": 1, "err_fwd": 78, "err_bwd": -92286, "detect_rev": null, "T": 231, "backlash": 420}
+{"ts": "2026-07-21T17:39:41", "event": "probe", "healthy": false, "home_ok": 1, "err_fwd": 502, "err_bwd": 282, "detect_rev": null, "T": 231, "backlash": 494}
+{"ts": "2026-07-21T17:39:41", "event": "rest_begin", "minutes": 30.0}
+{"ts": "2026-07-21T18:09:41", "event": "rest_end"}
+{"ts": "2026-07-21T18:09:41", "event": "session_cycle", "i": 2, "of": 3}
+{"ts": "2026-07-21T18:11:25", "event": "probe", "healthy": false, "home_ok": 1, "err_fwd": 87, "err_bwd": -92268, "detect_rev": null, "T": 231, "backlash": 464}
+{"ts": "2026-07-21T18:33:44", "event": "probe", "healthy": false, "home_ok": 1, "err_fwd": 1853, "err_bwd": 2287, "detect_rev": null, "T": 231, "backlash": 495}
+{"ts": "2026-07-21T18:33:45", "event": "rest_begin", "minutes": 60.0}
+{"ts": "2026-07-21T19:07:47", "event": "sustain_begin", "mA": 250.0, "cap_min": 25.0, "move_v": 10000}
+{"ts": "2026-07-21T19:08:57", "event": "sustain_block", "mA": 250.0, "block": 1, "n": 10, "t_s": 70, "err": 2157, "backlash": 443, "T": 231, "fw_s": 9.1}
+{"ts": "2026-07-21T19:10:07", "event": "sustain_block", "mA": 250.0, "block": 2, "n": 20, "t_s": 140, "err": 784, "backlash": 470, "T": 231, "fw_s": 9.0}
+{"ts": "2026-07-21T19:11:17", "event": "sustain_block", "mA": 250.0, "block": 3, "n": 30, "t_s": 210, "err": 1063, "backlash": 470, "T": 231, "fw_s": 9.0}
+{"ts": "2026-07-21T19:12:27", "event": "sustain_block", "mA": 250.0, "block": 4, "n": 40, "t_s": 280, "err": 1309, "backlash": 498, "T": 231, "fw_s": 9.1}
+{"ts": "2026-07-21T19:13:37", "event": "sustain_block", "mA": 250.0, "block": 5, "n": 50, "t_s": 350, "err": 622, "backlash": 446, "T": 231, "fw_s": 9.0}
+{"ts": "2026-07-21T19:14:50", "event": "sustain_block", "mA": 250.0, "block": 6, "n": 60, "t_s": 422, "err": 1020, "backlash": 442, "T": 231, "fw_s": 11.8}
+{"ts": "2026-07-21T19:16:00", "event": "sustain_block", "mA": 250.0, "block": 7, "n": 70, "t_s": 492, "err": 1437, "backlash": 446, "T": 231, "fw_s": 9.1}
+{"ts": "2026-07-21T19:17:10", "event": "sustain_block", "mA": 250.0, "block": 8, "n": 80, "t_s": 562, "err": 312, "backlash": 467, "T": 231, "fw_s": 9.1}
+{"ts": "2026-07-21T19:18:20", "event": "sustain_block", "mA": 250.0, "block": 9, "n": 90, "t_s": 632, "err": 978, "backlash": 493, "T": 231, "fw_s": 9.0}
+{"ts": "2026-07-21T19:19:30", "event": "sustain_block", "mA": 250.0, "block": 10, "n": 100, "t_s": 702, "err": 2027, "backlash": 493, "T": 231, "fw_s": 9.1}
+{"ts": "2026-07-21T19:20:39", "event": "sustain_block", "mA": 250.0, "block": 11, "n": 110, "t_s": 772, "err": 1117, "backlash": 472, "T": 231, "fw_s": 9.0}
+{"ts": "2026-07-21T19:21:49", "event": "sustain_block", "mA": 250.0, "block": 12, "n": 120, "t_s": 842, "err": 686, "backlash": 424, "T": 231, "fw_s": 8.9}
+{"ts": "2026-07-21T19:22:59", "event": "sustain_block", "mA": 250.0, "block": 13, "n": 130, "t_s": 912, "err": 2874, "backlash": 438, "T": 231, "fw_s": 9.2}
+{"ts": "2026-07-21T19:24:12", "event": "sustain_block", "mA": 250.0, "block": 14, "n": 140, "t_s": 985, "err": 2530, "backlash": 442, "T": 231, "fw_s": 12.1}
+{"ts": "2026-07-21T19:24:12", "event": "sustain_degraded", "mA": 250.0, "n": 140, "t_s": 985}
+{"ts": "2026-07-21T19:24:12", "event": "sustain_end", "mA": 250.0, "n": 140, "t_s": 985}
+{"ts": "2026-07-21T19:24:16", "event": "rest_begin", "minutes": 10.0}
+{"ts": "2026-07-21T19:34:16", "event": "rest_end"}
+{"ts": "2026-07-21T19:34:29", "event": "sustain_begin", "mA": 150.0, "cap_min": 25.0, "move_v": 10000}
+{"ts": "2026-07-21T19:35:39", "event": "sustain_block", "mA": 150.0, "block": 1, "n": 10, "t_s": 70, "err": 385, "backlash": 465, "T": 231, "fw_s": 9.1}
+{"ts": "2026-07-21T19:36:49", "event": "sustain_block", "mA": 150.0, "block": 2, "n": 20, "t_s": 140, "err": 787, "backlash": 515, "T": 231, "fw_s": 9.0}
+{"ts": "2026-07-21T19:37:59", "event": "sustain_block", "mA": 150.0, "block": 3, "n": 30, "t_s": 210, "err": 809, "backlash": 514, "T": 231, "fw_s": 9.0}
+{"ts": "2026-07-21T19:39:09", "event": "sustain_block", "mA": 150.0, "block": 4, "n": 40, "t_s": 280, "err": 414, "backlash": 468, "T": 231, "fw_s": 9.2}
+{"ts": "2026-07-21T19:40:19", "event": "sustain_block", "mA": 150.0, "block": 5, "n": 50, "t_s": 350, "err": 237, "backlash": 420, "T": 231, "fw_s": 9.1}
+{"ts": "2026-07-21T19:41:29", "event": "sustain_block", "mA": 150.0, "block": 6, "n": 60, "t_s": 420, "err": 3070, "backlash": 440, "T": 231, "fw_s": 9.2}
+{"ts": "2026-07-21T19:42:42", "event": "sustain_block", "mA": 150.0, "block": 7, "n": 70, "t_s": 493, "err": 1679, "backlash": 445, "T": 231, "fw_s": 11.7}
+{"ts": "2026-07-21T19:43:52", "event": "sustain_block", "mA": 150.0, "block": 8, "n": 80, "t_s": 563, "err": 710, "backlash": 472, "T": 231, "fw_s": 9.0}
+{"ts": "2026-07-21T19:45:02", "event": "sustain_block", "mA": 150.0, "block": 9, "n": 90, "t_s": 633, "err": 3805, "backlash": 497, "T": 231, "fw_s": 9.4}
+{"ts": "2026-07-21T19:46:13", "event": "sustain_block", "mA": 150.0, "block": 10, "n": 100, "t_s": 703, "err": 6634, "backlash": 521, "T": 231, "fw_s": 9.8}
+{"ts": "2026-07-21T19:46:13", "event": "sustain_degraded", "mA": 150.0, "n": 100, "t_s": 703}
+{"ts": "2026-07-21T19:46:13", "event": "sustain_end", "mA": 150.0, "n": 100, "t_s": 703}
+{"ts": "2026-07-21T19:46:17", "event": "rest_begin", "minutes": 10.0}
+{"ts": "2026-07-21T19:56:21", "event": "rest_end"}
+{"ts": "2026-07-21T19:56:34", "event": "sustain_begin", "mA": 100.0, "cap_min": 25.0, "move_v": 10000}
+{"ts": "2026-07-21T19:57:44", "event": "sustain_block", "mA": 100.0, "block": 1, "n": 10, "t_s": 70, "err": 1499, "backlash": 495, "T": 231, "fw_s": 9.1}
+{"ts": "2026-07-21T19:58:54", "event": "sustain_block", "mA": 100.0, "block": 2, "n": 20, "t_s": 140, "err": 563, "backlash": 420, "T": 231, "fw_s": 8.9}
+{"ts": "2026-07-21T20:00:03", "event": "sustain_block", "mA": 100.0, "block": 3, "n": 30, "t_s": 210, "err": 960, "backlash": 444, "T": 231, "fw_s": 8.9}
+{"ts": "2026-07-21T20:01:16", "event": "sustain_block", "mA": 100.0, "block": 4, "n": 40, "t_s": 282, "err": 1502, "backlash": 468, "T": 231, "fw_s": 11.9}
+{"ts": "2026-07-21T20:02:26", "event": "sustain_block", "mA": 100.0, "block": 5, "n": 50, "t_s": 352, "err": 894, "backlash": 447, "T": 231, "fw_s": 9.0}
+{"ts": "2026-07-21T20:03:39", "event": "sustain_block", "mA": 100.0, "block": 6, "n": 60, "t_s": 426, "err": 2715, "backlash": 471, "T": 231, "fw_s": 12.3}
+{"ts": "2026-07-21T20:04:50", "event": "sustain_block", "mA": 100.0, "block": 7, "n": 70, "t_s": 496, "err": 4658, "backlash": 519, "T": 231, "fw_s": 9.5}
+{"ts": "2026-07-21T20:04:50", "event": "sustain_degraded", "mA": 100.0, "n": 70, "t_s": 496}
+{"ts": "2026-07-21T20:04:50", "event": "sustain_end", "mA": 100.0, "n": 70, "t_s": 496}
+{"ts": "2026-07-21T20:05:53", "event": "sustain_begin", "mA": 250.0, "cap_min": 40.0, "move_v": 8000}
+{"ts": "2026-07-21T20:07:10", "event": "sustain_block", "mA": 250.0, "block": 1, "n": 10, "t_s": 77, "err": 799, "backlash": 522, "T": 231, "fw_s": 9.1}
+{"ts": "2026-07-21T20:08:27", "event": "sustain_block", "mA": 250.0, "block": 2, "n": 20, "t_s": 153, "err": 370, "backlash": 442, "T": 231, "fw_s": 9.2}
+{"ts": "2026-07-21T20:09:46", "event": "sustain_block", "mA": 250.0, "block": 3, "n": 30, "t_s": 233, "err": 640, "backlash": 440, "T": 231, "fw_s": 11.7}
+{"ts": "2026-07-21T20:11:05", "event": "sustain_block", "mA": 250.0, "block": 4, "n": 40, "t_s": 312, "err": 411, "backlash": 465, "T": 231, "fw_s": 11.7}
+{"ts": "2026-07-21T20:12:22", "event": "sustain_block", "mA": 250.0, "block": 5, "n": 50, "t_s": 389, "err": 187, "backlash": 447, "T": 231, "fw_s": 9.2}
+{"ts": "2026-07-21T20:13:39", "event": "sustain_block", "mA": 250.0, "block": 6, "n": 60, "t_s": 466, "err": 1375, "backlash": 486, "T": 231, "fw_s": 9.0}
+{"ts": "2026-07-21T20:14:56", "event": "sustain_block", "mA": 250.0, "block": 7, "n": 70, "t_s": 542, "err": 1918, "backlash": 497, "T": 231, "fw_s": 9.1}
+{"ts": "2026-07-21T20:16:13", "event": "sustain_block", "mA": 250.0, "block": 8, "n": 80, "t_s": 619, "err": 1766, "backlash": 514, "T": 231, "fw_s": 9.2}
+{"ts": "2026-07-21T20:17:29", "event": "sustain_block", "mA": 250.0, "block": 9, "n": 90, "t_s": 696, "err": 1717, "backlash": 447, "T": 231, "fw_s": 9.1}
+{"ts": "2026-07-21T20:18:48", "event": "sustain_block", "mA": 250.0, "block": 10, "n": 100, "t_s": 775, "err": 2754, "backlash": 444, "T": 231, "fw_s": 11.4}
+{"ts": "2026-07-21T20:20:08", "event": "sustain_block", "mA": 250.0, "block": 11, "n": 110, "t_s": 854, "err": 2152, "backlash": 470, "T": 231, "fw_s": 11.6}
+{"ts": "2026-07-21T20:20:08", "event": "sustain_degraded", "mA": 250.0, "n": 110, "t_s": 854}
+{"ts": "2026-07-21T20:20:08", "event": "sustain_end", "mA": 250.0, "n": 110, "t_s": 854}
+{"ts": "2026-07-21T20:20:12", "event": "rest_begin", "minutes": 15.0}
+{"ts": "2026-07-21T20:35:12", "event": "rest_end"}
+{"ts": "2026-07-21T20:35:35", "event": "sustain_begin", "mA": 250.0, "cap_min": 40.0, "move_v": 6000}
+{"ts": "2026-07-21T20:37:04", "event": "sustain_block", "mA": 250.0, "block": 1, "n": 10, "t_s": 88, "err": 263, "backlash": 523, "T": 231, "fw_s": 9.3}
+{"ts": "2026-07-21T20:38:32", "event": "sustain_block", "mA": 250.0, "block": 2, "n": 20, "t_s": 176, "err": 199, "backlash": 424, "T": 231, "fw_s": 9.1}
+{"ts": "2026-07-21T20:40:00", "event": "sustain_block", "mA": 250.0, "block": 3, "n": 30, "t_s": 264, "err": 317, "backlash": 418, "T": 231, "fw_s": 9.1}
+{"ts": "2026-07-21T20:41:30", "event": "sustain_block", "mA": 250.0, "block": 4, "n": 40, "t_s": 355, "err": -420, "backlash": 467, "T": 231, "fw_s": 11.5}
+{"ts": "2026-07-21T20:43:02", "event": "sustain_block", "mA": 250.0, "block": 5, "n": 50, "t_s": 446, "err": 131, "backlash": 467, "T": 231, "fw_s": 12.3}
+{"ts": "2026-07-21T20:44:30", "event": "sustain_block", "mA": 250.0, "block": 6, "n": 60, "t_s": 534, "err": 298, "backlash": 466, "T": 231, "fw_s": 9.1}
+{"ts": "2026-07-21T20:45:58", "event": "sustain_block", "mA": 250.0, "block": 7, "n": 70, "t_s": 622, "err": 439, "backlash": 492, "T": 231, "fw_s": 9.1}
+{"ts": "2026-07-21T20:47:26", "event": "sustain_block", "mA": 250.0, "block": 8, "n": 80, "t_s": 711, "err": 449, "backlash": 521, "T": 231, "fw_s": 9.2}
+{"ts": "2026-07-21T20:48:54", "event": "sustain_block", "mA": 250.0, "block": 9, "n": 90, "t_s": 799, "err": 260, "backlash": 448, "T": 231, "fw_s": 9.2}
+{"ts": "2026-07-21T20:50:24", "event": "sustain_block", "mA": 250.0, "block": 10, "n": 100, "t_s": 889, "err": -638, "backlash": 394, "T": 231, "fw_s": 11.3}
+{"ts": "2026-07-21T20:51:55", "event": "sustain_block", "mA": 250.0, "block": 11, "n": 110, "t_s": 980, "err": -352, "backlash": 470, "T": 231, "fw_s": 11.7}
+{"ts": "2026-07-21T20:53:26", "event": "sustain_block", "mA": 250.0, "block": 12, "n": 120, "t_s": 1071, "err": -52, "backlash": 472, "T": 231, "fw_s": 12.1}
+{"ts": "2026-07-21T20:54:54", "event": "sustain_block", "mA": 250.0, "block": 13, "n": 130, "t_s": 1159, "err": 100, "backlash": 467, "T": 231, "fw_s": 9.2}
+{"ts": "2026-07-21T20:56:22", "event": "sustain_block", "mA": 250.0, "block": 14, "n": 140, "t_s": 1247, "err": 1021, "backlash": 472, "T": 231, "fw_s": 9.0}
+{"ts": "2026-07-21T20:57:50", "event": "sustain_block", "mA": 250.0, "block": 15, "n": 150, "t_s": 1335, "err": 511, "backlash": 518, "T": 231, "fw_s": 8.9}
+{"ts": "2026-07-21T20:59:18", "event": "sustain_block", "mA": 250.0, "block": 16, "n": 160, "t_s": 1423, "err": 195, "backlash": 448, "T": 231, "fw_s": 9.2}
+{"ts": "2026-07-21T21:00:49", "event": "sustain_block", "mA": 250.0, "block": 17, "n": 170, "t_s": 1513, "err": -318, "backlash": 394, "T": 231, "fw_s": 11.6}
+{"ts": "2026-07-21T21:02:19", "event": "sustain_block", "mA": 250.0, "block": 18, "n": 180, "t_s": 1604, "err": -409, "backlash": 448, "T": 231, "fw_s": 11.6}
+{"ts": "2026-07-21T21:03:50", "event": "sustain_block", "mA": 250.0, "block": 19, "n": 190, "t_s": 1695, "err": 7, "backlash": 468, "T": 231, "fw_s": 11.7}
+{"ts": "2026-07-21T21:05:18", "event": "sustain_block", "mA": 250.0, "block": 20, "n": 200, "t_s": 1783, "err": -92, "backlash": 518, "T": 231, "fw_s": 9.3}
+{"ts": "2026-07-21T21:06:46", "event": "sustain_block", "mA": 250.0, "block": 21, "n": 210, "t_s": 1871, "err": 958, "backlash": 497, "T": 231, "fw_s": 9.0}
+{"ts": "2026-07-21T21:08:14", "event": "sustain_block", "mA": 250.0, "block": 22, "n": 220, "t_s": 1959, "err": 582, "backlash": 494, "T": 231, "fw_s": 8.9}
+{"ts": "2026-07-21T21:09:42", "event": "sustain_block", "mA": 250.0, "block": 23, "n": 230, "t_s": 2047, "err": 261, "backlash": 465, "T": 231, "fw_s": 9.2}
+{"ts": "2026-07-21T21:11:13", "event": "sustain_block", "mA": 250.0, "block": 24, "n": 240, "t_s": 2137, "err": -123, "backlash": 422, "T": 231, "fw_s": 11.3}
+{"ts": "2026-07-21T21:12:42", "event": "sustain_block", "mA": 250.0, "block": 25, "n": 250, "t_s": 2227, "err": -469, "backlash": 439, "T": 231, "fw_s": 10.7}
+{"ts": "2026-07-21T21:14:22", "event": "sustain_block", "mA": 250.0, "block": 26, "n": 260, "t_s": 2326, "err": -270, "backlash": 522, "T": 231, "fw_s": 20.4}
+{"ts": "2026-07-21T21:15:50", "event": "sustain_block", "mA": 250.0, "block": 27, "n": 270, "t_s": 2414, "err": 440, "backlash": 492, "T": 231, "fw_s": 9.2}
+{"ts": "2026-07-21T21:15:50", "event": "sustain_end", "mA": 250.0, "n": 270, "t_s": 2414}
+{"ts": "2026-07-21T21:15:54", "event": "rest_begin", "minutes": 15.0}
+{"ts": "2026-07-21T21:30:54", "event": "rest_end"}
+{"ts": "2026-07-21T21:31:07", "event": "sustain_begin", "mA": 250.0, "cap_min": 40.0, "move_v": 12000}
+{"ts": "2026-07-21T21:32:14", "event": "sustain_block", "mA": 250.0, "block": 1, "n": 10, "t_s": 67, "err": 13441, "backlash": 389, "T": 231, "fw_s": 10.5}
+{"ts": "2026-07-21T21:33:25", "event": "sustain_block", "mA": 250.0, "block": 2, "n": 20, "t_s": 138, "err": 21783, "backlash": 444, "T": 231, "fw_s": 14.3}
+{"ts": "2026-07-21T21:33:25", "event": "sustain_degraded", "mA": 250.0, "n": 20, "t_s": 138}
+{"ts": "2026-07-21T21:33:25", "event": "sustain_end", "mA": 250.0, "n": 20, "t_s": 138}
+{"ts": "2026-07-21T21:33:29", "event": "rest_begin", "minutes": 15.0}
+{"ts": "2026-07-21T21:48:29", "event": "rest_end"}
+{"ts": "2026-07-21T21:49:40", "event": "sustain_begin", "mA": 250.0, "cap_min": 60.0, "move_v": 7000}
+{"ts": "2026-07-21T21:51:02", "event": "sustain_block", "mA": 250.0, "block": 1, "n": 10, "t_s": 81, "err": 576, "backlash": 469, "T": 231, "fw_s": 8.9}
+{"ts": "2026-07-21T21:52:24", "event": "sustain_block", "mA": 250.0, "block": 2, "n": 20, "t_s": 163, "err": 364, "backlash": 495, "T": 231, "fw_s": 9.2}
+{"ts": "2026-07-21T21:53:45", "event": "sustain_block", "mA": 250.0, "block": 3, "n": 30, "t_s": 245, "err": 637, "backlash": 496, "T": 231, "fw_s": 8.9}
+{"ts": "2026-07-21T21:55:06", "event": "sustain_block", "mA": 250.0, "block": 4, "n": 40, "t_s": 326, "err": 781, "backlash": 539, "T": 231, "fw_s": 9.0}
+{"ts": "2026-07-21T21:56:28", "event": "sustain_block", "mA": 250.0, "block": 5, "n": 50, "t_s": 407, "err": 492, "backlash": 481, "T": 231, "fw_s": 8.9}
+{"ts": "2026-07-21T21:57:49", "event": "sustain_block", "mA": 250.0, "block": 6, "n": 60, "t_s": 489, "err": 466, "backlash": 400, "T": 231, "fw_s": 8.9}
+{"ts": "2026-07-21T21:59:12", "event": "sustain_block", "mA": 250.0, "block": 7, "n": 70, "t_s": 572, "err": -417, "backlash": 442, "T": 231, "fw_s": 10.6}
+{"ts": "2026-07-21T22:00:36", "event": "sustain_block", "mA": 250.0, "block": 8, "n": 80, "t_s": 656, "err": -509, "backlash": 466, "T": 231, "fw_s": 11.5}
+{"ts": "2026-07-21T22:01:58", "event": "sustain_block", "mA": 250.0, "block": 9, "n": 90, "t_s": 738, "err": 174, "backlash": 490, "T": 231, "fw_s": 9.2}
+{"ts": "2026-07-21T22:03:20", "event": "sustain_block", "mA": 250.0, "block": 10, "n": 100, "t_s": 819, "err": 2765, "backlash": 522, "T": 231, "fw_s": 9.2}
+{"ts": "2026-07-21T22:04:41", "event": "sustain_block", "mA": 250.0, "block": 11, "n": 110, "t_s": 901, "err": 3024, "backlash": 520, "T": 231, "fw_s": 9.3}
+{"ts": "2026-07-21T22:04:41", "event": "sustain_degraded", "mA": 250.0, "n": 110, "t_s": 901}
+{"ts": "2026-07-21T22:04:41", "event": "sustain_end", "mA": 250.0, "n": 110, "t_s": 901}
+{"ts": "2026-07-21T22:04:46", "event": "rest_begin", "minutes": 15.0}
+{"ts": "2026-07-21T22:19:46", "event": "rest_end"}
+{"ts": "2026-07-21T22:19:58", "event": "sustain_begin", "mA": 250.0, "cap_min": 90.0, "move_v": 6000}
+{"ts": "2026-07-21T22:21:27", "event": "sustain_block", "mA": 250.0, "block": 1, "n": 10, "t_s": 88, "err": 287, "backlash": 469, "T": 231, "fw_s": 9.2}
+{"ts": "2026-07-21T22:22:55", "event": "sustain_block", "mA": 250.0, "block": 2, "n": 20, "t_s": 176, "err": 258, "backlash": 392, "T": 231, "fw_s": 9.0}
+{"ts": "2026-07-21T22:24:24", "event": "sustain_block", "mA": 250.0, "block": 3, "n": 30, "t_s": 266, "err": -846, "backlash": 420, "T": 231, "fw_s": 10.7}
+{"ts": "2026-07-21T22:26:04", "event": "sustain_block", "mA": 250.0, "block": 4, "n": 40, "t_s": 365, "err": -521, "backlash": 519, "T": 231, "fw_s": 20.4}
+{"ts": "2026-07-21T22:27:32", "event": "sustain_block", "mA": 250.0, "block": 5, "n": 50, "t_s": 453, "err": 586, "backlash": 474, "T": 231, "fw_s": 9.0}
+{"ts": "2026-07-21T22:29:00", "event": "sustain_block", "mA": 250.0, "block": 6, "n": 60, "t_s": 541, "err": 142, "backlash": 417, "T": 231, "fw_s": 9.1}
+{"ts": "2026-07-21T22:30:30", "event": "sustain_block", "mA": 250.0, "block": 7, "n": 70, "t_s": 632, "err": -615, "backlash": 439, "T": 231, "fw_s": 11.5}
+{"ts": "2026-07-21T22:32:00", "event": "sustain_block", "mA": 250.0, "block": 8, "n": 80, "t_s": 721, "err": -706, "backlash": 470, "T": 231, "fw_s": 10.5}
+{"ts": "2026-07-21T22:33:39", "event": "sustain_block", "mA": 250.0, "block": 9, "n": 90, "t_s": 821, "err": -23, "backlash": 514, "T": 231, "fw_s": 20.4}
+{"ts": "2026-07-21T22:35:07", "event": "sustain_block", "mA": 250.0, "block": 10, "n": 100, "t_s": 909, "err": 264, "backlash": 459, "T": 231, "fw_s": 9.2}
+{"ts": "2026-07-21T22:36:38", "event": "sustain_block", "mA": 250.0, "block": 11, "n": 110, "t_s": 999, "err": 257, "backlash": 396, "T": 231, "fw_s": 11.6}
+{"ts": "2026-07-21T22:38:07", "event": "sustain_block", "mA": 250.0, "block": 12, "n": 120, "t_s": 1089, "err": -862, "backlash": 444, "T": 231, "fw_s": 10.7}
+{"ts": "2026-07-21T22:39:38", "event": "sustain_block", "mA": 250.0, "block": 13, "n": 130, "t_s": 1179, "err": -1081, "backlash": 491, "T": 231, "fw_s": 11.3}
+{"ts": "2026-07-21T22:41:17", "event": "sustain_block", "mA": 250.0, "block": 14, "n": 140, "t_s": 1279, "err": -299, "backlash": 473, "T": 231, "fw_s": 20.4}
+{"ts": "2026-07-21T22:42:45", "event": "sustain_block", "mA": 250.0, "block": 15, "n": 150, "t_s": 1367, "err": 388, "backlash": 398, "T": 231, "fw_s": 9.1}
+{"ts": "2026-07-21T22:44:14", "event": "sustain_block", "mA": 250.0, "block": 16, "n": 160, "t_s": 1455, "err": -1754, "backlash": 448, "T": 231, "fw_s": 9.7}
+{"ts": "2026-07-21T22:45:45", "event": "sustain_block", "mA": 250.0, "block": 17, "n": 170, "t_s": 1547, "err": -428, "backlash": 471, "T": 231, "fw_s": 12.1}
+{"ts": "2026-07-21T22:47:13", "event": "sustain_block", "mA": 250.0, "block": 18, "n": 180, "t_s": 1635, "err": 239, "backlash": 594, "T": 231, "fw_s": 9.2}
+{"ts": "2026-07-21T22:48:41", "event": "sustain_block", "mA": 250.0, "block": 19, "n": 190, "t_s": 1723, "err": 1791, "backlash": 470, "T": 231, "fw_s": 9.1}
+{"ts": "2026-07-21T22:50:09", "event": "sustain_block", "mA": 250.0, "block": 20, "n": 200, "t_s": 1811, "err": 1044, "backlash": 513, "T": 231, "fw_s": 9.1}
+{"ts": "2026-07-21T22:51:37", "event": "sustain_block", "mA": 250.0, "block": 21, "n": 210, "t_s": 1899, "err": 626, "backlash": 466, "T": 231, "fw_s": 9.0}
+{"ts": "2026-07-21T22:53:08", "event": "sustain_block", "mA": 250.0, "block": 22, "n": 220, "t_s": 1990, "err": -174, "backlash": 392, "T": 231, "fw_s": 11.8}
+{"ts": "2026-07-21T22:54:36", "event": "sustain_block", "mA": 250.0, "block": 23, "n": 230, "t_s": 2078, "err": -1433, "backlash": 423, "T": 231, "fw_s": 9.6}
+{"ts": "2026-07-21T22:56:16", "event": "sustain_block", "mA": 250.0, "block": 24, "n": 240, "t_s": 2177, "err": -311, "backlash": 395, "T": 231, "fw_s": 20.4}
+{"ts": "2026-07-21T22:57:44", "event": "sustain_block", "mA": 250.0, "block": 25, "n": 250, "t_s": 2265, "err": 1284, "backlash": 517, "T": 231, "fw_s": 9.1}
+{"ts": "2026-07-21T22:59:12", "event": "sustain_block", "mA": 250.0, "block": 26, "n": 260, "t_s": 2354, "err": 330, "backlash": 423, "T": 231, "fw_s": 9.1}
+{"ts": "2026-07-21T23:00:42", "event": "sustain_block", "mA": 250.0, "block": 27, "n": 270, "t_s": 2443, "err": -295, "backlash": 424, "T": 231, "fw_s": 10.8}
+{"ts": "2026-07-21T23:02:21", "event": "sustain_block", "mA": 250.0, "block": 28, "n": 280, "t_s": 2543, "err": 297, "backlash": 522, "T": 231, "fw_s": 20.5}
+{"ts": "2026-07-21T23:03:49", "event": "sustain_block", "mA": 250.0, "block": 29, "n": 290, "t_s": 2631, "err": 1807, "backlash": 518, "T": 231, "fw_s": 9.2}
+{"ts": "2026-07-21T23:05:17", "event": "sustain_block", "mA": 250.0, "block": 30, "n": 300, "t_s": 2719, "err": 215, "backlash": 442, "T": 231, "fw_s": 9.2}
+{"ts": "2026-07-21T23:06:48", "event": "sustain_block", "mA": 250.0, "block": 31, "n": 310, "t_s": 2809, "err": -185, "backlash": 443, "T": 231, "fw_s": 11.2}
+{"ts": "2026-07-21T23:08:16", "event": "sustain_block", "mA": 250.0, "block": 32, "n": 320, "t_s": 2898, "err": -1937, "backlash": 472, "T": 231, "fw_s": 9.3}
+{"ts": "2026-07-21T23:09:55", "event": "sustain_block", "mA": 250.0, "block": 33, "n": 330, "t_s": 2997, "err": -333, "backlash": 521, "T": 231, "fw_s": 20.4}
+{"ts": "2026-07-21T23:11:23", "event": "sustain_block", "mA": 250.0, "block": 34, "n": 340, "t_s": 3085, "err": 742, "backlash": 496, "T": 231, "fw_s": 9.0}
+{"ts": "2026-07-21T23:12:54", "event": "sustain_block", "mA": 250.0, "block": 35, "n": 350, "t_s": 3176, "err": -51, "backlash": 394, "T": 231, "fw_s": 11.8}
+{"ts": "2026-07-21T23:14:23", "event": "sustain_block", "mA": 250.0, "block": 36, "n": 360, "t_s": 3265, "err": -536, "backlash": 442, "T": 231, "fw_s": 10.3}
+{"ts": "2026-07-21T23:16:03", "event": "sustain_block", "mA": 250.0, "block": 37, "n": 370, "t_s": 3364, "err": -328, "backlash": 519, "T": 231, "fw_s": 20.4}
+{"ts": "2026-07-21T23:17:31", "event": "sustain_block", "mA": 250.0, "block": 38, "n": 380, "t_s": 3452, "err": 1301, "backlash": 492, "T": 231, "fw_s": 9.1}
+{"ts": "2026-07-21T23:18:59", "event": "sustain_block", "mA": 250.0, "block": 39, "n": 390, "t_s": 3540, "err": 595, "backlash": 422, "T": 231, "fw_s": 8.9}
+{"ts": "2026-07-21T23:20:28", "event": "sustain_block", "mA": 250.0, "block": 40, "n": 400, "t_s": 3630, "err": -678, "backlash": 444, "T": 231, "fw_s": 10.5}
+{"ts": "2026-07-21T23:21:56", "event": "sustain_block", "mA": 250.0, "block": 41, "n": 410, "t_s": 3718, "err": -3574, "backlash": 466, "T": 231, "fw_s": 9.1}
+{"ts": "2026-07-21T23:23:35", "event": "sustain_block", "mA": 250.0, "block": 42, "n": 420, "t_s": 3817, "err": -581, "backlash": 500, "T": 231, "fw_s": 20.4}
+{"ts": "2026-07-21T23:25:03", "event": "sustain_block", "mA": 250.0, "block": 43, "n": 430, "t_s": 3905, "err": 466, "backlash": 440, "T": 231, "fw_s": 8.9}
+{"ts": "2026-07-21T23:26:33", "event": "sustain_block", "mA": 250.0, "block": 44, "n": 440, "t_s": 3995, "err": -177, "backlash": 392, "T": 231, "fw_s": 10.9}
+{"ts": "2026-07-21T23:28:02", "event": "sustain_block", "mA": 250.0, "block": 45, "n": 450, "t_s": 4084, "err": -1933, "backlash": 443, "T": 231, "fw_s": 10.0}
+{"ts": "2026-07-21T23:29:42", "event": "sustain_block", "mA": 250.0, "block": 46, "n": 460, "t_s": 4183, "err": 190, "backlash": 522, "T": 231, "fw_s": 20.5}
+{"ts": "2026-07-21T23:31:10", "event": "sustain_block", "mA": 250.0, "block": 47, "n": 470, "t_s": 4271, "err": 1138, "backlash": 462, "T": 231, "fw_s": 9.1}
+{"ts": "2026-07-21T23:32:40", "event": "sustain_block", "mA": 250.0, "block": 48, "n": 480, "t_s": 4362, "err": 71, "backlash": 396, "T": 231, "fw_s": 11.8}
+{"ts": "2026-07-21T23:34:09", "event": "sustain_block", "mA": 250.0, "block": 49, "n": 490, "t_s": 4451, "err": -1181, "backlash": 447, "T": 231, "fw_s": 9.9}
+{"ts": "2026-07-21T23:35:49", "event": "sustain_block", "mA": 250.0, "block": 50, "n": 500, "t_s": 4550, "err": -444, "backlash": 543, "T": 231, "fw_s": 20.4}
+{"ts": "2026-07-21T23:37:17", "event": "sustain_block", "mA": 250.0, "block": 51, "n": 510, "t_s": 4638, "err": 1551, "backlash": 519, "T": 231, "fw_s": 9.1}
+{"ts": "2026-07-21T23:38:45", "event": "sustain_block", "mA": 250.0, "block": 52, "n": 520, "t_s": 4726, "err": 340, "backlash": 422, "T": 231, "fw_s": 9.1}
+{"ts": "2026-07-21T23:40:14", "event": "sustain_block", "mA": 250.0, "block": 53, "n": 530, "t_s": 4816, "err": -778, "backlash": 442, "T": 231, "fw_s": 10.4}
+{"ts": "2026-07-21T23:41:42", "event": "sustain_block", "mA": 250.0, "block": 54, "n": 540, "t_s": 4904, "err": -1909, "backlash": 492, "T": 231, "fw_s": 9.1}
+{"ts": "2026-07-21T23:43:21", "event": "sustain_block", "mA": 250.0, "block": 55, "n": 550, "t_s": 5003, "err": -1084, "backlash": 515, "T": 231, "fw_s": 20.3}
+{"ts": "2026-07-21T23:44:50", "event": "sustain_block", "mA": 250.0, "block": 56, "n": 560, "t_s": 5091, "err": 991, "backlash": 443, "T": 231, "fw_s": 9.0}
+{"ts": "2026-07-21T23:46:19", "event": "sustain_block", "mA": 250.0, "block": 57, "n": 570, "t_s": 5181, "err": -176, "backlash": 441, "T": 231, "fw_s": 10.9}
+{"ts": "2026-07-21T23:47:48", "event": "sustain_block", "mA": 250.0, "block": 58, "n": 580, "t_s": 5270, "err": -2423, "backlash": 467, "T": 231, "fw_s": 9.5}
+{"ts": "2026-07-21T23:49:27", "event": "sustain_block", "mA": 250.0, "block": 59, "n": 590, "t_s": 5369, "err": -454, "backlash": 523, "T": 231, "fw_s": 20.4}
+{"ts": "2026-07-21T23:50:55", "event": "sustain_block", "mA": 250.0, "block": 60, "n": 600, "t_s": 5457, "err": 1266, "backlash": 469, "T": 231, "fw_s": 9.1}
+{"ts": "2026-07-21T23:50:55", "event": "sustain_end", "mA": 250.0, "n": 600, "t_s": 5457}
+{"ts": "2026-07-21T23:50:59", "event": "rest_begin", "minutes": 15.0}
+{"ts": "2026-07-22T00:05:59", "event": "rest_end"}
+{"ts": "2026-07-22T00:06:49", "event": "sustain_begin", "mA": 250.0, "cap_min": 40.0, "move_v": 8000}
+{"ts": "2026-07-22T00:08:06", "event": "sustain_block", "mA": 250.0, "block": 1, "n": 10, "t_s": 77, "err": 593, "backlash": 397, "T": 231, "fw_s": 8.9}
+{"ts": "2026-07-22T00:09:24", "event": "sustain_block", "mA": 250.0, "block": 2, "n": 20, "t_s": 155, "err": 362, "backlash": 421, "T": 231, "fw_s": 10.5}
+{"ts": "2026-07-22T00:10:42", "event": "sustain_block", "mA": 250.0, "block": 3, "n": 30, "t_s": 233, "err": 392, "backlash": 463, "T": 231, "fw_s": 10.5}
+{"ts": "2026-07-22T00:11:59", "event": "sustain_block", "mA": 250.0, "block": 4, "n": 40, "t_s": 309, "err": 949, "backlash": 518, "T": 231, "fw_s": 9.0}
+{"ts": "2026-07-22T00:13:16", "event": "sustain_block", "mA": 250.0, "block": 5, "n": 50, "t_s": 387, "err": 6608, "backlash": 518, "T": 231, "fw_s": 9.7}
+{"ts": "2026-07-22T00:14:35", "event": "sustain_block", "mA": 250.0, "block": 6, "n": 60, "t_s": 465, "err": 14168, "backlash": 521, "T": 231, "fw_s": 10.7}
+{"ts": "2026-07-22T00:14:35", "event": "sustain_degraded", "mA": 250.0, "n": 60, "t_s": 465}
+{"ts": "2026-07-22T00:14:35", "event": "sustain_end", "mA": 250.0, "n": 60, "t_s": 465}
+{"ts": "2026-07-22T00:14:39", "event": "rest_begin", "minutes": 15.0}
+{"ts": "2026-07-22T00:29:39", "event": "rest_end"}
+{"ts": "2026-07-22T00:29:51", "event": "sustain_begin", "mA": 250.0, "cap_min": 90.0, "move_v": 6000}
+{"ts": "2026-07-22T00:31:19", "event": "sustain_block", "mA": 250.0, "block": 1, "n": 10, "t_s": 88, "err": 550, "backlash": 490, "T": 231, "fw_s": 9.0}
+{"ts": "2026-07-22T00:32:47", "event": "sustain_block", "mA": 250.0, "block": 2, "n": 20, "t_s": 176, "err": 267, "backlash": 417, "T": 231, "fw_s": 9.1}
+{"ts": "2026-07-22T00:34:16", "event": "sustain_block", "mA": 250.0, "block": 3, "n": 30, "t_s": 265, "err": -846, "backlash": 444, "T": 231, "fw_s": 9.9}
+{"ts": "2026-07-22T00:35:55", "event": "sustain_block", "mA": 250.0, "block": 4, "n": 40, "t_s": 364, "err": -764, "backlash": 490, "T": 231, "fw_s": 20.3}
+{"ts": "2026-07-22T00:37:23", "event": "sustain_block", "mA": 250.0, "block": 5, "n": 50, "t_s": 452, "err": 1231, "backlash": 467, "T": 231, "fw_s": 9.0}
+{"ts": "2026-07-22T00:38:51", "event": "sustain_block", "mA": 250.0, "block": 6, "n": 60, "t_s": 540, "err": 540, "backlash": 392, "T": 231, "fw_s": 8.9}
+{"ts": "2026-07-22T00:40:21", "event": "sustain_block", "mA": 250.0, "block": 7, "n": 70, "t_s": 629, "err": -603, "backlash": 417, "T": 231, "fw_s": 10.3}
+{"ts": "2026-07-22T00:41:50", "event": "sustain_block", "mA": 250.0, "block": 8, "n": 80, "t_s": 719, "err": -938, "backlash": 470, "T": 231, "fw_s": 10.3}
+{"ts": "2026-07-22T00:43:29", "event": "sustain_block", "mA": 250.0, "block": 9, "n": 90, "t_s": 818, "err": 266, "backlash": 542, "T": 231, "fw_s": 20.5}
+{"ts": "2026-07-22T00:44:57", "event": "sustain_block", "mA": 250.0, "block": 10, "n": 100, "t_s": 906, "err": 1450, "backlash": 447, "T": 231, "fw_s": 9.1}
+{"ts": "2026-07-22T00:46:27", "event": "sustain_block", "mA": 250.0, "block": 11, "n": 110, "t_s": 996, "err": -90, "backlash": 420, "T": 231, "fw_s": 10.9}
+{"ts": "2026-07-22T00:47:56", "event": "sustain_block", "mA": 250.0, "block": 12, "n": 120, "t_s": 1085, "err": -1467, "backlash": 474, "T": 231, "fw_s": 9.6}
+{"ts": "2026-07-22T00:49:35", "event": "sustain_block", "mA": 250.0, "block": 13, "n": 130, "t_s": 1184, "err": -385, "backlash": 520, "T": 231, "fw_s": 20.4}
+{"ts": "2026-07-22T00:51:03", "event": "sustain_block", "mA": 250.0, "block": 14, "n": 140, "t_s": 1272, "err": 1590, "backlash": 462, "T": 231, "fw_s": 9.1}
+{"ts": "2026-07-22T00:52:34", "event": "sustain_block", "mA": 250.0, "block": 15, "n": 150, "t_s": 1362, "err": 515, "backlash": 414, "T": 231, "fw_s": 11.5}
+{"ts": "2026-07-22T00:54:02", "event": "sustain_block", "mA": 250.0, "block": 16, "n": 160, "t_s": 1451, "err": -1873, "backlash": 468, "T": 231, "fw_s": 9.4}
+{"ts": "2026-07-22T00:55:42", "event": "sustain_block", "mA": 250.0, "block": 17, "n": 170, "t_s": 1550, "err": -377, "backlash": 523, "T": 231, "fw_s": 20.4}
+{"ts": "2026-07-22T00:57:10", "event": "sustain_block", "mA": 250.0, "block": 18, "n": 180, "t_s": 1638, "err": 2252, "backlash": 494, "T": 231, "fw_s": 9.2}
+{"ts": "2026-07-22T00:58:40", "event": "sustain_block", "mA": 250.0, "block": 19, "n": 190, "t_s": 1729, "err": 419, "backlash": 425, "T": 231, "fw_s": 11.8}
+{"ts": "2026-07-22T01:00:10", "event": "sustain_block", "mA": 250.0, "block": 20, "n": 200, "t_s": 1819, "err": 432, "backlash": 460, "T": 231, "fw_s": 11.0}
+{"ts": "2026-07-22T01:01:39", "event": "sustain_block", "mA": 250.0, "block": 21, "n": 210, "t_s": 1908, "err": -1447, "backlash": 491, "T": 231, "fw_s": 9.6}
+{"ts": "2026-07-22T01:03:18", "event": "sustain_block", "mA": 250.0, "block": 22, "n": 220, "t_s": 2007, "err": -624, "backlash": 519, "T": 231, "fw_s": 20.4}
+{"ts": "2026-07-22T01:04:46", "event": "sustain_block", "mA": 250.0, "block": 23, "n": 230, "t_s": 2095, "err": 1711, "backlash": 463, "T": 231, "fw_s": 9.1}
+{"ts": "2026-07-22T01:06:16", "event": "sustain_block", "mA": 250.0, "block": 24, "n": 240, "t_s": 2185, "err": 419, "backlash": 439, "T": 231, "fw_s": 11.2}
+{"ts": "2026-07-22T01:07:45", "event": "sustain_block", "mA": 250.0, "block": 25, "n": 250, "t_s": 2274, "err": -1203, "backlash": 471, "T": 231, "fw_s": 9.5}
+{"ts": "2026-07-22T01:09:24", "event": "sustain_block", "mA": 250.0, "block": 26, "n": 260, "t_s": 2373, "err": -251, "backlash": 517, "T": 231, "fw_s": 20.4}
+{"ts": "2026-07-22T01:10:52", "event": "sustain_block", "mA": 250.0, "block": 27, "n": 270, "t_s": 2461, "err": 2108, "backlash": 470, "T": 231, "fw_s": 9.2}
+{"ts": "2026-07-22T01:12:23", "event": "sustain_block", "mA": 250.0, "block": 28, "n": 280, "t_s": 2552, "err": 788, "backlash": 393, "T": 231, "fw_s": 11.6}
+{"ts": "2026-07-22T01:13:51", "event": "sustain_block", "mA": 250.0, "block": 29, "n": 290, "t_s": 2640, "err": -1346, "backlash": 420, "T": 231, "fw_s": 9.3}
+{"ts": "2026-07-22T01:15:31", "event": "sustain_block", "mA": 250.0, "block": 30, "n": 300, "t_s": 2739, "err": 541, "backlash": 390, "T": 231, "fw_s": 20.4}
+{"ts": "2026-07-22T01:16:59", "event": "sustain_block", "mA": 250.0, "block": 31, "n": 310, "t_s": 2828, "err": 3283, "backlash": 491, "T": 231, "fw_s": 9.3}
+{"ts": "2026-07-22T01:18:27", "event": "sustain_block", "mA": 250.0, "block": 32, "n": 320, "t_s": 2915, "err": 662, "backlash": 396, "T": 231, "fw_s": 8.9}
+{"ts": "2026-07-22T01:19:56", "event": "sustain_block", "mA": 250.0, "block": 33, "n": 330, "t_s": 3005, "err": -219, "backlash": 437, "T": 231, "fw_s": 10.1}
+{"ts": "2026-07-22T01:21:25", "event": "sustain_block", "mA": 250.0, "block": 34, "n": 340, "t_s": 3093, "err": -804, "backlash": 490, "T": 231, "fw_s": 9.7}
+{"ts": "2026-07-22T01:23:04", "event": "sustain_block", "mA": 250.0, "block": 35, "n": 350, "t_s": 3193, "err": 658, "backlash": 540, "T": 231, "fw_s": 20.5}
+{"ts": "2026-07-22T01:24:32", "event": "sustain_block", "mA": 250.0, "block": 36, "n": 360, "t_s": 3281, "err": 2235, "backlash": 450, "T": 231, "fw_s": 9.2}
+{"ts": "2026-07-22T01:26:02", "event": "sustain_block", "mA": 250.0, "block": 37, "n": 370, "t_s": 3371, "err": 951, "backlash": 420, "T": 231, "fw_s": 11.2}
+{"ts": "2026-07-22T01:27:30", "event": "sustain_block", "mA": 250.0, "block": 38, "n": 380, "t_s": 3459, "err": -1842, "backlash": 517, "T": 231, "fw_s": 8.8}
+{"ts": "2026-07-22T01:29:10", "event": "sustain_block", "mA": 250.0, "block": 39, "n": 390, "t_s": 3559, "err": 2842, "backlash": 419, "T": 231, "fw_s": 20.8}
+{"ts": "2026-07-22T01:30:38", "event": "sustain_block", "mA": 250.0, "block": 40, "n": 400, "t_s": 3647, "err": 3783, "backlash": 473, "T": 231, "fw_s": 9.4}
+{"ts": "2026-07-22T01:30:38", "event": "sustain_degraded", "mA": 250.0, "n": 400, "t_s": 3647}
+{"ts": "2026-07-22T01:30:38", "event": "sustain_end", "mA": 250.0, "n": 400, "t_s": 3647}
+{"ts": "2026-07-22T01:30:42", "event": "rest_begin", "minutes": 15.0}
+{"ts": "2026-07-22T01:45:42", "event": "rest_end"}
+{"ts": "2026-07-22T01:46:21", "event": "rest_begin", "minutes": 420.0}
+{"ts": "2026-07-22T11:00:23", "event": "sustain_begin", "mA": 250.0, "cap_min": 40.0, "move_v": 24000, "rev": 189704}
+{"ts": "2026-07-22T11:01:33", "event": "sustain_block", "mA": 250.0, "block": 1, "n": 10, "t_s": 70, "err": 143, "backlash": 619, "T": 232, "fw_s": 11.5}
+{"ts": "2026-07-22T11:02:43", "event": "sustain_block", "mA": 250.0, "block": 2, "n": 20, "t_s": 140, "err": 182, "backlash": 542, "T": 231, "fw_s": 11.4}
+{"ts": "2026-07-22T11:03:53", "event": "sustain_block", "mA": 250.0, "block": 3, "n": 30, "t_s": 209, "err": 128, "backlash": 543, "T": 231, "fw_s": 11.3}
+{"ts": "2026-07-22T11:05:02", "event": "sustain_block", "mA": 250.0, "block": 4, "n": 40, "t_s": 279, "err": 158, "backlash": 491, "T": 231, "fw_s": 11.3}
+{"ts": "2026-07-22T11:06:12", "event": "sustain_block", "mA": 250.0, "block": 5, "n": 50, "t_s": 349, "err": 190, "backlash": 535, "T": 231, "fw_s": 11.4}
+{"ts": "2026-07-22T11:07:22", "event": "sustain_block", "mA": 250.0, "block": 6, "n": 60, "t_s": 418, "err": 173, "backlash": 515, "T": 231, "fw_s": 11.3}
+{"ts": "2026-07-22T11:08:31", "event": "sustain_block", "mA": 250.0, "block": 7, "n": 70, "t_s": 488, "err": 295, "backlash": 540, "T": 232, "fw_s": 11.4}
+{"ts": "2026-07-22T11:09:41", "event": "sustain_block", "mA": 250.0, "block": 8, "n": 80, "t_s": 558, "err": 166, "backlash": 562, "T": 231, "fw_s": 11.3}
+{"ts": "2026-07-22T11:10:51", "event": "sustain_block", "mA": 250.0, "block": 9, "n": 90, "t_s": 627, "err": 218, "backlash": 517, "T": 231, "fw_s": 11.3}
+{"ts": "2026-07-22T11:12:01", "event": "sustain_block", "mA": 250.0, "block": 10, "n": 100, "t_s": 697, "err": 57, "backlash": 590, "T": 231, "fw_s": 11.5}
+{"ts": "2026-07-22T11:13:10", "event": "sustain_block", "mA": 250.0, "block": 11, "n": 110, "t_s": 767, "err": 212, "backlash": 493, "T": 231, "fw_s": 11.3}
+{"ts": "2026-07-22T11:14:20", "event": "sustain_block", "mA": 250.0, "block": 12, "n": 120, "t_s": 837, "err": 130, "backlash": 542, "T": 232, "fw_s": 11.5}
+{"ts": "2026-07-22T11:15:30", "event": "sustain_block", "mA": 250.0, "block": 13, "n": 130, "t_s": 906, "err": 80, "backlash": 516, "T": 231, "fw_s": 11.2}
+{"ts": "2026-07-22T11:16:39", "event": "sustain_block", "mA": 250.0, "block": 14, "n": 140, "t_s": 976, "err": 192, "backlash": 516, "T": 231, "fw_s": 11.3}
+{"ts": "2026-07-22T11:17:49", "event": "sustain_block", "mA": 250.0, "block": 15, "n": 150, "t_s": 1046, "err": 215, "backlash": 568, "T": 231, "fw_s": 11.3}
+{"ts": "2026-07-22T11:18:59", "event": "sustain_block", "mA": 250.0, "block": 16, "n": 160, "t_s": 1115, "err": 139, "backlash": 517, "T": 231, "fw_s": 11.3}
+{"ts": "2026-07-22T11:20:09", "event": "sustain_block", "mA": 250.0, "block": 17, "n": 170, "t_s": 1185, "err": 108, "backlash": 590, "T": 231, "fw_s": 11.5}
+{"ts": "2026-07-22T11:21:18", "event": "sustain_block", "mA": 250.0, "block": 18, "n": 180, "t_s": 1255, "err": 123, "backlash": 485, "T": 231, "fw_s": 11.2}
+{"ts": "2026-07-22T11:22:28", "event": "sustain_block", "mA": 250.0, "block": 19, "n": 190, "t_s": 1325, "err": 167, "backlash": 536, "T": 232, "fw_s": 11.5}
+{"ts": "2026-07-22T11:23:38", "event": "sustain_block", "mA": 250.0, "block": 20, "n": 200, "t_s": 1395, "err": 137, "backlash": 520, "T": 231, "fw_s": 11.3}
+{"ts": "2026-07-22T11:24:48", "event": "sustain_block", "mA": 250.0, "block": 21, "n": 210, "t_s": 1464, "err": 243, "backlash": 512, "T": 231, "fw_s": 11.3}
+{"ts": "2026-07-22T11:25:57", "event": "sustain_block", "mA": 250.0, "block": 22, "n": 220, "t_s": 1534, "err": 141, "backlash": 570, "T": 231, "fw_s": 11.4}
+{"ts": "2026-07-22T11:27:07", "event": "sustain_block", "mA": 250.0, "block": 23, "n": 230, "t_s": 1604, "err": 188, "backlash": 519, "T": 231, "fw_s": 11.3}
+{"ts": "2026-07-22T11:28:17", "event": "sustain_block", "mA": 250.0, "block": 24, "n": 240, "t_s": 1673, "err": 136, "backlash": 565, "T": 231, "fw_s": 11.4}
+{"ts": "2026-07-22T11:29:26", "event": "sustain_block", "mA": 250.0, "block": 25, "n": 250, "t_s": 1743, "err": 173, "backlash": 466, "T": 231, "fw_s": 11.3}
+{"ts": "2026-07-22T11:30:36", "event": "sustain_block", "mA": 250.0, "block": 26, "n": 260, "t_s": 1813, "err": 216, "backlash": 535, "T": 232, "fw_s": 11.4}
+{"ts": "2026-07-22T11:31:46", "event": "sustain_block", "mA": 250.0, "block": 27, "n": 270, "t_s": 1883, "err": 63, "backlash": 566, "T": 231, "fw_s": 11.4}
+{"ts": "2026-07-22T11:32:56", "event": "sustain_block", "mA": 250.0, "block": 28, "n": 280, "t_s": 1952, "err": 293, "backlash": 470, "T": 231, "fw_s": 11.4}
+{"ts": "2026-07-22T11:34:05", "event": "sustain_block", "mA": 250.0, "block": 29, "n": 290, "t_s": 2022, "err": 187, "backlash": 567, "T": 231, "fw_s": 11.3}
+{"ts": "2026-07-22T11:35:15", "event": "sustain_block", "mA": 250.0, "block": 30, "n": 300, "t_s": 2092, "err": 241, "backlash": 541, "T": 231, "fw_s": 11.3}
+{"ts": "2026-07-22T11:36:25", "event": "sustain_block", "mA": 250.0, "block": 31, "n": 310, "t_s": 2161, "err": 63, "backlash": 560, "T": 231, "fw_s": 11.4}
+{"ts": "2026-07-22T11:37:34", "event": "sustain_block", "mA": 250.0, "block": 32, "n": 320, "t_s": 2231, "err": 215, "backlash": 456, "T": 231, "fw_s": 11.3}
+{"ts": "2026-07-22T11:38:44", "event": "sustain_block", "mA": 250.0, "block": 33, "n": 330, "t_s": 2301, "err": 142, "backlash": 543, "T": 232, "fw_s": 11.5}
+{"ts": "2026-07-22T11:39:54", "event": "sustain_block", "mA": 250.0, "block": 34, "n": 340, "t_s": 2371, "err": 116, "backlash": 566, "T": 231, "fw_s": 11.4}
+{"ts": "2026-07-22T11:41:04", "event": "sustain_block", "mA": 250.0, "block": 35, "n": 350, "t_s": 2440, "err": 228, "backlash": 490, "T": 231, "fw_s": 11.3}
+{"ts": "2026-07-22T11:41:04", "event": "sustain_end", "mA": 250.0, "n": 350, "t_s": 2440}
+{"ts": "2026-07-22T11:41:08", "event": "rest_begin", "minutes": 15.0}
+{"ts": "2026-07-22T11:56:08", "event": "rest_end"}
+{"ts": "2026-07-22T11:56:23", "event": "sustain_begin", "mA": 250.0, "cap_min": 40.0, "move_v": 28000, "rev": 189704}
+{"ts": "2026-07-22T11:57:30", "event": "sustain_block", "mA": 250.0, "block": 1, "n": 10, "t_s": 67, "err": 124, "backlash": 606, "T": 232, "fw_s": 11.4}
+{"ts": "2026-07-22T11:58:36", "event": "sustain_block", "mA": 250.0, "block": 2, "n": 20, "t_s": 134, "err": 174, "backlash": 564, "T": 232, "fw_s": 11.5}
+{"ts": "2026-07-22T11:59:43", "event": "sustain_block", "mA": 250.0, "block": 3, "n": 30, "t_s": 201, "err": 130, "backlash": 586, "T": 232, "fw_s": 11.5}
+{"ts": "2026-07-22T12:00:50", "event": "sustain_block", "mA": 250.0, "block": 4, "n": 40, "t_s": 267, "err": 131, "backlash": 434, "T": 231, "fw_s": 11.2}
+{"ts": "2026-07-22T12:01:57", "event": "sustain_block", "mA": 250.0, "block": 5, "n": 50, "t_s": 334, "err": 176, "backlash": 517, "T": 232, "fw_s": 11.4}
+{"ts": "2026-07-22T12:03:03", "event": "sustain_block", "mA": 250.0, "block": 6, "n": 60, "t_s": 401, "err": 153, "backlash": 514, "T": 231, "fw_s": 11.3}
+{"ts": "2026-07-22T12:04:10", "event": "sustain_block", "mA": 250.0, "block": 7, "n": 70, "t_s": 467, "err": 284, "backlash": 517, "T": 232, "fw_s": 11.3}
+{"ts": "2026-07-22T12:05:17", "event": "sustain_block", "mA": 250.0, "block": 8, "n": 80, "t_s": 534, "err": 173, "backlash": 615, "T": 232, "fw_s": 11.4}
+{"ts": "2026-07-22T12:06:24", "event": "sustain_block", "mA": 250.0, "block": 9, "n": 90, "t_s": 601, "err": 220, "backlash": 541, "T": 232, "fw_s": 11.4}
+{"ts": "2026-07-22T12:07:30", "event": "sustain_block", "mA": 250.0, "block": 10, "n": 100, "t_s": 668, "err": 38, "backlash": 591, "T": 232, "fw_s": 11.4}
+{"ts": "2026-07-22T12:08:37", "event": "sustain_block", "mA": 250.0, "block": 11, "n": 110, "t_s": 734, "err": 183, "backlash": 463, "T": 231, "fw_s": 11.2}
+{"ts": "2026-07-22T12:09:44", "event": "sustain_block", "mA": 250.0, "block": 12, "n": 120, "t_s": 801, "err": 227, "backlash": 513, "T": 232, "fw_s": 11.4}
+{"ts": "2026-07-22T12:10:50", "event": "sustain_block", "mA": 250.0, "block": 13, "n": 130, "t_s": 868, "err": 80, "backlash": 515, "T": 231, "fw_s": 11.3}
+{"ts": "2026-07-22T12:11:57", "event": "sustain_block", "mA": 250.0, "block": 14, "n": 140, "t_s": 934, "err": 197, "backlash": 513, "T": 232, "fw_s": 11.4}
+{"ts": "2026-07-22T12:13:04", "event": "sustain_block", "mA": 250.0, "block": 15, "n": 150, "t_s": 1001, "err": 209, "backlash": 590, "T": 232, "fw_s": 11.5}
+{"ts": "2026-07-22T12:14:11", "event": "sustain_block", "mA": 250.0, "block": 16, "n": 160, "t_s": 1068, "err": 128, "backlash": 518, "T": 232, "fw_s": 11.4}
+{"ts": "2026-07-22T12:15:18", "event": "sustain_block", "mA": 250.0, "block": 17, "n": 170, "t_s": 1135, "err": 91, "backlash": 569, "T": 232, "fw_s": 11.4}
+{"ts": "2026-07-22T12:16:24", "event": "sustain_block", "mA": 250.0, "block": 18, "n": 180, "t_s": 1201, "err": 106, "backlash": 465, "T": 231, "fw_s": 11.3}
+{"ts": "2026-07-22T12:17:31", "event": "sustain_block", "mA": 250.0, "block": 19, "n": 190, "t_s": 1268, "err": 153, "backlash": 515, "T": 232, "fw_s": 11.5}
+{"ts": "2026-07-22T12:18:38", "event": "sustain_block", "mA": 250.0, "block": 20, "n": 200, "t_s": 1335, "err": 141, "backlash": 517, "T": 231, "fw_s": 11.3}
+{"ts": "2026-07-22T12:19:44", "event": "sustain_block", "mA": 250.0, "block": 21, "n": 210, "t_s": 1402, "err": 256, "backlash": 518, "T": 232, "fw_s": 11.4}
+{"ts": "2026-07-22T12:20:51", "event": "sustain_block", "mA": 250.0, "block": 22, "n": 220, "t_s": 1469, "err": 136, "backlash": 593, "T": 232, "fw_s": 11.4}
+{"ts": "2026-07-22T12:21:58", "event": "sustain_block", "mA": 250.0, "block": 23, "n": 230, "t_s": 1535, "err": 180, "backlash": 545, "T": 232, "fw_s": 11.5}
+{"ts": "2026-07-22T12:23:05", "event": "sustain_block", "mA": 250.0, "block": 24, "n": 240, "t_s": 1602, "err": 148, "backlash": 610, "T": 232, "fw_s": 11.5}
+{"ts": "2026-07-22T12:24:12", "event": "sustain_block", "mA": 250.0, "block": 25, "n": 250, "t_s": 1669, "err": 165, "backlash": 466, "T": 231, "fw_s": 11.2}
+{"ts": "2026-07-22T12:25:18", "event": "sustain_block", "mA": 250.0, "block": 26, "n": 260, "t_s": 1736, "err": 217, "backlash": 519, "T": 232, "fw_s": 11.4}
+{"ts": "2026-07-22T12:26:25", "event": "sustain_block", "mA": 250.0, "block": 27, "n": 270, "t_s": 1802, "err": 55, "backlash": 538, "T": 231, "fw_s": 11.3}
+{"ts": "2026-07-22T12:27:32", "event": "sustain_block", "mA": 250.0, "block": 28, "n": 280, "t_s": 1869, "err": 307, "backlash": 510, "T": 232, "fw_s": 11.4}
+{"ts": "2026-07-22T12:28:39", "event": "sustain_block", "mA": 250.0, "block": 29, "n": 290, "t_s": 1936, "err": 187, "backlash": 591, "T": 232, "fw_s": 11.4}
+{"ts": "2026-07-22T12:29:46", "event": "sustain_block", "mA": 250.0, "block": 30, "n": 300, "t_s": 2003, "err": 236, "backlash": 542, "T": 232, "fw_s": 11.5}
+{"ts": "2026-07-22T12:30:52", "event": "sustain_block", "mA": 250.0, "block": 31, "n": 310, "t_s": 2069, "err": 52, "backlash": 560, "T": 231, "fw_s": 11.3}
+{"ts": "2026-07-22T12:31:59", "event": "sustain_block", "mA": 250.0, "block": 32, "n": 320, "t_s": 2136, "err": 221, "backlash": 468, "T": 231, "fw_s": 11.2}
+{"ts": "2026-07-22T12:33:05", "event": "sustain_block", "mA": 250.0, "block": 33, "n": 330, "t_s": 2203, "err": 126, "backlash": 516, "T": 231, "fw_s": 11.3}
+{"ts": "2026-07-22T12:34:12", "event": "sustain_block", "mA": 250.0, "block": 34, "n": 340, "t_s": 2269, "err": 105, "backlash": 517, "T": 231, "fw_s": 11.3}
+{"ts": "2026-07-22T12:35:19", "event": "sustain_block", "mA": 250.0, "block": 35, "n": 350, "t_s": 2336, "err": 219, "backlash": 493, "T": 232, "fw_s": 11.4}
+{"ts": "2026-07-22T12:36:26", "event": "sustain_block", "mA": 250.0, "block": 36, "n": 360, "t_s": 2403, "err": 104, "backlash": 592, "T": 232, "fw_s": 11.6}
+{"ts": "2026-07-22T12:36:26", "event": "sustain_end", "mA": 250.0, "n": 360, "t_s": 2403}
+{"ts": "2026-07-22T12:36:30", "event": "rest_begin", "minutes": 15.0}
+{"ts": "2026-07-22T12:51:30", "event": "rest_end"}
+{"ts": "2026-07-22T12:51:45", "event": "sustain_begin", "mA": 250.0, "cap_min": 40.0, "move_v": 30000, "rev": 189704}
+{"ts": "2026-07-22T12:52:50", "event": "sustain_block", "mA": 250.0, "block": 1, "n": 10, "t_s": 65, "err": 153, "backlash": 542, "T": 231, "fw_s": 11.3}
+{"ts": "2026-07-22T12:53:56", "event": "sustain_block", "mA": 250.0, "block": 2, "n": 20, "t_s": 131, "err": 117, "backlash": 589, "T": 231, "fw_s": 11.4}
+{"ts": "2026-07-22T12:55:01", "event": "sustain_block", "mA": 250.0, "block": 3, "n": 30, "t_s": 197, "err": 141, "backlash": 464, "T": 231, "fw_s": 11.2}
+{"ts": "2026-07-22T12:56:07", "event": "sustain_block", "mA": 250.0, "block": 4, "n": 40, "t_s": 262, "err": 185, "backlash": 529, "T": 232, "fw_s": 11.5}
+{"ts": "2026-07-22T12:57:12", "event": "sustain_block", "mA": 250.0, "block": 5, "n": 50, "t_s": 328, "err": 152, "backlash": 516, "T": 231, "fw_s": 11.3}
+{"ts": "2026-07-22T12:58:18", "event": "sustain_block", "mA": 250.0, "block": 6, "n": 60, "t_s": 393, "err": 268, "backlash": 490, "T": 232, "fw_s": 11.3}
+{"ts": "2026-07-22T12:59:24", "event": "sustain_block", "mA": 250.0, "block": 7, "n": 70, "t_s": 459, "err": 155, "backlash": 591, "T": 232, "fw_s": 11.4}
+{"ts": "2026-07-22T13:00:29", "event": "sustain_block", "mA": 250.0, "block": 8, "n": 80, "t_s": 525, "err": 207, "backlash": 539, "T": 231, "fw_s": 11.3}
+{"ts": "2026-07-22T13:01:35", "event": "sustain_block", "mA": 250.0, "block": 9, "n": 90, "t_s": 590, "err": 42, "backlash": 570, "T": 231, "fw_s": 11.4}
+{"ts": "2026-07-22T13:02:40", "event": "sustain_block", "mA": 250.0, "block": 10, "n": 100, "t_s": 656, "err": 201, "backlash": 468, "T": 231, "fw_s": 11.2}
+{"ts": "2026-07-22T13:03:46", "event": "sustain_block", "mA": 250.0, "block": 11, "n": 110, "t_s": 721, "err": 229, "backlash": 516, "T": 232, "fw_s": 11.4}
+{"ts": "2026-07-22T13:04:51", "event": "sustain_block", "mA": 250.0, "block": 12, "n": 120, "t_s": 787, "err": 78, "backlash": 516, "T": 231, "fw_s": 11.3}
+{"ts": "2026-07-22T13:05:57", "event": "sustain_block", "mA": 250.0, "block": 13, "n": 130, "t_s": 852, "err": 188, "backlash": 515, "T": 232, "fw_s": 11.4}
+{"ts": "2026-07-22T13:07:03", "event": "sustain_block", "mA": 250.0, "block": 14, "n": 140, "t_s": 918, "err": 199, "backlash": 602, "T": 232, "fw_s": 11.4}
+{"ts": "2026-07-22T13:08:08", "event": "sustain_block", "mA": 250.0, "block": 15, "n": 150, "t_s": 984, "err": 255, "backlash": 541, "T": 232, "fw_s": 11.4}
+{"ts": "2026-07-22T13:09:14", "event": "sustain_block", "mA": 250.0, "block": 16, "n": 160, "t_s": 1049, "err": 95, "backlash": 588, "T": 232, "fw_s": 11.5}
+{"ts": "2026-07-22T13:10:19", "event": "sustain_block", "mA": 250.0, "block": 17, "n": 170, "t_s": 1115, "err": 118, "backlash": 466, "T": 231, "fw_s": 11.2}
+{"ts": "2026-07-22T13:11:25", "event": "sustain_block", "mA": 250.0, "block": 18, "n": 180, "t_s": 1180, "err": 161, "backlash": 515, "T": 232, "fw_s": 11.4}
+{"ts": "2026-07-22T13:12:30", "event": "sustain_block", "mA": 250.0, "block": 19, "n": 190, "t_s": 1246, "err": 117, "backlash": 516, "T": 232, "fw_s": 11.3}
+{"ts": "2026-07-22T13:13:36", "event": "sustain_block", "mA": 250.0, "block": 20, "n": 200, "t_s": 1311, "err": 242, "backlash": 542, "T": 233, "fw_s": 11.4}
+{"ts": "2026-07-22T13:14:42", "event": "sustain_block", "mA": 250.0, "block": 21, "n": 210, "t_s": 1377, "err": 138, "backlash": 618, "T": 233, "fw_s": 11.4}
+{"ts": "2026-07-22T13:15:47", "event": "sustain_block", "mA": 250.0, "block": 22, "n": 220, "t_s": 1443, "err": 178, "backlash": 517, "T": 232, "fw_s": 11.3}
+{"ts": "2026-07-22T13:16:53", "event": "sustain_block", "mA": 250.0, "block": 23, "n": 230, "t_s": 1508, "err": 155, "backlash": 614, "T": 232, "fw_s": 11.5}
+{"ts": "2026-07-22T13:17:58", "event": "sustain_block", "mA": 250.0, "block": 24, "n": 240, "t_s": 1574, "err": 162, "backlash": 439, "T": 231, "fw_s": 11.2}
+{"ts": "2026-07-22T13:19:08", "event": "sustain_block", "mA": 250.0, "block": 25, "n": 250, "t_s": 1644, "err": 198, "backlash": 491, "T": 232, "fw_s": 15.6}
+{"ts": "2026-07-22T13:20:14", "event": "sustain_block", "mA": 250.0, "block": 26, "n": 260, "t_s": 1709, "err": 167, "backlash": 519, "T": 232, "fw_s": 11.2}
+{"ts": "2026-07-22T13:21:19", "event": "sustain_block", "mA": 250.0, "block": 27, "n": 270, "t_s": 1775, "err": 295, "backlash": 519, "T": 233, "fw_s": 11.5}
+{"ts": "2026-07-22T13:22:25", "event": "sustain_block", "mA": 250.0, "block": 28, "n": 280, "t_s": 1841, "err": 195, "backlash": 591, "T": 233, "fw_s": 11.5}
+{"ts": "2026-07-22T13:23:31", "event": "sustain_block", "mA": 250.0, "block": 29, "n": 290, "t_s": 1906, "err": 238, "backlash": 540, "T": 233, "fw_s": 11.4}
+{"ts": "2026-07-22T13:24:37", "event": "sustain_block", "mA": 250.0, "block": 30, "n": 300, "t_s": 1972, "err": 72, "backlash": 591, "T": 232, "fw_s": 11.5}
+{"ts": "2026-07-22T13:25:42", "event": "sustain_block", "mA": 250.0, "block": 31, "n": 310, "t_s": 2037, "err": 216, "backlash": 459, "T": 231, "fw_s": 11.2}
+{"ts": "2026-07-22T13:26:48", "event": "sustain_block", "mA": 250.0, "block": 32, "n": 320, "t_s": 2103, "err": 117, "backlash": 494, "T": 232, "fw_s": 11.4}
+{"ts": "2026-07-22T13:27:53", "event": "sustain_block", "mA": 250.0, "block": 33, "n": 330, "t_s": 2169, "err": 100, "backlash": 539, "T": 232, "fw_s": 11.3}
+{"ts": "2026-07-22T13:28:59", "event": "sustain_block", "mA": 250.0, "block": 34, "n": 340, "t_s": 2234, "err": 229, "backlash": 519, "T": 233, "fw_s": 11.4}
+{"ts": "2026-07-22T13:30:05", "event": "sustain_block", "mA": 250.0, "block": 35, "n": 350, "t_s": 2300, "err": 115, "backlash": 589, "T": 233, "fw_s": 11.5}
+{"ts": "2026-07-22T13:31:10", "event": "sustain_block", "mA": 250.0, "block": 36, "n": 360, "t_s": 2365, "err": 145, "backlash": 519, "T": 232, "fw_s": 11.3}
+{"ts": "2026-07-22T13:32:16", "event": "sustain_block", "mA": 250.0, "block": 37, "n": 370, "t_s": 2431, "err": 127, "backlash": 616, "T": 232, "fw_s": 11.5}
+{"ts": "2026-07-22T13:32:16", "event": "sustain_end", "mA": 250.0, "n": 370, "t_s": 2431}
+{"ts": "2026-07-22T13:32:20", "event": "rest_begin", "minutes": 15.0}
+{"ts": "2026-07-22T13:47:20", "event": "rest_end"}
+{"ts": "2026-07-22T13:49:33", "event": "probe", "healthy": true, "home_ok": 1, "err_fwd": -61, "err_bwd": 143, "detect_rev": null, "T": 231, "backlash": 568, "rev": 189704}
+{"ts": "2026-07-22T13:49:48", "event": "sustain_begin", "mA": 250.0, "cap_min": 40.0, "move_v": 32000, "rev": 189704}
+{"ts": "2026-07-22T13:50:53", "event": "sustain_block", "mA": 250.0, "block": 1, "n": 10, "t_s": 65, "err": 161, "backlash": 517, "T": 233, "fw_s": 11.5}
+{"ts": "2026-07-22T13:51:57", "event": "sustain_block", "mA": 250.0, "block": 2, "n": 20, "t_s": 129, "err": 215, "backlash": 568, "T": 232, "fw_s": 11.3}
+{"ts": "2026-07-22T13:53:02", "event": "sustain_block", "mA": 250.0, "block": 3, "n": 30, "t_s": 194, "err": 126, "backlash": 557, "T": 232, "fw_s": 11.3}
+{"ts": "2026-07-22T13:54:07", "event": "sustain_block", "mA": 250.0, "block": 4, "n": 40, "t_s": 259, "err": 118, "backlash": 538, "T": 232, "fw_s": 11.4}
+{"ts": "2026-07-22T13:55:11", "event": "sustain_block", "mA": 250.0, "block": 5, "n": 50, "t_s": 323, "err": 114, "backlash": 540, "T": 232, "fw_s": 11.3}
+{"ts": "2026-07-22T13:56:16", "event": "sustain_block", "mA": 250.0, "block": 6, "n": 60, "t_s": 388, "err": 191, "backlash": 514, "T": 232, "fw_s": 11.4}
+{"ts": "2026-07-22T13:57:20", "event": "sustain_block", "mA": 250.0, "block": 7, "n": 70, "t_s": 452, "err": 125, "backlash": 494, "T": 232, "fw_s": 11.2}
+{"ts": "2026-07-22T13:58:25", "event": "sustain_block", "mA": 250.0, "block": 8, "n": 80, "t_s": 517, "err": 223, "backlash": 517, "T": 233, "fw_s": 11.4}
+{"ts": "2026-07-22T13:59:34", "event": "sustain_block", "mA": 250.0, "block": 9, "n": 90, "t_s": 586, "err": 139, "backlash": 591, "T": 232, "fw_s": 15.7}
+{"ts": "2026-07-22T14:00:39", "event": "sustain_block", "mA": 250.0, "block": 10, "n": 100, "t_s": 650, "err": 174, "backlash": 542, "T": 232, "fw_s": 11.3}
+{"ts": "2026-07-22T14:01:43", "event": "sustain_block", "mA": 250.0, "block": 11, "n": 110, "t_s": 715, "err": 166, "backlash": 542, "T": 232, "fw_s": 11.5}
+{"ts": "2026-07-22T14:02:48", "event": "sustain_block", "mA": 250.0, "block": 12, "n": 120, "t_s": 780, "err": 148, "backlash": 508, "T": 231, "fw_s": 11.2}
+{"ts": "2026-07-22T14:03:52", "event": "sustain_block", "mA": 250.0, "block": 13, "n": 130, "t_s": 844, "err": 246, "backlash": 511, "T": 232, "fw_s": 11.3}
+{"ts": "2026-07-22T14:04:57", "event": "sustain_block", "mA": 250.0, "block": 14, "n": 140, "t_s": 909, "err": 42, "backlash": 516, "T": 232, "fw_s": 11.3}
+{"ts": "2026-07-22T14:06:02", "event": "sustain_block", "mA": 250.0, "block": 15, "n": 150, "t_s": 973, "err": 283, "backlash": 544, "T": 233, "fw_s": 11.5}
+{"ts": "2026-07-22T14:07:06", "event": "sustain_block", "mA": 250.0, "block": 16, "n": 160, "t_s": 1038, "err": 187, "backlash": 568, "T": 232, "fw_s": 11.4}
+{"ts": "2026-07-22T14:08:11", "event": "sustain_block", "mA": 250.0, "block": 17, "n": 170, "t_s": 1103, "err": 231, "backlash": 542, "T": 232, "fw_s": 11.3}
+{"ts": "2026-07-22T14:09:16", "event": "sustain_block", "mA": 250.0, "block": 18, "n": 180, "t_s": 1168, "err": 93, "backlash": 569, "T": 232, "fw_s": 11.5}
+{"ts": "2026-07-22T14:10:20", "event": "sustain_block", "mA": 250.0, "block": 19, "n": 190, "t_s": 1232, "err": 77, "backlash": 513, "T": 231, "fw_s": 11.3}
+{"ts": "2026-07-22T14:11:25", "event": "sustain_block", "mA": 250.0, "block": 20, "n": 200, "t_s": 1297, "err": 287, "backlash": 491, "T": 232, "fw_s": 11.3}
+{"ts": "2026-07-22T14:12:29", "event": "sustain_block", "mA": 250.0, "block": 21, "n": 210, "t_s": 1361, "err": 93, "backlash": 516, "T": 232, "fw_s": 11.4}
+{"ts": "2026-07-22T14:13:34", "event": "sustain_block", "mA": 250.0, "block": 22, "n": 220, "t_s": 1426, "err": 187, "backlash": 513, "T": 232, "fw_s": 11.2}
+{"ts": "2026-07-22T14:14:39", "event": "sustain_block", "mA": 250.0, "block": 23, "n": 230, "t_s": 1490, "err": 252, "backlash": 589, "T": 232, "fw_s": 11.4}
+{"ts": "2026-07-22T14:15:43", "event": "sustain_block", "mA": 250.0, "block": 24, "n": 240, "t_s": 1555, "err": 158, "backlash": 541, "T": 232, "fw_s": 11.4}
+{"ts": "2026-07-22T14:16:48", "event": "sustain_block", "mA": 250.0, "block": 25, "n": 250, "t_s": 1620, "err": 145, "backlash": 567, "T": 232, "fw_s": 11.5}
+{"ts": "2026-07-22T14:17:52", "event": "sustain_block", "mA": 250.0, "block": 26, "n": 260, "t_s": 1684, "err": 112, "backlash": 494, "T": 231, "fw_s": 11.3}
+{"ts": "2026-07-22T14:18:57", "event": "sustain_block", "mA": 250.0, "block": 27, "n": 270, "t_s": 1749, "err": 206, "backlash": 513, "T": 231, "fw_s": 11.3}
+{"ts": "2026-07-22T14:20:02", "event": "sustain_block", "mA": 250.0, "block": 28, "n": 280, "t_s": 1813, "err": 12, "backlash": 516, "T": 231, "fw_s": 11.3}
+{"ts": "2026-07-22T14:21:06", "event": "sustain_block", "mA": 250.0, "block": 29, "n": 290, "t_s": 1878, "err": 249, "backlash": 515, "T": 232, "fw_s": 11.3}
+{"ts": "2026-07-22T14:22:11", "event": "sustain_block", "mA": 250.0, "block": 30, "n": 300, "t_s": 1943, "err": 178, "backlash": 590, "T": 232, "fw_s": 11.4}
+{"ts": "2026-07-22T14:23:15", "event": "sustain_block", "mA": 250.0, "block": 31, "n": 310, "t_s": 2007, "err": 195, "backlash": 564, "T": 232, "fw_s": 11.4}
+{"ts": "2026-07-22T14:24:20", "event": "sustain_block", "mA": 250.0, "block": 32, "n": 320, "t_s": 2072, "err": 198, "backlash": 543, "T": 232, "fw_s": 11.4}
+{"ts": "2026-07-22T14:25:24", "event": "sustain_block", "mA": 250.0, "block": 33, "n": 330, "t_s": 2136, "err": 155, "backlash": 515, "T": 231, "fw_s": 11.2}
+{"ts": "2026-07-22T14:26:29", "event": "sustain_block", "mA": 250.0, "block": 34, "n": 340, "t_s": 2201, "err": 244, "backlash": 493, "T": 231, "fw_s": 11.2}
+{"ts": "2026-07-22T14:27:33", "event": "sustain_block", "mA": 250.0, "block": 35, "n": 350, "t_s": 2265, "err": 61, "backlash": 516, "T": 231, "fw_s": 11.2}
+{"ts": "2026-07-22T14:28:38", "event": "sustain_block", "mA": 250.0, "block": 36, "n": 360, "t_s": 2330, "err": 290, "backlash": 468, "T": 232, "fw_s": 11.2}
+{"ts": "2026-07-22T14:29:43", "event": "sustain_block", "mA": 250.0, "block": 37, "n": 370, "t_s": 2394, "err": 233, "backlash": 594, "T": 233, "fw_s": 11.5}
+{"ts": "2026-07-22T14:30:47", "event": "sustain_block", "mA": 250.0, "block": 38, "n": 380, "t_s": 2459, "err": 105, "backlash": 516, "T": 232, "fw_s": 11.3}
+{"ts": "2026-07-22T14:30:47", "event": "sustain_end", "mA": 250.0, "n": 380, "t_s": 2459}
+{"ts": "2026-07-22T14:30:51", "event": "rest_begin", "minutes": 15.0}
+{"ts": "2026-07-22T14:45:54", "event": "rest_end"}
+{"ts": "2026-07-22T14:46:55", "event": "sustain_begin", "mA": 200.0, "cap_min": 40.0, "move_v": 24000, "rev": 189704}
+{"ts": "2026-07-22T14:48:05", "event": "sustain_block", "mA": 200.0, "block": 1, "n": 10, "t_s": 70, "err": 105, "backlash": 517, "T": 232, "fw_s": 11.4}
+{"ts": "2026-07-22T14:49:15", "event": "sustain_block", "mA": 200.0, "block": 2, "n": 20, "t_s": 140, "err": 97, "backlash": 542, "T": 232, "fw_s": 11.4}
+{"ts": "2026-07-22T14:50:25", "event": "sustain_block", "mA": 200.0, "block": 3, "n": 30, "t_s": 209, "err": 189, "backlash": 539, "T": 232, "fw_s": 11.4}
+{"ts": "2026-07-22T14:51:34", "event": "sustain_block", "mA": 200.0, "block": 4, "n": 40, "t_s": 279, "err": 137, "backlash": 519, "T": 232, "fw_s": 11.3}
+{"ts": "2026-07-22T14:52:44", "event": "sustain_block", "mA": 200.0, "block": 5, "n": 50, "t_s": 349, "err": 221, "backlash": 517, "T": 232, "fw_s": 11.3}
+{"ts": "2026-07-22T14:53:54", "event": "sustain_block", "mA": 200.0, "block": 6, "n": 60, "t_s": 419, "err": 158, "backlash": 631, "T": 233, "fw_s": 11.6}
+{"ts": "2026-07-22T14:55:04", "event": "sustain_block", "mA": 200.0, "block": 7, "n": 70, "t_s": 488, "err": 165, "backlash": 539, "T": 232, "fw_s": 11.4}
+{"ts": "2026-07-22T14:56:14", "event": "sustain_block", "mA": 200.0, "block": 8, "n": 80, "t_s": 558, "err": 158, "backlash": 543, "T": 232, "fw_s": 11.5}
+{"ts": "2026-07-22T14:57:23", "event": "sustain_block", "mA": 200.0, "block": 9, "n": 90, "t_s": 628, "err": 152, "backlash": 539, "T": 231, "fw_s": 11.3}
+{"ts": "2026-07-22T14:58:33", "event": "sustain_block", "mA": 200.0, "block": 10, "n": 100, "t_s": 698, "err": 220, "backlash": 466, "T": 231, "fw_s": 11.3}
+{"ts": "2026-07-22T14:59:42", "event": "sustain_block", "mA": 200.0, "block": 11, "n": 110, "t_s": 767, "err": 47, "backlash": 515, "T": 232, "fw_s": 11.3}
+{"ts": "2026-07-22T15:00:52", "event": "sustain_block", "mA": 200.0, "block": 12, "n": 120, "t_s": 837, "err": 279, "backlash": 542, "T": 233, "fw_s": 11.4}
+{"ts": "2026-07-22T15:02:02", "event": "sustain_block", "mA": 200.0, "block": 13, "n": 130, "t_s": 907, "err": 191, "backlash": 568, "T": 232, "fw_s": 11.3}
+{"ts": "2026-07-22T15:03:12", "event": "sustain_block", "mA": 200.0, "block": 14, "n": 140, "t_s": 977, "err": 212, "backlash": 520, "T": 232, "fw_s": 11.4}
+{"ts": "2026-07-22T15:04:21", "event": "sustain_block", "mA": 200.0, "block": 15, "n": 150, "t_s": 1046, "err": 79, "backlash": 537, "T": 232, "fw_s": 11.4}
+{"ts": "2026-07-22T15:05:31", "event": "sustain_block", "mA": 200.0, "block": 16, "n": 160, "t_s": 1116, "err": 66, "backlash": 535, "T": 231, "fw_s": 11.3}
+{"ts": "2026-07-22T15:06:41", "event": "sustain_block", "mA": 200.0, "block": 17, "n": 170, "t_s": 1186, "err": 287, "backlash": 491, "T": 231, "fw_s": 11.3}
+{"ts": "2026-07-22T15:07:50", "event": "sustain_block", "mA": 200.0, "block": 18, "n": 180, "t_s": 1255, "err": 98, "backlash": 518, "T": 232, "fw_s": 11.3}
+{"ts": "2026-07-22T15:09:00", "event": "sustain_block", "mA": 200.0, "block": 19, "n": 190, "t_s": 1325, "err": 196, "backlash": 515, "T": 233, "fw_s": 11.3}
+{"ts": "2026-07-22T15:10:14", "event": "sustain_block", "mA": 200.0, "block": 20, "n": 200, "t_s": 1399, "err": 243, "backlash": 592, "T": 233, "fw_s": 15.8}
+{"ts": "2026-07-22T15:11:24", "event": "sustain_block", "mA": 200.0, "block": 21, "n": 210, "t_s": 1469, "err": 139, "backlash": 543, "T": 232, "fw_s": 11.4}
+{"ts": "2026-07-22T15:12:34", "event": "sustain_block", "mA": 200.0, "block": 22, "n": 220, "t_s": 1539, "err": 133, "backlash": 544, "T": 232, "fw_s": 11.4}
+{"ts": "2026-07-22T15:13:43", "event": "sustain_block", "mA": 200.0, "block": 23, "n": 230, "t_s": 1608, "err": 112, "backlash": 489, "T": 231, "fw_s": 11.2}
+{"ts": "2026-07-22T15:14:53", "event": "sustain_block", "mA": 200.0, "block": 24, "n": 240, "t_s": 1678, "err": 209, "backlash": 493, "T": 232, "fw_s": 11.4}
+{"ts": "2026-07-22T15:16:03", "event": "sustain_block", "mA": 200.0, "block": 25, "n": 250, "t_s": 1748, "err": 23, "backlash": 518, "T": 232, "fw_s": 11.3}
+{"ts": "2026-07-22T15:17:13", "event": "sustain_block", "mA": 200.0, "block": 26, "n": 260, "t_s": 1817, "err": 245, "backlash": 516, "T": 233, "fw_s": 11.4}
+{"ts": "2026-07-22T15:18:22", "event": "sustain_block", "mA": 200.0, "block": 27, "n": 270, "t_s": 1887, "err": 166, "backlash": 592, "T": 233, "fw_s": 11.5}
+{"ts": "2026-07-22T15:19:32", "event": "sustain_block", "mA": 200.0, "block": 28, "n": 280, "t_s": 1957, "err": 186, "backlash": 562, "T": 232, "fw_s": 11.3}
+{"ts": "2026-07-22T15:20:42", "event": "sustain_block", "mA": 200.0, "block": 29, "n": 290, "t_s": 2027, "err": 183, "backlash": 542, "T": 232, "fw_s": 11.5}
+{"ts": "2026-07-22T15:21:52", "event": "sustain_block", "mA": 200.0, "block": 30, "n": 300, "t_s": 2096, "err": 160, "backlash": 507, "T": 231, "fw_s": 11.2}
+{"ts": "2026-07-22T15:23:01", "event": "sustain_block", "mA": 200.0, "block": 31, "n": 310, "t_s": 2166, "err": 262, "backlash": 511, "T": 232, "fw_s": 11.4}
+{"ts": "2026-07-22T15:24:11", "event": "sustain_block", "mA": 200.0, "block": 32, "n": 320, "t_s": 2236, "err": 70, "backlash": 516, "T": 232, "fw_s": 11.2}
+{"ts": "2026-07-22T15:25:21", "event": "sustain_block", "mA": 200.0, "block": 33, "n": 330, "t_s": 2306, "err": 287, "backlash": 514, "T": 233, "fw_s": 11.4}
+{"ts": "2026-07-22T15:26:31", "event": "sustain_block", "mA": 200.0, "block": 34, "n": 340, "t_s": 2375, "err": 214, "backlash": 592, "T": 233, "fw_s": 11.4}
+{"ts": "2026-07-22T15:27:40", "event": "sustain_block", "mA": 200.0, "block": 35, "n": 350, "t_s": 2445, "err": 116, "backlash": 566, "T": 232, "fw_s": 11.4}
+{"ts": "2026-07-22T15:27:40", "event": "sustain_end", "mA": 200.0, "n": 350, "t_s": 2445}
+{"ts": "2026-07-22T15:27:45", "event": "rest_begin", "minutes": 15.0}
+{"ts": "2026-07-22T15:42:45", "event": "rest_end"}
+{"ts": "2026-07-22T15:43:00", "event": "sustain_begin", "mA": 150.0, "cap_min": 40.0, "move_v": 24000, "rev": 189704}
+{"ts": "2026-07-22T15:44:09", "event": "sustain_block", "mA": 150.0, "block": 1, "n": 10, "t_s": 70, "err": 109, "backlash": 542, "T": 232, "fw_s": 11.5}
+{"ts": "2026-07-22T15:45:19", "event": "sustain_block", "mA": 150.0, "block": 2, "n": 20, "t_s": 140, "err": 114, "backlash": 555, "T": 232, "fw_s": 11.4}
+{"ts": "2026-07-22T15:46:29", "event": "sustain_block", "mA": 150.0, "block": 3, "n": 30, "t_s": 209, "err": 184, "backlash": 518, "T": 232, "fw_s": 11.4}
+{"ts": "2026-07-22T15:47:39", "event": "sustain_block", "mA": 150.0, "block": 4, "n": 40, "t_s": 279, "err": 119, "backlash": 515, "T": 232, "fw_s": 11.3}
+{"ts": "2026-07-22T15:48:48", "event": "sustain_block", "mA": 150.0, "block": 5, "n": 50, "t_s": 349, "err": 200, "backlash": 493, "T": 233, "fw_s": 11.3}
+{"ts": "2026-07-22T15:49:58", "event": "sustain_block", "mA": 150.0, "block": 6, "n": 60, "t_s": 419, "err": 263, "backlash": 592, "T": 233, "fw_s": 11.5}
+{"ts": "2026-07-22T15:51:08", "event": "sustain_block", "mA": 150.0, "block": 7, "n": 70, "t_s": 488, "err": 176, "backlash": 567, "T": 233, "fw_s": 11.5}
+{"ts": "2026-07-22T15:52:18", "event": "sustain_block", "mA": 150.0, "block": 8, "n": 80, "t_s": 558, "err": 179, "backlash": 590, "T": 233, "fw_s": 11.6}
+{"ts": "2026-07-22T15:53:28", "event": "sustain_block", "mA": 150.0, "block": 9, "n": 90, "t_s": 628, "err": 148, "backlash": 519, "T": 232, "fw_s": 11.4}
+{"ts": "2026-07-22T15:54:37", "event": "sustain_block", "mA": 150.0, "block": 10, "n": 100, "t_s": 698, "err": 226, "backlash": 469, "T": 232, "fw_s": 11.3}
+{"ts": "2026-07-22T15:55:47", "event": "sustain_block", "mA": 150.0, "block": 11, "n": 110, "t_s": 768, "err": 27, "backlash": 493, "T": 232, "fw_s": 11.3}
+{"ts": "2026-07-22T15:56:57", "event": "sustain_block", "mA": 150.0, "block": 12, "n": 120, "t_s": 837, "err": 258, "backlash": 538, "T": 233, "fw_s": 11.3}
+{"ts": "2026-07-22T15:58:07", "event": "sustain_block", "mA": 150.0, "block": 13, "n": 130, "t_s": 907, "err": 189, "backlash": 594, "T": 233, "fw_s": 11.5}
+{"ts": "2026-07-22T15:59:16", "event": "sustain_block", "mA": 150.0, "block": 14, "n": 140, "t_s": 977, "err": 215, "backlash": 517, "T": 232, "fw_s": 11.3}
+{"ts": "2026-07-22T16:00:26", "event": "sustain_block", "mA": 150.0, "block": 15, "n": 150, "t_s": 1047, "err": 101, "backlash": 565, "T": 233, "fw_s": 11.5}
+{"ts": "2026-07-22T16:01:36", "event": "sustain_block", "mA": 150.0, "block": 16, "n": 160, "t_s": 1116, "err": 66, "backlash": 519, "T": 232, "fw_s": 11.3}
+{"ts": "2026-07-22T16:02:45", "event": "sustain_block", "mA": 150.0, "block": 17, "n": 170, "t_s": 1186, "err": 276, "backlash": 466, "T": 232, "fw_s": 11.3}
+{"ts": "2026-07-22T16:03:59", "event": "sustain_block", "mA": 150.0, "block": 18, "n": 180, "t_s": 1260, "err": 73, "backlash": 491, "T": 232, "fw_s": 15.5}
+{"ts": "2026-07-22T16:05:09", "event": "sustain_block", "mA": 150.0, "block": 19, "n": 190, "t_s": 1330, "err": 308, "backlash": 517, "T": 233, "fw_s": 11.4}
+{"ts": "2026-07-22T16:06:19", "event": "sustain_block", "mA": 150.0, "block": 20, "n": 200, "t_s": 1399, "err": 241, "backlash": 589, "T": 233, "fw_s": 11.4}
+{"ts": "2026-07-22T16:07:29", "event": "sustain_block", "mA": 150.0, "block": 21, "n": 210, "t_s": 1469, "err": 146, "backlash": 563, "T": 233, "fw_s": 11.4}
+{"ts": "2026-07-22T16:08:39", "event": "sustain_block", "mA": 150.0, "block": 22, "n": 220, "t_s": 1539, "err": 154, "backlash": 590, "T": 233, "fw_s": 11.6}
+{"ts": "2026-07-22T16:09:48", "event": "sustain_block", "mA": 150.0, "block": 23, "n": 230, "t_s": 1609, "err": 121, "backlash": 517, "T": 232, "fw_s": 11.4}
+{"ts": "2026-07-22T16:10:58", "event": "sustain_block", "mA": 150.0, "block": 24, "n": 240, "t_s": 1678, "err": 189, "backlash": 491, "T": 232, "fw_s": 11.3}
+{"ts": "2026-07-22T16:12:08", "event": "sustain_block", "mA": 150.0, "block": 25, "n": 250, "t_s": 1748, "err": 129, "backlash": 519, "T": 232, "fw_s": 11.2}
+{"ts": "2026-07-22T16:13:17", "event": "sustain_block", "mA": 150.0, "block": 26, "n": 260, "t_s": 1818, "err": 242, "backlash": 516, "T": 233, "fw_s": 11.3}
+{"ts": "2026-07-22T16:14:27", "event": "sustain_block", "mA": 150.0, "block": 27, "n": 270, "t_s": 1888, "err": 173, "backlash": 585, "T": 233, "fw_s": 11.5}
+{"ts": "2026-07-22T16:15:37", "event": "sustain_block", "mA": 150.0, "block": 28, "n": 280, "t_s": 1957, "err": 205, "backlash": 568, "T": 233, "fw_s": 11.4}
+{"ts": "2026-07-22T16:16:47", "event": "sustain_block", "mA": 150.0, "block": 29, "n": 290, "t_s": 2027, "err": 70, "backlash": 568, "T": 233, "fw_s": 11.6}
+{"ts": "2026-07-22T16:17:57", "event": "sustain_block", "mA": 150.0, "block": 30, "n": 300, "t_s": 2097, "err": 167, "backlash": 517, "T": 232, "fw_s": 11.4}
+{"ts": "2026-07-22T16:19:06", "event": "sustain_block", "mA": 150.0, "block": 31, "n": 310, "t_s": 2167, "err": 240, "backlash": 492, "T": 232, "fw_s": 11.3}
+{"ts": "2026-07-22T16:20:16", "event": "sustain_block", "mA": 150.0, "block": 32, "n": 320, "t_s": 2236, "err": 63, "backlash": 538, "T": 232, "fw_s": 11.2}
+{"ts": "2026-07-22T16:21:26", "event": "sustain_block", "mA": 150.0, "block": 33, "n": 330, "t_s": 2306, "err": 291, "backlash": 516, "T": 233, "fw_s": 11.3}
+{"ts": "2026-07-22T16:22:36", "event": "sustain_block", "mA": 150.0, "block": 34, "n": 340, "t_s": 2376, "err": 232, "backlash": 618, "T": 233, "fw_s": 11.5}
+{"ts": "2026-07-22T16:23:45", "event": "sustain_block", "mA": 150.0, "block": 35, "n": 350, "t_s": 2446, "err": 119, "backlash": 542, "T": 232, "fw_s": 11.2}
+{"ts": "2026-07-22T16:23:45", "event": "sustain_end", "mA": 150.0, "n": 350, "t_s": 2446}
+{"ts": "2026-07-22T16:23:49", "event": "rest_begin", "minutes": 15.0}
+{"ts": "2026-07-22T16:38:49", "event": "rest_end"}
+{"ts": "2026-07-22T16:39:04", "event": "sustain_begin", "mA": 100.0, "cap_min": 40.0, "move_v": 24000, "rev": 189704}
+{"ts": "2026-07-22T16:40:14", "event": "sustain_block", "mA": 100.0, "block": 1, "n": 10, "t_s": 70, "err": 138, "backlash": 592, "T": 233, "fw_s": 11.7}
+{"ts": "2026-07-22T16:41:24", "event": "sustain_block", "mA": 100.0, "block": 2, "n": 20, "t_s": 140, "err": 98, "backlash": 539, "T": 232, "fw_s": 11.4}
+{"ts": "2026-07-22T16:42:34", "event": "sustain_block", "mA": 100.0, "block": 3, "n": 30, "t_s": 209, "err": 169, "backlash": 515, "T": 232, "fw_s": 11.3}
+{"ts": "2026-07-22T16:43:43", "event": "sustain_block", "mA": 100.0, "block": 4, "n": 40, "t_s": 279, "err": 108, "backlash": 542, "T": 232, "fw_s": 11.3}
+{"ts": "2026-07-22T16:44:53", "event": "sustain_block", "mA": 100.0, "block": 5, "n": 50, "t_s": 349, "err": 217, "backlash": 490, "T": 232, "fw_s": 11.3}
+{"ts": "2026-07-22T16:46:03", "event": "sustain_block", "mA": 100.0, "block": 6, "n": 60, "t_s": 419, "err": 159, "backlash": 641, "T": 233, "fw_s": 11.4}
+{"ts": "2026-07-22T16:47:13", "event": "sustain_block", "mA": 100.0, "block": 7, "n": 70, "t_s": 488, "err": 187, "backlash": 589, "T": 233, "fw_s": 11.5}
+{"ts": "2026-07-22T16:48:27", "event": "sustain_block", "mA": 100.0, "block": 8, "n": 80, "t_s": 563, "err": 172, "backlash": 567, "T": 233, "fw_s": 15.9}
+{"ts": "2026-07-22T16:49:36", "event": "sustain_block", "mA": 100.0, "block": 9, "n": 90, "t_s": 632, "err": 136, "backlash": 533, "T": 232, "fw_s": 11.3}
+{"ts": "2026-07-22T16:50:46", "event": "sustain_block", "mA": 100.0, "block": 10, "n": 100, "t_s": 702, "err": 216, "backlash": 491, "T": 232, "fw_s": 11.4}
+{"ts": "2026-07-22T16:51:56", "event": "sustain_block", "mA": 100.0, "block": 11, "n": 110, "t_s": 772, "err": 33, "backlash": 518, "T": 232, "fw_s": 11.3}
+{"ts": "2026-07-22T16:53:06", "event": "sustain_block", "mA": 100.0, "block": 12, "n": 120, "t_s": 841, "err": 277, "backlash": 542, "T": 233, "fw_s": 11.3}
+{"ts": "2026-07-22T16:54:15", "event": "sustain_block", "mA": 100.0, "block": 13, "n": 130, "t_s": 911, "err": 196, "backlash": 615, "T": 233, "fw_s": 11.5}
+{"ts": "2026-07-22T16:55:25", "event": "sustain_block", "mA": 100.0, "block": 14, "n": 140, "t_s": 981, "err": 237, "backlash": 565, "T": 233, "fw_s": 11.4}
+{"ts": "2026-07-22T16:56:35", "event": "sustain_block", "mA": 100.0, "block": 15, "n": 150, "t_s": 1051, "err": 93, "backlash": 567, "T": 233, "fw_s": 11.5}
+{"ts": "2026-07-22T16:57:45", "event": "sustain_block", "mA": 100.0, "block": 16, "n": 160, "t_s": 1121, "err": 60, "backlash": 564, "T": 232, "fw_s": 11.3}
+{"ts": "2026-07-22T16:58:55", "event": "sustain_block", "mA": 100.0, "block": 17, "n": 170, "t_s": 1190, "err": 271, "backlash": 516, "T": 232, "fw_s": 11.4}
+{"ts": "2026-07-22T17:00:04", "event": "sustain_block", "mA": 100.0, "block": 18, "n": 180, "t_s": 1260, "err": 88, "backlash": 518, "T": 232, "fw_s": 11.2}
+{"ts": "2026-07-22T17:01:14", "event": "sustain_block", "mA": 100.0, "block": 19, "n": 190, "t_s": 1330, "err": 205, "backlash": 516, "T": 233, "fw_s": 11.3}
+{"ts": "2026-07-22T17:02:24", "event": "sustain_block", "mA": 100.0, "block": 20, "n": 200, "t_s": 1400, "err": 121, "backlash": 593, "T": 233, "fw_s": 11.4}
+{"ts": "2026-07-22T17:03:33", "event": "sustain_block", "mA": 100.0, "block": 21, "n": 210, "t_s": 1469, "err": 146, "backlash": 543, "T": 233, "fw_s": 11.3}
+{"ts": "2026-07-22T17:04:43", "event": "sustain_block", "mA": 100.0, "block": 22, "n": 220, "t_s": 1539, "err": 153, "backlash": 592, "T": 233, "fw_s": 11.5}
+{"ts": "2026-07-22T17:05:53", "event": "sustain_block", "mA": 100.0, "block": 23, "n": 230, "t_s": 1609, "err": 119, "backlash": 557, "T": 232, "fw_s": 11.4}
+{"ts": "2026-07-22T17:07:03", "event": "sustain_block", "mA": 100.0, "block": 24, "n": 240, "t_s": 1679, "err": 198, "backlash": 512, "T": 232, "fw_s": 11.4}
+{"ts": "2026-07-22T17:08:12", "event": "sustain_block", "mA": 100.0, "block": 25, "n": 250, "t_s": 1748, "err": 144, "backlash": 544, "T": 232, "fw_s": 11.3}
+{"ts": "2026-07-22T17:09:22", "event": "sustain_block", "mA": 100.0, "block": 26, "n": 260, "t_s": 1818, "err": 244, "backlash": 519, "T": 233, "fw_s": 11.3}
+{"ts": "2026-07-22T17:10:32", "event": "sustain_block", "mA": 100.0, "block": 27, "n": 270, "t_s": 1888, "err": 184, "backlash": 618, "T": 233, "fw_s": 11.5}
+{"ts": "2026-07-22T17:11:42", "event": "sustain_block", "mA": 100.0, "block": 28, "n": 280, "t_s": 1958, "err": 204, "backlash": 592, "T": 233, "fw_s": 11.4}
+{"ts": "2026-07-22T17:12:56", "event": "sustain_block", "mA": 100.0, "block": 29, "n": 290, "t_s": 2032, "err": 81, "backlash": 590, "T": 233, "fw_s": 15.8}
+{"ts": "2026-07-22T17:14:06", "event": "sustain_block", "mA": 100.0, "block": 30, "n": 300, "t_s": 2101, "err": 55, "backlash": 566, "T": 232, "fw_s": 11.3}
+{"ts": "2026-07-22T17:15:15", "event": "sustain_block", "mA": 100.0, "block": 31, "n": 310, "t_s": 2171, "err": 244, "backlash": 493, "T": 232, "fw_s": 11.3}
+{"ts": "2026-07-22T17:16:25", "event": "sustain_block", "mA": 100.0, "block": 32, "n": 320, "t_s": 2241, "err": 61, "backlash": 541, "T": 232, "fw_s": 11.3}
+{"ts": "2026-07-22T17:17:35", "event": "sustain_block", "mA": 100.0, "block": 33, "n": 330, "t_s": 2311, "err": 284, "backlash": 515, "T": 233, "fw_s": 11.3}
+{"ts": "2026-07-22T17:18:45", "event": "sustain_block", "mA": 100.0, "block": 34, "n": 340, "t_s": 2380, "err": 216, "backlash": 594, "T": 233, "fw_s": 11.5}
+{"ts": "2026-07-22T17:19:54", "event": "sustain_block", "mA": 100.0, "block": 35, "n": 350, "t_s": 2450, "err": 121, "backlash": 585, "T": 233, "fw_s": 11.4}
+{"ts": "2026-07-22T17:19:54", "event": "sustain_end", "mA": 100.0, "n": 350, "t_s": 2450}
+{"ts": "2026-07-22T17:19:58", "event": "rest_begin", "minutes": 15.0}
+{"ts": "2026-07-22T17:34:58", "event": "rest_end"}
+{"ts": "2026-07-22T17:44:35", "event": "probe", "healthy": true, "home_ok": 1, "err_fwd": -34, "err_bwd": -111, "detect_rev": null, "T": 233, "backlash": 594, "rev": 189704}
+{"ts": "2026-07-22T17:44:50", "event": "sustain_begin", "mA": 150.0, "cap_min": 200.0, "move_v": 24000, "rev": 189704}
+{"ts": "2026-07-22T17:46:00", "event": "sustain_block", "mA": 150.0, "block": 1, "n": 10, "t_s": 70, "err": 48, "backlash": 542, "T": 232, "fw_s": 11.3}
+{"ts": "2026-07-22T17:47:09", "event": "sustain_block", "mA": 150.0, "block": 2, "n": 20, "t_s": 139, "err": 246, "backlash": 519, "T": 232, "fw_s": 11.2}
+{"ts": "2026-07-22T17:48:19", "event": "sustain_block", "mA": 150.0, "block": 3, "n": 30, "t_s": 209, "err": 214, "backlash": 566, "T": 233, "fw_s": 11.4}
+{"ts": "2026-07-22T17:49:29", "event": "sustain_block", "mA": 150.0, "block": 4, "n": 40, "t_s": 279, "err": 95, "backlash": 591, "T": 233, "fw_s": 11.4}
+{"ts": "2026-07-22T17:50:39", "event": "sustain_block", "mA": 150.0, "block": 5, "n": 50, "t_s": 349, "err": 136, "backlash": 566, "T": 233, "fw_s": 11.5}
+{"ts": "2026-07-22T17:51:49", "event": "sustain_block", "mA": 150.0, "block": 6, "n": 60, "t_s": 418, "err": 66, "backlash": 568, "T": 232, "fw_s": 11.4}
+{"ts": "2026-07-22T17:52:58", "event": "sustain_block", "mA": 150.0, "block": 7, "n": 70, "t_s": 488, "err": 262, "backlash": 467, "T": 232, "fw_s": 11.2}
+{"ts": "2026-07-22T17:54:08", "event": "sustain_block", "mA": 150.0, "block": 8, "n": 80, "t_s": 558, "err": 98, "backlash": 493, "T": 232, "fw_s": 11.2}
+{"ts": "2026-07-22T17:55:18", "event": "sustain_block", "mA": 150.0, "block": 9, "n": 90, "t_s": 627, "err": 175, "backlash": 564, "T": 233, "fw_s": 11.3}
+{"ts": "2026-07-22T17:56:27", "event": "sustain_block", "mA": 150.0, "block": 10, "n": 100, "t_s": 697, "err": 260, "backlash": 581, "T": 233, "fw_s": 11.4}
+{"ts": "2026-07-22T17:57:37", "event": "sustain_block", "mA": 150.0, "block": 11, "n": 110, "t_s": 767, "err": 153, "backlash": 587, "T": 233, "fw_s": 11.3}
+{"ts": "2026-07-22T17:58:47", "event": "sustain_block", "mA": 150.0, "block": 12, "n": 120, "t_s": 837, "err": 193, "backlash": 593, "T": 233, "fw_s": 11.6}
+{"ts": "2026-07-22T17:59:57", "event": "sustain_block", "mA": 150.0, "block": 13, "n": 130, "t_s": 906, "err": 114, "backlash": 566, "T": 232, "fw_s": 11.4}
+{"ts": "2026-07-22T18:01:06", "event": "sustain_block", "mA": 150.0, "block": 14, "n": 140, "t_s": 976, "err": 187, "backlash": 465, "T": 232, "fw_s": 11.2}
+{"ts": "2026-07-22T18:02:16", "event": "sustain_block", "mA": 150.0, "block": 15, "n": 150, "t_s": 1046, "err": 155, "backlash": 520, "T": 232, "fw_s": 11.3}
+{"ts": "2026-07-22T18:03:25", "event": "sustain_block", "mA": 150.0, "block": 16, "n": 160, "t_s": 1115, "err": 209, "backlash": 541, "T": 232, "fw_s": 11.3}
+{"ts": "2026-07-22T18:04:35", "event": "sustain_block", "mA": 150.0, "block": 17, "n": 170, "t_s": 1185, "err": 185, "backlash": 577, "T": 233, "fw_s": 11.4}
+{"ts": "2026-07-22T18:05:45", "event": "sustain_block", "mA": 150.0, "block": 18, "n": 180, "t_s": 1255, "err": 182, "backlash": 588, "T": 233, "fw_s": 11.4}
+{"ts": "2026-07-22T18:06:55", "event": "sustain_block", "mA": 150.0, "block": 19, "n": 190, "t_s": 1324, "err": 237, "backlash": 591, "T": 233, "fw_s": 11.5}
+{"ts": "2026-07-22T18:08:04", "event": "sustain_block", "mA": 150.0, "block": 20, "n": 200, "t_s": 1394, "err": 49, "backlash": 566, "T": 232, "fw_s": 11.5}
+{"ts": "2026-07-22T18:09:14", "event": "sustain_block", "mA": 150.0, "block": 21, "n": 210, "t_s": 1464, "err": 239, "backlash": 467, "T": 232, "fw_s": 11.2}
+{"ts": "2026-07-22T18:10:24", "event": "sustain_block", "mA": 150.0, "block": 22, "n": 220, "t_s": 1533, "err": 85, "backlash": 542, "T": 232, "fw_s": 11.3}
+{"ts": "2026-07-22T18:11:33", "event": "sustain_block", "mA": 150.0, "block": 23, "n": 230, "t_s": 1603, "err": 117, "backlash": 516, "T": 232, "fw_s": 11.1}
+{"ts": "2026-07-22T18:12:43", "event": "sustain_block", "mA": 150.0, "block": 24, "n": 240, "t_s": 1673, "err": 237, "backlash": 568, "T": 233, "fw_s": 11.5}
+{"ts": "2026-07-22T18:13:53", "event": "sustain_block", "mA": 150.0, "block": 25, "n": 250, "t_s": 1742, "err": 117, "backlash": 617, "T": 233, "fw_s": 11.5}
+{"ts": "2026-07-22T18:15:02", "event": "sustain_block", "mA": 150.0, "block": 26, "n": 260, "t_s": 1812, "err": 162, "backlash": 591, "T": 233, "fw_s": 11.5}
+{"ts": "2026-07-22T18:16:12", "event": "sustain_block", "mA": 150.0, "block": 27, "n": 270, "t_s": 1882, "err": 101, "backlash": 568, "T": 232, "fw_s": 11.4}
+{"ts": "2026-07-22T18:17:22", "event": "sustain_block", "mA": 150.0, "block": 28, "n": 280, "t_s": 1952, "err": 170, "backlash": 490, "T": 232, "fw_s": 11.3}
+{"ts": "2026-07-22T18:18:31", "event": "sustain_block", "mA": 150.0, "block": 29, "n": 290, "t_s": 2021, "err": 128, "backlash": 540, "T": 232, "fw_s": 11.3}
+{"ts": "2026-07-22T18:19:41", "event": "sustain_block", "mA": 150.0, "block": 30, "n": 300, "t_s": 2091, "err": 171, "backlash": 495, "T": 232, "fw_s": 11.3}
+{"ts": "2026-07-22T18:20:51", "event": "sustain_block", "mA": 150.0, "block": 31, "n": 310, "t_s": 2161, "err": 268, "backlash": 564, "T": 233, "fw_s": 11.4}
+{"ts": "2026-07-22T18:22:01", "event": "sustain_block", "mA": 150.0, "block": 32, "n": 320, "t_s": 2230, "err": 175, "backlash": 619, "T": 233, "fw_s": 11.4}
+{"ts": "2026-07-22T18:23:11", "event": "sustain_block", "mA": 150.0, "block": 33, "n": 330, "t_s": 2300, "err": 220, "backlash": 586, "T": 233, "fw_s": 11.6}
+{"ts": "2026-07-22T18:24:20", "event": "sustain_block", "mA": 150.0, "block": 34, "n": 340, "t_s": 2370, "err": 16, "backlash": 543, "T": 232, "fw_s": 11.4}
+{"ts": "2026-07-22T18:25:30", "event": "sustain_block", "mA": 150.0, "block": 35, "n": 350, "t_s": 2440, "err": 217, "backlash": 464, "T": 232, "fw_s": 11.3}
+{"ts": "2026-07-22T18:26:40", "event": "sustain_block", "mA": 150.0, "block": 36, "n": 360, "t_s": 2509, "err": 52, "backlash": 516, "T": 232, "fw_s": 11.3}
+{"ts": "2026-07-22T18:27:49", "event": "sustain_block", "mA": 150.0, "block": 37, "n": 370, "t_s": 2579, "err": 234, "backlash": 552, "T": 233, "fw_s": 11.4}
+{"ts": "2026-07-22T18:28:59", "event": "sustain_block", "mA": 150.0, "block": 38, "n": 380, "t_s": 2649, "err": 194, "backlash": 568, "T": 233, "fw_s": 11.4}
+{"ts": "2026-07-22T18:30:09", "event": "sustain_block", "mA": 150.0, "block": 39, "n": 390, "t_s": 2719, "err": 219, "backlash": 619, "T": 233, "fw_s": 11.5}
+{"ts": "2026-07-22T18:31:19", "event": "sustain_block", "mA": 150.0, "block": 40, "n": 400, "t_s": 2789, "err": 138, "backlash": 567, "T": 233, "fw_s": 11.6}
+{"ts": "2026-07-22T18:32:29", "event": "sustain_block", "mA": 150.0, "block": 41, "n": 410, "t_s": 2859, "err": 71, "backlash": 590, "T": 232, "fw_s": 11.4}
+{"ts": "2026-07-22T18:33:43", "event": "sustain_block", "mA": 150.0, "block": 42, "n": 420, "t_s": 2932, "err": 270, "backlash": 467, "T": 232, "fw_s": 15.5}
+{"ts": "2026-07-22T18:34:52", "event": "sustain_block", "mA": 150.0, "block": 43, "n": 430, "t_s": 3002, "err": 100, "backlash": 519, "T": 232, "fw_s": 11.3}
+{"ts": "2026-07-22T18:36:02", "event": "sustain_block", "mA": 150.0, "block": 44, "n": 440, "t_s": 3072, "err": 134, "backlash": 492, "T": 232, "fw_s": 11.2}
+{"ts": "2026-07-22T18:37:12", "event": "sustain_block", "mA": 150.0, "block": 45, "n": 450, "t_s": 3141, "err": 251, "backlash": 568, "T": 233, "fw_s": 11.4}
+{"ts": "2026-07-22T18:38:21", "event": "sustain_block", "mA": 150.0, "block": 46, "n": 460, "t_s": 3211, "err": 144, "backlash": 614, "T": 233, "fw_s": 11.4}
+{"ts": "2026-07-22T18:39:31", "event": "sustain_block", "mA": 150.0, "block": 47, "n": 470, "t_s": 3281, "err": 185, "backlash": 560, "T": 233, "fw_s": 11.5}
+{"ts": "2026-07-22T18:40:41", "event": "sustain_block", "mA": 150.0, "block": 48, "n": 480, "t_s": 3351, "err": 130, "backlash": 589, "T": 232, "fw_s": 11.4}
+{"ts": "2026-07-22T18:41:50", "event": "sustain_block", "mA": 150.0, "block": 49, "n": 490, "t_s": 3420, "err": 186, "backlash": 466, "T": 232, "fw_s": 11.3}
+{"ts": "2026-07-22T18:43:00", "event": "sustain_block", "mA": 150.0, "block": 50, "n": 500, "t_s": 3490, "err": 151, "backlash": 517, "T": 232, "fw_s": 11.3}
+{"ts": "2026-07-22T18:44:10", "event": "sustain_block", "mA": 150.0, "block": 51, "n": 510, "t_s": 3560, "err": 188, "backlash": 506, "T": 232, "fw_s": 11.2}
+{"ts": "2026-07-22T18:45:19", "event": "sustain_block", "mA": 150.0, "block": 52, "n": 520, "t_s": 3629, "err": 302, "backlash": 566, "T": 233, "fw_s": 11.4}
+{"ts": "2026-07-22T18:46:29", "event": "sustain_block", "mA": 150.0, "block": 53, "n": 530, "t_s": 3699, "err": 189, "backlash": 589, "T": 233, "fw_s": 11.5}
+{"ts": "2026-07-22T18:47:39", "event": "sustain_block", "mA": 150.0, "block": 54, "n": 540, "t_s": 3769, "err": 227, "backlash": 592, "T": 233, "fw_s": 11.5}
+{"ts": "2026-07-22T18:48:49", "event": "sustain_block", "mA": 150.0, "block": 55, "n": 550, "t_s": 3839, "err": 45, "backlash": 569, "T": 232, "fw_s": 11.4}
+{"ts": "2026-07-22T18:49:59", "event": "sustain_block", "mA": 150.0, "block": 56, "n": 560, "t_s": 3909, "err": 234, "backlash": 466, "T": 232, "fw_s": 11.3}
+{"ts": "2026-07-22T18:51:12", "event": "sustain_block", "mA": 150.0, "block": 57, "n": 570, "t_s": 3982, "err": 85, "backlash": 543, "T": 232, "fw_s": 15.5}
+{"ts": "2026-07-22T18:52:22", "event": "sustain_block", "mA": 150.0, "block": 58, "n": 580, "t_s": 4052, "err": 103, "backlash": 517, "T": 232, "fw_s": 11.2}
+{"ts": "2026-07-22T18:53:32", "event": "sustain_block", "mA": 150.0, "block": 59, "n": 590, "t_s": 4122, "err": 222, "backlash": 562, "T": 233, "fw_s": 11.5}
+{"ts": "2026-07-22T18:54:42", "event": "sustain_block", "mA": 150.0, "block": 60, "n": 600, "t_s": 4191, "err": 116, "backlash": 613, "T": 233, "fw_s": 11.5}
+{"ts": "2026-07-22T18:55:51", "event": "sustain_block", "mA": 150.0, "block": 61, "n": 610, "t_s": 4261, "err": 150, "backlash": 569, "T": 233, "fw_s": 11.5}
+{"ts": "2026-07-22T18:57:05", "event": "sustain_block", "mA": 150.0, "block": 62, "n": 620, "t_s": 4335, "err": 87, "backlash": 565, "T": 232, "fw_s": 15.6}
+{"ts": "2026-07-22T18:58:15", "event": "sustain_block", "mA": 150.0, "block": 63, "n": 630, "t_s": 4405, "err": 149, "backlash": 469, "T": 232, "fw_s": 11.3}
+{"ts": "2026-07-22T18:59:25", "event": "sustain_block", "mA": 150.0, "block": 64, "n": 640, "t_s": 4475, "err": 123, "backlash": 544, "T": 232, "fw_s": 11.4}
+{"ts": "2026-07-22T19:00:35", "event": "sustain_block", "mA": 150.0, "block": 65, "n": 650, "t_s": 4544, "err": 161, "backlash": 514, "T": 232, "fw_s": 11.3}
+{"ts": "2026-07-22T19:01:44", "event": "sustain_block", "mA": 150.0, "block": 66, "n": 660, "t_s": 4614, "err": 278, "backlash": 546, "T": 233, "fw_s": 11.4}
+{"ts": "2026-07-22T19:02:54", "event": "sustain_block", "mA": 150.0, "block": 67, "n": 670, "t_s": 4684, "err": 165, "backlash": 618, "T": 233, "fw_s": 11.5}
+{"ts": "2026-07-22T19:04:04", "event": "sustain_block", "mA": 150.0, "block": 68, "n": 680, "t_s": 4754, "err": 207, "backlash": 590, "T": 233, "fw_s": 11.5}
+{"ts": "2026-07-22T19:05:14", "event": "sustain_block", "mA": 150.0, "block": 69, "n": 690, "t_s": 4824, "err": 9, "backlash": 568, "T": 232, "fw_s": 11.4}
+{"ts": "2026-07-22T19:06:23", "event": "sustain_block", "mA": 150.0, "block": 70, "n": 700, "t_s": 4893, "err": 196, "backlash": 465, "T": 232, "fw_s": 11.3}
+{"ts": "2026-07-22T19:07:33", "event": "sustain_block", "mA": 150.0, "block": 71, "n": 710, "t_s": 4963, "err": 172, "backlash": 539, "T": 232, "fw_s": 11.3}
+{"ts": "2026-07-22T19:08:43", "event": "sustain_block", "mA": 150.0, "block": 72, "n": 720, "t_s": 5033, "err": 214, "backlash": 513, "T": 232, "fw_s": 11.2}
+{"ts": "2026-07-22T19:09:52", "event": "sustain_block", "mA": 150.0, "block": 73, "n": 730, "t_s": 5102, "err": 203, "backlash": 569, "T": 233, "fw_s": 11.4}
+{"ts": "2026-07-22T19:11:02", "event": "sustain_block", "mA": 150.0, "block": 74, "n": 740, "t_s": 5172, "err": 77, "backlash": 594, "T": 233, "fw_s": 11.4}
+{"ts": "2026-07-22T19:12:12", "event": "sustain_block", "mA": 150.0, "block": 75, "n": 750, "t_s": 5242, "err": 127, "backlash": 590, "T": 233, "fw_s": 11.6}
+{"ts": "2026-07-22T19:13:22", "event": "sustain_block", "mA": 150.0, "block": 76, "n": 760, "t_s": 5312, "err": 56, "backlash": 567, "T": 232, "fw_s": 11.4}
+{"ts": "2026-07-22T19:14:31", "event": "sustain_block", "mA": 150.0, "block": 77, "n": 770, "t_s": 5381, "err": 258, "backlash": 516, "T": 232, "fw_s": 11.4}
+{"ts": "2026-07-22T19:15:41", "event": "sustain_block", "mA": 150.0, "block": 78, "n": 780, "t_s": 5451, "err": 104, "backlash": 540, "T": 232, "fw_s": 11.3}
+{"ts": "2026-07-22T19:16:55", "event": "sustain_block", "mA": 150.0, "block": 79, "n": 790, "t_s": 5525, "err": 140, "backlash": 512, "T": 232, "fw_s": 15.4}
+{"ts": "2026-07-22T19:18:05", "event": "sustain_block", "mA": 150.0, "block": 80, "n": 800, "t_s": 5595, "err": 251, "backlash": 590, "T": 233, "fw_s": 11.4}
+{"ts": "2026-07-22T19:19:15", "event": "sustain_block", "mA": 150.0, "block": 81, "n": 810, "t_s": 5664, "err": 120, "backlash": 617, "T": 233, "fw_s": 11.5}
+{"ts": "2026-07-22T19:20:24", "event": "sustain_block", "mA": 150.0, "block": 82, "n": 820, "t_s": 5734, "err": 162, "backlash": 592, "T": 233, "fw_s": 11.6}
+{"ts": "2026-07-22T19:21:34", "event": "sustain_block", "mA": 150.0, "block": 83, "n": 830, "t_s": 5804, "err": 114, "backlash": 588, "T": 232, "fw_s": 11.4}
+{"ts": "2026-07-22T19:22:44", "event": "sustain_block", "mA": 150.0, "block": 84, "n": 840, "t_s": 5874, "err": 175, "backlash": 492, "T": 232, "fw_s": 11.3}
+{"ts": "2026-07-22T19:23:54", "event": "sustain_block", "mA": 150.0, "block": 85, "n": 850, "t_s": 5943, "err": 151, "backlash": 539, "T": 232, "fw_s": 11.3}
+{"ts": "2026-07-22T19:25:03", "event": "sustain_block", "mA": 150.0, "block": 86, "n": 860, "t_s": 6013, "err": 211, "backlash": 541, "T": 232, "fw_s": 11.3}
+{"ts": "2026-07-22T19:26:13", "event": "sustain_block", "mA": 150.0, "block": 87, "n": 870, "t_s": 6083, "err": 178, "backlash": 567, "T": 233, "fw_s": 11.5}
+{"ts": "2026-07-22T19:27:23", "event": "sustain_block", "mA": 150.0, "block": 88, "n": 880, "t_s": 6153, "err": 188, "backlash": 640, "T": 233, "fw_s": 11.5}
+{"ts": "2026-07-22T19:28:33", "event": "sustain_block", "mA": 150.0, "block": 89, "n": 890, "t_s": 6223, "err": 226, "backlash": 590, "T": 233, "fw_s": 11.4}
+{"ts": "2026-07-22T19:29:42", "event": "sustain_block", "mA": 150.0, "block": 90, "n": 900, "t_s": 6292, "err": 32, "backlash": 591, "T": 232, "fw_s": 11.4}
+{"ts": "2026-07-22T19:30:52", "event": "sustain_block", "mA": 150.0, "block": 91, "n": 910, "t_s": 6362, "err": 245, "backlash": 515, "T": 232, "fw_s": 11.4}
+{"ts": "2026-07-22T19:32:02", "event": "sustain_block", "mA": 150.0, "block": 92, "n": 920, "t_s": 6432, "err": 80, "backlash": 544, "T": 232, "fw_s": 11.3}
+{"ts": "2026-07-22T19:33:11", "event": "sustain_block", "mA": 150.0, "block": 93, "n": 930, "t_s": 6501, "err": 136, "backlash": 535, "T": 232, "fw_s": 11.3}
+{"ts": "2026-07-22T19:34:21", "event": "sustain_block", "mA": 150.0, "block": 94, "n": 940, "t_s": 6571, "err": 239, "backlash": 570, "T": 233, "fw_s": 11.5}
+{"ts": "2026-07-22T19:35:31", "event": "sustain_block", "mA": 150.0, "block": 95, "n": 950, "t_s": 6641, "err": 113, "backlash": 617, "T": 233, "fw_s": 11.5}
+{"ts": "2026-07-22T19:36:41", "event": "sustain_block", "mA": 150.0, "block": 96, "n": 960, "t_s": 6711, "err": 155, "backlash": 588, "T": 233, "fw_s": 11.5}
+{"ts": "2026-07-22T19:37:51", "event": "sustain_block", "mA": 150.0, "block": 97, "n": 970, "t_s": 6781, "err": 86, "backlash": 566, "T": 232, "fw_s": 11.3}
+{"ts": "2026-07-22T19:39:00", "event": "sustain_block", "mA": 150.0, "block": 98, "n": 980, "t_s": 6850, "err": 155, "backlash": 490, "T": 232, "fw_s": 11.3}
+{"ts": "2026-07-22T19:40:10", "event": "sustain_block", "mA": 150.0, "block": 99, "n": 990, "t_s": 6920, "err": 121, "backlash": 545, "T": 232, "fw_s": 11.3}
+{"ts": "2026-07-22T19:41:20", "event": "sustain_block", "mA": 150.0, "block": 100, "n": 1000, "t_s": 6989, "err": 181, "backlash": 510, "T": 232, "fw_s": 11.2}
+{"ts": "2026-07-22T19:42:29", "event": "sustain_block", "mA": 150.0, "block": 101, "n": 1010, "t_s": 7059, "err": 268, "backlash": 540, "T": 233, "fw_s": 11.4}
+{"ts": "2026-07-22T19:43:39", "event": "sustain_block", "mA": 150.0, "block": 102, "n": 1020, "t_s": 7129, "err": 157, "backlash": 617, "T": 233, "fw_s": 11.4}
+{"ts": "2026-07-22T19:44:49", "event": "sustain_block", "mA": 150.0, "block": 103, "n": 1030, "t_s": 7199, "err": 209, "backlash": 593, "T": 233, "fw_s": 11.4}
+{"ts": "2026-07-22T19:45:58", "event": "sustain_block", "mA": 150.0, "block": 104, "n": 1040, "t_s": 7268, "err": 12, "backlash": 562, "T": 232, "fw_s": 11.3}
+{"ts": "2026-07-22T19:47:08", "event": "sustain_block", "mA": 150.0, "block": 105, "n": 1050, "t_s": 7338, "err": 209, "backlash": 492, "T": 232, "fw_s": 11.3}
+{"ts": "2026-07-22T19:48:18", "event": "sustain_block", "mA": 150.0, "block": 106, "n": 1060, "t_s": 7407, "err": 34, "backlash": 536, "T": 232, "fw_s": 11.3}
+{"ts": "2026-07-22T19:49:27", "event": "sustain_block", "mA": 150.0, "block": 107, "n": 1070, "t_s": 7477, "err": 238, "backlash": 505, "T": 232, "fw_s": 11.2}
+{"ts": "2026-07-22T19:50:37", "event": "sustain_block", "mA": 150.0, "block": 108, "n": 1080, "t_s": 7547, "err": 186, "backlash": 566, "T": 233, "fw_s": 11.4}
+{"ts": "2026-07-22T19:51:47", "event": "sustain_block", "mA": 150.0, "block": 109, "n": 1090, "t_s": 7616, "err": 207, "backlash": 617, "T": 233, "fw_s": 11.4}
+{"ts": "2026-07-22T19:52:56", "event": "sustain_block", "mA": 150.0, "block": 110, "n": 1100, "t_s": 7686, "err": 139, "backlash": 565, "T": 233, "fw_s": 11.5}
+{"ts": "2026-07-22T19:54:06", "event": "sustain_block", "mA": 150.0, "block": 111, "n": 1110, "t_s": 7756, "err": 56, "backlash": 565, "T": 232, "fw_s": 11.4}
+{"ts": "2026-07-22T19:55:16", "event": "sustain_block", "mA": 150.0, "block": 112, "n": 1120, "t_s": 7826, "err": 251, "backlash": 492, "T": 232, "fw_s": 11.2}
+{"ts": "2026-07-22T19:56:25", "event": "sustain_block", "mA": 150.0, "block": 113, "n": 1130, "t_s": 7895, "err": 86, "backlash": 516, "T": 232, "fw_s": 11.3}
+{"ts": "2026-07-22T19:57:35", "event": "sustain_block", "mA": 150.0, "block": 114, "n": 1140, "t_s": 7965, "err": 172, "backlash": 539, "T": 233, "fw_s": 11.4}
+{"ts": "2026-07-22T19:58:45", "event": "sustain_block", "mA": 150.0, "block": 115, "n": 1150, "t_s": 8035, "err": 242, "backlash": 566, "T": 233, "fw_s": 11.5}
+{"ts": "2026-07-22T19:59:55", "event": "sustain_block", "mA": 150.0, "block": 116, "n": 1160, "t_s": 8105, "err": 137, "backlash": 616, "T": 233, "fw_s": 11.5}
+{"ts": "2026-07-22T20:01:05", "event": "sustain_block", "mA": 150.0, "block": 117, "n": 1170, "t_s": 8175, "err": 195, "backlash": 567, "T": 233, "fw_s": 11.4}
+{"ts": "2026-07-22T20:02:14", "event": "sustain_block", "mA": 150.0, "block": 118, "n": 1180, "t_s": 8244, "err": 126, "backlash": 590, "T": 233, "fw_s": 11.4}
+{"ts": "2026-07-22T20:03:24", "event": "sustain_block", "mA": 150.0, "block": 119, "n": 1190, "t_s": 8314, "err": 189, "backlash": 514, "T": 233, "fw_s": 11.3}
+{"ts": "2026-07-22T20:04:34", "event": "sustain_block", "mA": 150.0, "block": 120, "n": 1200, "t_s": 8384, "err": 145, "backlash": 535, "T": 233, "fw_s": 11.4}
+{"ts": "2026-07-22T20:05:44", "event": "sustain_block", "mA": 150.0, "block": 121, "n": 1210, "t_s": 8453, "err": 212, "backlash": 539, "T": 233, "fw_s": 11.3}
+{"ts": "2026-07-22T20:06:53", "event": "sustain_block", "mA": 150.0, "block": 122, "n": 1220, "t_s": 8523, "err": 178, "backlash": 589, "T": 233, "fw_s": 11.5}
+{"ts": "2026-07-22T20:08:03", "event": "sustain_block", "mA": 150.0, "block": 123, "n": 1230, "t_s": 8593, "err": 180, "backlash": 592, "T": 233, "fw_s": 11.4}
+{"ts": "2026-07-22T20:09:13", "event": "sustain_block", "mA": 150.0, "block": 124, "n": 1240, "t_s": 8663, "err": 241, "backlash": 568, "T": 233, "fw_s": 11.4}
+{"ts": "2026-07-22T20:10:23", "event": "sustain_block", "mA": 150.0, "block": 125, "n": 1250, "t_s": 8733, "err": 49, "backlash": 588, "T": 233, "fw_s": 11.4}
+{"ts": "2026-07-22T20:11:33", "event": "sustain_block", "mA": 150.0, "block": 126, "n": 1260, "t_s": 8802, "err": 238, "backlash": 494, "T": 233, "fw_s": 11.3}
+{"ts": "2026-07-22T20:12:42", "event": "sustain_block", "mA": 150.0, "block": 127, "n": 1270, "t_s": 8872, "err": 59, "backlash": 517, "T": 233, "fw_s": 11.3}
+{"ts": "2026-07-22T20:13:52", "event": "sustain_block", "mA": 150.0, "block": 128, "n": 1280, "t_s": 8942, "err": 262, "backlash": 538, "T": 233, "fw_s": 11.4}
+{"ts": "2026-07-22T20:15:02", "event": "sustain_block", "mA": 150.0, "block": 129, "n": 1290, "t_s": 9012, "err": 238, "backlash": 588, "T": 233, "fw_s": 11.5}
+{"ts": "2026-07-22T20:16:12", "event": "sustain_block", "mA": 150.0, "block": 130, "n": 1300, "t_s": 9082, "err": 118, "backlash": 630, "T": 233, "fw_s": 11.4}
+{"ts": "2026-07-22T20:17:22", "event": "sustain_block", "mA": 150.0, "block": 131, "n": 1310, "t_s": 9151, "err": 173, "backlash": 591, "T": 233, "fw_s": 11.5}
+{"ts": "2026-07-22T20:18:31", "event": "sustain_block", "mA": 150.0, "block": 132, "n": 1320, "t_s": 9221, "err": 98, "backlash": 586, "T": 233, "fw_s": 11.4}
+{"ts": "2026-07-22T20:19:41", "event": "sustain_block", "mA": 150.0, "block": 133, "n": 1330, "t_s": 9291, "err": 156, "backlash": 492, "T": 233, "fw_s": 11.4}
+{"ts": "2026-07-22T20:20:51", "event": "sustain_block", "mA": 150.0, "block": 134, "n": 1340, "t_s": 9361, "err": 123, "backlash": 544, "T": 233, "fw_s": 11.4}
+{"ts": "2026-07-22T20:22:01", "event": "sustain_block", "mA": 150.0, "block": 135, "n": 1350, "t_s": 9430, "err": 187, "backlash": 542, "T": 233, "fw_s": 11.3}
+{"ts": "2026-07-22T20:23:15", "event": "sustain_block", "mA": 150.0, "block": 136, "n": 1360, "t_s": 9504, "err": 286, "backlash": 566, "T": 233, "fw_s": 15.6}
+{"ts": "2026-07-22T20:24:24", "event": "sustain_block", "mA": 150.0, "block": 137, "n": 1370, "t_s": 9574, "err": 172, "backlash": 615, "T": 233, "fw_s": 11.4}
+{"ts": "2026-07-22T20:25:34", "event": "sustain_block", "mA": 150.0, "block": 138, "n": 1380, "t_s": 9644, "err": 213, "backlash": 589, "T": 233, "fw_s": 11.5}
+{"ts": "2026-07-22T20:26:44", "event": "sustain_block", "mA": 150.0, "block": 139, "n": 1390, "t_s": 9714, "err": 15, "backlash": 567, "T": 232, "fw_s": 11.3}
+{"ts": "2026-07-22T20:27:54", "event": "sustain_block", "mA": 150.0, "block": 140, "n": 1400, "t_s": 9784, "err": 181, "backlash": 467, "T": 232, "fw_s": 11.3}
+{"ts": "2026-07-22T20:29:03", "event": "sustain_block", "mA": 150.0, "block": 141, "n": 1410, "t_s": 9853, "err": 155, "backlash": 519, "T": 232, "fw_s": 11.3}
+{"ts": "2026-07-22T20:30:13", "event": "sustain_block", "mA": 150.0, "block": 142, "n": 1420, "t_s": 9923, "err": 233, "backlash": 516, "T": 232, "fw_s": 11.3}
+{"ts": "2026-07-22T20:31:23", "event": "sustain_block", "mA": 150.0, "block": 143, "n": 1430, "t_s": 9993, "err": 188, "backlash": 565, "T": 233, "fw_s": 11.4}
+{"ts": "2026-07-22T20:32:33", "event": "sustain_block", "mA": 150.0, "block": 144, "n": 1440, "t_s": 10062, "err": 218, "backlash": 616, "T": 233, "fw_s": 11.4}
+{"ts": "2026-07-22T20:33:42", "event": "sustain_block", "mA": 150.0, "block": 145, "n": 1450, "t_s": 10132, "err": 127, "backlash": 565, "T": 233, "fw_s": 11.4}
+{"ts": "2026-07-22T20:34:52", "event": "sustain_block", "mA": 150.0, "block": 146, "n": 1460, "t_s": 10202, "err": 58, "backlash": 564, "T": 233, "fw_s": 11.5}
+{"ts": "2026-07-22T20:36:02", "event": "sustain_block", "mA": 150.0, "block": 147, "n": 1470, "t_s": 10272, "err": 248, "backlash": 518, "T": 233, "fw_s": 11.4}
+{"ts": "2026-07-22T20:37:12", "event": "sustain_block", "mA": 150.0, "block": 148, "n": 1480, "t_s": 10342, "err": 85, "backlash": 561, "T": 233, "fw_s": 11.4}
+{"ts": "2026-07-22T20:38:21", "event": "sustain_block", "mA": 150.0, "block": 149, "n": 1490, "t_s": 10411, "err": 164, "backlash": 516, "T": 232, "fw_s": 11.2}
+{"ts": "2026-07-22T20:39:31", "event": "sustain_block", "mA": 150.0, "block": 150, "n": 1500, "t_s": 10481, "err": 250, "backlash": 567, "T": 233, "fw_s": 11.4}
+{"ts": "2026-07-22T20:40:41", "event": "sustain_block", "mA": 150.0, "block": 151, "n": 1510, "t_s": 10551, "err": 125, "backlash": 593, "T": 233, "fw_s": 11.4}
+{"ts": "2026-07-22T20:41:51", "event": "sustain_block", "mA": 150.0, "block": 152, "n": 1520, "t_s": 10621, "err": 184, "backlash": 563, "T": 233, "fw_s": 11.4}
+{"ts": "2026-07-22T20:43:01", "event": "sustain_block", "mA": 150.0, "block": 153, "n": 1530, "t_s": 10690, "err": 124, "backlash": 587, "T": 233, "fw_s": 11.5}
+{"ts": "2026-07-22T20:44:10", "event": "sustain_block", "mA": 150.0, "block": 154, "n": 1540, "t_s": 10760, "err": 178, "backlash": 517, "T": 233, "fw_s": 11.4}
+{"ts": "2026-07-22T20:45:20", "event": "sustain_block", "mA": 150.0, "block": 155, "n": 1550, "t_s": 10830, "err": 136, "backlash": 514, "T": 232, "fw_s": 11.3}
+{"ts": "2026-07-22T20:46:30", "event": "sustain_block", "mA": 150.0, "block": 156, "n": 1560, "t_s": 10899, "err": 209, "backlash": 516, "T": 232, "fw_s": 11.3}
+{"ts": "2026-07-22T20:47:39", "event": "sustain_block", "mA": 150.0, "block": 157, "n": 1570, "t_s": 10969, "err": 178, "backlash": 590, "T": 233, "fw_s": 11.4}
+{"ts": "2026-07-22T20:48:49", "event": "sustain_block", "mA": 150.0, "block": 158, "n": 1580, "t_s": 11039, "err": 190, "backlash": 615, "T": 233, "fw_s": 11.4}
+{"ts": "2026-07-22T20:49:59", "event": "sustain_block", "mA": 150.0, "block": 159, "n": 1590, "t_s": 11109, "err": 225, "backlash": 543, "T": 233, "fw_s": 11.4}
+{"ts": "2026-07-22T20:51:09", "event": "sustain_block", "mA": 150.0, "block": 160, "n": 1600, "t_s": 11179, "err": 34, "backlash": 589, "T": 233, "fw_s": 11.4}
+{"ts": "2026-07-22T20:52:18", "event": "sustain_block", "mA": 150.0, "block": 161, "n": 1610, "t_s": 11248, "err": 221, "backlash": 490, "T": 232, "fw_s": 11.3}
+{"ts": "2026-07-22T20:53:28", "event": "sustain_block", "mA": 150.0, "block": 162, "n": 1620, "t_s": 11318, "err": 59, "backlash": 511, "T": 232, "fw_s": 11.2}
+{"ts": "2026-07-22T20:54:38", "event": "sustain_block", "mA": 150.0, "block": 163, "n": 1630, "t_s": 11387, "err": 261, "backlash": 513, "T": 232, "fw_s": 11.2}
+{"ts": "2026-07-22T20:55:47", "event": "sustain_block", "mA": 150.0, "block": 164, "n": 1640, "t_s": 11457, "err": 212, "backlash": 542, "T": 233, "fw_s": 11.4}
+{"ts": "2026-07-22T20:56:57", "event": "sustain_block", "mA": 150.0, "block": 165, "n": 1650, "t_s": 11527, "err": 105, "backlash": 594, "T": 233, "fw_s": 11.5}
+{"ts": "2026-07-22T20:58:07", "event": "sustain_block", "mA": 150.0, "block": 166, "n": 1660, "t_s": 11597, "err": 146, "backlash": 567, "T": 233, "fw_s": 11.5}
+{"ts": "2026-07-22T20:59:17", "event": "sustain_block", "mA": 150.0, "block": 167, "n": 1670, "t_s": 11667, "err": 89, "backlash": 586, "T": 233, "fw_s": 11.5}
+{"ts": "2026-07-22T21:00:27", "event": "sustain_block", "mA": 150.0, "block": 168, "n": 1680, "t_s": 11736, "err": 137, "backlash": 460, "T": 232, "fw_s": 11.3}
+{"ts": "2026-07-22T21:01:36", "event": "sustain_block", "mA": 150.0, "block": 169, "n": 1690, "t_s": 11806, "err": 113, "backlash": 539, "T": 232, "fw_s": 11.4}
+{"ts": "2026-07-22T21:02:46", "event": "sustain_block", "mA": 150.0, "block": 170, "n": 1700, "t_s": 11876, "err": 181, "backlash": 512, "T": 232, "fw_s": 11.2}
+{"ts": "2026-07-22T21:03:56", "event": "sustain_block", "mA": 150.0, "block": 171, "n": 1710, "t_s": 11945, "err": 270, "backlash": 558, "T": 233, "fw_s": 11.4}
+{"ts": "2026-07-22T21:05:05", "event": "sustain_block", "mA": 150.0, "block": 172, "n": 1720, "t_s": 12015, "err": 151, "backlash": 591, "T": 233, "fw_s": 11.4}
+{"ts": "2026-07-22T21:05:05", "event": "sustain_end", "mA": 150.0, "n": 1720, "t_s": 12015}
+{"ts": "2026-07-22T21:06:08", "event": "probe", "healthy": true, "home_ok": 1, "err_fwd": -18, "err_bwd": -77, "detect_rev": null, "T": 233, "backlash": 594, "rev": 189704}
+{"ts": "2026-07-22T21:06:23", "event": "sustain_begin", "mA": 150.0, "cap_min": 200.0, "move_v": 24000, "rev": 189704}
+{"ts": "2026-07-22T21:07:32", "event": "sustain_block", "mA": 150.0, "block": 1, "n": 10, "t_s": 70, "err": 113, "backlash": 510, "T": 232, "fw_s": 11.3}
+{"ts": "2026-07-22T21:08:42", "event": "sustain_block", "mA": 150.0, "block": 2, "n": 20, "t_s": 139, "err": 134, "backlash": 540, "T": 232, "fw_s": 11.3}
+{"ts": "2026-07-22T21:09:52", "event": "sustain_block", "mA": 150.0, "block": 3, "n": 30, "t_s": 209, "err": 257, "backlash": 567, "T": 233, "fw_s": 11.4}
+{"ts": "2026-07-22T21:11:01", "event": "sustain_block", "mA": 150.0, "block": 4, "n": 40, "t_s": 279, "err": 137, "backlash": 640, "T": 233, "fw_s": 11.5}
+{"ts": "2026-07-22T21:12:11", "event": "sustain_block", "mA": 150.0, "block": 5, "n": 50, "t_s": 349, "err": 187, "backlash": 535, "T": 233, "fw_s": 11.5}
+{"ts": "2026-07-22T21:13:21", "event": "sustain_block", "mA": 150.0, "block": 6, "n": 60, "t_s": 418, "err": 155, "backlash": 614, "T": 233, "fw_s": 11.5}
+{"ts": "2026-07-22T21:14:31", "event": "sustain_block", "mA": 150.0, "block": 7, "n": 70, "t_s": 488, "err": 155, "backlash": 494, "T": 232, "fw_s": 11.3}
+{"ts": "2026-07-22T21:15:40", "event": "sustain_block", "mA": 150.0, "block": 8, "n": 80, "t_s": 558, "err": 176, "backlash": 516, "T": 232, "fw_s": 11.3}
+{"ts": "2026-07-22T21:16:50", "event": "sustain_block", "mA": 150.0, "block": 9, "n": 90, "t_s": 627, "err": 184, "backlash": 539, "T": 232, "fw_s": 11.3}
+{"ts": "2026-07-22T21:18:00", "event": "sustain_block", "mA": 150.0, "block": 10, "n": 100, "t_s": 697, "err": 307, "backlash": 564, "T": 233, "fw_s": 11.4}
+{"ts": "2026-07-22T21:19:10", "event": "sustain_block", "mA": 150.0, "block": 11, "n": 110, "t_s": 767, "err": 187, "backlash": 617, "T": 233, "fw_s": 11.5}
+{"ts": "2026-07-22T21:20:20", "event": "sustain_block", "mA": 150.0, "block": 12, "n": 120, "t_s": 837, "err": 242, "backlash": 568, "T": 233, "fw_s": 11.5}
+{"ts": "2026-07-22T21:21:29", "event": "sustain_block", "mA": 150.0, "block": 13, "n": 130, "t_s": 907, "err": 82, "backlash": 611, "T": 233, "fw_s": 11.5}
+{"ts": "2026-07-22T21:22:39", "event": "sustain_block", "mA": 150.0, "block": 14, "n": 140, "t_s": 977, "err": 77, "backlash": 514, "T": 232, "fw_s": 11.3}
+{"ts": "2026-07-22T21:23:49", "event": "sustain_block", "mA": 150.0, "block": 15, "n": 150, "t_s": 1046, "err": 96, "backlash": 489, "T": 232, "fw_s": 11.3}
+{"ts": "2026-07-22T21:24:58", "event": "sustain_block", "mA": 150.0, "block": 16, "n": 160, "t_s": 1116, "err": 95, "backlash": 540, "T": 232, "fw_s": 11.2}
+{"ts": "2026-07-22T21:26:08", "event": "sustain_block", "mA": 150.0, "block": 17, "n": 170, "t_s": 1186, "err": 225, "backlash": 563, "T": 233, "fw_s": 11.3}
+{"ts": "2026-07-22T21:27:18", "event": "sustain_block", "mA": 150.0, "block": 18, "n": 180, "t_s": 1255, "err": 114, "backlash": 618, "T": 233, "fw_s": 11.5}
+{"ts": "2026-07-22T21:28:28", "event": "sustain_block", "mA": 150.0, "block": 19, "n": 190, "t_s": 1325, "err": 159, "backlash": 566, "T": 233, "fw_s": 11.5}
+{"ts": "2026-07-22T21:29:38", "event": "sustain_block", "mA": 150.0, "block": 20, "n": 200, "t_s": 1395, "err": 107, "backlash": 591, "T": 232, "fw_s": 11.5}
+{"ts": "2026-07-22T21:30:47", "event": "sustain_block", "mA": 150.0, "block": 21, "n": 210, "t_s": 1465, "err": 122, "backlash": 491, "T": 232, "fw_s": 11.3}
+{"ts": "2026-07-22T21:31:57", "event": "sustain_block", "mA": 150.0, "block": 22, "n": 220, "t_s": 1534, "err": 149, "backlash": 491, "T": 232, "fw_s": 11.2}
+{"ts": "2026-07-22T21:33:07", "event": "sustain_block", "mA": 150.0, "block": 23, "n": 230, "t_s": 1604, "err": 154, "backlash": 542, "T": 232, "fw_s": 11.3}
+{"ts": "2026-07-22T21:34:16", "event": "sustain_block", "mA": 150.0, "block": 24, "n": 240, "t_s": 1674, "err": 257, "backlash": 517, "T": 233, "fw_s": 11.4}
+{"ts": "2026-07-22T21:35:26", "event": "sustain_block", "mA": 150.0, "block": 25, "n": 250, "t_s": 1744, "err": 148, "backlash": 615, "T": 233, "fw_s": 11.4}
+{"ts": "2026-07-22T21:36:36", "event": "sustain_block", "mA": 150.0, "block": 26, "n": 260, "t_s": 1814, "err": 211, "backlash": 567, "T": 233, "fw_s": 11.5}
+{"ts": "2026-07-22T21:37:46", "event": "sustain_block", "mA": 150.0, "block": 27, "n": 270, "t_s": 1883, "err": 44, "backlash": 593, "T": 232, "fw_s": 11.4}

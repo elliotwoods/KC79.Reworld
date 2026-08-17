@@ -1,0 +1,24 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/router-proto",
+    "crates/router-core",
+    "crates/router-report",
+    "crates/router-headless",
+    "crates/router-app",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[workspace.dependencies]
+rmpv = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+
+[profile.release]
+opt-level = 3
+lto = "thin"

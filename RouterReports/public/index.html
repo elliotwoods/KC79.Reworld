@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>RouterReports — sessions</title>
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<header>
+  <h1>RouterReports</h1>
+  <span class="sub" id="reportsDir"></span>
+</header>
+<main>
+  <div class="panel">
+    <h2>Sessions</h2>
+    <table id="sessionsTable">
+      <thead>
+        <tr>
+          <th>Session</th><th>Started</th><th>Duration</th><th>Size</th>
+          <th>Exit</th><th>Tx</th><th>Rx</th><th>Timeouts</th><th>Faults</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+    <p class="muted" id="empty" style="display:none">
+      No sessions found. Run router-app or router-headless (they write to
+      <span class="mono">reports/</span>), or point the server at a directory:
+      <span class="mono">node server.js --reports &lt;dir&gt;</span>
+    </p>
+  </div>
+</main>
+<script type="module">
+import { fmtTs, fmtDur, fmtBytes, fmtNum } from './js/format.js';
+
+const res = await fetch('/api/sessions');
+const { reportsDir, sessions } = await res.json();
+document.getElementById('reportsDir').textContent = reportsDir;
+
+const tbody = document.querySelector('#sessionsTable tbody');
+if (sessions.length === 0) {
+  document.getElementById('empty').style.display = 'block';
+}
+for (const s of sessions) {
+  const tr = document.createElement('tr');
+  tr.className = 'clickable';
+  const meta = s.meta ?? {};
+  const totals = meta.totals ?? {};
+  const exit = meta.clean_exit == null
+    ? '<span class="badge muted">?</span>'
+    : meta.clean_exit
+      ? '<span class="badge ok">clean</span>'
+      : '<span class="badge error">crash</span>';
+  const faults = meta.faults ?? '—';
+  tr.innerHTML = `
+    <td class="mono">${s.id}</td>
+    <td>${fmtTs(meta.start_ts)}</td>
+    <td>${fmtDur(meta.duration_ms)}</td>
+    <td>${fmtBytes(s.bytes)}</td>
+    <td>${exit}</td>
+    <td>${fmtNum(totals.tx)}</td>
+    <td>${fmtNum(totals.rx)}</td>
+    <td>${fmtNum(totals.timeouts)}</td>
+    <td>${faults > 0 ? `<span class="badge error">${fmtNum(faults)}</span>` : fmtNum(faults)}</td>`;
+  tr.onclick = () => { location.href = `session.html?id=${s.id}`; };
+  tbody.appendChild(tr);
+}
+</script>
+</body>
+</html>

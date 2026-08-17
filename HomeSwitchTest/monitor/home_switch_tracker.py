@@ -30,9 +30,20 @@ BAUD_DEFAULT = 115200
 WINDOW_SECONDS = 6.0
 
 
+import serial.tools.list_ports
+
 def autodetect_port():
-    candidates = sorted(glob.glob("/dev/cu.usbmodem*") + glob.glob("/dev/ttyACM*"))
-    return candidates[0] if candidates else None
+    """Finds the most likely serial port for the ST-Link VCP."""
+    ports = sorted(serial.tools.list_ports.comports())
+    for p in ports:
+        # Nucleo/ST-Link VCP usually mentions "STMicroelectronics" or "ST-Link".
+        if "ST-LINK" in p.description.upper() or "STMICROELECTRONICS" in p.description.upper():
+            return p.device
+    # Fallback to anything that looks like a USB modem or ACM device.
+    for p in ports:
+        if "usbmodem" in p.device or "ACM" in p.device:
+            return p.device
+    return ports[0].device if ports else None
 
 
 def main():

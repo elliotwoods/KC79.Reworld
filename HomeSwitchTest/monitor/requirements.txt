@@ -1,2 +1,5 @@
 pyserial>=3.5
 matplotlib>=3.7
+# home_switch_gui.py also uses Tkinter, which is part of the Python standard
+# library (bundled with the standard python.org CPython on Windows and macOS);
+# it is not a pip package, so there is nothing to install here for it.

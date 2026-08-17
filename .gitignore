@@ -42,3 +42,11 @@ Release/
 .visualgdb
 *.vgdbsettings.*.user
 Router/enc_temp_folder/
+
+# Raw bench scan captures (kept local - see HomeSwitchTest/reports for curated data)
+/scans/
+
+# Python / Node artefacts
+__pycache__/
+.venv/
+node_modules/

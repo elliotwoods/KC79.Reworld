@@ -1,0 +1,20 @@
+# 20260721_182518  cycle 2639 stay-at-park: motor detect: flag not found
+# last_status: {'ms': 7727603, 'level': 0, 'thr': 235, 'pos': 262954, 'degx10': 10261, 'running': 1, 'enabled': 1, 'fault': 0, 'homed': 1}
+# --- run transcript ---
+O,begin,0,0,2000,48,14000,2
+O,cal,220,241,241,231
+O,thr,237,up
+O,seek,144094
+O,done,0,0,0,0,0,0,235,23550,"motor detect: flag not found"
+# --- W debug burst ---
+W,0,0,235,16384,262984
+# --- census at T=229 ---
+# edges=4 aborted=0 start=262984
+296831,1
+302391,0
+302613,1
+302637,0
+# --- census at T=235 ---
+# edges=0 aborted=0 start=357081
+# --- census at T=241 ---
+# edges=0 aborted=0 start=451178

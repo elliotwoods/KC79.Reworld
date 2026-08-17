@@ -1,0 +1,14 @@
+[package]
+name = "router-app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "RouterRS GUI: iced-based controller for the KC79 Reworld portal installation"
+
+[dependencies]
+router-core = { path = "../router-core" }
+router-report = { path = "../router-report" }
+iced = { version = "0.13", features = ["canvas", "image", "tokio"] }
+rfd = "0.15"
+serde_json = { workspace = true }
+glam = "0.29"

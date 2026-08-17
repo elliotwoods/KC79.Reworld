@@ -1,0 +1,10 @@
+/target
+reports/
+*.ndjson
+*.summary.json
+
+# MSVC oracle build outputs — commit pilot_oracle.cpp and pilot-vectors.csv,
+# not the compiled binary (rebuild: vcvars64 && cl /O2 /EHsc /std:c++17)
+*.exe
+*.obj
+*.pdb

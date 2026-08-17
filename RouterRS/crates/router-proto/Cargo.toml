@@ -1,0 +1,10 @@
+[package]
+name = "router-proto"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Wire protocol for KC79 Reworld portals: COBS-framed MessagePack, byte-compatible with the C++ Router app"
+
+[dependencies]
+rmpv = { workspace = true }
+thiserror = { workspace = true }

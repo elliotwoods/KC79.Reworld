@@ -1,0 +1,34 @@
+# 20260710_210606  cycle 382 uniform-2.4: too many false flags
+# last_status: {'ms': 262835, 'level': 1, 'thr': 231, 'pos': 759075, 'degx10': 14405, 'running': 0, 'enabled': 1, 'fault': 0, 'homed': 1}
+# --- run transcript ---
+O,begin,-1174,0,2000,32,24000,2
+O,cal,238,241,241,231
+O,seek,189112
+O,gate,depth,0,231
+O,seek,378832
+O,gate,depth,0,231
+O,seek,568551
+O,gate,depth,0,231
+O,seek,758180
+O,gate,depth,0,231
+O,done,0,0,0,0,0,0,231,43521,"too many false flags"
+# --- W debug burst ---
+W,100,100,231,8192,759075
+# --- census at T=225 ---
+# edges=6 aborted=0 start=759075
+948078,1
+948157,0
+948246,1
+948404,0
+948453,1
+949149,0
+# --- census at T=231 ---
+# edges=2 aborted=0 start=952573
+1137575,1
+1139128,0
+# --- census at T=237 ---
+# edges=4 aborted=0 start=1146071
+1327124,1
+1329234,0
+1329449,1
+1329483,0

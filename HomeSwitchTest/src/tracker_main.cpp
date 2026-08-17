@@ -69,8 +69,8 @@ static bool oledOk = false;
 static Modules::HomeSwitchOptical * homeA = nullptr;
 static Modules::HomeSwitchOptical * homeB = nullptr;
 
-// Fixed operating threshold (duty 0-255). 178 == HOMESWITCHOPTICAL_DEFAULT_THRESHOLD.
-static const uint8_t  kThreshold = HOMESWITCHOPTICAL_DEFAULT_THRESHOLD;
+// Fixed operating threshold (duty 0-255).
+static const uint8_t  kThreshold = 240;
 // Max serial frame rate to the PC.
 static const uint32_t kStreamHz  = 60;
 static const uint32_t kFrameUs   = 1000000UL / kStreamHz;   // ~16667 us

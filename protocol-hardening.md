@@ -34,6 +34,8 @@ Key source files:
 | Firmware ID daisy-chain | `PortalFW/src/Modules/ID.cpp` `.h` |
 | MessagePack + COBS stream (submodule) | `PortalFW/lib/msgpack-arduino/src/msgpack/` |
 | COBS codec (router) | `Router/src/cobs-c/` |
+| Router firmware upload | `Router/src/Modules/Hardware/FWUpdate.cpp`, `MassFWUdpdate.cpp` |
+| RS485 bootloader (out-of-repo, see §7) | `…Dropbox…/KC79 - SBAU/Engineering/STM32CubeWorkspace/BootloaderRS485/` |
 
 > Note: `PortalFW/lib/msgpack-arduino` is a **git submodule**. Changes to
 > `COBSRWStream.*` are committed in that repo, then the submodule pointer is
@@ -70,7 +72,31 @@ parity** — and parity is not viable as a primary mechanism because it cannot b
 carried across the TCP transport (`Router/src/SerialDevices/TCP.h`) and is not
 exposed by `ofSerial`/`SerialDevices::IDevice`.
 
-Recommendation: append a **CRC-16/CCITT-FALSE** over each frame.
+A complication: the receive path is **streaming** — `COBSRWStream::available()`
+decodes on the fly and `RS485::processIncoming()` starts parsing as soon as the
+start of a packet is readable, so the app can be acting on a body while the tail
+of the frame (where a CRC would live) is still on the wire. A trailing CRC can
+therefore only gate side effects if the packet is **buffered to completion
+first**.
+
+Recommendation (agreed): append a **CRC-16/CCITT-FALSE** over each frame, and
+add a *complete-packet gate* inside `COBSRWStream`: an incoming packet is not
+exposed to the reader until its EOP delimiter has been seen and the CRC has
+verified. The decoded ring buffer already exists (256 bytes,
+`MSGPACK_COBSRWSTREAM_BUFFER_SIZE`), so this costs no new memory — only latency,
+which at 115200 baud is ~87 µs/byte (< 5 ms even for a 50-byte frame, against a
+300 ms response window). Crucially the user-side API (`readArraySize`,
+`readInt`, …) is unchanged: callers still stream out of the buffer exactly as
+today.
+
+Alternatives considered and rejected:
+
+- *Per-payload CRC inside message schemas* — only protects the payload it is
+  attached to (a bit-flip in the target-address byte misroutes the whole frame
+  undetected) and leaks CRC handling into every schema.
+- *Parse-then-commit in handlers* — keeps streaming but requires every handler
+  in `App.cpp` to stage values and apply them only after verification; one
+  missed handler silently reintroduces the hole.
 
 Severity: **high** (safety on a motor bus), effort: **medium**.
 
@@ -89,6 +115,10 @@ purely on source ID (`waitForReceive`). Consequences:
   despite looking reliable.
 
 Recommendation: sequence numbers + an unambiguous ACK body + retransmission.
+The interface's ACK indicators are kept and become *more* informative: instead
+of lighting up for any frame from the target, they reflect actual
+`{"ack": true/false}` results plus retry count ("delivered ok / delivered after
+2 retries / failed").
 
 Severity: **medium/high** (reliability), effort: **medium**.
 
@@ -97,7 +127,12 @@ Severity: **medium/high** (reliability), effort: **medium**.
 Any frame whose body is a `string5` starting `"FW"` triggers `NVIC_SystemReset()`
 into the bootloader (`PortalFW/src/Modules/RS485.cpp`). With no CRC (Finding 2),
 a corrupted frame that happens to decode as `"FW…"` can bounce a device mid-move.
-Fix is folded into Finding 2: **validate the CRC before rebooting**.
+
+Agreed fix: a full CRC is not needed for this specific issue — **lengthen the
+magic word** (e.g. `"FW!KC79"`, 6–8 bytes) so an accidental match is
+astronomically unlikely. One line on each end, landable independently of
+Stage 2 (see Stage 1.5). Once the Stage 2 complete-packet gate lands, corrupted
+frames are rejected before dispatch anyway, so this becomes belt-and-braces.
 
 ### Finding 5 — ID receive buffer never cleared (robustness)
 
@@ -127,7 +162,9 @@ the right pattern.
 - `crc16` covers the serialized prefix `[header, target, source, body, seq]`
   (everything before the CRC field). Because the CRC is always encoded as a
   3-byte MessagePack `uint16` (`0xcd hi lo`), the receiver can CRC "all decoded
-  bytes except the final 3".
+  bytes except the final 3". Verification happens at the **framing layer**
+  (`COBSRWStream`), on the complete buffered packet, before any byte is exposed
+  to the parser — see Stage 2.
 - The ACK body changes from a bare `bool` to `{"ack": <bool>}` so it can never be
   confused with status (`{...}`) or position (`{"p":[...]}`) frames.
 
@@ -167,42 +204,93 @@ File: `PortalFW/src/Modules/ID.cpp`, `readIncomingID`.
 
 No wire change; no router change. Smallest, highest-confidence fix.
 
-### Stage 2 — payload CRC (Findings 2 & 4)
+### Stage 1.5 — lengthen the reboot magic word (Finding 4)
 
-Add a running CRC at the COBS layer and emit/verify the trailing CRC.
+Files: `PortalFW/src/Modules/RS485.cpp` (`processCOBSPacket`) and the router
+side that emits the announce frame.
+
+- Replace the 2-byte `"FW"` check with a longer improbable token (e.g.
+  `"FW!KC79"`) compared in full.
+- Landable independently of Stage 2; one line on each end. Once Stage 2's
+  complete-packet gate is verifying CRCs this is redundant-but-harmless.
+
+> **Bootloader interaction (important):** the same `"FW"` broadcast serves two
+> consumers — the *application* (reboots into the bootloader) and the
+> *bootloader* (treats it as the firmware-announce that resets `writePosition`).
+> The fielded bootloader (`BootloaderRS485`, see §7) parses the announce with a
+> 3-byte buffer (`FWUpdateApp::processIncoming` — `readString5(…, allocatedSize
+> = 3, …)`), so a 7-byte `"FW!KC79"` would be **rejected as a format error** by
+> bootloaders already burned into devices, breaking remote update. Since the
+> bootloader can only be replaced by physical flashing (or a BootloaderCoup-style
+> app), the rollout must be:
+>
+> 1. The **application's** reboot word becomes `"FW!KC79"`.
+> 2. The router's update sequence sends the *long* word first (reboots all
+>    apps), then continues announcing with the legacy 2-byte `"FW"` for the
+>    bootloader. Apps that are already in the bootloader don't see the long
+>    word; new-firmware apps ignore the short one. `"ER"`/`"RU"` are only ever
+>    parsed by the bootloader and stay 2 bytes.
+
+### Stage 2 — frame CRC with a complete-packet gate (Findings 2 & 4)
+
+Two halves. **TX** keeps a running CRC folded in as bytes are written (the
+sender knows the CRC by the time it writes the trailing field, so transmit can
+stay fully streaming). **RX** buffers each packet to completion inside
+`COBSRWStream` and verifies the CRC *before exposing any byte to the reader* —
+so all user-side code (`RS485.cpp`, `App.cpp` handlers) keeps its current
+streaming style unchanged, and no handler can act on an unverified frame.
 
 **Submodule `COBSRWStream` (`PortalFW/lib/msgpack-arduino/src/msgpack/COBSRWStream.*`):**
 
-- Add `uint16_t runningCRC` to both the `receive` and `transmit` structs (init
-  `0xFFFF`).
-- In `read()`: fold each returned byte into `receive.runningCRC`.
-- In `write(uint8_t)`: fold **every** logical byte (including zeros) into
-  `transmit.runningCRC` *before* the COBS zero-handling branch.
-- Reset `receive.runningCRC = 0xFFFF` where a new packet begins (the
-  `outgoingStreamIsAtStartOfNextPacket = true` line in `decodeIncoming`).
-- Reset `transmit.runningCRC = 0xFFFF` at the end of `writeEOP()`.
-- Expose `getRxRunningCRC()` / `getTxRunningCRC()`.
+*TX (running CRC, as before):*
 
-> Why `read()`/`write()`: every reader (`readInt`, `readString`, …) ultimately
-> funnels through the virtual `read()`/`readBytes`, and every writer through
-> `write()`. `peek()` does not consume, so it must not accumulate.
-> `decodeIncoming()` reads the *underlying* serial, not `COBSRWStream::read()`,
-> so there is no double counting.
+- Add `uint16_t runningCRC = 0xFFFF` to the `transmit` struct.
+- In `write(uint8_t)`: fold **every** logical byte (including zeros) into
+  `transmit.runningCRC` *before* the COBS zero-handling branch. (Every writer
+  funnels through `write()`.)
+- Reset `transmit.runningCRC = 0xFFFF` at the end of `writeEOP()`.
+- Expose `getTxRunningCRC()`.
+
+*RX (complete-packet gate):*
+
+- Add a `bool gateOnCompletePacket` mode flag (default **off** = today's
+  streaming behaviour, so old callers and the router-side use of this class are
+  untouched) and a `bool verifyCRC` flag.
+- When gating is on, `available()` / `isStartOfIncomingPacket()` report data
+  only once `decodeIncoming()` has seen the packet's EOP zero (the existing
+  `receive.incomingStreamIsAtStartOfNextPacket` state). Until then the packet
+  accumulates in the existing 256-byte decoded ring buffer
+  (`MSGPACK_COBSRWSTREAM_BUFFER_SIZE`) — no new memory.
+- At EOP, if `verifyCRC` is set: compute CRC-16 over all decoded bytes except
+  the final 3 (`0xcd hi lo`), compare with those bytes, and on mismatch drop
+  the whole packet (skip to next) and raise a counter/flag the app can report.
+  Frames shorter than 4 decoded bytes or not ending in `0xcd …` are treated as
+  legacy (no CRC) and passed through — this is what keeps mixed fleets working.
+- A packet larger than the ring buffer cannot be gated; on overflow, drop the
+  packet and flag an error (current command frames are far below 256 bytes;
+  revisit the buffer size if a larger command is ever added).
 
 **Firmware `PortalFW/src/Modules/RS485.cpp`:**
 
+- Enable `gateOnCompletePacket` on the RX stream; `verifyCRC` stays behind the
+  existing flag. **No changes to the parsing code** in `processCOBSPacket` /
+  `App::processIncoming` beyond the two below:
 - Add a `finishFrame(uint8_t seq)` helper: write `seq` (`writeIntU8`), snapshot
   `getTxRunningCRC()`, write it (`writeIntU16`), then `endTransmission()`.
 - Change the three senders (`sendStatusReport`, `sendPositions`, `sendACK`) to
   declare array size **5** and call `finishFrame(this->lastRxSeq)` instead of
   `endTransmission()`. Change `sendACK`'s body to the map `{"ack": success}`.
 - In `processCOBSPacket`: keep `arraySize` in scope; after the body is consumed,
-  if `arraySize >= 4` read `seq` into `lastRxSeq`; if `arraySize >= 5` snapshot
-  `getRxRunningCRC()` **before** reading the CRC, then read it and (when
-  `verifyCRC`) reject on mismatch.
-- **Defer the `"FW"` reboot** until after the CRC check (set a local flag, reboot
-  at the end of the function) so a corrupted frame cannot trigger it.
+  if `arraySize >= 4` read `seq` into `lastRxSeq`. (The CRC element needs no
+  handling here — it was already verified and can be left for
+  `nextIncomingPacket()` to discard.)
 - Add members `uint8_t lastRxSeq = 0;` and `bool verifyCRC = false;`.
+- The `"FW"` reboot needs no special deferral: with the gate on, a frame only
+  reaches dispatch after its CRC has verified.
+
+> Latency note: gating delays parsing until the full frame has arrived —
+> ~87 µs/byte at 115200, i.e. < 5 ms for typical frames, negligible against the
+> 300 ms response window.
 
 **Router `Router/src/Modules/Hardware/RS485.cpp` `.h`:**
 
@@ -318,8 +406,10 @@ init value, which bytes are covered).
 - *Hardware injection:* briefly induce a glitch (e.g. tap noise onto the A/B pair)
   while spamming moves — less precise but realistic.
 
-**Observe:** the device must **not** move to a wrong position; the firmware should
-log a format/CRC error and (for a unicast) return `{"ack":false}`. For a
+**Observe:** the device must **not** move to a wrong position; the frame is
+dropped at the framing layer (a corrupted frame's target address cannot be
+trusted, so **no ACK is sent** — the Router sees a timeout, and with Stage 3 on,
+a retransmission). The firmware should raise its CRC-error counter/flag. For a
 device→Router status frame, flip a bit on that path and confirm the Router's
 "Rx Error" indicator fires and the frame is dropped.
 
@@ -336,9 +426,10 @@ device→Router status frame, flip a bit on that path and confirm the Router's
 1. Send a single `m` move. Confirm exactly one ACK is logged with the correct seq
    and `ok`, and that the trailing positions frame does **not** get mistaken for
    the next command's ACK.
-2. Force a NACK: send a deliberately malformed body (or, with verify on, a
-   bit-flipped frame). Confirm the Router logs `{"ack":false}` and retransmits up
-   to `maxRetries`, then logs failure.
+2. Force a NACK/timeout: send a deliberately malformed body (firmware replies
+   `{"ack":false}`) and, separately, a bit-flipped frame (dropped at the framing
+   layer → timeout, no reply). Confirm the Router retransmits up to
+   `maxRetries` in both cases, then logs failure.
 3. Drop an ACK: temporarily make the firmware skip every Nth ACK. Confirm the
    Router retransmits the **same** seq and the device does not double-apply
    (moves are idempotent; routines are guarded by `isInsideRoutine`).
@@ -380,14 +471,149 @@ bus. Router with `Append seq+CRC` **on**, `Verify RX CRC` **off**,
 trailing bytes; the new device accepts legacy-shaped replies. Only after the whole
 fleet is updated should `Verify RX CRC` and `Strict ACK` be enabled.
 
+### Test 6 — Remote firmware update regression (1 device)
+
+**Goal:** confirm the RS485 bootloader update path survives every hardening
+stage — especially the Stage 1.5 magic-word change and Stage 2 extra elements.
+
+**Physical setup:** one board carrying the fielded `BootloaderRS485` (do **not**
+reflash the bootloader — the point is compatibility with what's in the field),
+app firmware at the stage under test.
+
+**Steps:**
+1. From the Router, run a full FW update cycle (announce → erase → upload →
+   run). With Stage 1.5 firmware, confirm the long-word reboot + legacy `"FW"`
+   announce sequence gets the device into and through the update.
+2. Repeat with `Append seq+CRC` **on**: the bootloader reads elements 0–2 and
+   never touches the trailing seq/CRC, so upload frames must still be accepted.
+   (Upload frames are broadcast, so the router must not wait for ACKs on them —
+   unchanged behaviour.)
+3. Confirm the updated app boots and responds normally afterwards.
+
+**Pass:** update completes and the device runs the new app at every stage.
+**Fail** at step 2 likely means an upload frame overflowed the bootloader's
+64-byte decoded buffer — reduce the router's upload frame size (it streams, so
+this is only a risk if a gate is ever added bootloader-side).
+
 ---
 
 ## 6. Suggested landing order
 
 1. Stage 1 (ID fix) — land and flash fleet-wide.
+1.5. Stage 1.5 (longer magic word) — land alongside Stage 1 (router and firmware
+   must update together, or the router keeps sending the old word).
 2. Stage 2 firmware + router in **emit-only** mode (verify off) — Test 1, Test 5.
 3. Enable `Verify RX CRC` once Test 1 passes fleet-wide — Test 2.
 4. Stage 3 + enable `Strict ACK + retransmit` — Test 3.
+5. Bootloader import into this repo (§7) — can proceed in parallel with 2–4;
+   run Test 6 after each protocol-affecting stage regardless.
 
 Remember the submodule two-step for any `COBSRWStream` change: commit in
 `msgpack-arduino`, then bump the submodule pointer in the root repo.
+
+---
+
+## 7. The RS485 bootloader
+
+### 7.1 Which bootloader is in use
+
+The `STM32CubeWorkspace` folder (Dropbox, `KC79 - SBAU/Engineering`) contains
+three bootloader-ish projects. **`BootloaderRS485` is the one compatible with
+the current protocol** — verified by matching its parser against the Router:
+
+| Protocol feature | Router (`FWUpdate.cpp` / `MassFWUdpdate.cpp`) | `BootloaderRS485` (`FWUpdateApp.cpp`, `RS485.cpp`) |
+| --- | --- | --- |
+| Frame | 3-element array `[-1, 0, body]`, broadcast only | requires `arraySize >= 3`, only accepts target `-1` |
+| Magic words | `"FW"` announce, `"ER"` erase, `"RU"` run | `"FW"` / `"ER"` / `"RU"` |
+| Upload body | map `{frameOffset → bin(checksum ‖ data)}` | same, checksum-first |
+| Packet checksum | XOR of 16-bit words (`Utils::calcCheckSum`) | identical `calcCheckSum` |
+| Memory map | app flashed with `board_upload.offset_address = 0x08006000` | `BOOTLOADER_SIZE = 24 kB`, `APP_FLASH_ADDRESS = 0x08006000` |
+
+The other two projects:
+
+- **`BootloaderCoup`** — not a bootloader but an *application* that carries a
+  bin2c-embedded bootloader image (compiled 2023-07-06) and writes it to
+  sector 0: the mechanism for replacing the bootloader on fielded devices over
+  RS485 (upload the "coup" app via the existing bootloader, run it once). Keep;
+  it is the only remote path for ever changing the fielded bootloader.
+- **`Bootloader2`** — minimal CubeMX skeleton (bare `main.c`, no COBS/msgpack);
+  an earlier iteration, not protocol-compatible. Ignore.
+
+Two properties of `BootloaderRS485` matter for this plan:
+
+- It carries a **snapshot copy** of msgpack-arduino (`Core/msgpack-arduino/`),
+  not the submodule — and it has already drifted: its `COBSRWStream` is an
+  older double-buffer implementation with a **64-byte** decoded buffer, vs. the
+  submodule's lwrb ring buffer at 256 bytes. Any Stage 2 change to the
+  submodule does *not* reach the bootloader until this is unified.
+- It is burned into fielded devices and only replaceable via ST-Link or the
+  BootloaderCoup path — so the protocol it speaks (2-byte magic words, XOR16
+  packet checksums, no ACKs) is effectively **frozen** and everything above
+  must stay compatible with it (see Stage 1.5 note and Test 6).
+
+### 7.2 Proposal — bring the bootloader into this repo under PlatformIO
+
+Currently the bootloader lives outside version control (Dropbox) as an
+STM32CubeIDE project. Proposal: import it as a sibling PlatformIO project,
+`PortalBootloader/`, so bootloader, firmware, and router evolve in one history.
+
+**Layout:**
+
+```
+PortalBootloader/
+  platformio.ini
+  STM32G070RBTX_FLASH.ld      # from the CubeIDE project, FLASH LENGTH → 24K
+  BootloaderRS485.ioc         # keep for future CubeMX regeneration
+  src/                        # Core/Src — main.cpp, FWUpdateApp, RS485, flash, …
+  include/                    # Core/Inc
+```
+
+**`platformio.ini`:**
+
+```ini
+[env:bootloader]
+platform = ststm32
+board = nucleo_g070rb
+board_build.mcu = stm32g070rbt6
+framework = stm32cube            ; the bootloader is HAL-based, NOT Arduino
+board_build.ldscript = STM32G070RBTX_FLASH.ld
+upload_protocol = stlink
+build_flags =
+    -Os
+    -D MSGPACK_COBSRWSTREAM_BUFFER_SIZE=64   ; preserve current RAM footprint
+lib_deps = msgpack-arduino
+lib_extra_dirs = ../PortalFW/lib             ; reuse the existing submodule
+extra_scripts = post:check_size.py           ; assert .bin ≤ 24 kB (see below)
+```
+
+Key points, in order of importance:
+
+1. **Delete the msgpack snapshot; use the submodule.** The library already
+   supports non-Arduino targets (`NotArduino.cpp` / `Platform.hpp` — the
+   snapshot itself uses that path), so `lib_extra_dirs = ../PortalFW/lib`
+   points PlatformIO at the same checkout PortalFW builds against. One source
+   of truth: a Stage 2 `COBSRWStream` change lands once and both images get it.
+   The snapshot's drift (old double-buffer stream) must be reconciled first —
+   build against the submodule and re-run Test 6 before trusting it.
+2. **Linker script is the contract.** Copy `STM32G070RBTX_FLASH.ld` and set
+   `FLASH LENGTH = 24K`. Add a `post:` script that fails the build if the
+   `.bin` exceeds `24 * 1024` bytes — today CubeIDE size limits are implicit;
+   in-repo they should be enforced.
+3. **`framework = stm32cube`, not `arduino`.** The bootloader must stay small
+   and must not inherit the Arduino core's startup/IWDG behaviour. PlatformIO
+   supports mixed frameworks per-env, so it coexists fine next to `PortalFW`.
+4. **Keep the `.ioc`** so peripheral config can be regenerated with CubeMX if
+   pins ever change; generated HAL code lives in `src/` like any other source.
+5. **Bit-for-bit verification before switching.** Build the last CubeIDE
+   Release once more, then the PlatformIO build with matching flags, and
+   compare `arm-none-eabi-objdump`/size output (identical `-Os` GCC major
+   versions should be near-identical; at minimum, run Tests 1–6 against the
+   PlatformIO-built bootloader on the bench before it becomes canonical).
+6. **CI symmetry.** Whatever builds `PortalFW` (the two-env matrix) also builds
+   `PortalBootloader` so protocol changes that break the bootloader are caught
+   at compile time, not on the bench.
+7. **Archive, don't fork.** Once imported and verified, mark the Dropbox
+   project read-only/renamed (`_ARCHIVED_see_KC79.Reworld`) so fixes can't land
+   in the wrong copy. Import `BootloaderCoup` the same way later if a
+   bootloader replacement campaign is ever needed (it would then embed the
+   PlatformIO-built `.bin` via bin2c as part of its build).
