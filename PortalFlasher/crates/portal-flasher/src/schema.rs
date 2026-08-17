@@ -17,7 +17,7 @@
 //! `example-vision`: *"'try that again' is a request and `Open` is a state."* The worker acts on
 //! the change, so a repeated press works and a reconnecting page does not re-trigger anything.
 
-use av_gui_bus::{Bus, ParamId, SchemaBuilder, Value};
+use av_gui_bus::{Bus, ParamFlags, ParamId, SchemaBuilder, Value};
 use portal_swd::{Cue, Layout, Pass, Phase};
 
 /// How many probe slots the schema declares. A bench has one; four is enough that a second
@@ -27,6 +27,23 @@ pub const PROBE_SLOTS: usize = 4;
 /// How many firmware artefacts the schema can advertise. Two built plus a reference is three
 /// today; six leaves room for extra reference images without a schema change.
 pub const ARTEFACT_SLOTS: usize = 6;
+
+/// What the probe and artefact slot parameters carry.
+///
+/// These 52 declarations are **backing store for two lists the page already draws properly**. They
+/// exist so `ProbeRow` and `ArtefactRow` can subscribe per field; reading them one at a time is
+/// never the right thing to do, and they were more than half of everything a generated parameter
+/// view showed — which is most of why that view looked like a drawer of hidden settings.
+///
+/// `ADVANCED` is a hint to *generated* UI only. `ParamTree` hides them unless asked, and the
+/// command palette demotes rather than hides them. It is not a wire-visibility bit and it is not a
+/// permission: the declarations still ship, the values still stream, and the explicit `useParam`
+/// subscriptions in the two row components are completely unaffected. The lists still work.
+///
+/// **`ParamBuilder::flags` replaces rather than unions**, unlike `read_only()` which unions. So
+/// `READ_ONLY` has to be spelled here — writing `.read_only().flags(ADVANCED)` would silently drop
+/// it and make all 52 client-writable, and a loop makes that mistake uniform.
+const SLOT_FLAGS: ParamFlags = ParamFlags::READ_ONLY.union(ParamFlags::ADVANCED);
 
 /// Enum variants, declared once and read back by name on the page. Never by discriminant: a page
 /// keyed on `2` inverts silently the moment someone reorders this list.
@@ -226,6 +243,100 @@ pub fn declare(builder: &mut SchemaBuilder, simulated: bool) -> Result<(), Strin
             .register(),
     );
 
+    // ---------------------------------------------------------------- how the rig is set up
+    //
+    // Read-only, every one of them. Nothing here becomes configurable -- these exist because the
+    // facts were true and *invisible*, which is what made a raw parameter dump at the bottom of the
+    // page look like a drawer of hidden settings.
+    //
+    // Two of them are worth the whole group on their own. The SWD clock was on no parameter at all,
+    // so an operator could not see what rate their probe had actually settled on. And the
+    // option-byte policy writes option flash whenever the masked bits differ from the golden value
+    // -- true on every pass, and previously announced only by `/rig/step` flicking past
+    // `option-bytes` on its way to the erase.
+    //
+    // One prefix, so the page draws the lot with `<ParamTree prefix="/setup"/>` and no bespoke rows.
+    check(
+        builder
+            .param("/setup/target")
+            .text("")
+            .label("Target")
+            .read_only()
+            .register(),
+    );
+    // Starts empty rather than at 1800. The configured rate is a request; `set_speed` answers with
+    // what the probe actually applied, and until one is open this parameter would otherwise be
+    // claiming a clock for hardware that is not attached.
+    check(
+        builder
+            .param("/setup/swd_khz")
+            .i32(0)
+            .unit_label("kHz")
+            .label("SWD clock")
+            .read_only()
+            .register(),
+    );
+    check(
+        builder
+            .param("/setup/erase")
+            .text("")
+            .label("Erase")
+            .read_only()
+            .register(),
+    );
+    check(
+        builder
+            .param("/setup/verify")
+            .text("")
+            .label("Verify")
+            .read_only()
+            .register(),
+    );
+    check(
+        builder
+            .param("/setup/option_bytes")
+            .text("")
+            .label("Option bytes")
+            .read_only()
+            .register(),
+    );
+    check(
+        builder
+            .param("/setup/debounce")
+            .text("")
+            .label("Debounce")
+            .read_only()
+            .register(),
+    );
+    check(
+        builder
+            .param("/setup/removal_gate_ms")
+            .i32(0)
+            .unit_label("ms")
+            .label("Removal gate")
+            .read_only()
+            .register(),
+    );
+    check(
+        builder
+            .param("/setup/heartbeat_stale_ms")
+            .i32(0)
+            .unit_label("ms")
+            .label("Disarms without a page after")
+            .read_only()
+            .register(),
+    );
+    // Answers "where did it look for firmware?", which `/image/hint` never did -- it says what is
+    // missing without saying where it expected to find it.
+    check(
+        builder
+            .param("/setup/firmware_root")
+            .text("")
+            .label("Firmware searched in")
+            .read_only()
+            .register(),
+    );
+
     // ---------------------------------------------------------------- the last pass
     //
     // `/rig/detail` is a scratchpad: the probe-reopen path, `Read device` and the poll all
@@ -369,7 +480,7 @@ pub fn declare(builder: &mut SchemaBuilder, simulated: bool) -> Result<(), Strin
                     .param(&format!("/probe/{slot:02}/{leaf}"))
                     .text("")
                     .label(label)
-                    .read_only()
+                    .flags(SLOT_FLAGS)
                     .register(),
             );
         }
@@ -424,7 +535,7 @@ pub fn declare(builder: &mut SchemaBuilder, simulated: bool) -> Result<(), Strin
                     .param(&format!("/image/{slot:02}/{leaf}"))
                     .text("")
                     .label(label)
-                    .read_only()
+                    .flags(SLOT_FLAGS)
                     .register(),
             );
         }
@@ -433,7 +544,7 @@ pub fn declare(builder: &mut SchemaBuilder, simulated: bool) -> Result<(), Strin
                 .param(&format!("/image/{slot:02}/fits"))
                 .bool(false)
                 .label("Fits")
-                .read_only()
+                .flags(SLOT_FLAGS)
                 .register(),
         );
     }
@@ -589,6 +700,16 @@ pub struct Params {
     pub image_hint: ParamId,
     pub image_run_check: ParamId,
 
+    pub setup_target: ParamId,
+    pub setup_swd_khz: ParamId,
+    pub setup_erase: ParamId,
+    pub setup_verify: ParamId,
+    pub setup_option_bytes: ParamId,
+    pub setup_debounce: ParamId,
+    pub setup_removal_gate_ms: ParamId,
+    pub setup_heartbeat_stale_ms: ParamId,
+    pub setup_firmware_root: ParamId,
+
     pub last_outcome: ParamId,
     pub last_detail: ParamId,
     pub last_kind: ParamId,
@@ -677,6 +798,16 @@ impl Params {
             image_hint: id("/image/hint")?,
             image_run_check: id("/image/run_check")?,
 
+            setup_target: id("/setup/target")?,
+            setup_swd_khz: id("/setup/swd_khz")?,
+            setup_erase: id("/setup/erase")?,
+            setup_verify: id("/setup/verify")?,
+            setup_option_bytes: id("/setup/option_bytes")?,
+            setup_debounce: id("/setup/debounce")?,
+            setup_removal_gate_ms: id("/setup/removal_gate_ms")?,
+            setup_heartbeat_stale_ms: id("/setup/heartbeat_stale_ms")?,
+            setup_firmware_root: id("/setup/firmware_root")?,
+
             last_outcome: id("/last/outcome")?,
             last_detail: id("/last/detail")?,
             last_kind: id("/last/kind")?,
@@ -720,6 +851,15 @@ pub fn get_i64(bus: &Bus, id: ParamId) -> i64 {
     }
 }
 
+/// Only the tests read an i32 back off the bus -- the worker writes them and never re-reads.
+#[cfg(test)]
+pub fn get_i32(bus: &Bus, id: ParamId) -> i32 {
+    match bus.get(id) {
+        Some(Value::I32(v)) => v,
+        _ => 0,
+    }
+}
+
 pub fn get_enum(bus: &Bus, id: ParamId) -> u32 {
     match bus.get(id) {
         Some(Value::Enum(v)) => v,
@@ -729,4 +869,108 @@ pub fn get_enum(bus: &Bus, id: ParamId) -> u32 {
 
 pub fn get_text(bus: &Bus, id: ParamId) -> String {
     bus.text(id, |s| s.to_owned()).unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sealed() -> Bus {
+        let mut builder = SchemaBuilder::new();
+        declare(&mut builder, true).expect("schema");
+        builder.seal()
+    }
+
+    /// The trap `SLOT_FLAGS` exists to avoid.
+    ///
+    /// `ParamBuilder::flags` *replaces* the flag set where `read_only()` unions into it, so adding
+    /// `ADVANCED` the obvious way drops `READ_ONLY` — and these are declared in loops, so the
+    /// mistake would land on all 52 at once and make a client able to write `/probe/00/serial`.
+    #[test]
+    fn every_slot_parameter_is_still_read_only() {
+        let bus = sealed();
+        let slots: Vec<_> = bus
+            .schema()
+            .params()
+            .iter()
+            .filter(|p| {
+                p.path.starts_with("/probe/0") && p.path.matches('/').count() == 3
+                    || p.path.starts_with("/image/0") && p.path.matches('/').count() == 3
+            })
+            .collect();
+
+        assert_eq!(
+            slots.len(),
+            PROBE_SLOTS * 4 + ARTEFACT_SLOTS * 6,
+            "the filter should match every slot parameter and nothing else"
+        );
+        for p in slots {
+            assert!(
+                p.flags.contains(av_gui_bus::ParamFlags::READ_ONLY),
+                "{} lost READ_ONLY",
+                p.path
+            );
+            assert!(
+                p.flags.contains(av_gui_bus::ParamFlags::ADVANCED),
+                "{} is not hidden from generated views",
+                p.path
+            );
+        }
+    }
+
+    /// What a generated parameter view actually shows.
+    ///
+    /// The point of the change is the size of that view: every one of the 52 hidden declarations is
+    /// list backing-store, and hiding exactly those and nothing else is the claim. Asserting the
+    /// difference rather than a bare count means adding a real parameter later does not fail this.
+    #[test]
+    fn hiding_the_slots_removes_exactly_the_slots() {
+        let bus = sealed();
+        let total = bus.schema().params().len();
+        let shown = bus
+            .schema()
+            .params()
+            .iter()
+            .filter(|p| !p.flags.contains(av_gui_bus::ParamFlags::ADVANCED))
+            .count();
+
+        assert_eq!(
+            total - shown,
+            PROBE_SLOTS * 4 + ARTEFACT_SLOTS * 6,
+            "only the probe and artefact slot backing-store should be hidden"
+        );
+        // Every parameter an operator could act on survives the filter, which is the half of this
+        // that would actually hurt to get wrong.
+        for p in bus.schema().params() {
+            if !p.flags.contains(av_gui_bus::ParamFlags::READ_ONLY) {
+                assert!(
+                    !p.flags.contains(av_gui_bus::ParamFlags::ADVANCED),
+                    "{} is writable and hidden from generated views",
+                    p.path
+                );
+            }
+        }
+    }
+
+    /// Nothing in `/setup` is settable. It is a description of how the rig is configured, and a
+    /// writable one would be a control that quietly changes how a board boots.
+    #[test]
+    fn the_setup_group_is_entirely_read_only() {
+        let bus = sealed();
+        let setup: Vec<_> = bus
+            .schema()
+            .params()
+            .iter()
+            .filter(|p| p.path.starts_with("/setup/"))
+            .collect();
+
+        assert!(!setup.is_empty(), "the setup group should exist");
+        for p in setup {
+            assert!(
+                p.flags.contains(av_gui_bus::ParamFlags::READ_ONLY),
+                "{} is writable; nothing in /setup may be",
+                p.path
+            );
+        }
+    }
 }

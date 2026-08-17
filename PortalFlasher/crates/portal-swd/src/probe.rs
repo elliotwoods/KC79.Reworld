@@ -38,7 +38,15 @@ use crate::rig::{
 use crate::{addr, bits, program};
 
 /// The chip name in probe-rs's built-in registry.
-pub const TARGET: &str = "STM32G070RBTx";
+///
+/// Borrowed from [`Manifest::TARGET`] rather than written again. The same string used to be a
+/// literal in both places with nothing comparing them, so a part change would have been applied to
+/// the attach and silently not to the manifest every image records itself with.
+///
+/// It lives there and not here for a second reason: this module is behind
+/// `#[cfg(feature = "probe")]`, and a `--simulate` build with the probe backend compiled out still
+/// has to be able to say which part it is pretending to be.
+pub const TARGET: &str = crate::image::Manifest::TARGET;
 
 /// A probe the operator could choose.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -576,17 +584,14 @@ impl Rig for ProbeRsRig {
         let expected = bundle.expected_flash_image();
         let total = expected.len() as u64;
         {
-            // A chip erase rather than sector erase, and no `keep_unwritten_bytes`, because "the
-            // other bank is left erased" is the promise the firmware map draws. Sector-erasing
-            // only what is written would leave a stale bootloader under a new application and the
-            // map would show two regions that were never flashed together.
+            // From `image::strategy`, not from literals here. The settings page publishes those
+            // same constants, so what it says about erasing and verifying cannot drift from what
+            // this actually does -- which it would the moment the two were written down twice.
+            // The reasoning for each value is on the constant.
             let mut options = DownloadOptions::default();
-            options.keep_unwritten_bytes = false;
-            options.do_chip_erase = true;
-            // probe-rs's own verify is a second pass through the flash algorithm. The readback
-            // below is a plain memory read of the whole part, which is both stricter and evidence
-            // -- it produces the bytes that get hashed into the report.
-            options.verify = false;
+            options.keep_unwritten_bytes = crate::image::strategy::KEEP_UNWRITTEN;
+            options.do_chip_erase = crate::image::strategy::CHIP_ERASE;
+            options.verify = crate::image::strategy::PROBE_RS_VERIFY;
             options.progress = flash_progress(progress, total);
             loader.commit(&mut session, options).map_err(|err| {
                 RigError::new(RigErrorKind::Program, format!("programming failed: {err}"))

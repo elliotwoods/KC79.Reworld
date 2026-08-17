@@ -460,3 +460,30 @@
   margin: 0;
   color: var(--text);
 }
+
+/* ---------------------------------------------------------------- the settings tab */
+
+/*
+ * A single readable column, not the rig tab's full-width bands.
+ *
+ * Everything here is rows of label-and-value, and rows set in a 1600px-wide track are a worse read
+ * than rows in a 900px one — the eye loses the line on the way back. The rig page wants width
+ * because the sector map is eight cells and an address gutter; this does not.
+ */
+.flasher-settings {
+  display: grid;
+  gap: var(--space-4);
+  align-content: start;
+  max-width: 900px;
+}
+
+/*
+ * `Panel`'s `right` slot holds the filter and the advanced checkbox together, and they must stay
+ * together: `ParamTree` applies the advanced filter *before* the text filter, so searching for a
+ * probe serial finds nothing at all until the checkbox is ticked. Split across the panel they would
+ * read as a broken search rather than as two halves of one control.
+ */
+.flasher-settings .panel-head {
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-3);
+}

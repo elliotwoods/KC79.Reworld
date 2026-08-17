@@ -115,6 +115,7 @@ impl Worker {
     }
 
     pub fn run(mut self) {
+        self.publish_setup();
         self.rediscover();
         self.publish_image();
         self.rescan();
@@ -154,9 +155,16 @@ impl Worker {
         // ---- keep the probe open, and say so
         if !self.probe_open {
             match self.rig.open() {
-                Ok(_info) => {
+                Ok(info) => {
                     self.probe_open = true;
                     let _ = self.bus.set(self.params.probe_connected, Value::Bool(true));
+                    // The rate the probe *applied*, which is not always the one it was asked for --
+                    // `set_speed` answers with what it could do. Published only here, on a
+                    // successful open, because a clock reported with nothing attached is a claim
+                    // about hardware that is not there.
+                    let _ = self
+                        .bus
+                        .set(self.params.setup_swd_khz, Value::I32(info.speed_khz as i32));
                     self.set_detail("");
                     self.step(now, Input::ProbeRecovered);
                 }
@@ -164,6 +172,7 @@ impl Worker {
                     let _ = self
                         .bus
                         .set(self.params.probe_connected, Value::Bool(false));
+                    let _ = self.bus.set(self.params.setup_swd_khz, Value::I32(0));
                     self.set_detail(&err.detail);
                     self.step(now, Input::ProbeError);
                 }
@@ -422,6 +431,53 @@ impl Worker {
             };
             let _ = bus.set(fraction_id, Value::F64(fraction));
         }
+    }
+
+    /// Publish how this rig is configured, once, at startup.
+    ///
+    /// Everything here was already true and already invisible. That combination is what made a raw
+    /// parameter dump at the bottom of the page look like a drawer of hidden settings: the settings
+    /// were real, they were just not parameters.
+    ///
+    /// Every value is read from the thing that actually uses it rather than restated. The timings
+    /// come from `self.machine.timing()` and not from a fresh `Timing::default()`, so a rig built
+    /// with custom timing reports the timing it is running; the erase and verify strings come from
+    /// `image::strategy`, which is the same constant `ProbeRsRig::flash` reads. A settings page that
+    /// describes behaviour in its own words is a settings page that will eventually be wrong.
+    fn publish_setup(&self) {
+        use portal_swd::image::strategy;
+
+        let p = &self.params;
+        let timing = self.machine.timing();
+
+        // Through `Manifest`, not `probe::TARGET`, which is the same constant behind
+        // `#[cfg(feature = "probe")]` -- a `--simulate` build with the backend compiled out still
+        // has to be able to say which part it is pretending to be.
+        let _ = self
+            .bus
+            .set_text(p.setup_target, portal_swd::image::Manifest::TARGET);
+        let _ = self.bus.set_text(p.setup_erase, strategy::erase());
+        let _ = self.bus.set_text(p.setup_verify, strategy::verify());
+        let _ = self.bus.set_text(
+            p.setup_debounce,
+            &format!(
+                "{} consecutive polls within {:.1} s",
+                timing.debounce_polls,
+                timing.debounce_max_span_ms as f64 / 1000.0
+            ),
+        );
+        let _ = self.bus.set(
+            p.setup_removal_gate_ms,
+            Value::I32(timing.removal_quiet_ms as i32),
+        );
+        let _ = self.bus.set(
+            p.setup_heartbeat_stale_ms,
+            Value::I32(timing.heartbeat_stale_ms as i32),
+        );
+        let _ = self.bus.set_text(
+            p.setup_firmware_root,
+            &portal_swd::artefacts::repo_root().display().to_string(),
+        );
     }
 
     /// Clear the record, so a pass in flight cannot be read as its own predecessor's result.
@@ -803,6 +859,12 @@ impl Worker {
                 let _ = self
                     .bus
                     .set_text(p.image_run_check, &run_check_summary(bundle));
+                // Published from the bundle rather than from `OptionBytePolicy::default()`,
+                // because it is a property of the image that is about to be flashed and it changes
+                // with the image.
+                let _ = self
+                    .bus
+                    .set_text(p.setup_option_bytes, option_byte_summary(bundle));
             }
             None => {
                 let _ = self.bus.set_text(p.image_name, "none");
@@ -811,6 +873,7 @@ impl Worker {
                 let _ = self.bus.set_text(p.image_boot_sha, "");
                 let _ = self.bus.set_text(p.image_app_sha, "");
                 let _ = self.bus.set_text(p.image_run_check, "");
+                let _ = self.bus.set_text(p.setup_option_bytes, "");
             }
         }
     }
@@ -818,6 +881,24 @@ impl Worker {
 
 fn non_empty(text: String) -> Option<String> {
     (!text.is_empty()).then_some(text)
+}
+
+/// Whether flashing this image will write option flash, in one line.
+///
+/// The answer is `true` for every bundle the picker builds, because `artefacts.rs` takes
+/// `OptionBytePolicy::default()` and its `program_if_differs` is set. That is defensible -- on a
+/// virgin part the golden value *is* ST.s factory default, so the sequence is a no-op and never
+/// runs -- but it is only ever a no-op by coincidence of the board in front of you, and until now
+/// the only warning was `/rig/step` flicking past `option-bytes` on its way to the erase.
+///
+/// Option flash is the one thing a pass writes that a reflash does not undo. It should be legible
+/// before it happens rather than inferable afterwards.
+fn option_byte_summary(bundle: &ImageBundle) -> &'static str {
+    if bundle.option_bytes.program_if_differs {
+        "written when they differ from the golden value"
+    } else {
+        "never written"
+    }
 }
 
 /// What the run-check will be able to prove about this bundle, in one line.
@@ -1159,6 +1240,70 @@ mod tests {
         assert!(
             schema::get_i64(&h.bus, h.params.last_seq) > first,
             "the sequence must move so a page can tell a fresh result from a repaint"
+        );
+    }
+
+    #[test]
+    fn the_setup_group_describes_the_rig_that_is_actually_running() {
+        // Everything here was true before and visible nowhere, which is what made a raw parameter
+        // dump at the bottom of the page look like a drawer of hidden settings.
+        let h = Harness::new();
+        h.worker.publish_setup();
+
+        assert_eq!(
+            schema::get_text(&h.bus, h.params.setup_target),
+            "STM32G070RBTx"
+        );
+        // Read from `image::strategy`, the same constants `ProbeRsRig::flash` passes to probe-rs,
+        // so the readout cannot describe a behaviour the rig does not have.
+        assert!(
+            schema::get_text(&h.bus, h.params.setup_erase).contains("whole chip"),
+            "the erase strategy should say what it does"
+        );
+        assert!(schema::get_text(&h.bus, h.params.setup_verify).contains("readback"));
+
+        // From `machine.timing()`, not a fresh `Timing::default()` -- a rig built with custom
+        // timing has to report the timing it is running.
+        let timing = h.worker.machine.timing();
+        assert_eq!(
+            schema::get_i32(&h.bus, h.params.setup_removal_gate_ms),
+            timing.removal_quiet_ms as i32
+        );
+        assert_eq!(
+            schema::get_i32(&h.bus, h.params.setup_heartbeat_stale_ms),
+            timing.heartbeat_stale_ms as i32
+        );
+        assert!(
+            schema::get_text(&h.bus, h.params.setup_debounce)
+                .contains(&timing.debounce_polls.to_string())
+        );
+        assert!(!schema::get_text(&h.bus, h.params.setup_firmware_root).is_empty());
+    }
+
+    #[test]
+    fn the_swd_clock_is_only_claimed_once_a_probe_is_open() {
+        // A clock reported with nothing attached is a claim about hardware that is not there.
+        let mut h = Harness::new();
+        assert_eq!(schema::get_i32(&h.bus, h.params.setup_swd_khz), 0);
+
+        h.tick(100, true);
+        assert!(
+            schema::get_i32(&h.bus, h.params.setup_swd_khz) > 0,
+            "an open probe should report the rate it actually applied"
+        );
+    }
+
+    #[test]
+    fn the_option_byte_policy_is_stated_before_a_pass_rather_than_after() {
+        // Option flash is the one thing a pass writes that a reflash does not undo, and the only
+        // warning used to be `/rig/step` flicking past `option-bytes` on its way to the erase.
+        // Published with the rest of the image facts rather than at startup, because it is a
+        // property of the bundle about to be flashed and changes with it.
+        let h = Harness::new();
+        h.worker.publish_image();
+        assert!(
+            schema::get_text(&h.bus, h.params.setup_option_bytes).contains("differ"),
+            "every bundle the picker builds is willing to write option bytes; say so"
         );
     }
 

@@ -33,6 +33,53 @@ use sha2::{Digest, Sha256};
 use crate::addr;
 use crate::bits;
 
+/// How a pass writes a board, as a fact the UI can read rather than a sentence it asserts.
+///
+/// These three values are consumed by `ProbeRsRig::flash` when it builds probe-rs's
+/// `DownloadOptions`, and read by the worker when it publishes `/setup/*`. That is the whole point
+/// of them being here: a settings page saying "erases the whole chip" is worthless if it is a
+/// string in the operator app describing a literal in the rig crate, because nothing then forces
+/// the two to agree. The readout and the behaviour now come from the same constant.
+///
+/// They are constants and not parameters. Each one is load-bearing for a promise made elsewhere,
+/// and making them settable would let an operator produce a board whose firmware map is a lie.
+pub mod strategy {
+    /// Erase the whole chip, not only the sectors being written.
+    ///
+    /// "Flash one region and the other bank is left erased" is what the sector map draws. Sector
+    /// erasing would leave a stale bootloader under a new application, and the map would show two
+    /// regions that were never flashed together.
+    pub const CHIP_ERASE: bool = true;
+
+    /// Do not read-modify-write the sectors that are not being programmed.
+    pub const KEEP_UNWRITTEN: bool = false;
+
+    /// Leave probe-rs's own verify off.
+    ///
+    /// Not because verification is skipped — the opposite. probe-rs's verify is a second pass
+    /// through the flash algorithm; the pass instead reads all 128 kB back as plain memory and
+    /// compares byte for byte, which is both stricter and *evidence*, because it produces the
+    /// bytes that get hashed into `FlashReport::readback_sha256`.
+    pub const PROBE_RS_VERIFY: bool = false;
+
+    /// The one-line description each of these earns, for the settings readout.
+    pub fn erase() -> &'static str {
+        if CHIP_ERASE {
+            "whole chip, every pass"
+        } else {
+            "only the sectors being written"
+        }
+    }
+
+    pub fn verify() -> &'static str {
+        if PROBE_RS_VERIFY {
+            "the flash algorithm's own verify pass"
+        } else {
+            "full 128 kB readback, compared byte for byte"
+        }
+    }
+}
+
 /// A contiguous run of bytes and where it belongs.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Region {

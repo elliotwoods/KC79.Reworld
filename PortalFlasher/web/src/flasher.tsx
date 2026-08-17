@@ -27,11 +27,13 @@ import {
   Button,
   EmptyState,
   Panel,
+  ParamFilter,
   ParamTree,
   Row,
   Section,
   StatusBar,
   StatusItem,
+  Tabs,
   TitleBar,
   Toggle,
 } from '@auroravision/av-gui/controls';
@@ -520,6 +522,73 @@ function RigConsole({ rig }: { rig: RigState }) {
 }
 
 /**
+ * Everything that is configuration or diagnostics rather than the operator's workflow.
+ *
+ * It used to be one collapsed `Parameters` section at the very bottom of the Session panel holding
+ * a raw dump of every declared parameter, three levels deep. That read like a drawer of hidden
+ * settings, and it was worth checking whether it was: it is not. Every writable parameter this
+ * application declares already has a proper control somewhere on the Rig tab — the mode switch, the
+ * probe list, the artefact rows, the three action buttons. What was genuinely hidden was the
+ * opposite thing: facts about how the rig is configured that were on no parameter at all.
+ *
+ * So this tab is two halves. `/setup` is the answers, in words. Diagnostics is the tree, still
+ * here because it is the only way to see a value nothing has got round to drawing — but grouped,
+ * filterable, and no longer the first thing you meet.
+ */
+function SettingsTab({
+  filter,
+  setFilter,
+  advanced,
+  setAdvanced,
+}: {
+  filter: string;
+  setFilter: (next: string) => void;
+  advanced: boolean;
+  setAdvanced: (next: boolean) => void;
+}) {
+  return (
+    <div className="flasher-settings">
+      <Panel title="How this rig is set up">
+        <Banner tone="info">
+          Read-only. Nothing here is a control — these are the values the rig is running with, which
+          were previously true and invisible.
+        </Banner>
+        {/* Generated from the schema rather than hand-written rows. The labels and units are
+            declared in Rust beside the code that publishes them, so a readout cannot drift from
+            what it describes. */}
+        <ParamTree prefix="/setup" />
+      </Panel>
+
+      <Panel
+        title="All parameters"
+        right={
+          <>
+            <ParamFilter value={filter} onChange={setFilter} />
+            {/* The two belong together: the filter searches only what is *shown*, so a search for
+                "serial" finds nothing until this is ticked. Separating them would make that read
+                as a broken search. */}
+            <label className="pref-toggle">
+              <input
+                type="checkbox"
+                checked={advanced}
+                onChange={(event) => setAdvanced(event.target.checked)}
+              />
+              Show list internals
+            </label>
+          </>
+        }
+      >
+        <Banner tone="info">
+          Every value on the bus, including ones no panel draws. Editing here is a diagnostic act,
+          not a setting.
+        </Banner>
+        <ParamTree depth={2} advanced={advanced} filter={filter} />
+      </Panel>
+    </div>
+  );
+}
+
+/**
  * What is on the board: the sector grid and everything read alongside it.
  *
  * The device detail used to be a separate panel from the map, which split one subject in two —
@@ -657,6 +726,15 @@ function App() {
   const status = statusSummary(rig);
   const simulated = Boolean(schema?.params?.some?.((p) => p.path === '/sim/board_present'));
 
+  // All three live here, above the tab boundary, and not inside the settings tree they belong to.
+  // Anything owned below that boundary is destroyed on every switch: a filter you typed and a
+  // "show internals" you ticked would both be gone after a glance at the rig and back, which reads
+  // as a bug rather than as a design. (`Section`'s collapse state has the same problem and cannot
+  // be lifted — it is uncontrolled with no id — which is why the sections here start closed.)
+  const [tab, setTab] = useState<'rig' | 'settings'>('rig');
+  const [paramFilter, setParamFilter] = useState('');
+  const [paramAdvanced, setParamAdvanced] = useState(false);
+
   const model = useMemo(
     () =>
       buildMap(report?.occupancy ?? null, report?.selected_occupancy ?? null, {
@@ -675,60 +753,96 @@ function App() {
         title="Portal Flasher"
         sub={schema ? (simulated ? 'simulated target' : 'STM32G070RBT6 over SWD') : 'connecting…'}
       />
-      <div className="app-body flasher-layout">
-        {/* Across the width: what the rig is, and the controls that change it. */}
-        <RigConsole rig={rig} />
+      <div className="app-body">
+        {/*
+          Every hook with a side effect stays in `App`, above this strip, and the tab bodies are
+          presentation only. That is not tidiness: `useHeartbeat` is the dead man, and if it moved
+          into the Rig tab then opening Settings would stop feeding it and the worker would disarm
+          itself three seconds later, silently, while the operator was looking at a settings page.
+          `useCueSounds` is the same shape — the fail tone would stop playing.
+        */}
+        <Tabs
+          value={tab}
+          onChange={setTab}
+          label="Views"
+          items={[
+            // The fault count rides on the tab you are not looking at, so a failure while Settings
+            // is open is visible without switching back.
+            { id: 'rig', label: 'rig', count: faults > 0 ? faults : undefined },
+            { id: 'settings', label: 'settings' },
+          ]}
+        />
 
-        {/* Setup, left to right. The action used to be a third panel here and is now above,
-            where the sentence saying whether it will work already was. */}
-        <div className="flasher-steps">
-          <ProbePanel connected={probeConnected} />
-          <section data-av-surface="image-source">
-            <FirmwarePanel hasImage={hasImage} />
-          </section>
-        </div>
+        {tab === 'settings' ? (
+          <SettingsTab
+            filter={paramFilter}
+            setFilter={setParamFilter}
+            advanced={paramAdvanced}
+            setAdvanced={setParamAdvanced}
+          />
+        ) : (
+          <div className="flasher-layout">
+            {/* Across the width: what the rig is, and the controls that change it. */}
+            <RigConsole rig={rig} />
 
-        {/* The evidence: what is on the board, and what has happened this session. */}
-        <div className="flasher-detail">
-          <FlashContentsPanel report={report} model={model} rig={rig} />
-          <section data-av-surface="session-log">
-            <Panel
-              title="Session"
-              right={faults > 0 ? <Badge tone="error">{faults} faults</Badge> : null}
-            >
-              <Row label="Boards">
-                {passed} pass · {failed} fail
-              </Row>
-              {/* Faults were their own panel, which meant a page that was mostly "none". They are
-                  a fact about the session, so they live with it. */}
-              <div data-av-surface="faults">
-                {faults > 0 ? (
-                  <Banner tone="error">
-                    {faults} fault{faults === 1 ? '' : 's'} this session
-                    {detail ? `: ${detail}` : ''}
-                  </Banner>
-                ) : detail ? (
-                  <Row label="Detail">{detail}</Row>
-                ) : (
-                  <Row label="Faults">none</Row>
-                )}
-              </div>
-              {simulated && (
-                <Section title="Simulation" defaultOpen>
-                  <Row label="Board in fixture" hint="Stands in for seating and lifting a board">
-                    <Toggle path="/sim/board_present" />
+            {/* Setup, left to right. The action used to be a third panel here and is now above,
+                where the sentence saying whether it will work already was. */}
+            <div className="flasher-steps">
+              <ProbePanel connected={probeConnected} />
+              <section data-av-surface="image-source">
+                <FirmwarePanel hasImage={hasImage} />
+              </section>
+            </div>
+
+            {/* The evidence: what is on the board, and what has happened this session. */}
+            <div className="flasher-detail">
+              <FlashContentsPanel report={report} model={model} rig={rig} />
+              <section data-av-surface="session-log">
+                <Panel
+                  title="Session"
+                  right={faults > 0 ? <Badge tone="error">{faults} faults</Badge> : null}
+                >
+                  <Row label="Boards">
+                    {passed} pass · {failed} fail
                   </Row>
-                  <Row label="Fail the next pass">
-                    <Toggle path="/sim/fail_next_pass" />
-                  </Row>
-                </Section>
-              )}
-              <Section title="Parameters" defaultOpen={false}>
-                <ParamTree />
-              </Section>
-            </Panel>
-          </section>
-        </div>
+                  {/* Faults were their own panel, which meant a page that was mostly "none". They
+                      are a fact about the session, so they live with it. */}
+                  <div data-av-surface="faults">
+                    {faults > 0 ? (
+                      <Banner tone="error">
+                        {faults} fault{faults === 1 ? '' : 's'} this session
+                        {detail ? `: ${detail}` : ''}
+                      </Banner>
+                    ) : detail ? (
+                      <Row label="Detail">{detail}</Row>
+                    ) : (
+                      <Row label="Faults">none</Row>
+                    )}
+                  </div>
+                  {/* The simulation switches stay here, on the Rig tab, and did not move to
+                      Settings with the parameter tree. `Board in fixture` is flipped *while
+                      watching the phase tile* — it is how the debounce and the removal gate are
+                      exercised — and a fixture switch one tab away from the thing it drives would
+                      be a worse tool than the one being replaced. They were never part of the
+                      complaint: they are labelled toggles, not tree rows. */}
+                  {simulated && (
+                    <Section title="Simulation" defaultOpen>
+                      <Row
+                        label="Board in fixture"
+                        hint="Stands in for seating and lifting a board"
+                      >
+                        <Toggle path="/sim/board_present" />
+                      </Row>
+                      <Row label="Fail the next pass">
+                        <Toggle path="/sim/fail_next_pass" />
+                      </Row>
+                    </Section>
+                  )}
+                </Panel>
+              </section>
+            </div>
+          </div>
+        )}
       </div>
       <StatusBar stream={null}>
         <StatusItem
