@@ -1,0 +1,126 @@
+{
+  // Repository-wide run configurations.
+  //
+  // Hand-written and committed, unlike the per-project files PlatformIO generates under
+  // PortalFW/.vscode and HomeSwitchTest/.vscode — those carry absolute toolchain paths and stay
+  // ignored by their own .gitignore files.
+  //
+  // The Rust entries need the CodeLLDB extension (`vadimcn.vscode-lldb`).
+  "version": "0.2.0",
+  "configurations": [
+    {
+      // The production flashing rig. Opens a window and serves the same page on loopback.
+      "name": "Portal Flasher (native)",
+      "type": "lldb",
+      "request": "launch",
+      "program": "${workspaceFolder}/PortalFlasher/target/debug/portal-flasher.exe",
+      "args": [],
+      "cwd": "${workspaceFolder}/PortalFlasher/target/debug",
+      "env": {
+        "RUST_LOG": "info,av_gui_host=info,av_gui_shell=info"
+      },
+      "terminal": "integrated",
+      "preLaunchTask": "Flasher: build web + cargo",
+      "sourceLanguages": ["rust"]
+    },
+    {
+      // No probe needed: a modelled STM32G070 with a fixture switch on the page, so the whole
+      // arm → flash → cycle → run-check → pass rhythm can be driven from a desk.
+      "name": "Portal Flasher (simulated target)",
+      "type": "lldb",
+      "request": "launch",
+      "program": "${workspaceFolder}/PortalFlasher/target/debug/portal-flasher.exe",
+      "args": ["--simulate"],
+      "cwd": "${workspaceFolder}/PortalFlasher/target/debug",
+      "env": {
+        "RUST_LOG": "info,av_gui_host=info,av_gui_shell=info"
+      },
+      "terminal": "integrated",
+      "preLaunchTask": "Flasher: build web + cargo",
+      "sourceLanguages": ["rust"]
+    },
+    {
+      // Serves the page without opening a window. Note this is a SILENT rig: the pass and fail
+      // tones are played by the browser, so headless is for development, not for flashing.
+      "name": "Portal Flasher (headless, opens browser)",
+      "type": "lldb",
+      "request": "launch",
+      "program": "${workspaceFolder}/PortalFlasher/target/debug/portal-flasher.exe",
+      "args": ["--headless", "--simulate"],
+      "cwd": "${workspaceFolder}/PortalFlasher/target/debug",
+      "env": {
+        "RUST_LOG": "info,av_gui_host=info"
+      },
+      "terminal": "console",
+      "preLaunchTask": "Flasher: build web + cargo",
+      "serverReadyAction": {
+        "action": "openExternally",
+        "pattern": "portal-flasher: .* (http://\\S+)",
+        "uriFormat": "%s"
+      },
+      "sourceLanguages": ["rust"]
+    },
+    {
+      "name": "RouterRS: app",
+      "type": "lldb",
+      "request": "launch",
+      "program": "${workspaceFolder}/RouterRS/target/debug/router-app.exe",
+      "args": [],
+      // config.json is read relative to the working directory.
+      "cwd": "${workspaceFolder}/RouterRS",
+      "env": { "RUST_LOG": "info" },
+      "terminal": "integrated",
+      "preLaunchTask": "RouterRS: cargo build",
+      "sourceLanguages": ["rust"]
+    },
+    {
+      "name": "RouterRS: app (simulated bus)",
+      "type": "lldb",
+      "request": "launch",
+      "program": "${workspaceFolder}/RouterRS/target/debug/router-app.exe",
+      "args": ["--simulate", "--sim-dead", "2,7", "--sim-noisy", "5"],
+      "cwd": "${workspaceFolder}/RouterRS",
+      "env": { "RUST_LOG": "info" },
+      "terminal": "integrated",
+      "preLaunchTask": "RouterRS: cargo build",
+      "sourceLanguages": ["rust"]
+    },
+    {
+      "name": "RouterRS: headless (60 s simulated session)",
+      "type": "lldb",
+      "request": "launch",
+      "program": "${workspaceFolder}/RouterRS/target/debug/router-headless.exe",
+      "args": ["--config", "config.json", "--simulate", "--poll", "3", "--duration", "60"],
+      "cwd": "${workspaceFolder}/RouterRS",
+      "env": { "RUST_LOG": "info" },
+      "terminal": "console",
+      "preLaunchTask": "RouterRS: cargo build",
+      "sourceLanguages": ["rust"]
+    },
+    {
+      // Reads the NDJSON session reports RouterRS writes into ../RouterRS/reports.
+      "name": "RouterReports: viewer",
+      "type": "node",
+      "request": "launch",
+      "program": "${workspaceFolder}/RouterReports/server.js",
+      "cwd": "${workspaceFolder}/RouterReports",
+      "console": "integratedTerminal",
+      "serverReadyAction": {
+        "action": "openExternally",
+        "pattern": "(https?://\\S+)",
+        "uriFormat": "%s"
+      }
+    },
+    {
+      // Read-only tailer: it watches reports/newring/overnight.jsonl and does NOT open the
+      // serial port, so it can run alongside whatever is acquiring.
+      "name": "HomeSwitch: overnight monitor",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/HomeSwitchTest/monitor/overnight_monitor.py",
+      "cwd": "${workspaceFolder}/HomeSwitchTest",
+      "python": "${workspaceFolder}/HomeSwitchTest/monitor/.venv/Scripts/python.exe",
+      "console": "integratedTerminal"
+    }
+  ]
+}

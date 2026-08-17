@@ -1,7 +1,11 @@
 .pio
+# PlatformIO regenerates these with absolute toolchain paths, so they are machine-specific.
+# `.vscode/launch.json` used to be listed here for the same reason, but the hand-written
+# repository-wide one is how anyone runs RouterRS, RouterReports and PortalFlasher -- it is
+# documentation, not machine state. The generated per-project ones under PortalFW/.vscode and
+# HomeSwitchTest/.vscode are still untracked and stay that way.
 .vscode/.browse.c_cpp.db*
 .vscode/c_cpp_properties.json
-.vscode/launch.json
 .vscode/ipch
 
 docs/

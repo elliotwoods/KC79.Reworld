@@ -1,0 +1,101 @@
+{
+  // Build tasks referenced by .vscode/launch.json.
+  //
+  // Each Rust project here is its own Cargo workspace (RouterRS, PortalFlasher), so every task
+  // names its manifest explicitly rather than relying on the editor's working directory.
+  "version": "2.0.0",
+  "tasks": [
+    {
+      // The order matters and is not incidental: `web_assets!` records a path at compile time,
+      // but the files it points at are produced by the web build. Building only the Rust half
+      // gives a binary that starts and serves nothing.
+      "label": "Flasher: build web + cargo",
+      "dependsOrder": "sequence",
+      "dependsOn": ["Flasher: web build", "Flasher: cargo build"],
+      "group": { "kind": "build", "isDefault": true },
+      "problemMatcher": []
+    },
+    {
+      "label": "Flasher: web build",
+      "type": "shell",
+      "command": "npm run build",
+      "options": { "cwd": "${workspaceFolder}/PortalFlasher/web" },
+      "problemMatcher": ["$tsc"]
+    },
+    {
+      "label": "Flasher: cargo build",
+      "type": "process",
+      "command": "cargo",
+      "args": [
+        "build",
+        "--manifest-path",
+        "${workspaceFolder}/PortalFlasher/Cargo.toml",
+        "--workspace"
+      ],
+      "problemMatcher": ["$rustc"]
+    },
+    {
+      "label": "Flasher: test (rust + web)",
+      "dependsOrder": "sequence",
+      "dependsOn": ["Flasher: cargo test", "Flasher: web test"],
+      "group": { "kind": "test", "isDefault": true },
+      "problemMatcher": []
+    },
+    {
+      "label": "Flasher: cargo test",
+      "type": "process",
+      "command": "cargo",
+      "args": ["test", "--manifest-path", "${workspaceFolder}/PortalFlasher/Cargo.toml"],
+      "problemMatcher": ["$rustc"]
+    },
+    {
+      "label": "Flasher: web test",
+      "type": "shell",
+      "command": "npx vitest run",
+      "options": { "cwd": "${workspaceFolder}/PortalFlasher/web" },
+      "problemMatcher": []
+    },
+    {
+      // The framework's own structural conformance check for a downstream operator app.
+      "label": "Flasher: check-av-app",
+      "type": "shell",
+      "command": "powershell",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "third_party/av-frameworks/tools/check-av-app.ps1",
+        "-AppPath",
+        "."
+      ],
+      "options": { "cwd": "${workspaceFolder}/PortalFlasher" },
+      "problemMatcher": []
+    },
+    {
+      // Compiles the real msgpack-arduino sources on the non-Arduino path the RS485 bootloader
+      // uses, and replays FWUpdateApp::processIncoming's parse over every frame offset of a full
+      // application bank. Needs MSVC; no board, no PlatformIO.
+      "label": "Bootloader: native protocol tests",
+      "type": "shell",
+      "command": "powershell",
+      "args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "run.ps1"],
+      "options": { "cwd": "${workspaceFolder}/PortalBootloader/test-native" },
+      "problemMatcher": []
+    },
+    {
+      "label": "RouterRS: cargo build",
+      "type": "process",
+      "command": "cargo",
+      "args": ["build", "--manifest-path", "${workspaceFolder}/RouterRS/Cargo.toml", "--workspace"],
+      "problemMatcher": ["$rustc"]
+    },
+    {
+      "label": "RouterRS: cargo test",
+      "type": "process",
+      "command": "cargo",
+      "args": ["test", "--manifest-path", "${workspaceFolder}/RouterRS/Cargo.toml", "--workspace"],
+      "problemMatcher": ["$rustc"]
+    }
+  ]
+}
