@@ -17,9 +17,17 @@ use portal_swd::device::{DeviceImage, DeviceReport, RegionReport};
 use portal_swd::{ImageBundle, addr};
 use serde::Serialize;
 
-/// How finely the map is bucketed. 256 over 128 kB is 512 bytes a bucket — finer than any
-/// realistic pixel width, and small enough to send on every poll without thinking about it.
-pub const BUCKETS: usize = 256;
+/// One bucket per **flash sector**.
+///
+/// 128 kB in 2 kB sectors is 64 of them, and the sector is the real unit here: it is what the
+/// STM32G0's flash algorithm erases (`stm32g0bx_512`, `size: 0x800`), so a sector is exactly the
+/// granularity at which a board's contents can actually differ. An arbitrary 256 buckets drew a
+/// finer picture than the hardware has, which made the map look like a texture rather than like
+/// storage.
+pub const BUCKETS: usize = 64;
+
+/// Bytes per sector, so the page can label rows with real addresses.
+pub const SECTOR_BYTES: u32 = 2048;
 
 #[derive(Clone, Debug, Serialize)]
 pub struct RegionJson {
@@ -76,13 +84,18 @@ pub struct DeviceJson {
     /// Set when the whole flash is one image rather than two regions.
     pub flat_entry: Option<String>,
     pub options: OptionsJson,
-    /// Programmed fraction per bucket, 0..=255, across `0x08000000..0x08020000`.
+    /// Programmed fraction per sector, 0..=255, across `0x08000000..0x08020000`.
     pub occupancy: Vec<u8>,
-    /// The same, for the image currently selected — the second lane of the map. `None` when
-    /// nothing is selected, so the page draws one lane rather than a misleading empty one.
+    /// The same, for the image currently selected. `None` when nothing is selected, so the page
+    /// shows what is on the board without implying agreement or disagreement.
     pub selected_occupancy: Option<Vec<u8>>,
-    /// Where the bank boundary falls, 0..1, so the map does not re-derive the memory map.
-    pub split_fraction: f32,
+    /// Bytes per sector, so the page labels rows with real addresses rather than guessing.
+    pub sector_bytes: u32,
+    /// How many sectors the bootloader bank occupies. 24 kB in 2 kB sectors is exactly 12, which
+    /// is what makes bootloader-only and application-only flashing sector-aligned.
+    pub bootloader_sectors: usize,
+    /// The base address the sector grid starts at.
+    pub flash_base: String,
 }
 
 impl DeviceJson {
@@ -119,10 +132,12 @@ impl DeviceJson {
                 warnings: options.warnings().iter().map(|w| w.to_string()).collect(),
             },
             occupancy: image.occupancy(BUCKETS),
-            selected_occupancy: selected
-                .map(|bundle| portal_swd::device::occupancy_of(&bundle.expected_flash_image(), BUCKETS)),
-            split_fraction: (addr::BOOTLOADER_BYTES as f32)
-                / ((addr::FLASH_END - addr::FLASH_BASE) as f32),
+            selected_occupancy: selected.map(|bundle| {
+                portal_swd::device::occupancy_of(&bundle.expected_flash_image(), BUCKETS)
+            }),
+            sector_bytes: SECTOR_BYTES,
+            bootloader_sectors: (addr::BOOTLOADER_BYTES / SECTOR_BYTES) as usize,
+            flash_base: format!("{:#010X}", addr::FLASH_BASE),
         }
     }
 }

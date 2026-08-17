@@ -160,7 +160,9 @@ interface DeviceJson {
   };
   occupancy: number[];
   selected_occupancy: number[] | null;
-  split_fraction: number;
+  sector_bytes: number;
+  bootloader_sectors: number;
+  flash_base: string;
 }
 
 /**
@@ -294,17 +296,12 @@ function FirmwarePanel({ hasImage }: { hasImage: boolean }) {
 }
 
 function FlashPanel({ rig }: { rig: RigState }) {
-  const readDevice = useAction('/actions/read_device');
   const flashNow = useAction('/actions/flash_now');
-  const read = readDeviceState(rig);
   const flash = flashNowState(rig);
 
   return (
     <Panel title="3 · Flash">
       <div className="device-tools">
-        <Button onClick={readDevice} disabled={!read.enabled} title={read.reason}>
-          Read device
-        </Button>
         <Button
           onClick={flashNow}
           variant="primary"
@@ -315,12 +312,8 @@ function FlashPanel({ rig }: { rig: RigState }) {
         >
           Flash now
         </Button>
+        {!flash.enabled && flash.reason && <span className="fw-hint">{flash.reason}</span>}
       </div>
-      {!flash.enabled && flash.reason && (
-        <Row label="Flash now" hint="why it is unavailable">
-          {flash.reason}
-        </Row>
-      )}
       <Row label="Auto-flash" hint="Hands-free: seat, tone, cycle, tone">
         <Toggle path="/mode/desired" />
       </Row>
@@ -335,37 +328,54 @@ function FlashPanel({ rig }: { rig: RigState }) {
 }
 
 /**
- * The map gets the full width of the window, because it is 256 buckets wide and the comparison
- * between the two lanes is the whole point of drawing it.
+ * What is on the board: the sector grid and everything read alongside it.
+ *
+ * The device detail used to be a separate panel from the map, which split one subject in two —
+ * the grid showed *where* the flash was used and the panel next to it said *what* was there, and
+ * neither made sense alone. Read device lives here too, because this panel is the only thing it
+ * affects.
  */
-function MapPanel({ report, model }: { report: DeviceJson | null; model: MapModel }) {
+function FlashContentsPanel({
+  report,
+  model,
+  rig,
+}: {
+  report: DeviceJson | null;
+  model: MapModel;
+  rig: RigState;
+}) {
+  const layout = useEnumName<Layout>('/device/layout', 'unknown');
+  const summary = layoutSummary(layout);
   const comparison = comparisonSummary(model);
+  const readDevice = useAction('/actions/read_device');
+  const read = readDeviceState(rig);
+
   return (
     <Panel
       title="Flash contents"
-      right={report ? <Badge tone={comparison.tone}>{comparison.label}</Badge> : null}
+      right={
+        report ? <Badge tone={summary.tone}>{summary.label}</Badge> : <Badge>not read</Badge>
+      }
     >
-      {report ? (
-        <div className="fw-map-wrap">
-          <FirmwareMap model={model} />
-        </div>
-      ) : (
-        <EmptyState inline detail="Nothing read yet. Seat a board and press Read device." />
-      )}
-    </Panel>
-  );
-}
+      <div className="device-tools">
+        <Button onClick={readDevice} disabled={!read.enabled} title={read.reason}>
+          {report ? 'Re-read device' : 'Read device'}
+        </Button>
+        {!read.enabled && read.reason && <span className="fw-hint">{read.reason}</span>}
+      </div>
 
-function DevicePanel({ report }: { report: DeviceJson | null }) {
-  const layout = useEnumName<Layout>('/device/layout', 'unknown');
-  const summary = layoutSummary(layout);
-
-  return (
-    <Panel title="Device" right={<Badge tone={summary.tone}>{summary.label}</Badge>}>
       {!report ? (
-        <EmptyState inline detail="Not read." />
+        <EmptyState inline detail="Seat a board and press Read device." />
       ) : (
         <>
+          <FirmwareMap model={model} />
+
+          {/* Only when there is something to compare against. Saying "no image selected" here
+              read as a complaint about the flash contents rather than about the picker. */}
+          {comparison && (
+            <Banner tone={comparison.tone === 'ok' ? 'info' : 'warn'}>{comparison.label}</Banner>
+          )}
+
           <Row label="Layout" hint={summary.detail}>
             {summary.label}
           </Row>
@@ -381,6 +391,7 @@ function DevicePanel({ report }: { report: DeviceJson | null }) {
             {formatBytes(report.programmed_bytes)} of {formatBytes(report.total_bytes)}
           </Row>
           <Row label="UID">{report.uid}</Row>
+
           <Section title="Option bytes" defaultOpen={false}>
             <Row label="OPTR">{report.options.raw}</Row>
             <Row label="RDP">level {report.options.rdp_level}</Row>
@@ -453,11 +464,13 @@ function App() {
 
   const model = useMemo(
     () =>
-      buildMap(
-        report?.occupancy ?? null,
-        report?.selected_occupancy ?? null,
-        report?.split_fraction ?? 0.1875,
-      ),
+      buildMap(report?.occupancy ?? null, report?.selected_occupancy ?? null, {
+        // The memory map comes from the Rust side rather than being restated here, so the
+        // grid cannot drift from the part it is drawing.
+        sectorBytes: report?.sector_bytes ?? 2048,
+        bootloaderSectors: report?.bootloader_sectors ?? 12,
+        flashBase: report ? Number.parseInt(report.flash_base, 16) : 0x0800_0000,
+      }),
     [report],
   );
 
@@ -468,18 +481,13 @@ function App() {
         sub={schema ? (simulated ? 'simulated target' : 'STM32G070RBT6 over SWD') : 'connecting…'}
       />
       <div className="app-body flasher-layout">
-        {/* What an operator reads at a glance, across the full width. */}
-        <div className="flasher-head">
-          <section data-av-surface="device-state">
-            <Panel title="Rig">
-              <div className="rig-tile" data-tone={tile.tone}>
-                <div className="rig-headline">{tile.headline}</div>
-                <div className="rig-instruction">{tile.instruction}</div>
-              </div>
-            </Panel>
-          </section>
-          <MapPanel report={report} model={model} />
-        </div>
+        {/* One line, across the width: what the rig is, and what to do about it. */}
+        <section data-av-surface="device-state">
+          <div className="rig-strip" data-tone={tile.tone}>
+            <span className="rig-headline">{tile.headline}</span>
+            <span className="rig-instruction">{tile.instruction}</span>
+          </div>
+        </section>
 
         {/* The order of operations, left to right. */}
         <div className="flasher-steps">
@@ -492,27 +500,31 @@ function App() {
           </section>
         </div>
 
-        {/* The evidence. */}
+        {/* The evidence: what is on the board, and what has happened this session. */}
         <div className="flasher-detail">
-          <DevicePanel report={report} />
-          <section data-av-surface="faults">
-            <Panel title="Faults">
-              {faults > 0 ? (
-                <Banner tone="error">
-                  {faults} fault{faults === 1 ? '' : 's'} this session{detail ? `: ${detail}` : ''}
-                </Banner>
-              ) : detail ? (
-                <Row label="Detail">{detail}</Row>
-              ) : (
-                <Row label="Faults">none</Row>
-              )}
-            </Panel>
-          </section>
+          <FlashContentsPanel report={report} model={model} rig={rig} />
           <section data-av-surface="session-log">
-            <Panel title="Session">
+            <Panel
+              title="Session"
+              right={faults > 0 ? <Badge tone="error">{faults} faults</Badge> : null}
+            >
               <Row label="Boards">
                 {passed} pass · {failed} fail
               </Row>
+              {/* Faults were their own panel, which meant a page that was mostly "none". They are
+                  a fact about the session, so they live with it. */}
+              <div data-av-surface="faults">
+                {faults > 0 ? (
+                  <Banner tone="error">
+                    {faults} fault{faults === 1 ? '' : 's'} this session
+                    {detail ? `: ${detail}` : ''}
+                  </Banner>
+                ) : detail ? (
+                  <Row label="Detail">{detail}</Row>
+                ) : (
+                  <Row label="Faults">none</Row>
+                )}
+              </div>
               {simulated && (
                 <Section title="Simulation" defaultOpen>
                   <Row label="Board in fixture" hint="Stands in for seating and lifting a board">

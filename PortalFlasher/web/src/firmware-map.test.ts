@@ -1,20 +1,24 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  COLUMNS,
+  type Occupancy,
   buildMap,
   comparisonSummary,
-  diffBuckets,
   fillOf,
   formatBytes,
-  ticks,
+  regionSectors,
+  rowAddress,
+  sectorTitle,
+  usedSectors,
 } from './firmware-map';
 
-const BUCKETS = 256;
+const SECTORS = 64;
+const OPTS = { sectorBytes: 2048, bootloaderSectors: 12, flashBase: 0x0800_0000 };
 
-/** A device that is programmed for the first `fraction` of flash and erased after. */
-function programmedUpTo(fraction: number): number[] {
-  const cut = Math.round(BUCKETS * fraction);
-  return Array.from({ length: BUCKETS }, (_, i) => (i < cut ? 255 : 0));
+/** A device programmed for its first `n` sectors and erased after. */
+function programmed(n: number): Occupancy[] {
+  return Array.from({ length: SECTORS }, (_, i) => (i < n ? 255 : 0));
 }
 
 describe('fillOf', () => {
@@ -25,53 +29,53 @@ describe('fillOf', () => {
   });
 
   it('shows a single programmed byte rather than rounding it away', () => {
-    // One byte in a 512-byte bucket is 0, but the Rust side reports at least 1 for anything
-    // non-erased. An operator wants to see that, not have it disappear.
     expect(fillOf(1)).toBe('partial');
   });
 });
 
-describe('diffBuckets', () => {
-  it('flags where the lanes disagree', () => {
-    const device = programmedUpTo(0.5);
-    const selected = programmedUpTo(0.75);
-    const diff = diffBuckets(device, selected);
-    expect(diff).toHaveLength(BUCKETS);
-    expect(diff.slice(0, 128).some(Boolean)).toBe(false);
-    expect(diff.slice(128, 192).every(Boolean)).toBe(true);
-    expect(diff.slice(192).some(Boolean)).toBe(false);
-  });
-
-  it('ignores differences too small to act on', () => {
-    // The buckets are lossy. 3/512 versus 4/512 programmed is not a difference an operator can
-    // do anything about, and flagging it would make every map look wrong.
-    expect(diffBuckets([2], [3])).toEqual([false]);
-    // But erased-versus-programmed always counts.
-    expect(diffBuckets([0], [3])).toEqual([true]);
-  });
-
-  it('tolerates lanes of different lengths', () => {
-    expect(diffBuckets([255, 255], [255])).toHaveLength(1);
-  });
-});
-
 describe('buildMap', () => {
-  it('draws one lane when nothing is selected, and does not imply agreement', () => {
-    const model = buildMap(programmedUpTo(0.5), null, 0.1875);
-    expect(model.lanes).toHaveLength(1);
-    expect(model.diff).toBeNull();
-    expect(comparisonSummary(model).label).toMatch(/no image selected/);
+  it('draws one cell per real flash sector', () => {
+    const model = buildMap(programmed(SECTORS), null, OPTS);
+    expect(model.sectors).toHaveLength(64);
+    expect(model.sectorBytes).toBe(2048);
+    // 64 sectors of 2 kB is the whole 128 kB part, which is the point of using sectors at all.
+    expect(model.sectors.length * model.sectorBytes).toBe(128 * 1024);
+  });
+
+  it('splits the banks where the hardware does', () => {
+    const model = buildMap(programmed(SECTORS), null, OPTS);
+    expect(regionSectors(model, 'bootloader')).toBe(12);
+    expect(regionSectors(model, 'application')).toBe(52);
+    // 24 kB in 2 kB sectors is exactly 12 -- which is what makes bootloader-only and
+    // application-only flashing sector-aligned rather than a partial-erase problem.
+    expect(12 * 2048).toBe(24 * 1024);
+  });
+
+  it('gives every sector its real address', () => {
+    const model = buildMap(programmed(1), null, OPTS);
+    expect(model.sectors[0].address).toBe(0x0800_0000);
+    expect(model.sectors[12].address).toBe(0x0800_6000);
+    expect(model.sectors[63].address).toBe(0x0801_F800);
   });
 
   it('draws nothing before a read', () => {
-    const model = buildMap(null, null, 0.1875);
-    expect(model.lanes).toHaveLength(0);
-    expect(comparisonSummary(model).label).toMatch(/not read/);
+    const model = buildMap(null, null, OPTS);
+    expect(model.sectors).toHaveLength(0);
+    expect(comparisonSummary(model)).toBeNull();
+  });
+
+  it('says nothing about a comparison when nothing is selected', () => {
+    // Saying "no image selected" here read as a complaint about the flash contents rather than
+    // about the firmware picker, which is a different panel's business.
+    const model = buildMap(programmed(40), null, OPTS);
+    expect(model.diffCount).toBeNull();
+    expect(comparisonSummary(model)).toBeNull();
+    expect(model.sectors.every((s) => s.differs === false)).toBe(true);
   });
 
   it('reports a match as a match', () => {
-    const same = programmedUpTo(0.5);
-    const model = buildMap(same, [...same], 0.1875);
+    const same = programmed(40);
+    const model = buildMap(same, [...same], OPTS);
     expect(model.diffCount).toBe(0);
     expect(comparisonSummary(model)).toEqual({
       label: 'matches the selected image',
@@ -79,30 +83,74 @@ describe('buildMap', () => {
     });
   });
 
-  it('quantifies a mismatch', () => {
-    const model = buildMap(programmedUpTo(0.25), programmedUpTo(0.75), 0.1875);
-    expect(model.diffCount).toBeGreaterThan(0);
-    const summary = comparisonSummary(model);
-    expect(summary.tone).toBe('warn');
-    expect(summary.label).toMatch(/differs across ~50%/);
+  it('counts differing sectors, and says how many', () => {
+    const model = buildMap(programmed(20), programmed(24), OPTS);
+    expect(model.diffCount).toBe(4);
+    expect(comparisonSummary(model)?.label).toBe('4 sectors differ from the selected image');
+    expect(comparisonSummary(model)?.tone).toBe('warn');
   });
 
-  it('never reports 0% for a real difference', () => {
-    // One bucket out of 256 rounds to 0%, which would read as "identical" next to a warn tone.
-    const device = programmedUpTo(0);
-    const selected = [...device];
-    selected[0] = 255;
-    expect(comparisonSummary(buildMap(device, selected, 0.1875)).label).toMatch(/~1%/);
+  it('gets the singular right', () => {
+    const model = buildMap(programmed(20), programmed(21), OPTS);
+    expect(model.diffCount).toBe(1);
+    expect(comparisonSummary(model)?.label).toBe('1 sector differs from the selected image');
+  });
+
+  it('ignores differences too small to act on', () => {
+    // The occupancy is a fraction of a 2 kB sector; 3/2048 versus 4/2048 is not actionable.
+    const a = [2, ...Array(SECTORS - 1).fill(0)];
+    const b = [3, ...Array(SECTORS - 1).fill(0)];
+    expect(buildMap(a, b, OPTS).diffCount).toBe(0);
+    // Erased versus programmed always counts.
+    expect(buildMap([0, ...Array(SECTORS - 1).fill(0)], b, OPTS).diffCount).toBe(1);
+  });
+
+  it('does not silently shorten the grid when the selected image is shorter', () => {
+    const model = buildMap(programmed(SECTORS), programmed(10).slice(0, 32), OPTS);
+    expect(model.sectors).toHaveLength(64);
+    expect(model.missing).toBe(32);
   });
 });
 
-describe('ticks', () => {
-  it('marks the bank boundary and the ends', () => {
-    const labels = ticks().map((t) => t.label);
-    expect(labels).toEqual(['0', '24k', '64k', '128k']);
-    // 24 kB of 128 kB is where the bootloader bank ends -- the one boundary that matters.
-    expect(ticks()[1].at).toBeCloseTo(0.1875, 5);
-    expect(ticks()[3].at).toBe(1);
+describe('usedSectors', () => {
+  it('counts what is programmed in each bank', () => {
+    // A flat image: everything programmed, so both banks report used.
+    const flat = buildMap(programmed(50), null, OPTS);
+    expect(usedSectors(flat, 'bootloader')).toBe(12);
+    expect(usedSectors(flat, 'application')).toBe(38);
+
+    // An erased part.
+    const blank = buildMap(programmed(0), null, OPTS);
+    expect(usedSectors(blank, 'bootloader')).toBe(0);
+    expect(usedSectors(blank, 'application')).toBe(0);
+  });
+});
+
+describe('rowAddress', () => {
+  it('labels each row with the address it starts at', () => {
+    const model = buildMap(programmed(SECTORS), null, OPTS);
+    expect(rowAddress(model, 0)).toBe('0x08000000');
+    // Eight sectors of 2 kB is 16 kB a row, so every row boundary is a round address.
+    expect(rowAddress(model, 1)).toBe('0x08004000');
+    expect(rowAddress(model, 7)).toBe('0x0801C000');
+    expect(COLUMNS * 2048).toBe(16 * 1024);
+  });
+});
+
+describe('sectorTitle', () => {
+  it('says everything about one sector in a sentence', () => {
+    const model = buildMap(programmed(20), programmed(24), OPTS);
+    const title = sectorTitle(model.sectors[21], model.sectorBytes);
+    expect(title).toContain('0x0800A800');
+    expect(title).toContain('sector 21');
+    expect(title).toContain('2 kB');
+    expect(title).toContain('application');
+    expect(title).toContain('differs');
+  });
+
+  it('does not claim a difference when there is nothing to compare', () => {
+    const model = buildMap(programmed(20), null, OPTS);
+    expect(sectorTitle(model.sectors[0], model.sectorBytes)).not.toContain('differs');
   });
 });
 

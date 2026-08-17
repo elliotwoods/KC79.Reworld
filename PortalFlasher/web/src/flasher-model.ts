@@ -80,18 +80,23 @@ export function tileFor(state: RigState): Tile {
 }
 
 /**
- * Manual is the default and has no armed state at all — it is a person pressing a button.
- * The tile therefore reports readiness rather than a phase.
+ * Manual is the default and has no armed state at all — it is a person pressing a button, so the
+ * tile reports readiness rather than a phase.
+ *
+ * The headline is about **the rig and the board**; what is missing goes in the instruction. An
+ * earlier version led with "No image", which read as a complaint from the status panel about
+ * something the firmware panel was already saying, and told an operator nothing about whether
+ * their board was even detected.
  */
 function manualTile(state: RigState): Tile {
   if (state.busy) {
     return { headline: 'Flashing', instruction: 'Do not lift', tone: 'active' };
   }
-  if (!state.hasImage) {
-    return { headline: 'No image', instruction: 'Choose firmware to flash', tone: 'idle' };
-  }
   if (!state.targetPresent) {
-    return { headline: 'Manual', instruction: 'Seat a board', tone: 'idle' };
+    return { headline: 'No board', instruction: 'Seat a board on the fixture', tone: 'idle' };
+  }
+  if (!state.hasImage) {
+    return { headline: 'Board detected', instruction: 'Choose firmware to flash', tone: 'active' };
   }
   return { headline: 'Ready', instruction: 'Read device, or Flash now', tone: 'ok' };
 }

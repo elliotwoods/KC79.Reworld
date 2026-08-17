@@ -1,115 +1,150 @@
 /**
  * The firmware map's pure half.
  *
- * Everything that decides what the map *says* is a function of plain arrays, tested without a
- * bus, without jsdom and without a board — so the component is left with nothing but geometry
- * and markup. Same discipline as the framework's `web/src/vision/devices.ts`.
+ * Everything that decides what the map *says* is a function of plain arrays, tested without a bus,
+ * without jsdom and without a board — so the component is left with nothing but geometry and
+ * markup. Same discipline as the framework's `web/src/vision/devices.ts`.
  *
- * # Why two lanes
+ * # A grid of sectors, not a stripe
  *
- * One lane tells you a board has firmware on it. Two lanes, on the same x-scale, tell you whether
- * it is *the firmware you selected* — and where it differs. That comparison is the entire reason
- * the map exists; a single lane would be decoration.
+ * The first version drew two horizontal bars of 256 arbitrary buckets. It read as a texture: you
+ * could see that *something* was programmed but not what, where, or in what units, and the labels
+ * were stretched by a non-uniform aspect ratio.
+ *
+ * This draws the flash as what it physically is — **64 sectors of 2 kB**, the unit the STM32G0's
+ * flash algorithm actually erases. Twelve of them are the bootloader bank; the rest are the
+ * application. A sector is therefore the finest granularity at which two images can genuinely
+ * differ, so nothing here is invented resolution.
  */
 
-/** How full one slice of flash is, 0..=255, as the Rust side buckets it. */
-export type Bucket = number;
+/** How full one sector is, 0..=255, as the Rust side reports it. */
+export type Occupancy = number;
 
 export type Fill = 'erased' | 'partial' | 'programmed';
 
-/** The three states a slice can be in. Anything not fully erased is worth showing as *something*
- * — a single programmed byte in an otherwise blank sector is exactly the kind of thing an
- * operator wants to see rather than have rounded away. */
-export function fillOf(bucket: Bucket): Fill {
-  if (bucket <= 0) return 'erased';
-  if (bucket >= 250) return 'programmed';
+export type Region = 'bootloader' | 'application';
+
+/**
+ * The three states a sector can be in.
+ *
+ * Anything not fully erased shows as *something*: a single programmed byte in an otherwise blank
+ * sector is exactly the kind of thing an operator wants to see rather than have rounded away.
+ */
+export function fillOf(value: Occupancy): Fill {
+  if (value <= 0) return 'erased';
+  if (value >= 250) return 'programmed';
   return 'partial';
 }
 
-export interface Lane {
-  /** Shown at the left of the lane. */
-  label: string;
-  buckets: Bucket[];
-  /** True when this lane is what the operator selected rather than what the board holds. */
-  selected: boolean;
-}
-
-export interface Tick {
-  /** 0..1 across the whole flash. */
-  at: number;
-  label: string;
+export interface Sector {
+  index: number;
+  /** Start address, for the row labels and the tooltip. */
+  address: number;
+  region: Region;
+  device: Fill;
+  /** What the selected image would put here, or `null` when nothing is selected. */
+  selected: Fill | null;
+  /** True when the board and the selected image disagree about this sector. */
+  differs: boolean;
 }
 
 export interface MapModel {
-  lanes: Lane[];
-  /** Where the bootloader bank ends, 0..1. */
-  splitFraction: number;
-  ticks: Tick[];
-  /**
-   * Per bucket: does the device disagree with the selected image? `null` when there is nothing
-   * to compare against, which the page draws as one lane rather than as agreement.
-   */
-  diff: boolean[] | null;
-  /** How many buckets disagree. 0 with a non-null `diff` means "this board already matches". */
-  diffCount: number;
+  sectors: Sector[];
+  /** Sectors per row in the grid. */
+  columns: number;
+  sectorBytes: number;
+  flashBase: number;
+  /** How many sectors are drawn but have no data — always 0 in practice; a guard for a short
+   * occupancy array rather than a silent short grid. */
+  missing: number;
+  /** `null` when nothing is selected: the map then shows the board without implying agreement. */
+  diffCount: number | null;
 }
 
-/** Byte offsets worth a label on a 128 kB part. */
-const TICK_BYTES: ReadonlyArray<readonly [number, string]> = [
-  [0, '0'],
-  [24 * 1024, '24k'],
-  [64 * 1024, '64k'],
-  [128 * 1024, '128k'],
-];
-
-const FLASH_BYTES = 128 * 1024;
-
-export function ticks(): Tick[] {
-  return TICK_BYTES.map(([at, label]) => ({ at: at / FLASH_BYTES, label }));
-}
-
-/**
- * Where the two lanes disagree.
- *
- * Compared by fill class rather than by exact value, because the buckets are lossy: a sector that
- * is 3/512 programmed on one side and 4/512 on the other is not a difference an operator can act
- * on, and flagging it would make every map look wrong.
- */
-export function diffBuckets(device: Bucket[], selected: Bucket[]): boolean[] {
-  const length = Math.min(device.length, selected.length);
-  const out: boolean[] = [];
-  for (let i = 0; i < length; i++) {
-    out.push(fillOf(device[i]) !== fillOf(selected[i]));
-  }
-  return out;
-}
+/** Eight across gives eight rows of 16 kB — square enough to scan, and every row boundary lands
+ * on a round address. */
+export const COLUMNS = 8;
 
 export function buildMap(
-  device: Bucket[] | null,
-  selected: Bucket[] | null,
-  splitFraction: number,
+  device: Occupancy[] | null,
+  selected: Occupancy[] | null,
+  options: { sectorBytes: number; bootloaderSectors: number; flashBase: number },
 ): MapModel {
-  const lanes: Lane[] = [];
-  if (device) lanes.push({ label: 'on device', buckets: device, selected: false });
-  if (selected) lanes.push({ label: 'selected', buckets: selected, selected: true });
+  if (!device || device.length === 0) {
+    return {
+      sectors: [],
+      columns: COLUMNS,
+      sectorBytes: options.sectorBytes,
+      flashBase: options.flashBase,
+      missing: 0,
+      diffCount: null,
+    };
+  }
 
-  const diff = device && selected ? diffBuckets(device, selected) : null;
+  const sectors: Sector[] = device.map((value, index) => {
+    const deviceFill = fillOf(value);
+    const selectedFill = selected && index < selected.length ? fillOf(selected[index]) : null;
+    return {
+      index,
+      address: options.flashBase + index * options.sectorBytes,
+      region: index < options.bootloaderSectors ? 'bootloader' : 'application',
+      device: deviceFill,
+      selected: selectedFill,
+      // Compared by fill class rather than by exact value: the occupancy is a fraction, and a
+      // sector that is 3/2048 programmed on one side and 4/2048 on the other is not a difference
+      // anyone can act on. Flagging it would make every map look wrong.
+      differs: selectedFill !== null && selectedFill !== deviceFill,
+    };
+  });
+
   return {
-    lanes,
-    splitFraction,
-    ticks: ticks(),
-    diff,
-    diffCount: diff ? diff.filter(Boolean).length : 0,
+    sectors,
+    columns: COLUMNS,
+    sectorBytes: options.sectorBytes,
+    flashBase: options.flashBase,
+    missing: selected ? Math.max(0, device.length - selected.length) : 0,
+    diffCount: selected ? sectors.filter((s) => s.differs).length : null,
   };
 }
 
-/** A one-line verdict for the panel heading. */
-export function comparisonSummary(model: MapModel): { label: string; tone: 'ok' | 'warn' | 'idle' } {
-  if (model.lanes.length === 0) return { label: 'not read', tone: 'idle' };
-  if (!model.diff) return { label: 'no image selected', tone: 'idle' };
+/** How many sectors of a region are not erased. */
+export function usedSectors(model: MapModel, region: Region): number {
+  return model.sectors.filter((s) => s.region === region && s.device !== 'erased').length;
+}
+
+export function regionSectors(model: MapModel, region: Region): number {
+  return model.sectors.filter((s) => s.region === region).length;
+}
+
+/** A one-line verdict about the board against the selected image. */
+export function comparisonSummary(
+  model: MapModel,
+): { label: string; tone: 'ok' | 'warn' | 'idle' } | null {
+  if (model.sectors.length === 0) return null;
+  // No selection is not a verdict. Saying "no image selected" *here* read as a complaint about
+  // the flash contents rather than about the firmware picker, so the panel says nothing instead.
+  if (model.diffCount === null) return null;
   if (model.diffCount === 0) return { label: 'matches the selected image', tone: 'ok' };
-  const percent = Math.max(1, Math.round((100 * model.diffCount) / model.diff.length));
-  return { label: `differs across ~${percent}% of flash`, tone: 'warn' };
+  const label =
+    model.diffCount === 1
+      ? '1 sector differs from the selected image'
+      : `${model.diffCount} sectors differ from the selected image`;
+  return { label, tone: 'warn' };
+}
+
+/** Row label: the address the row starts at. */
+export function rowAddress(model: MapModel, row: number): string {
+  const address = model.flashBase + row * model.columns * model.sectorBytes;
+  return `0x${address.toString(16).toUpperCase().padStart(8, '0')}`;
+}
+
+/** What one sector should say when hovered. */
+export function sectorTitle(sector: Sector, sectorBytes: number): string {
+  const address = `0x${sector.address.toString(16).toUpperCase().padStart(8, '0')}`;
+  const size = `${sectorBytes / 1024} kB`;
+  const state = sector.device === 'erased' ? 'erased' : sector.device;
+  const diff = sector.differs ? ' · differs from the selected image' : '';
+  return `${address} · sector ${sector.index} · ${size} · ${sector.region} · ${state}${diff}`;
 }
 
 /** Human byte counts, for the region rows. */

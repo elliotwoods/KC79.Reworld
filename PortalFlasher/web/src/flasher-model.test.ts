@@ -57,14 +57,24 @@ describe('tileFor', () => {
   });
 
   it('manual asks for a board, then offers to flash it', () => {
+    expect(tileFor(state({ targetPresent: false })).headline).toBe('No board');
     expect(tileFor(state({ targetPresent: false })).instruction).toMatch(/seat a board/i);
     expect(tileFor(state({ targetPresent: true })).instruction).toMatch(/flash now/i);
   });
 
-  it('manual will not offer to flash without an image', () => {
+  it('leads with the board, not with what is missing elsewhere', () => {
+    // "No image" as a headline read as the status panel complaining about something the firmware
+    // panel was already saying, and told an operator nothing about whether their board was even
+    // detected. What is missing belongs in the instruction.
     const tile = tileFor(state({ targetPresent: true, hasImage: false }));
-    expect(tile.headline).toBe('No image');
+    expect(tile.headline).toBe('Board detected');
     expect(tile.instruction).toMatch(/choose firmware/i);
+  });
+
+  it('reports no board before it reports no image', () => {
+    // With neither, the board is the more useful thing to say: an operator can seat one, whereas
+    // "no image" is the firmware panel's business.
+    expect(tileFor(state({ targetPresent: false, hasImage: false })).headline).toBe('No board');
   });
 
   it('auto distinguishes the three ways of waiting for a removal', () => {

@@ -36,15 +36,7 @@
   align-content: start;
 }
 
-.flasher-head {
-  display: grid;
-  grid-template-columns: minmax(240px, 320px) minmax(0, 1fr);
-  gap: var(--space-4);
-  align-items: stretch;
-}
-
-.flasher-steps,
-.flasher-detail {
+.flasher-steps {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
   gap: var(--space-4);
@@ -53,31 +45,45 @@
   align-items: start;
 }
 
-/* The verdict and the map stop sharing a row before either becomes unreadable. */
-@media (max-width: 860px) {
-  .flasher-head {
+/*
+ * The evidence row. Flash contents gets the larger share because the sector grid is eight cells
+ * wide with an address gutter; the session summary is a handful of lines.
+ */
+.flasher-detail {
+  display: grid;
+  grid-template-columns: minmax(420px, 1.7fr) minmax(300px, 1fr);
+  gap: var(--space-4);
+  align-items: start;
+}
+
+@media (max-width: 1000px) {
+  .flasher-detail {
     grid-template-columns: 1fr;
   }
 }
 
 /* ---------------------------------------------------------------- the verdict tile */
 
-.rig-tile {
+/*
+ * One line across the width rather than a tall box in a column.
+ *
+ * As a box it wasted a column of space on two short strings, and sitting inside a panel titled
+ * "Rig" it read as a fourth thing to understand rather than as the answer. A strip is what a
+ * status line is.
+ */
+.rig-strip {
   display: flex;
-  flex-direction: column;
-  /* Fills its panel and centres, so the verdict and the map read as one band rather than as a
-     short box beside a tall one. */
-  height: 100%;
-  justify-content: center;
-  gap: var(--space-1);
-  padding: var(--space-4);
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2) var(--space-4);
+  padding: var(--space-3) var(--space-4);
   border-radius: var(--radius-md);
   border: 1px solid var(--border);
   background: var(--surface-sunken);
 }
 
 .rig-headline {
-  font-size: 2.25rem;
+  font-size: 1.75rem;
   line-height: 1.1;
   font-weight: 600;
   letter-spacing: -0.01em;
@@ -89,73 +95,115 @@
   color: var(--text-muted);
 }
 
-.rig-tile[data-tone='ok'] .rig-headline {
+.rig-strip[data-tone='ok'] .rig-headline {
   color: var(--ok);
 }
-.rig-tile[data-tone='error'] .rig-headline {
+.rig-strip[data-tone='error'] .rig-headline {
   color: var(--danger);
 }
-.rig-tile[data-tone='active'] .rig-headline {
+.rig-strip[data-tone='active'] .rig-headline {
   color: var(--accent);
 }
 
-/* ---------------------------------------------------------------- the firmware map */
-
-.fw-map-wrap {
-  /* The SVG scales to the panel; the wrapper is what gives it a height, because
-     preserveAspectRatio="none" means the viewBox alone will not. */
-  width: 100%;
-  padding: var(--space-2) 0 var(--space-3);
-}
-
-.fw-map {
-  width: 100%;
-  height: 96px;
-  display: block;
-}
-
-.fw-map-label,
-.fw-map-tick-label {
+/* An inline reason next to a disabled button, so "why can I not press this" needs no hover. */
+.fw-hint {
+  align-self: center;
   font: var(--type-label);
   letter-spacing: var(--tracking-label);
-  fill: var(--text-muted);
+  color: var(--text-muted);
   text-transform: uppercase;
 }
 
-.fw-map-tick-label {
-  fill: var(--ruler-label);
-  text-transform: none;
+/* ---------------------------------------------------------------- the flash sector grid */
+
+.fw-map {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-2) 0 0;
 }
 
-.fw-map-track {
-  fill: var(--surface-sunken);
-  stroke: var(--border);
-  stroke-width: 1;
+.fw-grid {
+  display: grid;
+  gap: var(--space-1);
 }
 
-.fw-map-cell[data-fill='programmed'] {
-  fill: var(--chart-1);
+.fw-row {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  align-items: center;
+  gap: var(--space-2);
 }
 
-/* Partly-programmed reads as present-but-not-full. A single byte in an otherwise blank sector is
-   exactly the thing an operator wants to see rather than have rounded away. */
-.fw-map-cell[data-fill='partial'] {
-  fill: var(--chart-3);
+.fw-row-addr {
+  font: var(--type-mono-sm);
+  color: var(--ruler-label);
 }
 
-/* A disagreement between the lanes overrides what either lane contains: which side has more bytes
-   matters far less than that they differ. */
-.fw-map-cell[data-differs='yes'] {
-  fill: var(--warn);
+.fw-row-cells {
+  display: grid;
+  grid-template-columns: repeat(var(--fw-columns), 1fr);
+  gap: var(--space-1);
 }
 
-.fw-map-split {
-  stroke: var(--border-strong);
-  stroke-width: 1;
-  stroke-dasharray: 3 3;
+/*
+ * One cell is one 2 kB sector. `aspect-ratio` keeps them square however wide the panel is, which
+ * is what the SVG version could not do -- it stretched, and the result read as a texture rather
+ * than as storage.
+ */
+.fw-cell {
+  display: block;
+  aspect-ratio: 1;
+  min-height: 14px;
+  border-radius: var(--radius-xs);
+  border: 1px solid var(--border);
+  background: var(--surface-sunken);
 }
 
-.fw-map-tick {
-  stroke: var(--ruler-tick);
-  stroke-width: 1;
+/* Colour by bank, so the bootloader and the application are visibly different things. */
+.fw-cell[data-region='bootloader'][data-fill='programmed'] {
+  background: var(--chart-4);
+  border-color: var(--chart-4);
+}
+.fw-cell[data-region='bootloader'][data-fill='partial'] {
+  background: var(--chart-4);
+  border-color: var(--border-strong);
+}
+.fw-cell[data-region='application'][data-fill='programmed'] {
+  background: var(--chart-1);
+  border-color: var(--chart-1);
+}
+.fw-cell[data-region='application'][data-fill='partial'] {
+  background: var(--chart-1);
+  border-color: var(--border-strong);
+}
+
+/*
+ * A disagreement is drawn as an outline rather than a different fill: it is a fact *about* the
+ * sector, not a replacement for what the sector contains, and recolouring lost the latter.
+ */
+.fw-cell[data-differs='yes'] {
+  outline: 2px solid var(--warn);
+  outline-offset: -1px;
+}
+
+.fw-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-4);
+  font: var(--type-label);
+  letter-spacing: var(--tracking-label);
+  color: var(--text-muted);
+  text-transform: uppercase;
+}
+
+.fw-key {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.fw-key-swatch {
+  width: 12px;
+  min-height: 12px;
+  aspect-ratio: 1;
 }
