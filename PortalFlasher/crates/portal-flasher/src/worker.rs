@@ -14,8 +14,8 @@
 //! The framework's bus has no write-notification callback — an application core polls it, the way
 //! `example-console`'s does. That suits this worker, which already has a clock of its own.
 
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use av_gui_bus::{Bus, Value};
@@ -50,6 +50,12 @@ pub struct Worker {
     last_read: i64,
     last_flash: i64,
     probes: Vec<portal_swd::ProbeDescriptor>,
+    discovery: portal_swd::Discovery,
+    selection: portal_swd::artefacts::Selection,
+    /// Under --simulate the bundle is synthetic and discovery has nothing to do with it.
+    simulated: bool,
+    /// Last selection seen on the bus, so a change reloads the bundle without polling the disk.
+    last_selection: (String, String),
     /// Whether the most recent poll saw a target. Drives whether Flash now is offered.
     target_present: bool,
     /// Present only under `--simulate`: the shared fixture the page's switch drives.
@@ -63,9 +69,11 @@ impl Worker {
         rig: Box<dyn Rig>,
         bundle: Option<ImageBundle>,
         device: DeviceState,
+        simulated: bool,
         fixture: Option<Arc<AtomicBool>>,
     ) -> Self {
         let timing = Timing::default();
+        let bundle_is_synthetic = simulated;
         Self {
             bus,
             params,
@@ -86,6 +94,10 @@ impl Worker {
             last_read: 0,
             last_flash: 0,
             probes: Vec::new(),
+            discovery: portal_swd::Discovery::default(),
+            selection: portal_swd::artefacts::Selection::default(),
+            simulated: bundle_is_synthetic,
+            last_selection: (String::new(), String::new()),
             target_present: false,
             fixture,
         }
@@ -96,6 +108,7 @@ impl Worker {
     }
 
     pub fn run(mut self) {
+        self.rediscover();
         self.publish_image();
         self.rescan();
         loop {
@@ -141,7 +154,9 @@ impl Worker {
                     self.step(now, Input::ProbeRecovered);
                 }
                 Err(err) => {
-                    let _ = self.bus.set(self.params.probe_connected, Value::Bool(false));
+                    let _ = self
+                        .bus
+                        .set(self.params.probe_connected, Value::Bool(false));
                     self.set_detail(&err.detail);
                     self.step(now, Input::ProbeError);
                 }
@@ -186,12 +201,23 @@ impl Worker {
         if rescan != self.last_rescan {
             self.last_rescan = rescan;
             self.rescan();
+            self.rediscover();
         }
 
         let read = schema::get_i64(&self.bus, self.params.act_read_device);
         if read != self.last_read {
             self.last_read = read;
             self.read_device(now);
+        }
+
+        // A selection change is a bus write with no counter, so it is noticed by comparison.
+        let selection = (
+            schema::get_text(&self.bus, self.params.image_boot_id),
+            schema::get_text(&self.bus, self.params.image_app_id),
+        );
+        if selection != self.last_selection {
+            self.last_selection = selection;
+            self.reload_bundle();
         }
 
         let flash = schema::get_i64(&self.bus, self.params.act_flash_now);
@@ -204,19 +230,24 @@ impl Worker {
     /// Re-enumerate, publish the list, and adopt the operator's selection.
     fn rescan(&mut self) {
         self.probes = portal_swd::list_probes();
-        let _ = self
-            .bus
-            .set(self.params.probe_count, Value::I32(self.probes.len() as i32));
+        let _ = self.bus.set(
+            self.params.probe_count,
+            Value::I32(self.probes.len() as i32),
+        );
 
         for (slot, (id, name, serial, kind)) in self.params.probe_slots.iter().enumerate() {
             let found = self.probes.get(slot);
             let _ = self.bus.set_text(*id, found.map_or("", |p| p.id.as_str()));
-            let _ = self.bus.set_text(*name, found.map_or("", |p| p.name.as_str()));
+            let _ = self
+                .bus
+                .set_text(*name, found.map_or("", |p| p.name.as_str()));
             let _ = self.bus.set_text(
                 *serial,
                 found.and_then(|p| p.serial.as_deref()).unwrap_or(""),
             );
-            let _ = self.bus.set_text(*kind, found.map_or("", |p| p.kind.as_str()));
+            let _ = self
+                .bus
+                .set_text(*kind, found.map_or("", |p| p.kind.as_str()));
         }
 
         // If nothing is selected yet, adopt the only probe there is. With more than one, leave it
@@ -271,12 +302,14 @@ impl Worker {
                     .collect::<Vec<_>>()
                     .join("; ");
                 let _ = self.bus.set_text(p.device_warnings, &warnings);
-                let _ = self
-                    .bus
-                    .set(p.device_programmed, Value::I32(report.programmed_bytes as i32));
-                let _ = self
-                    .bus
-                    .set(p.device_rdp, Value::I32(i32::from(report.options.rdp_level())));
+                let _ = self.bus.set(
+                    p.device_programmed,
+                    Value::I32(report.programmed_bytes as i32),
+                );
+                let _ = self.bus.set(
+                    p.device_rdp,
+                    Value::I32(i32::from(report.options.rdp_level())),
+                );
                 self.set_detail("");
 
                 if let Ok(mut guard) = self.device.lock() {
@@ -370,7 +403,9 @@ impl Worker {
         self.set_detail(&err.detail);
         if err.is_probe_loss() {
             self.probe_open = false;
-            let _ = self.bus.set(self.params.probe_connected, Value::Bool(false));
+            let _ = self
+                .bus
+                .set(self.params.probe_connected, Value::Bool(false));
             self.step(now, Input::ProbeError);
         } else {
             // Not the probe: the target went away, which is an ordinary operator event and the
@@ -474,9 +509,7 @@ impl Worker {
         let _ = self
             .bus
             .set(p.probe_target_present, Value::Bool(self.target_present));
-        let _ = self
-            .bus
-            .set(p.mode_observed, Value::Enum(u32::from(armed)));
+        let _ = self.bus.set(p.mode_observed, Value::Enum(u32::from(armed)));
         let _ = self.bus.set(
             p.phase,
             Value::Enum(schema::phase_index(self.machine.phase())),
@@ -490,8 +523,109 @@ impl Worker {
         let _ = self.bus.set(p.faults, Value::I32(self.faults));
     }
 
+    /// Re-scan the build tree and publish what is flashable.
+    ///
+    /// Cheap — it stats a handful of paths — so it runs at startup and on every Rescan alongside
+    /// the probe enumeration. A tree that has never been built is a first-class answer with the
+    /// command that would fix it attached, not an empty list.
+    fn rediscover(&mut self) {
+        self.discovery = portal_swd::artefacts::discover();
+        let p = &self.params;
+
+        let _ = self
+            .bus
+            .set(p.image_count, Value::I32(self.discovery.found.len() as i32));
+
+        for (slot, ids) in self.params.image_slots.iter().enumerate() {
+            let found = self.discovery.found.get(slot);
+            let (id, label, region, origin, detail, fits) = ids;
+            let _ = self.bus.set_text(*id, found.map_or("", |a| a.id.as_str()));
+            let _ = self
+                .bus
+                .set_text(*label, found.map_or("", |a| a.label.as_str()));
+            let _ = self
+                .bus
+                .set_text(*region, found.map_or("", |a| a.region.as_str()));
+            let _ = self.bus.set_text(
+                *origin,
+                found.map_or("", |a| match a.origin {
+                    portal_swd::artefacts::Origin::Built => "built",
+                    portal_swd::artefacts::Origin::Reference => "reference",
+                }),
+            );
+            let _ = self.bus.set_text(
+                *detail,
+                &found.map_or(String::new(), |a| {
+                    let size = format!("{:.1} kB", a.bytes as f64 / 1024.0);
+                    if a.fits() {
+                        size
+                    } else {
+                        format!("{size} — too large for its bank")
+                    }
+                }),
+            );
+            let _ = self
+                .bus
+                .set(*fits, Value::Bool(found.is_some_and(|a| a.fits())));
+        }
+
+        let hint = self
+            .discovery
+            .missing
+            .iter()
+            .map(|m| format!("{}: {}", m.label, m.hint))
+            .collect::<Vec<_>>()
+            .join(" · ");
+        let _ = self.bus.set_text(p.image_hint, &hint);
+
+        // Adopt sensible defaults the first time, so a rig with one obvious answer does not make
+        // the operator click twice to say so. Anything already chosen is left alone.
+        if schema::get_text(&self.bus, p.image_app_id).is_empty()
+            && let Some(app) = self.discovery.application()
+        {
+            let _ = self.bus.set_text(p.image_app_id, &app.id);
+        }
+        if schema::get_text(&self.bus, p.image_boot_id).is_empty()
+            && let Some(boot) = self.discovery.bootloader()
+        {
+            let _ = self.bus.set_text(p.image_boot_id, &boot.id);
+        }
+
+        self.reload_bundle();
+    }
+
+    /// Turn the current selection into something flashable, or say why not.
+    fn reload_bundle(&mut self) {
+        if self.simulated {
+            // The synthetic bundle stands in for a build tree that may not exist; discovery has
+            // nothing to do with it.
+            return;
+        }
+        let selection = portal_swd::artefacts::Selection {
+            bootloader: non_empty(schema::get_text(&self.bus, self.params.image_boot_id)),
+            application: non_empty(schema::get_text(&self.bus, self.params.image_app_id)),
+        };
+        self.selection = selection.clone();
+
+        match self.discovery.load(&selection) {
+            Ok(bundle) => {
+                self.bundle = Some(bundle);
+                self.set_detail("");
+            }
+            Err(portal_swd::artefacts::LoadError::NothingSelected) => {
+                self.bundle = None;
+            }
+            Err(err) => {
+                self.bundle = None;
+                self.set_detail(&err.to_string());
+            }
+        }
+        self.publish_image();
+    }
+
     fn publish_image(&self) {
         let p = &self.params;
+        let _ = self.bus.set_text(p.image_scope, self.selection.scope());
         match &self.bundle {
             Some(bundle) => {
                 let manifest = bundle.manifest();
@@ -501,6 +635,7 @@ impl Worker {
                     match &manifest.provenance {
                         portal_swd::image::Provenance::Built { .. } => "built",
                         portal_swd::image::Provenance::Pulled { .. } => "pulled",
+                        portal_swd::image::Provenance::Composed { .. } => "composed",
                         portal_swd::image::Provenance::Synthetic => "synthetic",
                     },
                 );
@@ -510,6 +645,10 @@ impl Worker {
                         git_dirty,
                         ..
                     } => format!("{git_commit}{}", if *git_dirty { "*" } else { "" }),
+                    portal_swd::image::Provenance::Composed {
+                        bootloader,
+                        application,
+                    } => format!("{bootloader} + {application}"),
                     _ => String::new(),
                 };
                 let _ = self.bus.set_text(p.image_build_id, &build_id);
@@ -522,17 +661,25 @@ impl Worker {
             }
             None => {
                 let _ = self.bus.set_text(p.image_name, "none");
+                let _ = self.bus.set_text(p.image_source, "");
+                let _ = self.bus.set_text(p.image_build_id, "");
+                let _ = self.bus.set_text(p.image_boot_sha, "");
+                let _ = self.bus.set_text(p.image_app_sha, "");
             }
         }
     }
+}
+
+fn non_empty(text: String) -> Option<String> {
+    (!text.is_empty()).then_some(text)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use av_gui_bus::SchemaBuilder;
-    use std::sync::Mutex;
     use portal_swd::SimRig;
+    use std::sync::Mutex;
 
     /// A worker wired to a real sealed bus and a simulated target, with a clock we control.
     struct Harness {
@@ -560,6 +707,7 @@ mod tests {
                 Box::new(sim),
                 Some(crate::synthetic_bundle()),
                 Arc::new(Mutex::new(None)),
+                true,
                 Some(fixture),
             );
 
@@ -605,9 +753,10 @@ mod tests {
         }
 
         fn seat_board(&self) {
-            let _ = self
-                .bus
-                .set(self.params.sim_board_present.expect("sim"), Value::Bool(true));
+            let _ = self.bus.set(
+                self.params.sim_board_present.expect("sim"),
+                Value::Bool(true),
+            );
         }
     }
 
@@ -715,9 +864,21 @@ mod tests {
 
         // Ticking again without a new press must not re-read -- otherwise a reconnecting page
         // would re-trigger every action it had ever sent.
-        let reads = h.worker.device.lock().unwrap().as_ref().map(|d| d.read_at_ms);
+        let reads = h
+            .worker
+            .device
+            .lock()
+            .unwrap()
+            .as_ref()
+            .map(|d| d.read_at_ms);
         h.tick(100, true);
-        let again = h.worker.device.lock().unwrap().as_ref().map(|d| d.read_at_ms);
+        let again = h
+            .worker
+            .device
+            .lock()
+            .unwrap()
+            .as_ref()
+            .map(|d| d.read_at_ms);
         assert_eq!(reads, again, "a tick without a press re-ran the action");
     }
 

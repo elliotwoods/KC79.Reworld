@@ -56,6 +56,7 @@ import {
 } from './flasher-model';
 
 const PROBE_SLOTS = 4;
+const ARTEFACT_SLOTS = 6;
 
 /** Read an enumeration by name. Never by discriminant — see `flasher-model.ts`. */
 function useEnumName<T extends string>(path: string, fallback: T): T {
@@ -267,23 +268,78 @@ function ProbePanel({ connected }: { connected: boolean }) {
   );
 }
 
+/**
+ * One artefact the repository can flash.
+ *
+ * Clicking selects it for its own region, or clears it if it was already selected — which is how
+ * the scope is chosen. There is no separate scope control: the scope *is* which regions were
+ * picked, so the two can never disagree.
+ */
+function ArtefactRow({ slot }: { slot: number }) {
+  const pad = String(slot).padStart(2, '0');
+  const id = useText(`/image/${pad}/id`);
+  const label = useText(`/image/${pad}/label`);
+  const region = useText(`/image/${pad}/region`);
+  const origin = useText(`/image/${pad}/origin`);
+  const detail = useText(`/image/${pad}/detail`);
+  const fits = useFlag(`/image/${pad}/fits`);
+
+  const bootSelection = useParam<string>('/image/boot_id');
+  const appSelection = useParam<string>('/image/app_id');
+
+  if (!id) return null;
+  const selection = region === 'bootloader' ? bootSelection : appSelection;
+  const on = String(selection.value ?? '') === id;
+
+  return (
+    <button
+      type="button"
+      role="option"
+      aria-selected={on}
+      className={`device-row${on ? ' is-selected' : ''}${fits ? '' : ' is-faulted'}`}
+      onClick={() => selection.set(on ? '' : id)}
+      title={fits ? undefined : 'too large for its bank'}
+    >
+      <span className="device-name">{label}</span>
+      <span className="device-sub label-caps">
+        {[region, origin, detail].filter(Boolean).join(' · ')}
+      </span>
+    </button>
+  );
+}
+
 function FirmwarePanel({ hasImage }: { hasImage: boolean }) {
+  const count = useNumber('/image/count');
+  const scope = useText('/image/scope');
   const source = useText('/image/source');
   const buildId = useText('/image/build_id');
   const bootSha = useText('/image/boot_sha');
   const appSha = useText('/image/app_sha');
+  const hint = useText('/image/hint');
 
   return (
     <Panel
       title="2 · Firmware"
-      right={source ? <Badge tone={source === 'built' ? 'ok' : 'idle'}>{source}</Badge> : null}
+      right={hasImage ? <Badge tone={scope === 'full' ? 'ok' : 'idle'}>{scope}</Badge> : null}
     >
-      {!hasImage && (
-        <EmptyState detail="No image selected. Build artefact discovery is not wired up yet." />
+      {count === 0 ? (
+        <EmptyState detail="Nothing to flash was found in the build tree." />
+      ) : (
+        <div className="device-list" role="listbox" aria-label="Firmware artefacts">
+          {Array.from({ length: ARTEFACT_SLOTS }, (_, slot) => (
+            <ArtefactRow key={slot} slot={slot} />
+          ))}
+        </div>
       )}
+
+      {/* What is missing, and the command that produces it. A fresh clone has never built
+          PortalFW, and an empty list would be true and useless. */}
+      {hint && <Banner tone="info">{hint}</Banner>}
+
       {source === 'synthetic' && (
         <Banner tone="warn">A synthetic image. Nothing here corresponds to real firmware.</Banner>
       )}
+
       {hasImage && (
         <>
           <Row label="Build">{buildId || '—'}</Row>

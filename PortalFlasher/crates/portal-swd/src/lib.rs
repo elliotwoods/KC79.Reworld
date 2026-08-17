@@ -20,6 +20,7 @@
 //! | Application | `0x08006000`, 104 kB — built by `PortalFW`, sets `VTOR` to its own base |
 //! | Debug | SWD on PA13/PA14. **PA14 is also BOOT0**, which is why `nBOOT_SEL` matters |
 
+pub mod artefacts;
 pub mod device;
 pub mod image;
 pub mod machine;
@@ -28,6 +29,7 @@ pub mod rig;
 #[cfg(feature = "probe")]
 pub mod probe;
 
+pub use artefacts::{Artefact, Discovery, Origin, discover};
 pub use device::{DeviceImage, DeviceReport, Layout, OptionBytes, OptionWarning, VectorTable};
 
 pub use image::{BundleFault, ImageBundle, OptionBytePolicy, Region, RegionName, RunCheckSpec};

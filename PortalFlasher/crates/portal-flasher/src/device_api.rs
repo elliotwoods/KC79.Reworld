@@ -155,7 +155,9 @@ pub fn routes(state: DeviceState) -> Router {
 }
 
 async fn device(State(state): State<DeviceState>) -> Result<axum::Json<DeviceJson>, StatusCode> {
-    let guard = state.lock().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let guard = state
+        .lock()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     // 204 rather than an empty object: "nothing has been read yet" is a different thing from "a
     // read found nothing", and the page draws them differently.
     guard.clone().map(axum::Json).ok_or(StatusCode::NO_CONTENT)

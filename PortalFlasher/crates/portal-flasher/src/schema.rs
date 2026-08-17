@@ -24,6 +24,10 @@ use portal_swd::{Cue, Layout, Pass, Phase};
 /// ST-Link plugged in by mistake is *visible* rather than silently ignored.
 pub const PROBE_SLOTS: usize = 4;
 
+/// How many firmware artefacts the schema can advertise. Two built plus a reference is three
+/// today; six leaves room for extra reference images without a schema change.
+pub const ARTEFACT_SLOTS: usize = 6;
+
 /// Enum variants, declared once and read back by name on the page. Never by discriminant: a page
 /// keyed on `2` inverts silently the moment someone reorders this list.
 pub const MODES: &[(u32, &str)] = &[(0, "manual"), (1, "auto")];
@@ -242,8 +246,12 @@ pub fn declare(builder: &mut SchemaBuilder, simulated: bool) -> Result<(), Strin
             .register(),
     );
     for slot in 0..PROBE_SLOTS {
-        for (leaf, label) in [("id", "Id"), ("name", "Name"), ("serial", "Serial"), ("kind", "Kind")]
-        {
+        for (leaf, label) in [
+            ("id", "Id"),
+            ("name", "Name"),
+            ("serial", "Serial"),
+            ("kind", "Kind"),
+        ] {
             check(
                 builder
                     .param(&format!("/probe/{slot:02}/{leaf}"))
@@ -265,14 +273,77 @@ pub fn declare(builder: &mut SchemaBuilder, simulated: bool) -> Result<(), Strin
     }
 
     // ---------------------------------------------------------------- the image
+    //
+    // The *scope* is not a separate control. It is which regions were chosen, so the two can
+    // never disagree: pick both and it is a full image, pick one and the other bank is left
+    // erased -- which is what a mass erase then genuinely does.
+    check(
+        builder
+            .param("/image/boot_id")
+            .text("")
+            .label("Bootloader")
+            .register(),
+    );
+    check(
+        builder
+            .param("/image/app_id")
+            .text("")
+            .label("Application")
+            .register(),
+    );
+    check(
+        builder
+            .param("/image/count")
+            .i32(0)
+            .label("Artefacts")
+            .read_only()
+            .register(),
+    );
+    for slot in 0..ARTEFACT_SLOTS {
+        for (leaf, label) in [
+            ("id", "Id"),
+            ("label", "Label"),
+            ("region", "Region"),
+            ("origin", "Origin"),
+            ("detail", "Detail"),
+        ] {
+            check(
+                builder
+                    .param(&format!("/image/{slot:02}/{leaf}"))
+                    .text("")
+                    .label(label)
+                    .read_only()
+                    .register(),
+            );
+        }
+        check(
+            builder
+                .param(&format!("/image/{slot:02}/fits"))
+                .bool(false)
+                .label("Fits")
+                .read_only()
+                .register(),
+        );
+    }
     for (path, label) in [
         ("/image/name", "Image"),
         ("/image/source", "Source"),
+        ("/image/scope", "Scope"),
         ("/image/build_id", "Build"),
         ("/image/boot_sha", "Bootloader SHA-256"),
         ("/image/app_sha", "Application SHA-256"),
+        // What is missing and how to produce it. A fresh clone has never built PortalFW, and
+        // "run `pio run -e application_bank`" is more use than an empty list.
+        ("/image/hint", "Hint"),
     ] {
-        check(builder.param(path).text("").label(label).read_only().register());
+        check(
+            builder
+                .param(path)
+                .text("")
+                .label(label)
+                .read_only()
+                .register(),
+        );
     }
 
     // ---------------------------------------------------------------- the device
@@ -300,13 +371,27 @@ pub fn declare(builder: &mut SchemaBuilder, simulated: bool) -> Result<(), Strin
         ("/device/banner", "Firmware"),
         ("/device/warnings", "Warnings"),
     ] {
-        check(builder.param(path).text("").label(label).read_only().register());
+        check(
+            builder
+                .param(path)
+                .text("")
+                .label(label)
+                .read_only()
+                .register(),
+        );
     }
     for (path, label) in [
         ("/device/programmed_bytes", "Programmed"),
         ("/device/rdp_level", "RDP level"),
     ] {
-        check(builder.param(path).i32(0).label(label).read_only().register());
+        check(
+            builder
+                .param(path)
+                .i32(0)
+                .label(label)
+                .read_only()
+                .register(),
+        );
     }
 
     // ---------------------------------------------------------------- the tally
@@ -315,7 +400,14 @@ pub fn declare(builder: &mut SchemaBuilder, simulated: bool) -> Result<(), Strin
         ("/counts/failed", "Failed"),
         ("/faults/active", "Faults"),
     ] {
-        check(builder.param(path).i32(0).label(label).read_only().register());
+        check(
+            builder
+                .param(path)
+                .i32(0)
+                .label(label)
+                .read_only()
+                .register(),
+        );
     }
 
     if simulated {
@@ -370,6 +462,13 @@ pub struct Params {
     pub act_read_device: ParamId,
     pub act_flash_now: ParamId,
 
+    pub image_boot_id: ParamId,
+    pub image_app_id: ParamId,
+    pub image_count: ParamId,
+    /// `(id, label, region, origin, detail, fits)` per slot.
+    pub image_slots: Vec<(ParamId, ParamId, ParamId, ParamId, ParamId, ParamId)>,
+    pub image_scope: ParamId,
+    pub image_hint: ParamId,
     pub image_name: ParamId,
     pub image_source: ParamId,
     pub image_build_id: ParamId,
@@ -407,6 +506,17 @@ impl Params {
                 id(&format!("/probe/{slot:02}/kind"))?,
             ));
         }
+        let mut image_slots = Vec::with_capacity(ARTEFACT_SLOTS);
+        for slot in 0..ARTEFACT_SLOTS {
+            image_slots.push((
+                id(&format!("/image/{slot:02}/id"))?,
+                id(&format!("/image/{slot:02}/label"))?,
+                id(&format!("/image/{slot:02}/region"))?,
+                id(&format!("/image/{slot:02}/origin"))?,
+                id(&format!("/image/{slot:02}/detail"))?,
+                id(&format!("/image/{slot:02}/fits"))?,
+            ));
+        }
         Ok(Self {
             mode_desired: id("/mode/desired")?,
             mode_observed: id("/mode/observed")?,
@@ -430,6 +540,12 @@ impl Params {
             act_read_device: id("/actions/read_device")?,
             act_flash_now: id("/actions/flash_now")?,
 
+            image_boot_id: id("/image/boot_id")?,
+            image_app_id: id("/image/app_id")?,
+            image_count: id("/image/count")?,
+            image_slots,
+            image_scope: id("/image/scope")?,
+            image_hint: id("/image/hint")?,
             image_name: id("/image/name")?,
             image_source: id("/image/source")?,
             image_build_id: id("/image/build_id")?,

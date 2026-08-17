@@ -229,14 +229,23 @@ fn a_target_with_the_watchdog_in_hardware_mode_is_detected_as_differing() {
 // ---------------------------------------------------------------- the run check
 
 #[test]
-fn a_bundle_without_a_liveness_address_is_refused() {
+fn a_bundle_without_a_liveness_address_is_a_warning_not_a_refusal() {
+    // It can be programmed; it just cannot be automatically run-checked. Refusing to flash a
+    // perfectly good image because nothing has resolved a symbol out of its ELF yet would be the
+    // tail wagging the dog -- and every image discovered from the build tree is in that state
+    // until an ELF reader exists.
     let mut bundle = good_bundle();
     bundle.run_check.liveness_address = 0;
 
+    assert_eq!(
+        bundle.validate(),
+        vec![],
+        "an absent liveness address must not block a flash"
+    );
     assert!(
-        bundle.validate().contains(&BundleFault::NoLivenessAddress),
-        "without a counter to watch, a run-check could only prove the bootloader jumped -- a \
-         board spinning in HardFault_Handler would pass"
+        bundle.warnings().contains(&BundleFault::NoLivenessAddress),
+        "but it must still be said out loud: without a counter to watch, a run-check could only \
+         prove the bootloader jumped, and a board spinning in HardFault_Handler would pass"
     );
 }
 

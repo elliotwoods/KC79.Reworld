@@ -183,7 +183,8 @@ impl ProbeRsRig {
                         "no debug probes are attached",
                     ));
                 };
-                info.open().map_err(|err| probe_gone("open the probe", err))?
+                info.open()
+                    .map_err(|err| probe_gone("open the probe", err))?
             }
         };
 

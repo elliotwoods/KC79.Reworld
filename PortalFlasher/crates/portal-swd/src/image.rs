@@ -232,6 +232,16 @@ pub enum Provenance {
         uid: String,
         probe: String,
     },
+    /// Two regions from different places — a built application beside a reference bootloader,
+    /// say. Each string names where that half came from.
+    ///
+    /// The alternative was one provenance for a bundle whose halves genuinely have two, which
+    /// would have been a comfortable lie in the one record whose whole job is saying where the
+    /// bytes came from.
+    Composed {
+        bootloader: String,
+        application: String,
+    },
     /// Fabricated. Tests and dry runs only.
     Synthetic,
 }
@@ -289,7 +299,8 @@ pub enum BundleFault {
         bytes: usize,
         limit: usize,
     },
-    Empty(RegionName),
+    /// Neither region has any bytes. One empty region is a scope; two is a mistake.
+    NothingToFlash,
     /// The application's reset vector does not point into the application bank with the Thumb
     /// bit set. A cheap way to catch an image linked for `0x08000000` being handed to the
     /// application slot -- which would flash cleanly and never run.
@@ -326,7 +337,7 @@ impl core::fmt::Display for BundleFault {
             BundleFault::ApplicationTooLarge { bytes, limit } => {
                 write!(f, "application is {bytes} bytes; the bank holds {limit}")
             }
-            BundleFault::Empty(region) => write!(f, "{} is empty", region.as_str()),
+            BundleFault::NothingToFlash => f.write_str("neither region has any bytes"),
             BundleFault::BadResetVector { found } => write!(
                 f,
                 "application reset vector is {found:#010X}, which is not a Thumb address inside \
@@ -372,11 +383,12 @@ impl ImageBundle {
             });
         }
 
-        if self.bootloader.bytes.is_empty() {
-            faults.push(BundleFault::Empty(RegionName::Bootloader));
-        }
-        if self.application.bytes.is_empty() {
-            faults.push(BundleFault::Empty(RegionName::Application));
+        // An empty region is a legitimate choice — flashing only the application leaves the
+        // bootloader bank erased, which is exactly what a mass erase then does. Only a bundle
+        // with *nothing* in it is invalid, and reporting per-region emptiness as a fault meant
+        // every caller had to know to filter it back out.
+        if self.bootloader.bytes.is_empty() && self.application.bytes.is_empty() {
+            faults.push(BundleFault::NothingToFlash);
         }
 
         let boot_limit = addr::BOOTLOADER_BYTES as usize;
@@ -415,15 +427,31 @@ impl ImageBundle {
             faults.push(BundleFault::OptionBytes(fault));
         }
 
-        if self.run_check.liveness_address == 0 {
-            faults.push(BundleFault::NoLivenessAddress);
-        } else if !(0x2000_0000..0x2000_9000).contains(&self.run_check.liveness_address) {
+        // An address that exists but is nonsense is a fault. An *absent* one is not: it only
+        // stops the automatic run-check, and refusing to flash a perfectly good image because
+        // nothing has resolved a symbol out of its ELF yet would be the tail wagging the dog.
+        // See `warnings`.
+        if self.run_check.liveness_address != 0
+            && !(addr::RAM_BASE..addr::RAM_END).contains(&self.run_check.liveness_address)
+        {
             faults.push(BundleFault::LivenessNotInRam {
                 found: self.run_check.liveness_address,
             });
         }
 
         faults
+    }
+
+    /// Things worth saying about a bundle that do not stop it being flashed.
+    ///
+    /// Split from [`validate`](Self::validate) because callers treat a fault as a refusal, and
+    /// "this can be programmed but not automatically run-checked" is not a refusal.
+    pub fn warnings(&self) -> Vec<BundleFault> {
+        let mut warnings = Vec::new();
+        if self.run_check.liveness_address == 0 {
+            warnings.push(BundleFault::NoLivenessAddress);
+        }
+        warnings
     }
 
     pub fn manifest(&self) -> Manifest {

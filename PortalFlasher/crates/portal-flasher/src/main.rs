@@ -105,7 +105,7 @@ impl OperatorApp for PortalFlasherApp {
 
         // A plain OS thread rather than a service: it blocks for seconds inside a flash pass, and
         // it must keep timing the removal gate whether or not anything is being rendered.
-        let worker = Worker::new(bus, params, rig, bundle, device, fixture);
+        let worker = Worker::new(bus, params, rig, bundle, device, self.simulate, fixture);
         std::thread::Builder::new()
             .name("portal-flasher-rig".into())
             .spawn(move || worker.run())
