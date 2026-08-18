@@ -190,6 +190,23 @@ enum CommandBody {
     Escape,
     Home { axis: bench_core::dut::Axis },
     Unjam { axis: bench_core::dut::Axis },
+    /// Soft-reset the module. The startup routine then runs from a genuine power-on state,
+    /// which is the only way to exercise the cold/default path more than once per session --
+    /// every home after the first reuses the axis's cached calibration.
+    Reboot,
+    /// Set the shared optical comparator threshold. One DAC feeds both axes, so no axis here.
+    SetHomeThreshold { value: i32 },
+    /// One revolution at a fixed settled threshold, reporting every comparator transition.
+    ///
+    /// Exposed on the command route rather than only inside a plan because choosing a threshold
+    /// is a *sweep* -- a lap per candidate -- and the sweep is the thing an agent drives while
+    /// the operator watches the segments arrive in the GUI.
+    Census {
+        axis: bench_core::dut::Axis,
+        threshold: u8,
+        #[serde(default)]
+        speed: Option<i32>,
+    },
 }
 
 async fn command(State(shared): State<Arc<Shared>>, Json(body): Json<CommandBody>) -> impl IntoResponse {
@@ -210,6 +227,11 @@ async fn command(State(shared): State<Arc<Shared>>, Json(body): Json<CommandBody
         CommandBody::Escape => Request::Submit(Op::Escape),
         CommandBody::Home { axis } => Request::Submit(Op::Home { axis }),
         CommandBody::Unjam { axis } => Request::Submit(Op::Unjam { axis }),
+        CommandBody::Reboot => Request::Submit(Op::Reboot),
+        CommandBody::SetHomeThreshold { value } => Request::Submit(Op::SetHomeThreshold { value }),
+        CommandBody::Census { axis, threshold, speed } => {
+            Request::Submit(Op::Census { axis, threshold, speed })
+        }
     };
     shared.push(request);
     Json(serde_json::json!({ "accepted": true })).into_response()

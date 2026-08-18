@@ -231,7 +231,39 @@ Logger::update()
 	{
 		char command = 0;
 		while(serial.available()) {
-			command = serial.read();
+			const char c = (char) serial.read();
+
+			// Buffered ':' line, terminated by CR or LF. Runs at most one line per update tick,
+			// matching the keystroke path -- a routine started from here blocks inside
+			// runLineCommand, and anything still in the RX buffer waits, which is what makes
+			// "set the threshold then census" arrive as two commands rather than one race.
+			if(this->lineMode) {
+				if(c == '\r' || c == '\n') {
+					this->lineBuffer[this->lineLength] = '\0';
+					this->lineMode = false;
+					const uint8_t length = this->lineLength;
+					this->lineLength = 0;
+					if(length > 0) {
+						this->runLineCommand(this->lineBuffer);
+					}
+					return;
+				}
+				if(this->lineLength < LOGGER_LINE_MAX - 1) {
+					this->lineBuffer[this->lineLength++] = c;
+				}
+				continue;
+			}
+
+			if(c == LOGGER_LINE_PREFIX) {
+				this->lineMode = true;
+				this->lineLength = 0;
+				command = 0;
+				continue;
+			}
+
+			// Keystrokes keep their original behaviour exactly: only the LAST byte of the tick
+			// is acted on, so a paste or a held key cannot queue up a run of motions.
+			command = c;
 		}
 		if(command == 0) {
 			// Do nothing
@@ -256,6 +288,86 @@ Logger::update()
 				this->printOutbox();
 			}
 		}
+	}
+}
+
+//----------
+void
+Logger::runLineCommand(char * line)
+{
+	// Split into a verb and up to three integer arguments. Deliberately tiny: this is a bench
+	// console reached over a debug UART, not a protocol -- anything that needs structure goes
+	// over RS485 as msgpack.
+	char verb = line[0];
+	long args[3] = { -1, -1, -1 };
+	int argCount = 0;
+	{
+		char * cursor = line + 1;
+		while(argCount < 3) {
+			while(*cursor == ' ' || *cursor == ',' || *cursor == '\t') cursor++;
+			if(*cursor == '\0') break;
+			char * next = nullptr;
+			const long value = strtol(cursor, &next, 10);
+			if(next == cursor) break;
+			args[argCount++] = value;
+			cursor = next;
+		}
+	}
+
+	switch(verb) {
+#ifndef HOME_SWITCH_LEGACY
+	case 't':
+	{
+		// The threshold DAC is shared by both axes (one PWM pin, one RC filter), so there is
+		// deliberately no per-axis form of this.
+		if(argCount >= 1) {
+			long duty = args[0];
+			if(duty < 0) duty = 0;
+			if(duty > 255) duty = 255;
+			Modules::HomeSwitchOptical::setThreshold((uint8_t) duty);
+		}
+		char message[64];
+		sprintf(message, "threshold=%d\r\n", (int) Modules::HomeSwitchOptical::getThreshold());
+		this->printRaw(message);
+		break;
+	}
+
+	case 'n':
+	{
+		if(argCount < 1) {
+			this->printRaw("usage: :n <threshold> [speed] [axis 0=A 1=B]\r\n");
+			break;
+		}
+		long duty = args[0];
+		if(duty < 0) duty = 0;
+		if(duty > 255) duty = 255;
+		const StepsPerSecond speed = (argCount >= 2 && args[1] > 0) ? (StepsPerSecond) args[1] : 0;
+		const long axis = (argCount >= 3) ? args[2] : 0;
+
+		Modules::MotionControl::MeasureRoutineSettings settings;
+		auto * motionControl = (axis == 1)
+			? Modules::App::X().motionControlB
+			: Modules::App::X().motionControlA;
+		auto exception = motionControl->homeSwitchCensusRoutine((uint8_t) duty, speed, settings);
+		if(exception) {
+			// Qualified: inside Logger, unqualified `log` finds Logger::log(const LogMessage&).
+			::log(exception);
+		}
+		break;
+	}
+
+	case 'd':
+		this->printHomeSwitchInfo();
+		break;
+#endif
+
+	case 'v':
+		this->printVersion();
+		break;
+
+	default:
+		this->printRaw("line commands: :t [duty]  :n <duty> [speed] [axis]  :d  :v\r\n");
+		break;
 	}
 }
 

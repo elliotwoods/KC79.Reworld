@@ -167,6 +167,14 @@ pub fn render_op(op: &crate::transport::Op) -> Option<String> {
         // only homing worth measuring on this rig.
         Op::Home { .. } => "O".to_string(),
         Op::SetHomeThreshold { value } => format!("T,{value}"),
+        // `N [T] [vmax] [accel] [M]` -- the census this whole threshold rule was derived from.
+        // The bench rig wires one axis only (`BENCH_AXIS`), so a census naming the other one is
+        // refused rather than silently redirected.
+        Op::Census { axis, threshold, speed } if *axis == BENCH_AXIS => match speed {
+            Some(speed) => format!("N,{threshold},{speed}"),
+            None => format!("N,{threshold}"),
+        },
+        Op::Census { .. } => return None,
         Op::MoveTo { usteps, .. } => format!("G,{usteps}"),
         Op::Escape => "X".to_string(),
         Op::SetMicrostep { resolution } => format!("U,{resolution}"),

@@ -102,6 +102,16 @@ pub enum Op {
     SetMicrostep { resolution: u32 },
     /// Set the optical comparator threshold. Only meaningful once calibrated.
     SetHomeThreshold { value: i32 },
+    /// One revolution at a fixed, settled threshold, reporting every comparator transition.
+    ///
+    /// The only instrument whose answer may be used to choose an operating threshold: a fixed
+    /// threshold read by the *moving* comparator, through the same debounced latch homing uses.
+    /// A swept threshold reads 10-20 counts high because of the ~100 ms RC on the DAC, and a
+    /// settled binary-search probe has reported "no crossing" while parked on a flag a census
+    /// found on every lap. See [`crate::threshold`].
+    ///
+    /// `speed` of `None` means the firmware's own seek speed.
+    Census { axis: Axis, threshold: u8, speed: Option<i32> },
     /// Ask the module to abandon whatever routine it is running.
     Escape,
     Reboot,

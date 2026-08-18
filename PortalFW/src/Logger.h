@@ -13,6 +13,18 @@
 
 #define LOG_HISTORY_SIZE 32
 
+// The USART1 console is a bare-keystroke menu: one byte in, one action, no terminator (append
+// a newline and the firmware dispatches the newline as a second command). That is fine for
+// "home now" but it cannot carry an argument, so nothing that needs a NUMBER -- set the
+// threshold to 226, run a census at 240 -- was reachable over the console at all.
+//
+// LOGGER_LINE_PREFIX opens a second, additive door. A leading ':' starts a buffered line which
+// runs when CR or LF arrives; anything not preceded by ':' is still a bare keystroke, byte for
+// byte as before. Existing tools are unaffected and the two modes cannot be confused, because
+// ':' was not previously bound to anything.
+#define LOGGER_LINE_PREFIX ':'
+#define LOGGER_LINE_MAX    48
+
 void initLoggerSerial();
 
 enum LogLevel : uint8_t {
@@ -71,6 +83,13 @@ public:
 private:
 	Logger();
 
+	// Run one ':' line command. See printHelp() for the vocabulary.
+	void runLineCommand(char * line);
+
 	std::deque<LogMessage> messageOutbox;
 	std::map<char, MenuItem> menuItems;
+
+	char lineBuffer[LOGGER_LINE_MAX];
+	uint8_t lineLength = 0;
+	bool lineMode = false;
 };

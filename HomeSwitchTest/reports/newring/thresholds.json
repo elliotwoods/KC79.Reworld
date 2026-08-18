@@ -54,6 +54,27 @@
       "vs_unpainted": "band ~5x wider; home repeatability indistinguishable",
       "untested": "band with the sensor cover fitted - the decisive test for enclosed modules",
       "source": "reports/newring/PAINTED.md"
+    },
+    "painted_silver_production_v6": {
+      "measured": "2026-08-19",
+      "instrument": "PortalFW homeSwitchCensusRoutine (`:n <T>` on USART1), one lap per threshold at 24000 usteps/s, driven from PortalTestBench",
+      "note": "First census taken on a PRODUCTION v6 module through the production firmware, rather than on the HomeSwitchTest bench rig. Both axes, silver-painted flags.",
+      "lighting": "room ambient, uncovered",
+      "T_op": 235,
+      "T_op_rationale": "band centre under the same floor + 0.55*span rule the self-calibration uses (210 + 25). 25 counts above the worse axis's floor, 20 below the ceiling, and clear of the 250+ smear zone where the flag exceeds 800 usteps.",
+      "T_floor_axis_a": 210,
+      "T_floor_axis_b": "<=175 (still detecting at the bottom of the sweep)",
+      "T_shoulder": ">255 (no dither split anywhere; exactly one segment per lap at every threshold that saw the flag)",
+      "band_counts": 46,
+      "band_shared_by_both_axes": [210, 255],
+      "background_note": "still censored (>255) between flags, unchanged by paint",
+      "width_vs_threshold_axis_a": { "210": 48, "215": 53, "220": 53, "225": 185, "230": 185, "235": 275, "240": 357, "245": 432, "250": 973, "255": 1896 },
+      "width_vs_threshold_axis_b": { "175": 83, "180": 52, "185": 83, "190": 53, "200": 38, "205": 41, "210": 53, "215": 49, "220": 193, "225": 53, "230": 260, "235": 258, "240": 300, "245": 330, "250": 866, "255": 1671 },
+      "flag_width_at_T_op_measured_by_homing": "A 313-337, B 263-295 across four startups",
+      "reliability": "4/4 unattended production startups from reboot, both axes, adopting the default with no calibration; 16-17 s per axis",
+      "adopted_in_firmware": "PortalFW FASTHOME_T_DEFAULT / FASTHOME_W_DEFAULT (MotionControl.cpp) and HOMESWITCHOPTICAL_DEFAULT_THRESHOLD (HomeSwitchOptical.h)",
+      "prior_axis_b_history": "this is the same axis B that had NO detectable flag at any threshold before painting - the paint is what made it work",
+      "source": "PortalFW/src/Modules/MotionControl.cpp"
     }
   }
 }

@@ -17,7 +17,7 @@
 //! on production firmware the structured data is on the RS485 side, and this link exists to be
 //! a serial monitor with a keyboard, which is exactly what it is during bring-up.
 
-use crate::dut::FirmwareKind;
+use crate::dut::{Axis, FirmwareKind};
 use crate::transport::{ascii, Link, LinkError, LinkEvent, LinkInfo, LinkKind, Op};
 use router_link::rs485::SerialDevice;
 
@@ -170,12 +170,19 @@ impl Link for LineLink {
         };
 
         let device = self.device.as_mut().ok_or(LinkError::NotOpen)?;
+        // Whether this rendering is a line or a keystroke, decided by what it IS rather than by
+        // which dialect produced it.
+        //
+        // The bench dialect is line-based throughout. The VCP menu is keystrokes -- which must
+        // NOT be terminated, because the firmware reads the newline as a second command
+        // (observed on hardware: a trailing newline drew "? unknown command" from the device on
+        // the next port along, and on a portal it would dispatch whatever the menu binds to it)
+        // -- EXCEPT for `:` lines, which are buffered until CR/LF and are the only VCP form that
+        // can carry an argument. Terminating on `kind` alone would leave those hanging in the
+        // firmware's line buffer forever.
+        let terminate = self.kind == LinkKind::BenchAscii || rendered.starts_with(LINE_PREFIX);
         let mut bytes = rendered.into_bytes();
-        // The bench dialect is line-based and needs a terminator. The VCP menu acts on a bare
-        // keystroke and must NOT get one: the firmware reads the newline as a second command.
-        // Observed on hardware -- a trailing newline drew "? unknown command" from the device on
-        // the next port along, and on a portal it would dispatch whatever the menu binds to it.
-        if self.kind == LinkKind::BenchAscii {
+        if terminate {
             bytes.push(b'\n');
         }
         device.transmit(&bytes).map_err(|e| LinkError::Io(e.to_string()))
@@ -228,11 +235,25 @@ impl Link for LineLink {
     }
 }
 
+/// Prefix that opens the firmware's buffered line mode (`LOGGER_LINE_PREFIX` in `Logger.h`).
+///
+/// A rendering that starts with this is a *line* and needs a terminator; anything else is a bare
+/// keystroke and must not get one.
+const LINE_PREFIX: char = ':';
+
 /// The production firmware's interactive menu, from `PortalFW/src/Logger.cpp`.
 ///
-/// One keystroke each. There is no per-axis form: `h` homes both axes, `u` unjams both. An op
-/// that names a single axis is therefore **refused** rather than quietly doing both — a bench
-/// that moves an axis the operator did not ask about is worse than one that says it cannot.
+/// Two shapes, and the difference matters at the byte level:
+///
+/// * **Bare keystrokes** — one byte, no terminator. The firmware reads a trailing newline as a
+///   *second* command and dispatches whatever the menu binds to it.
+/// * **`:` lines** — buffered until CR/LF, so they can carry arguments. This is the only way to
+///   give the console a number; everything below that names a threshold or a speed uses it.
+///
+/// There is still no per-axis form of `h`/`u`: `c` calibrates both axes. An op that names a
+/// single axis is therefore **refused** rather than quietly doing both — a bench that moves an
+/// axis the operator did not ask about is worse than one that says it cannot. `Census` is the
+/// exception, because the firmware's `:n` does take an axis argument.
 fn render_vcp_op(op: &Op) -> Option<String> {
     Some(match op {
         Op::Identify => "v".to_string(),
@@ -242,15 +263,28 @@ fn render_vcp_op(op: &Op) -> Option<String> {
         // ESC. The firmware polls for this inside every routine loop.
         Op::Escape => "\x1b".to_string(),
         Op::Reboot => "r".to_string(),
+        Op::SetHomeThreshold { value } => format!(":t {}", (*value).clamp(0, 255)),
+        Op::Census { axis, threshold, speed } => {
+            // `:n <duty> [speed] [axis]` -- positional, so a named axis with a default speed
+            // still has to state the speed. 0 means "the firmware's own seek speed".
+            format!(":n {} {} {}", threshold, speed.unwrap_or(0), axis_argument(*axis))
+        }
         // Both-axis only on this menu; see above.
         Op::Home { .. }
         | Op::Unjam { .. }
         | Op::MeasureBacklash { .. }
         | Op::MoveTo { .. }
         | Op::SetCurrent { .. }
-        | Op::SetMicrostep { .. }
-        | Op::SetHomeThreshold { .. } => return None,
+        | Op::SetMicrostep { .. } => return None,
     })
+}
+
+/// The firmware's `:n` axis argument: 0 = A, 1 = B.
+fn axis_argument(axis: Axis) -> u8 {
+    match axis {
+        Axis::A => 0,
+        Axis::B => 1,
+    }
 }
 
 /// The menu's output is prose, so each line is a log line.

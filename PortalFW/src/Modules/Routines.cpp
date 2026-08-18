@@ -161,11 +161,16 @@ namespace Modules {
 	// cache, so each retry after the first recalibrates cold rather than repeating whatever
 	// went wrong).
 	//
-	// A cold run's datum can sit up to ~0.2 deg off the warm one -- the calibration probing
+	// A CALIBRATED run's datum can sit up to ~0.2 deg off a warm one -- the calibration probing
 	// perturbs the thermo-optical profile right before the precise pass (see
-	// HomeSwitchTest/portalfw_port/PORTING.md item 7). So after a run that started cold
-	// (opticalThresholdCached was 0 coming in), run once more immediately: the second run is
-	// warm and its datum is the one to keep.
+	// HomeSwitchTest/portalfw_port/PORTING.md item 7). So after a run that had to calibrate,
+	// run once more immediately: the second run is warm and its datum is the one to keep.
+	//
+	// A run that adopted the compile-time default does NOT need this. The perturbation being
+	// corrected for is the probing itself -- settling the shared threshold DAC through a dozen
+	// steps while parked on the flag -- and a seeded run does none of it: it sets one threshold
+	// and homes. Re-running it would cost a second home per axis to correct an offset that was
+	// never introduced. `opticalDefaultRejected` is how the axis says which of the two it did.
 	Exception
 	Routines::calibrateAxisFastHome(MotionControl * motionControl
 		, const MotionControl::MeasureRoutineSettings & settings)
@@ -189,7 +194,8 @@ namespace Modules {
 		if(exception) {
 			return exception;
 		}
-		if(wasCold && !App::getShouldEscapeFromRoutine()) {
+		const bool didCalibrate = motionControl->opticalDefaultRejected;
+		if(wasCold && didCalibrate && !App::getShouldEscapeFromRoutine()) {
 			exception = motionControl->fastHomeRoutine(settings);
 			if(exception) {
 				log(exception);

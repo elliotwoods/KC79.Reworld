@@ -36,9 +36,6 @@
 
 namespace Modules {
 	class Routines;
-#ifndef HOME_SWITCH_LEGACY
-	struct FastHomeParams; // defined in MotionControl.cpp, alongside fastHomeRoutine
-#endif
 
 	class MotionControl : public Base {
 	public:
@@ -174,6 +171,24 @@ namespace Modules {
 		// way: LOW/dark vs HIGH/bright), or -2 on abort/timeout. Leaves the shared DAC at the
 		// last probed value; the caller restores it.
 		int probeHomeCrossing(bool & railLo, uint32_t timeoutTime);
+
+		// One revolution at a FIXED settled threshold, reporting every comparator transition the
+		// homing latch sees on the way round.
+		//
+		// This is the instrument, and the only one whose answer may be used to choose an
+		// operating threshold. It is a fixed, fully-settled threshold read by the moving
+		// comparator with the same debounced latch homing uses -- i.e. it measures exactly what
+		// homing will experience. Every cheaper alternative has been shown to lie on this
+		// hardware: a swept DAC reads 10-20 counts high because of the ~100 ms RC, and a settled
+		// binary-search probe has returned "no crossing" while parked on a flag a census found
+		// on every lap. Trust order is census > static level ladder > grid scan > settled probe.
+		//
+		// Moves the motor a full revolution and LOSES nothing but time -- it does not touch the
+		// datum, the backlash model or the cached calibration. Restores the threshold, the
+		// motion profile and the drive current on every exit path.
+		Exception homeSwitchCensusRoutine(uint8_t threshold
+			, StepsPerSecond speed
+			, const MeasureRoutineSettings&);
 #endif
 
 		void reportStatus(msgpack::Serializer&) override;
@@ -300,11 +315,11 @@ namespace Modules {
 		int16_t opticalThresholdCached = 0;
 		Steps opticalWidthCached = 0;
 
-		// Motor generation (32:1 original vs 16:1 2026 module), auto-detected by
-		// fastHomeRoutine on the first cold run each power-up from measured lead-to-lead
-		// revolution distance -- RAM only, not persisted.
-		const FastHomeParams * fastHomeParams = nullptr;
-		bool fastHomeRatioConfirmed = false;
+		// Set once this axis has tried the compile-time default operating point and been unable
+		// to home on it. From then on (until the next reset) fastHomeRoutine goes straight to
+		// the full self-calibration instead of seeding, so a module whose flag does not match
+		// the fleet default does not pay for the failed fast attempt on every retry.
+		bool opticalDefaultRejected = false;
 #endif
 	};
 }
