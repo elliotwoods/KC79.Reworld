@@ -1,0 +1,48 @@
+# The pinned framework is a checkout, not a workspace member. Cargo would otherwise auto-enrol
+# it and resolve features over a subgraph that is not the one either tree was tested against.
+# `third_party/av-frameworks` here is a directory junction to PortalFlasher's submodule, so the
+# exclusion also keeps `cargo fmt`/`clippy` from reaching through and dirtying *that* checkout.
+[workspace]
+resolver = "3"
+members = ["crates/bench-core", "crates/portal-test-bench", "crates/ptb"]
+exclude = ["third_party/av-frameworks"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.96"
+publish = false
+
+[workspace.dependencies]
+# --- the framework, through the junction -----------------------------------------------
+av-gui-bus      = { path = "third_party/av-frameworks/crates/av-gui-bus" }
+av-operator-app = { path = "third_party/av-frameworks/crates/av-operator-app" }
+av-app-support  = { path = "third_party/av-frameworks/crates/av-app-support" }
+av-app-icon     = { path = "third_party/av-frameworks/crates/av-app-icon" }
+av-gui-host     = { path = "third_party/av-frameworks/crates/av-gui-host" }
+
+# --- siblings in this repository -------------------------------------------------------
+# KC79.Reworld is a single git repository; PortalFlasher/ and RouterRS/ are plain directories,
+# not submodules. Path dependencies across them are free, and a package's workspace membership
+# is decided by its own nearest ancestor manifest -- so `portal-swd` being a member of
+# PortalFlasher's workspace does not stop this one depending on it. (Verified, not assumed.)
+portal-swd    = { path = "../PortalFlasher/crates/portal-swd" }
+router-proto  = { path = "../RouterRS/crates/router-proto" }
+router-report = { path = "../RouterRS/crates/router-report" }
+router-link   = { path = "../RouterRS/crates/router-link" }
+
+# --- workspace-internal ----------------------------------------------------------------
+bench-core = { path = "crates/bench-core" }
+
+# --- third-party -----------------------------------------------------------------------
+axum       = { version = "0.8", default-features = false, features = ["http1", "json", "query", "tokio"] }
+serde      = { version = "1", features = ["derive"] }
+serde_json = "1"
+serialport = "4"
+thiserror  = "2"
+toml = "0.9"
+tracing    = "0.1"
+ureq       = { version = "3", features = ["json"] }
+
+[profile.dev.package."*"]
+debug = "line-tables-only"

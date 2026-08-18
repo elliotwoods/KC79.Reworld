@@ -1,0 +1,30 @@
+contract_version = 1
+class = "operator-app"
+
+# Nothing is drawn *underneath* this page: the live plots are canvas in the DOM, and there is
+# no camera, no 3D and no video. `control-window` is therefore the lightest kind that carries
+# the product, which the contract asks us to declare (application-contract.md, 1a). It also
+# means this app must NOT carry an `av-gui-subprocess` crate -- the CEF helper is a
+# composed-window requirement, and check-av-app.ps1 warns (AVAPP115) if a control-window app
+# ships one. PortalFlasher carries one only because its manifest omits `ui` and defaults to
+# composed-window.
+ui = "control-window"
+
+native_default = true
+headless_supported = true
+rust_binary = "portal-test-bench"
+web_manifest = "web/package.json"
+web_entry = "web/src/main.tsx"
+
+# This product's own acceptance inventory. There is no `preview` surface because there is no
+# camera; `live-telemetry` takes its place, because a bench that cannot show the module moving
+# while it moves is a log viewer.
+required_surfaces = [
+  "module-state",
+  "transport",
+  "test-runner",
+  "live-telemetry",
+  "firmware",
+  "session-log",
+  "faults",
+]

@@ -36,6 +36,14 @@ namespace Modules {
 		static bool updateFromRoutine();
 		void escapeFromRoutine();
 
+		// Whether an escape has been requested and not yet consumed. Routines that retry a
+		// sub-routine in a loop must check this between attempts -- otherwise an escape only
+		// aborts the attempt in flight and the loop immediately starts another one, so the
+		// operator has to send escape once per remaining retry to actually stop. The flag is
+		// cleared at the top of App::update(), which cannot run while a routine is blocking,
+		// so it stays readable for the whole of a routine chain.
+		static bool getShouldEscapeFromRoutine();
+
 		MotionControl * getMotionControl(uint8_t);
 
 #ifndef GUI_DISABLED

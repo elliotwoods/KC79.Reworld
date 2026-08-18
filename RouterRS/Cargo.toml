@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "crates/router-proto",
+    "crates/router-link",
     "crates/router-core",
     "crates/router-report",
     "crates/router-headless",

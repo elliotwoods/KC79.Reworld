@@ -1,0 +1,72 @@
+# The startup routine, judged.
+#
+# `Routines::init` is what a portal runs when it powers up: measure cycle, then calibrate (the
+# seven-phase self-calibrating optical home on both axes), then both axes to zero. It takes
+# minutes, and on a cold module the calibration pass is the slow part.
+#
+# The verdict rests on a property of the firmware rather than on anything this bench infers:
+# `init` logs `end` ONLY on success. On any failure it returns an Exception and never reaches
+# that line. So "did the module start up correctly" is exactly "did `| END Routines.init`
+# appear", which is about as unambiguous as a test signal gets.
+#
+# `Duration: Ns` is the firmware's own timing, and it is the number worth watching over a
+# module's life: a startup that creeps from 40 s toward the timeout is a module going bad
+# before it fails outright.
+#
+# TOML layout note, because it bites every time: **every bare key must come before the first
+# table header.** Anything written after `[body]` belongs to `body`, so `requires` is inline
+# and `teardown` sits up here with `setup` rather than reading naturally at the bottom. The
+# `[[criteria]]` and `[limits]` tables are fine after `[body]` because they are tables too.
+
+name = "startup"
+kind = "routine"
+requires = { firmware = "production" }
+
+setup = [
+  { op = "connect" },
+  { op = "identify" },
+]
+
+teardown = [
+  { op = "marker", label = "startup ends" },
+]
+
+[body]
+once = [
+  { op = "marker", label = "startup begins" },
+  { op = "startup" },
+
+  # The routine acknowledges immediately and then runs for minutes; there is no completion
+  # packet, so the log is the only signal. `fail_if` catches the firmware's own error prefix so
+  # a module that has already said no does not sit out the whole timeout.
+  #
+  # 240 s matches the optical build's own routine timeout: a cold self-calibration genuinely
+  # takes that long, and a shorter limit here would fail modules that were about to succeed.
+  { op = "await_log", contains = "END Routines.init", timeout_s = 240, fail_if = "[E " },
+
+  { op = "record", name = "completed", from = "log_seen", contains = "END Routines.init" },
+  { op = "record", name = "duration_s", from = "log_number", after = "Duration: ", before = "s" },
+  { op = "record", name = "errors", from = "log_count", min_level = 20 },
+  { op = "record", name = "warnings", from = "log_count", min_level = 10 },
+]
+
+[[criteria]]
+measurement = "completed"
+must = "is_true"
+
+# Nothing at error level. The routine can log a failure for one axis, carry on, and still
+# reach its own end line when `stopAllRoutinesIfOneFails` is false -- so "it finished" and
+# "nothing went wrong" are two different questions, and both are asked.
+[[criteria]]
+measurement = "errors"
+must = { at_most = 0.0 }
+
+# Present rather than bounded: this is the first run, and the point is to establish what
+# normal looks like for this module before asserting a range it has to stay inside.
+[[criteria]]
+measurement = "duration_s"
+must = "is_present"
+
+[limits]
+# Above the routine's own 240 s, so the firmware's timeout fires first and says why.
+max_duration_s = 300

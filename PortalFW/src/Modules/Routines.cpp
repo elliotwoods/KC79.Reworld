@@ -178,11 +178,18 @@ namespace Modules {
 				break;
 			}
 			log(exception);
+
+			// An escape aborts the whole axis, not just the attempt in flight. Without this
+			// the operator would have to send escape once per remaining retry (and once more
+			// for the warm re-run below) before the axis actually stopped.
+			if(App::getShouldEscapeFromRoutine()) {
+				return exception;
+			}
 		}
 		if(exception) {
 			return exception;
 		}
-		if(wasCold) {
+		if(wasCold && !App::getShouldEscapeFromRoutine()) {
 			exception = motionControl->fastHomeRoutine(settings);
 			if(exception) {
 				log(exception);
@@ -213,6 +220,13 @@ namespace Modules {
 				return Exception(moduleName, "Fail on fastHome A");
 			}
 			failedAnywhere = true;
+		}
+
+		// An escape during axis A stops the whole calibrate, rather than immediately starting
+		// axis B (which is the same "escape only cancels the attempt in flight" trap as the
+		// retry loop in calibrateAxisFastHome).
+		if(App::getShouldEscapeFromRoutine()) {
+			return Exception(moduleName, "Escape");
 		}
 
 		if(this->calibrateAxisFastHome(app->motionControlB, settings)) {

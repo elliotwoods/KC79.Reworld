@@ -1,0 +1,238 @@
+/*
+ * Bench-specific layout on top of the framework's stylesheet.
+ *
+ * Every colour, space and radius here is a framework design token, with **no hardcoded
+ * fallback**. That is deliberate: a fallback like `var(--text-secondary, #9a9a9a)` looks
+ * defensive but bakes a dark-theme colour into a page the framework can render in either
+ * theme, so the one situation it "protects" against is the one where it silently produces the
+ * wrong result. A missing token should look broken, not subtly wrong.
+ */
+
+/*
+ * The root is the framework's `.app` grid (title bar / content / status bar) plus
+ * `.app--filled`. See the comment on the root element in `bench.tsx` for why the fill is
+ * required rather than cosmetic: the framework leaves the document transparent so a compositor
+ * can draw underneath, and a control window with nothing behind it renders that hole white.
+ */
+.bench {
+  /* `.app` supplies display:grid, the three rows, the background and height:100%. */
+  overflow: hidden;
+}
+
+/*
+ * The middle row: scrolling content above a pinned log.
+ *
+ * `minmax(0, 1fr)` on the content row is what actually lets it scroll — an `auto` row sizes to
+ * its content and paints outside the grid instead, taking the log off the bottom of the window
+ * with it.
+ */
+.bench-main {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  min-height: 0;
+}
+
+.bench-stack {
+  padding: var(--space-3);
+}
+
+.band {
+  display: flex;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.band > * {
+  flex: 1 1 320px;
+  min-width: 0;
+}
+
+/* ---------------------------------------------------------------- verdict --------------- */
+
+/*
+ * Always at the top, never scrolls away, and readable from the other side of a bench. The tone
+ * is a data attribute rather than a class so `bench-model.ts` stays the only thing that decides
+ * it — there is exactly one place that turns state into an answer.
+ */
+.band-verdict {
+  align-items: stretch;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--surface-raised);
+  padding: var(--space-4);
+  gap: var(--space-4);
+  position: sticky;
+  top: 0;
+  z-index: var(--z-sticky);
+}
+
+.verdict {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-0-5);
+  flex: 1 1 auto;
+}
+
+.verdict-word {
+  font-size: var(--text-2xl);
+  font-weight: var(--weight-bold);
+  line-height: var(--leading-tight);
+  letter-spacing: 0.02em;
+}
+
+.verdict-detail {
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+}
+
+.verdict-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.plan-picker { min-width: 140px; }
+
+.band-verdict[data-tone='ok'] { border-color: var(--ok); }
+.band-verdict[data-tone='ok'] .verdict-word { color: var(--ok); }
+.band-verdict[data-tone='error'] { border-color: var(--danger); }
+.band-verdict[data-tone='error'] .verdict-word { color: var(--danger); }
+.band-verdict[data-tone='warn'] { border-color: var(--warn); }
+.band-verdict[data-tone='warn'] .verdict-word { color: var(--warn); }
+.band-verdict[data-tone='busy'] { border-color: var(--accent); }
+.band-verdict[data-tone='busy'] .verdict-word { color: var(--accent); }
+.band-verdict[data-tone='idle'] .verdict-word { color: var(--text); }
+
+/* ---------------------------------------------------------------- facts ----------------- */
+
+.fact {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-0-5) 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.fact-label { color: var(--text-secondary); }
+.fact-value { font-weight: var(--weight-semibold); }
+.fact.is-warn .fact-value { color: var(--warn); }
+.fact.is-error .fact-value { color: var(--danger); }
+
+.axes { display: flex; gap: var(--space-4); flex-wrap: wrap; }
+.axis { flex: 1 1 180px; min-width: 0; }
+
+.axis-name {
+  font: var(--type-label);
+  letter-spacing: var(--tracking-label);
+  color: var(--text-secondary);
+}
+
+.axis-flags { display: flex; gap: var(--space-0-5); flex-wrap: wrap; margin-top: var(--space-1-5); }
+
+/*
+ * Three states, not two. A flag nobody has read yet must not look like a flag that came back
+ * false — "not measured" and "measured and bad" are different problems, and only one of them
+ * is worth walking over to the bench for.
+ */
+.flag {
+  font-size: var(--text-2xs);
+  padding: 1px var(--space-1-5);
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border);
+}
+
+.flag.is-ok { color: var(--ok); border-color: currentColor; }
+.flag.is-bad { color: var(--danger); border-color: currentColor; }
+.flag.is-unknown { color: var(--text-faint); border-style: dashed; }
+
+/* ---------------------------------------------------------------- threshold ------------- */
+
+.threshold-note {
+  margin: var(--space-1-5) 0 0;
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+}
+
+/* ---------------------------------------------------------------- actions --------------- */
+
+.button-row {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  margin-top: var(--space-2);
+}
+
+.reason { font-weight: var(--weight-semibold); margin: var(--space-2) 0 0; }
+.advice { color: var(--text-secondary); margin: var(--space-0-5) 0 0; }
+.faults { margin-top: var(--space-2); }
+
+/* ---------------------------------------------------------------- session log ----------- */
+
+/*
+ * Pinned above the status bar, and given a bounded share of the window rather than growing
+ * with its content: a log that pushes the verdict band off the top defeats the point of
+ * pinning the verdict band.
+ */
+.session-log {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  height: clamp(120px, 26vh, 320px);
+  border-top: 1px solid var(--border);
+  background: var(--surface-sunken);
+}
+
+.session-log-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-1-5) var(--space-3);
+  border-bottom: 1px solid var(--border);
+}
+
+.session-log-count {
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.session-log-lines {
+  overflow: auto;
+  padding: var(--space-1-5) var(--space-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: var(--leading-normal);
+}
+
+.session-log-line {
+  display: grid;
+  grid-template-columns: 3.2em 5.5em 1fr;
+  gap: var(--space-2);
+  /*
+   * Firmware output is preformatted — the routines draw boxes out of dashes and pipes, and the
+   * shape is how you find the start of a routine at a glance — so whitespace is preserved.
+   * Wrapped rather than clipped: an error that runs off the right edge is an error nobody reads.
+   */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.session-log-time,
+.session-log-source {
+  color: var(--text-faint);
+}
+
+.session-log-line[data-tone='warn'] .session-log-message { color: var(--warn); }
+
+.session-log-line[data-tone='error'] .session-log-message {
+  color: var(--danger);
+  font-weight: var(--weight-semibold);
+}
+
+.session-log-empty {
+  margin: 0;
+  color: var(--text-faint);
+}

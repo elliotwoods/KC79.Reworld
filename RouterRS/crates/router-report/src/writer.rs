@@ -279,6 +279,12 @@ fn handle_msg(
     storm: &mut HashMap<(u8, u8, &'static str), (Instant, u32, u32, Event)>,
 ) {
     match msg {
+        Msg::Line(payload) => {
+            write_payload(out, state, payload);
+            // Bench lines are low-rate and each one is evidence, so flush rather than risk
+            // losing the tail of a run to a power cut or a kill.
+            let _ = out.flush();
+        }
         Msg::Event(event) => {
             ingest_event(state, &event);
             // storm guard for high-rate identical faults
@@ -691,4 +697,22 @@ fn publish_snapshot(state: &State, shared: &Arc<Shared>) {
         recent_faults: state.recent_faults.clone(),
     };
     *shared.snapshot.lock().unwrap() = Arc::new(snapshot);
+}
+
+/// Write a caller-shaped payload, stamped like every other line.
+///
+/// Shares `state.seq` with [`write_line`] so one session file has one monotonic sequence
+/// regardless of which vocabulary produced a given line. The storm guard deliberately does not
+/// apply: it keys on the bus `Event` enum, and a caller's own events are its business to pace.
+fn write_payload(out: &mut BufWriter<File>, state: &mut State, mut payload: serde_json::Value) {
+    state.seq += 1;
+    if let Some(object) = payload.as_object_mut() {
+        object.insert("v".into(), events::SCHEMA_VERSION.into());
+        object.insert("ts".into(), epoch_ms().into());
+        object.insert("seq".into(), state.seq.into());
+    }
+    if let Ok(text) = serde_json::to_string(&payload) {
+        state.bytes_written += text.len() as u64 + 1;
+        let _ = writeln!(out, "{text}");
+    }
 }

@@ -163,6 +163,17 @@ Logger::Logger()
 				}
 			}
 		}
+#ifndef HOME_SWITCH_LEGACY
+		,{
+			'd'
+			, {
+				"Home switch diagnostics (optical)"
+				, [this]() {
+					this->printHomeSwitchInfo();
+				}
+			}
+		}
+#endif
 		,{
 			'r'
 			, {
@@ -281,10 +292,16 @@ Logger::printVersion()
 {
 	serial.println(PORTAL_VERSION_STRING);
 
-	// Print the clock speed
+	// Both, because they answer different questions and can disagree. F_CPU is a compile-time
+	// constant from the variant -- it says what the build expected. HAL_RCC_GetHCLKFreq() reads
+	// the RCC registers, so it says what the PLL is actually doing right now. Only the second
+	// one can confirm SystemClock_Config took effect, which is exactly what was in question
+	// when the redundant mid-setup call was removed.
 	serial.print("Clock Speed: ");
+	serial.print(HAL_RCC_GetHCLKFreq() / 1000000);
+	serial.print(" MHz actual, ");
 	serial.print(F_CPU / 1000000);
-	serial.println(" MHz");
+	serial.println(" MHz expected");
 }
 
 //----------
@@ -362,6 +379,103 @@ Logger::printAxesInfo()
 	::log(LogLevel::Status, "Logger::printAxisInfo", message);
 
 }
+
+#ifndef HOME_SWITCH_LEGACY
+//----------
+// What the optical front-end actually reports, right now, at this position.
+//
+// The intended use is interactive: jog with 0-9 to walk the prism round, pressing 'd' as you
+// go, and watch where the sensor goes active and what crossing duty it reports there. That is
+// how you find this unit's flag and its usable threshold band -- which cannot be taken from a
+// previous board or a previous day, and on the production ring cannot be derived from the
+// background at all, because the background never crosses at any threshold.
+//
+// The crossing probe settles the RC-filtered threshold DAC properly (~1.5 s per axis), so this
+// is deliberately slow. It moves nothing.
+void
+Logger::printHomeSwitchInfo()
+{
+	auto & app = Modules::App::X();
+
+	const auto thresholdBefore = Modules::HomeSwitchOptical::getThreshold();
+
+	{
+		char message[80];
+		sprintf(message, "Home switch @ threshold %d (shared by both axes)"
+			, (int) thresholdBefore);
+		serial.println(message);
+	}
+
+	// The driver's FAULT line, which is wired and configured as an input but read nowhere else
+	// in the firmware. It matters here because a sensor that never goes active looks exactly the
+	// same whether the flag is invisible or the axis simply is not turning -- and the fault line
+	// is the one signal that can tell those apart from software.
+	for(uint8_t i = 0; i < 2; i++) {
+		auto motorDriver = (i == 0) ? app.motorDriverA : app.motorDriverB;
+		const auto & config = motorDriver->getConfig();
+		char message[100];
+		sprintf(message, "  motor %c: fault=%s enabled=%d"
+			, config.AxisLabel
+			, digitalRead(config.Fault) == LOW ? "YES (active low)" : "no"
+			, (int) motorDriver->getEnabled());
+		serial.println(message);
+	}
+
+	for(uint8_t i = 0; i < 2; i++) {
+		auto motionControl = app.getMotionControl(i);
+
+		// Live state first, at the threshold as it stands -- that is the bit homing actually
+		// latches on.
+		const bool active = motionControl->getHomeSwitchActive();
+
+		bool railLo = false;
+		const uint32_t timeoutTime = millis() + 20000;
+		const int crossing = motionControl->probeHomeCrossing(railLo, timeoutTime);
+
+		// Polarity, because it is easy to get backwards and the labels are the whole value of
+		// this command: the crossing duty is INVERSE to reflectance -- it is a threshold the
+		// signal has to get under, so a LOWER crossing means a MORE reflective surface, and the
+		// sensor reads ACTIVE exactly when crossing < threshold. The home feature is a
+		// reflector (a bright mark on a dark ring), so it has the lower crossing of the two.
+		//
+		// `railLo` is the reading at the BOTTOM of the probe's bracket, so when the probe found
+		// no crossing at all:
+		//   railLo == true  -> active even at the lowest threshold -> crossing below the
+		//                      bracket -> brighter than measurable
+		//   railLo == false -> inactive even at 255 -> crossing above 255 -> darker than
+		//                      measurable, which is the NORMAL off-flag reading on the
+		//                      injection-moulded ring, whose background never crosses anywhere.
+		char message[190];
+		if(crossing >= 0) {
+			sprintf(message, "  %s: %s, crossing=%d, position=%d"
+				, motionControl->getName()
+				, active ? "ACTIVE" : "inactive"
+				, crossing
+				, (int) motionControl->getPosition());
+		}
+		else if(crossing == -1) {
+			sprintf(message, "  %s: %s, crossing=censored (%s), position=%d"
+				, motionControl->getName()
+				, active ? "ACTIVE" : "inactive"
+				, railLo
+					? "always active below the bracket: brighter than measurable"
+					: "never active up to 255: darker than measurable -- normal off-flag"
+				, (int) motionControl->getPosition());
+		}
+		else {
+			sprintf(message, "  %s: %s, crossing probe aborted/timed out, position=%d"
+				, motionControl->getName()
+				, active ? "ACTIVE" : "inactive"
+				, (int) motionControl->getPosition());
+		}
+		serial.println(message);
+	}
+
+	// probeHomeCrossing leaves the DAC wherever its last probe put it, and the DAC is shared,
+	// so restoring is not optional -- otherwise pressing 'd' silently re-thresholds both axes.
+	Modules::HomeSwitchOptical::setThreshold(thresholdBefore);
+}
+#endif
 
 //----------
 void

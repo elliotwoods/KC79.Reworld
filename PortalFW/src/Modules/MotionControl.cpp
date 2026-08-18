@@ -1924,7 +1924,14 @@ namespace Modules {
 	static const FastHomeParams FASTHOME_16 =
 		{ 16, 14000, 100000, 4000, 2000, 48, 2500, 1000, 2100, 1500, 92252 };
 
-	#define FASTHOME_T_CAP_DARK        253    // background guard fallback: no measurable background
+	// Starting acquisition ceiling when the background is censored -- i.e. when the ring never
+	// crosses at any threshold, the measured situation on both axes of this board. It is only a
+	// starting point: the acquisition loop in phase 1 walks it up or down per axis, because the
+	// two axes on this board need thresholds about eleven counts apart and no single constant
+	// serves both. Raising this to 255 outright was tried and is wrong -- at 255 axis A reads
+	// active across more than a quarter revolution, so the ring does dither near the ceiling
+	// even though three static background probes had all come back censored.
+	#define FASTHOME_T_CAP_DARK        253
 	#define FASTHOME_BG_GUARD_MARGIN   3      // T_cap = bg - 3 when the background IS measurable
 	#define FASTHOME_CAL_BRACKET_LO    140    // settled-probe bracket [lo..255]
 	#define FASTHOME_CAL_ITERS         5      // binary probes (resolution ~4 duty)
@@ -1932,6 +1939,16 @@ namespace Modules {
 	#define FASTHOME_SETTLE_MS        300     // after a large DAC step
 	#define FASTHOME_BAND_STEP         2      // duty counts per band-scan step
 	#define FASTHOME_BAND_MIN          6      // minimum acceptable [T_floor..T_shoulder) band
+	// Minimum number of threshold counts between the flag's own crossing and the safe ceiling.
+	// This is the signal-quality gate: below it there is nowhere to put an operating point that
+	// is clear of both the flag and the dither at the top of the range. Deliberately small,
+	// because the measured margin differs sharply between the two axes on this board (about 19
+	// counts on A, about 2 on B) and refusing B outright is worse than running it close to the
+	// ceiling with the width gates still watching.
+	#define FASTHOME_MARGIN_MIN        2
+	// How many times phase 1 may step the acquisition threshold before giving up. The two axes
+	// here sit about eleven counts apart, so a handful of steps has to be able to cross that.
+	#define FASTHOME_MAX_T_ADJUST      8
 	#define FASTHOME_WIDTH_MIN_ABS     40     // W_MIN: minimum plausible flag width, microsteps
 	#define FASTHOME_SHOULDER_FACTOR   3.0f   // width > this * W_med => shoulder onset
 	#define FASTHOME_T_OP_FRACTION     0.55f  // T_op = T_floor + round(F * band)
@@ -1978,6 +1995,20 @@ namespace Modules {
 	}
 
 	//----------
+	bool
+	MotionControl::getHomeSwitchActive() const
+	{
+		return this->homeSwitch.getForwardsActive();
+	}
+
+	//----------
+	int
+	MotionControl::probeHomeCrossing(bool & railLo, uint32_t timeoutTime)
+	{
+		return fastHomeSettledCrossingProbe(this->homeSwitch, railLo, timeoutTime);
+	}
+
+	//----------
 	Exception
 	MotionControl::fastHomeRoutine(const MeasureRoutineSettings& settings)
 	{
@@ -1996,19 +2027,40 @@ namespace Modules {
 		const uint32_t timeoutTime = millis() + (uint32_t) settings.timeout_s * 1000U;
 		const MotionProfile normalProfile = this->getMotionProfile();
 
-		auto endRoutine = [this]() {
+		// Home at full current, whatever the axis is running at otherwise.
+		//
+		// Homing is where a stiff axis costs the most: a few lost microsteps during the seek do
+		// not just slow it down, they make the flag arrive somewhere other than where the
+		// position counter says it did, and a stiff axis that slips a whole flag past the sensor
+		// reports "no flag in a revolution" -- indistinguishable, from the firmware's side, from
+		// a sensor that cannot see. unjamRoutine already takes exactly this precaution.
+		// Restored on every exit path via endRoutine().
+		const auto currentBefore = this->motorDriverSettings.getCurrent();
+		this->motorDriverSettings.setCurrent(MOTORDRIVERSETTINGS_MAX_CURRENT);
+
+		auto endRoutine = [this, currentBefore]() {
 			this->stop();
 			this->switchesArmed = false;
 			this->inInterrupt.invertSwitches = false;
+			this->motorDriverSettings.setCurrent(currentBefore);
 		};
 		// Every failure exit goes through here: clears the calibration cache (so the next
-		// attempt recalibrates cold), restores the default threshold and the caller's motion
-		// profile, and stops. Folding the profile restore in here (rather than repeating it
-		// before every `return fail(...)`) is deliberate -- that repetition is exactly the kind
-		// of thing that's easy to miss at one call site among a dozen.
+		// attempt recalibrates cold), marks the axis unhealthy, restores the default threshold
+		// and the caller's motion profile, and stops. Folding all of that in here (rather than
+		// repeating it before every `return fail(...)`) is deliberate -- that repetition is
+		// exactly the kind of thing that's easy to miss at one call site among two dozen.
+		//
+		// Clearing healthStatus is what makes the LED fault pattern fire. LEDs::update() reads
+		// these flags every loop tick and shows the 1-blink-A / 2-blink-B pattern whenever any
+		// of them is false. Without this, an axis that homed successfully once and then started
+		// failing would keep showing the healthy heartbeat forever -- the failure would be
+		// invisible on the board itself, which is exactly the case the fault pattern exists for.
 		auto fail = [&](const char * msg) -> Exception {
 			this->opticalThresholdCached = 0;
 			this->opticalWidthCached = 0;
+			this->healthStatus.homeOK = false;
+			this->healthStatus.backlashOK = false;
+			this->healthStatus.switchesOK = false;
 			HomeSwitch::setThreshold(HOMESWITCHOPTICAL_DEFAULT_THRESHOLD);
 			this->setMotionProfile(normalProfile);
 			endRoutine();
@@ -2023,19 +2075,59 @@ namespace Modules {
 		MotionProfile seekProfile;
 		seekProfile.maximumSpeed = seekSpeed;
 		seekProfile.acceleration = p->seekAccel;
-		seekProfile.minimumSpeed = 1000;
+		// Low enough that the final approach advances at most one microstep per main-loop
+		// iteration. routineMoveTo terminates on EXACT equality (`position != targetPosition`),
+		// so a floor high enough to cover more than a microstep per iteration lets the axis
+		// step straight over its target and orbit it forever. The reference port used 1000
+		// here, and at that floor the 1,024-microstep step-off before the backlash measurement
+		// overshot, came back, and then oscillated between two positions 12 microsteps short of
+		// target for the entire remaining timeout -- which surfaced as "Timeout" attributed to
+		// the backlash phase, on a routine that had otherwise completed perfectly.
+		//
+		// 50 microsteps/s is one pulse per 20 ms, so the approach lands exactly; the creep only
+		// applies to the last few microsteps, since acceleration is unchanged.
+		seekProfile.minimumSpeed = 50;
 		this->setMotionProfile(seekProfile);
+
+		// Run the whole routine in raw commanded-position space, with backlash compensation
+		// off from the very first move rather than switched off partway through.
+		//
+		// The routine does not need compensation: every datum-critical approach is deliberately
+		// forward-engaged, so the gear mesh is always loaded the same way. What it does need is
+		// for the position frame to mean the same thing at the end (where backlash is measured)
+		// as it did at the start. Disabling this later, after moves have already been made with
+		// it active, discards pending `positionWithinBacklash` state and moves the frame.
+		this->backlashControl.systemBacklash = 0;
+		this->backlashControl.positionWithinBacklash = 0;
 		this->switchLatchDebounce = p->coarseDebounceM;
 
 		const bool warm = (this->opticalThresholdCached > 0) && (this->opticalWidthCached > 0);
 		int T = warm ? this->opticalThresholdCached : 0;
 		Steps W_cal = warm ? this->opticalWidthCached : 0;
 
+		{
+			char message[80];
+			sprintf(message, "fastHome begin (%s, T=%d, W_cal=%d)"
+				, warm ? "warm" : "cold", T, (int) W_cal);
+			log(LogLevel::Status, moduleName, message);
+		}
+
+		// Phase stamps. The cold path has repeatedly run out of its overall budget in the last
+		// phase, and estimating which earlier phase ate the time was guesswork twice over -- so
+		// each boundary says how long it had taken by then, straight to serial.
+		const uint32_t routineStart = millis();
+		auto phaseStamp = [&](const char * phaseName) {
+			char message[80];
+			sprintf(message, "  [t+%lus] %s\r\n"
+				, (unsigned long) ((millis() - routineStart) / 1000U), phaseName);
+			Logger::X().printRaw(message);
+		};
+
 		// ---- Phase 0: background guard (cold runs only) ------------------------------------
 		int T_cap = T; // warm: seek directly at the cached operating threshold
 		if(!warm) {
 			int maxBg = -1;
-			bool anyMeasured = false;
+			int measuredCount = 0;
 			for(int i = 0; i < 3; i++) {
 				if(i > 0) {
 					auto r = this->routineMoveTo(this->getPosition() + p->ustepsPerRev / 3, timeoutTime);
@@ -2044,49 +2136,168 @@ namespace Modules {
 				bool rail;
 				int c = fastHomeSettledCrossingProbe(this->homeSwitch, rail, timeoutTime);
 				if(c == -2) return fail("abort");
+				// A censored probe means no crossing anywhere in the swept range. Which rail it
+				// sat at says which side: `rail` is the reading at the BOTTOM of the bracket, so
+				// false means "never active even at 255" -- crossing above 255, i.e. darker than
+				// measurable. That is the NORMAL background reading on this ring; a measurable
+				// crossing here is the reflective home flag, not the background.
+				{
+					char message[90];
+					sprintf(message, "  bg probe %d: %s\r\n"
+						, i
+						, c >= 0 ? "" : (rail ? "censored, brighter than measurable" : "censored, darker than measurable"));
+					if(c >= 0) {
+						sprintf(message, "  bg probe %d: crossing %d\r\n", i, c);
+					}
+					Logger::X().printRaw(message);
+				}
 				if(c >= 0) {
-					anyMeasured = true;
+					measuredCount++;
 					if(c > maxBg) maxBg = c;
 				}
 			}
-			T_cap = anyMeasured ? (maxBg - FASTHOME_BG_GUARD_MARGIN) : FASTHOME_T_CAP_DARK;
+
+			// Majority, not "any". The flag is well under 1% of the circumference, so of three
+			// probes spread 120 degrees apart at most ONE can be sitting on it -- which means a
+			// lone measurable crossing among censored ones is the flag, and treating it as the
+			// background sets T_cap just below the flag's own crossing, where the flag can never
+			// read active. That is exactly what happened on the first run against this board:
+			// probe 2 landed on the flag at 234, T_cap became 231, and the seek then swept a
+			// whole revolution without ever seeing it ("flag not found").
+			//
+			// So the background is only "measurable" if at least two probes agree it is; a
+			// single outlier is the flag and the background is still censored.
+			const bool backgroundMeasurable = measuredCount >= 2;
+			T_cap = backgroundMeasurable
+				? (maxBg - FASTHOME_BG_GUARD_MARGIN)
+				: FASTHOME_T_CAP_DARK;
 			if(T_cap < 16) T_cap = 16;
 			if(T_cap > 255) T_cap = 255;
-		}
-		HomeSwitch::setThreshold((uint8_t) T_cap);
-		HAL_Delay(FASTHOME_SETTLE_MS);
 
-		// ---- Phase 1: seek a coarse leading edge --------------------------------------------
+			char message[90];
+			sprintf(message, "bg guard: %s (%d/3 measurable), T_cap=%d"
+				, backgroundMeasurable ? "background measurable" : "background censored"
+				, measuredCount
+				, T_cap);
+			log(LogLevel::Status, moduleName, message);
+		}
+		phaseStamp("background guard done");
+		// ---- Phase 1: acquire the flag, adapting the threshold if need be -------------------
+		//
+		// The acquisition threshold has to be found per axis, not assumed. On this board the two
+		// axes want thresholds about eleven counts apart -- axis A acquires happily at 253 while
+		// axis B's flag crosses at roughly the ceiling -- and there is no single constant that
+		// serves both: 253 leaves axis B intermittently unable to see its flag at all, and 255
+		// makes axis A read active across more than a quarter revolution.
+		//
+		// So start from the background guard's estimate and walk, using the two failures as the
+		// signal for which way to go. Both are unambiguous:
+		//   * cannot get off the flag / active over a huge span -> too permissive -> lower it
+		//   * a whole revolution with no flag                   -> too strict     -> raise it
+		// This is the adaptive step the port originally simplified away, on the grounds that the
+		// retry loop would cover it. It does not: every retry starts from the same constant and
+		// so makes the same mistake.
 		this->switchesArmed = true;
-		if(this->homeSwitch.getForwardsActive()) {
-			// Background should be inactive by construction at T_cap (cold) or T_op (warm; T_op
-			// is always <= the T_cap that would have been derived from the same background, see
-			// Phase 3). If it's active at rest here the world has moved since the threshold was
-			// set -- fail and let the caller's retry recalibrate cold, rather than the bench
-			// original's adaptive T-walk (see the simplification note above).
-			return fail("active at rest");
-		}
-		Steps coarseLead;
+		Steps coarseLead = 0;
 		{
-			auto r = this->routineMoveToUntilSeeSwitch(this->getPosition() + lapBudget,
-				SwitchesMask{ true, false }, timeoutTime);
-			if(r.exception || !r.frameSwitchEvents.forwards.seen) {
-				return fail("flag not found");
+			bool acquired = false;
+			for(int attempt = 0; attempt <= FASTHOME_MAX_T_ADJUST && !acquired; attempt++) {
+				if(millis() > timeoutTime) return fail("timeout");
+				HomeSwitch::setThreshold((uint8_t) T_cap);
+				HAL_Delay(FASTHOME_SETTLE_MS);
+
+				// Starting on the flag is normal rather than an error: a successful home parks
+				// the axis on its datum, and the datum is the middle of the flag, so every
+				// re-home and every warm second pass begins exactly there.
+				if(this->homeSwitch.getForwardsActive()) {
+					const Steps exitBudget = p->ustepsPerRev / 4;
+					this->inInterrupt.invertSwitches = true;   // latch becoming INACTIVE
+					this->updateStepsAndSwitches();
+					auto r = this->routineMoveToUntilSeeSwitch(this->getPosition() + exitBudget,
+						SwitchesMask{ true, false }, timeoutTime);
+					this->inInterrupt.invertSwitches = false;
+					if(r.exception || !r.frameSwitchEvents.forwards.seen) {
+						// Active across a quarter revolution is not a flag, it is a threshold
+						// too permissive for the surface in front of it.
+						if(T_cap <= 16) return fail("active everywhere, even at the floor");
+						T_cap -= 2;
+						char message[80];
+						sprintf(message, "acquire: active >%d usteps, lowering T_cap to %d"
+							, (int) exitBudget, T_cap);
+						log(LogLevel::Status, moduleName, message);
+						continue;
+					}
+					// Clear of the flag, but only just -- give the seek somewhere to accelerate
+					// from so it does not immediately re-latch the edge it has only now left.
+					auto clear = this->routineMoveTo(this->getPosition() + p->takeup, timeoutTime);
+					if(clear.exception) return fail(clear.exception.getMessage().c_str());
+				}
+
+				auto r = this->routineMoveToUntilSeeSwitch(this->getPosition() + lapBudget,
+					SwitchesMask{ true, false }, timeoutTime);
+				if(!r.exception && r.frameSwitchEvents.forwards.seen) {
+					coarseLead = r.frameSwitchEvents.forwards.positionSeen;
+					acquired = true;
+					break;
+				}
+
+				// A completed sweep that saw nothing comes back as an exception
+				// ("Switch not seen"), which is the ordinary "too strict" outcome and the whole
+				// reason this loop exists -- so it must not be treated as a hard error. Only an
+				// operator abort or the overall deadline ends the routine here; anything else
+				// means try again higher.
+				if(App::getShouldEscapeFromRoutine()) return fail("abort");
+				if(millis() > timeoutTime) return fail("timeout");
+
+				if(T_cap >= 255) return fail("flag not found even at the ceiling");
+				T_cap += 1;
+				char message[80];
+				sprintf(message, "acquire: no flag in a full revolution, raising T_cap to %d"
+					, T_cap);
+				log(LogLevel::Status, moduleName, message);
 			}
-			coarseLead = r.frameSwitchEvents.forwards.positionSeen;
+			if(!acquired) return fail("flag not found");
 		}
 
+		{
+			char message[70];
+			sprintf(message, "acquired at T_cap=%d", T_cap);
+			log(LogLevel::Status, moduleName, message);
+		}
+		phaseStamp("seek done");
 		// ---- Phase 1c: motor generation detection (lead-to-lead = one revolution) -----------
 		if(!this->fastHomeRatioConfirmed) {
 			if(this->homeSwitch.getForwardsActive()) {
+				// Budget a quarter revolution to get off the flag, not `coarseWidthMax`.
+				//
+				// coarseWidthMax is an OPERATING-POINT width bound, but everything up to here
+				// runs at the acquisition threshold T_cap, which is deliberately permissive --
+				// it exists to guarantee the flag is seen at all, not to resolve it cleanly. At
+				// T_cap the active span is much wider than at T_op (that is precisely why the
+				// band scan then steps the threshold down), so budgeting the exit at an
+				// operating-point width made a perfectly normal wide-at-253 flag report
+				// "stuck active" on both axes. A quarter revolution is far more than any real
+				// smearing and still nowhere near the next flag, since there is one per rev.
+				const Steps exitBudget = p->ustepsPerRev / 4;
+				const Steps exitFrom = this->getPosition();
 				this->inInterrupt.invertSwitches = true;
 				this->updateStepsAndSwitches();
-				auto r = this->routineMoveToUntilSeeSwitch(
-					this->getPosition() + p->coarseWidthMax + p->takeup,
+				auto r = this->routineMoveToUntilSeeSwitch(exitFrom + exitBudget,
 					SwitchesMask{ true, false }, timeoutTime);
 				this->inInterrupt.invertSwitches = false;
 				if(r.exception || !r.frameSwitchEvents.forwards.seen) {
+					char message[80];
+					sprintf(message, "stuck active for >%d usteps at T_cap"
+						, (int) exitBudget);
+					log(LogLevel::Error, moduleName, message);
 					return fail("motor detect: stuck active");
+				}
+				{
+					char message[80];
+					sprintf(message, "exited flag after %d usteps at T_cap"
+						, (int) (r.frameSwitchEvents.forwards.positionSeen - exitFrom));
+					Logger::X().printRaw(message);
+					Logger::X().printRaw("\r\n");
 				}
 			}
 			auto r = this->routineMoveTo(this->getPosition() + p->takeup, timeoutTime);
@@ -2101,11 +2312,36 @@ namespace Modules {
 			const FastHomeParams * detected = nullptr;
 			for(const FastHomeParams * cand : { &FASTHOME_16, &FASTHOME_32 }) {
 				const Steps expect = cand->ustepsPerRev;
-				if(measuredRev > expect - expect / 10 && measuredRev < expect + expect / 10) {
+				// +/-25%, not +/-10%. This is a two-way classification between candidates that
+				// differ by more than 2x (92,252 vs 189,704), so even a quarter is unambiguous:
+				// the widest 16:1 match (115,315) is still far below the narrowest 32:1 one
+				// (142,278). The measurement itself is lead-to-lead at the ACQUISITION
+				// threshold, where the flag is smeared by a couple of thousand microsteps and
+				// the latch point moves with it -- axis B measured 168,602 for a real 32:1 and
+				// was rejected at +/-10% for what is only ever a coarse sorting decision. The
+				// precise steps/rev comes from the selected parameter set, never from this.
+				if(measuredRev > expect - expect / 4 && measuredRev < expect + expect / 4) {
 					detected = cand;
 				}
 			}
-			if(!detected) return fail("motor detect: rev out of range");
+			if(!detected) {
+				// Worth the numbers: "rev out of range" on its own can't distinguish a
+				// genuinely unknown gearbox from a stalled seek (which reads short) or a
+				// double-counted flag (which reads long).
+				char message[80];
+				sprintf(message, "motor detect: measuredRev=%d (want ~%d or ~%d)"
+					, (int) measuredRev
+					, (int) FASTHOME_16.ustepsPerRev
+					, (int) FASTHOME_32.ustepsPerRev);
+				log(LogLevel::Error, moduleName, message);
+				return fail("motor detect: rev out of range");
+			}
+			{
+				char message[80];
+				sprintf(message, "motor detect: %d:1 (measuredRev=%d)"
+					, (int) detected->ratio, (int) measuredRev);
+				log(LogLevel::Status, moduleName, message);
+			}
 			this->fastHomeParams = detected;
 			this->fastHomeRatioConfirmed = true;
 			p = detected;
@@ -2117,6 +2353,7 @@ namespace Modules {
 			coarseLead = lead2;
 		}
 
+		phaseStamp("motor detect done");
 		// ---- Phase 2/3: band-centred threshold calibration (cold runs only) -----------------
 		// See HomeSwitchTest/reports/newring/HOME_ROUTINE_DESIGN.md. Replaces the old
 		// background-margin scheme, which has no inputs on a ring whose background never
@@ -2124,101 +2361,163 @@ namespace Modules {
 		if(!warm) {
 			// Local width probe: jog to leadGuess - clearance, then latch lead+trail forward at
 			// edgeSpeed within a short, bounded local search. Returns width, or -1 if not found.
-			auto localWidthProbe = [&](Steps leadGuess) -> Steps {
+			// How long to allow a constant-speed search to cover a given distance, plus slack
+			// for the ramp and the routine's own per-iteration overhead.
+			//
+			// This replaced a flat 3-second window, which was not enough and failed in a way
+			// that looked like an optical problem rather than a timing one. The probe starts a
+			// full `clearance` behind the flag (5,000 microsteps at 32:1) and creeps forward at
+			// edgeSpeed (2,000/s), so 2.5 s is spent just reaching the flag; a 3 s window left
+			// 0.5 s of margin. As the threshold steps down the flag narrows and its leading
+			// edge arrives later, so the scan started reporting "not found" partway down --
+			// truncating the band and making a perfectly good flag read as band=2, i.e.
+			// "insufficient optical contrast", on a board whose flag is ~1,900 microseconds
+			// wide and plainly visible.
+			auto travelBudgetMs = [&](Steps distance) -> uint32_t {
+				return (uint32_t)((int64_t) distance * 1000 / (int64_t) p->edgeSpeed) + 2000;
+			};
+			auto boundedDeadline = [&](Steps distance) -> uint32_t {
+				uint32_t deadline = millis() + travelBudgetMs(distance);
+				return deadline > timeoutTime ? timeoutTime : deadline;
+			};
+
+			auto localWidthProbe = [&](Steps leadGuess, Steps * outLead, Steps * outTrail) -> Steps {
 				auto r = this->routineMoveTo(leadGuess - p->clearance, timeoutTime);
 				if(r.exception) return -1;
-				uint32_t localDeadline = millis() + 3000;
-				if(localDeadline > timeoutTime) localDeadline = timeoutTime;
-				r = this->routineMoveToFindSwitch(true, p->edgeSpeed, SwitchesMask{ true, false }, localDeadline);
+				// Budgeted against how far the flag can plausibly smear, not an operating-point
+				// width (too small -- a wide flag reads as a missing one) and not a fraction of
+				// a revolution (too large -- every genuinely-not-found step then burns its full
+				// budget, and two of those at a quarter turn each cost ~56 s, which is what
+				// pushed the first successful scan past its overall timeout during backlash).
+				// The measured smear at the acquisition threshold on this board was ~1,900
+				// microsteps against a coarseWidthMax of 4,200, so these are several times the
+				// worst observed case while still failing fast.
+				const Steps leadBudget = p->clearance * 2 + p->coarseWidthMax;
+				const Steps trailBudget = p->coarseWidthMax * 2;
+				r = this->routineMoveToFindSwitch(true, p->edgeSpeed, SwitchesMask{ true, false }
+					, boundedDeadline(leadBudget));
 				if(r.exception || !r.frameSwitchEvents.forwards.seen) return -1;
 				Steps lead = r.frameSwitchEvents.forwards.positionSeen;
 
 				this->inInterrupt.invertSwitches = true;
 				this->updateStepsAndSwitches();
-				localDeadline = millis() + 3000;
-				if(localDeadline > timeoutTime) localDeadline = timeoutTime;
-				r = this->routineMoveToFindSwitch(true, p->edgeSpeed, SwitchesMask{ true, false }, localDeadline);
+				r = this->routineMoveToFindSwitch(true, p->edgeSpeed, SwitchesMask{ true, false }
+					, boundedDeadline(trailBudget));
 				this->inInterrupt.invertSwitches = false;
 				if(r.exception || !r.frameSwitchEvents.forwards.seen) return -1;
 				Steps trail = r.frameSwitchEvents.forwards.positionSeen;
 
+				if(outLead) *outLead = lead;
+				if(outTrail) *outTrail = trail;
 				return trail - lead;
 			};
 
-			struct BandSample { int T; Steps width; };
-			BandSample samples[FASTHOME_MAX_BAND_STEPS];
-			int sampleCount = 0;
-			int belowFloorStreak = 0;
-			int Tscan = T_cap;
-			while(sampleCount < FASTHOME_MAX_BAND_STEPS && Tscan >= 16) {
-				if(millis() > timeoutTime) return fail("timeout");
-				if(App::updateFromRoutine()) return fail("abort");
-				HomeSwitch::setThreshold((uint8_t) Tscan);
-				HAL_Delay(FASTHOME_CAL_SETTLE_MS);
-				Steps width = localWidthProbe(coarseLead);
-				if(width >= 0) {
-					samples[sampleCount++] = BandSample{ Tscan, width };
-					belowFloorStreak = (width < FASTHOME_WIDTH_MIN_ABS) ? belowFloorStreak + 1 : 0;
-				}
-				else {
-					belowFloorStreak++;
-				}
-				if(belowFloorStreak >= 2 && sampleCount > 0) break;
-				Tscan -= FASTHOME_BAND_STEP;
-			}
-			if(sampleCount == 0) return fail("band scan: flag not found at any threshold");
+			// Measure the flag's OWN crossing, rather than inferring a floor from where the
+			// measured width collapses.
+			//
+			// The width-vs-threshold band scan this replaced needs the flag to be resolvable
+			// over a range of thresholds several counts wide. That is true of axis A (detectable
+			// from 253 all the way down to 235) and structurally impossible for axis B, whose
+			// flag only resolves at 252-253 -- so the scan returned a single usable sample,
+			// computed band=0, and refused. The refusal was arithmetically correct and
+            // practically useless: axis B's flag is plainly there, it is just dim.
+			//
+			// With the background censored -- which is the measured situation on both axes here,
+			// the moulding never crossing anywhere in 0..255 -- the usable threshold window is
+			// simply "above the flag's crossing, at or below the safe ceiling". Both ends are
+			// known directly: the crossing from one settled probe on the flag, the ceiling from
+			// the background guard. That needs no width contrast at all, so it works on a
+			// two-count margin as readily as on a nineteen-count one, and it costs one probe
+			// instead of a ten-step scan (which is also why a cold run drops from ~100 s).
+			Steps capLead = 0, capTrail = 0;
+			const Steps spanAtCap = localWidthProbe(coarseLead, &capLead, &capTrail);
+			if(spanAtCap < 0) return fail("calibration: flag not resolved at T_cap");
 
-			// Median width across found samples (insertion sort -- sampleCount is tiny).
-			Steps widths[FASTHOME_MAX_BAND_STEPS];
-			for(int i = 0; i < sampleCount; i++) widths[i] = samples[i].width;
-			for(int i = 1; i < sampleCount; i++) {
-				Steps v = widths[i];
-				int j = i - 1;
-				while(j >= 0 && widths[j] > v) { widths[j + 1] = widths[j]; j--; }
-				widths[j + 1] = v;
-			}
-			Steps W_med = widths[sampleCount / 2];
-			if(sampleCount % 2 == 0 && sampleCount > 1) {
-				W_med = (widths[sampleCount / 2 - 1] + widths[sampleCount / 2]) / 2;
-			}
-			if(W_med <= 0) return fail("band scan: degenerate width");
+			// Probe across the span and keep the BRIGHTEST (lowest) crossing.
+			//
+			// Not the midpoint. At the acquisition threshold the active span is a broad, faint
+			// skirt -- about 1,900 microsteps on axis A -- while the bright core that survives
+			// to the operating threshold is only a couple of hundred wide. The core is not
+			// necessarily central in that skirt, so probing the midpoint alone can land on
+			// background and report "no optical return" for a flag that is unmistakably there.
+			// Sampling across it and taking the minimum finds the core wherever it sits, and the
+			// per-point values are logged because their shape is what says whether the feature
+			// is one clean reflector or something with structure.
+			int C_flag = 256;
+			Steps C_flagAt = 0;
+			{
+				const int probePoints = 5;
+				for(int i = 1; i <= probePoints; i++) {
+					if(millis() > timeoutTime) return fail("timeout");
+					const Steps at = capLead + (Steps)((int64_t) spanAtCap * i / (probePoints + 1));
+					// Forward-engaged approach, like every other datum-relevant move here.
+					auto r = this->routineMoveTo(at - p->clearance - p->takeup, timeoutTime);
+					if(!r.exception) r = this->routineMoveTo(at, timeoutTime);
+					if(r.exception) return fail(r.exception.getMessage().c_str());
 
-			int T_floor = 256, T_shoulder = -1;
-			for(int i = 0; i < sampleCount; i++) {
-				if(samples[i].width >= FASTHOME_WIDTH_MIN_ABS && samples[i].T < T_floor) {
-					T_floor = samples[i].T;
+					bool rail = false;
+					const int c = fastHomeSettledCrossingProbe(this->homeSwitch, rail, timeoutTime);
+					if(c == -2) return fail("abort");
+
+					char message[100];
+					sprintf(message, "  probe %d @%d: %s%d\r\n", i, (int) at
+						, c >= 0 ? "crossing " : (rail ? "censored bright " : "censored dark ")
+						, c);
+					Logger::X().printRaw(message);
+
+					// A bright rail means brighter than the bracket bottom, which is still a
+					// perfectly good flag -- clamp rather than discard it.
+					const int effective = (c >= 0) ? c : (rail ? FASTHOME_CAL_BRACKET_LO : 256);
+					if(effective < C_flag) { C_flag = effective; C_flagAt = at; }
 				}
-				if((float) samples[i].width > FASTHOME_SHOULDER_FACTOR * (float) W_med
-					&& (T_shoulder < 0 || samples[i].T < T_shoulder)) {
-					T_shoulder = samples[i].T;
-				}
 			}
-			if(T_floor > 255) return fail("band scan: no width above the floor");
-			// No shoulder observed within the scanned range: Phase 0 already put T_cap below
-			// the measured background, so the true shoulder is at or above T_cap by construction.
-			if(T_shoulder < 0) T_shoulder = T_cap + 1;
+			if(C_flag > 255) {
+				log(LogLevel::Error, moduleName
+					, "no measurable crossing anywhere across the flag span");
+				return fail("flag crossing not measurable");
+			}
 
-			int band = (T_shoulder - 1) - T_floor;
-			if(band < FASTHOME_BAND_MIN) return fail("insufficient optical contrast");
+			const int usable = T_cap - C_flag;
+			{
+				char message[120];
+				sprintf(message, "flag: lead=%d span@cap=%d crossing=%d@%d ceiling=%d usable=%d (min %d)"
+					, (int) capLead, (int) spanAtCap, C_flag, (int) C_flagAt
+					, T_cap, usable, FASTHOME_MARGIN_MIN);
+				log(LogLevel::Status, moduleName, message);
+			}
+			if(usable < FASTHOME_MARGIN_MIN) return fail("insufficient optical contrast");
 
-			int T_op = T_floor + (int) round(FASTHOME_T_OP_FRACTION * (float) band);
-			if(T_op < T_floor + 2) T_op = T_floor + 2;
-			if(T_op > T_shoulder - 2) T_op = T_shoulder - 2;
+			int T_op = C_flag + (int) round(FASTHOME_T_OP_FRACTION * (float) usable);
+			if(T_op <= C_flag) T_op = C_flag + 1;
+			if(T_op > T_cap) T_op = T_cap;
 
 			HomeSwitch::setThreshold((uint8_t) T_op);
 			HAL_Delay(FASTHOME_SETTLE_MS);
-			Steps W_atOp = localWidthProbe(coarseLead);
+			Steps W_atOp = localWidthProbe(coarseLead, nullptr, nullptr);
 			if(W_atOp < 0) return fail("operating point: flag not found");
 
 			T = T_op;
 			W_cal = W_atOp;
+
+			{
+				char message[90];
+				sprintf(message, "operating point: T_op=%d W_cal=%d (crossing=%d)"
+					, T_op, (int) W_cal, C_flag);
+				log(LogLevel::Status, moduleName, message);
+			}
 		}
 
 		HomeSwitch::setThreshold((uint8_t) T);
 		HAL_Delay(FASTHOME_SETTLE_MS);
-		if(this->homeSwitch.getForwardsActive()) {
-			return fail("shoulder gate: active below lead");
-		}
+
+		// No shoulder check here. It used to assert the sensor reads inactive at this point,
+		// which is only true on a COLD run -- there the band scan's last width probe happens to
+		// leave the axis past the trailing edge. A warm run skips the band scan entirely and so
+		// arrives here still sitting on the leading edge the seek stopped at, reading active,
+		// and failed every time with "shoulder gate: active below lead" despite nothing being
+		// wrong. The check it was trying to make -- that the pass starts from clear background
+		// below the flag -- is made properly in phase 4 below, after repositioning to the arming
+		// point, where "inactive" is actually meaningful.
 
 		// Width-relative gates and debounce, scaled from the calibrated flag width so they
 		// auto-scale to whatever ring is actually attached (HOME_ROUTINE_DESIGN.md).
@@ -2229,6 +2528,7 @@ namespace Modules {
 		if(calibratedDebounce > FASTHOME_DEBOUNCE_MAX) calibratedDebounce = FASTHOME_DEBOUNCE_MAX;
 		this->switchLatchDebounce = calibratedDebounce;
 
+		phaseStamp("calibration done");
 		// ---- Phase 4: precise forward two-edge pass(es) -------------------------------------
 		MotionProfile reposProfile = seekProfile;
 		reposProfile.maximumSpeed = p->reposSpeed;
@@ -2272,10 +2572,22 @@ namespace Modules {
 			}
 			trail = r.frameSwitchEvents.forwards.positionSeen;
 
+			{
+				char message[90];
+				sprintf(message, "  pass %d: lead=%d trail=%d w=%d mid=%d\r\n"
+					, pass, (int) lead, (int) trail, (int) (trail - lead)
+					, (int) ((lead + trail) / 2));
+				Logger::X().printRaw(message);
+			}
+
 			if(trail - lead < widthMin || trail - lead > widthMax) {
 				// On a warm run this is exactly the >25% width-drift-from-W_cal recalibration
 				// trigger in HOME_ROUTINE_DESIGN.md -- fail() clears the cache, so the next
 				// attempt (the tryCount retry Routines::calibrate wraps this in) runs cold.
+				char message[80];
+				sprintf(message, "width gate: w=%d outside [%d..%d]"
+					, (int) (trail - lead), (int) widthMin, (int) widthMax);
+				log(LogLevel::Error, moduleName, message);
 				return fail("width gate");
 			}
 			midSum += (lead + trail) / 2;
@@ -2284,9 +2596,15 @@ namespace Modules {
 		const Steps width = (Steps)(widthSum / FASTHOME_PASSES);
 		const Steps home = (Steps)(midSum / FASTHOME_PASSES);
 
+		phaseStamp("precise passes done");
 		// ---- Phase 5: backlash at the trailing edge ------------------------------------------
-		this->backlashControl.systemBacklash = 0;
-		this->backlashControl.positionWithinBacklash = 0;
+		// Backlash compensation was already disabled at the top of the routine, deliberately --
+		// see there. It must NOT be zeroed here instead: by this point the repositioning moves
+		// and both precise passes have run, and if they ran with compensation active then
+		// `positionWithinBacklash` holds real pending state that zeroing simply discards,
+		// shifting the position frame underneath the measurement about to be taken. That is
+		// what produced a backlash of -88 on a warm pass whose two edge passes had agreed with
+		// each other exactly.
 		{
 			auto r = this->routineMoveTo(trail + settings.debounceDistance * microstepsPerStep, timeoutTime);
 			if(r.exception) return fail(r.exception.getMessage().c_str());
@@ -2304,10 +2622,15 @@ namespace Modules {
 		}
 		Steps backlash = trail - reenter;
 		if(backlash < -32 || backlash > p->backlashMax) {
+			char message[80];
+			sprintf(message, "backlash out of range: %d (max %d)"
+				, (int) backlash, (int) p->backlashMax);
+			log(LogLevel::Error, moduleName, message);
 			return fail("backlash out of range");
 		}
 		if(backlash < 0) backlash = 0;
 
+		phaseStamp("backlash done");
 		// ---- Phase 6: apply --------------------------------------------------------------------
 		{
 			this->setMotionProfile(reposProfile);
@@ -2328,6 +2651,20 @@ namespace Modules {
 		this->healthStatus.homeOK = true;
 		this->healthStatus.backlashOK = true;
 		this->healthStatus.switchesOK = true;
+
+		// The success line. `home` is the datum in the pre-shift frame, which is what a
+		// repeatability campaign differences run-to-run -- after the shift above the datum
+		// always reads 0, so logging the post-shift position would measure nothing. Elapsed
+		// time is here because the cold path's duration against the 120 s timeout_s is a real
+		// open question (see the plan's Stage 0 item 7).
+		{
+			char message[100];
+			sprintf(message, "fastHome OK: datum=%d w=%d backlash=%d T=%d (%s, %ds)"
+				, (int) home, (int) width, (int) backlash, T
+				, warm ? "warm" : "cold"
+				, (int) ((millis() - (timeoutTime - (uint32_t) settings.timeout_s * 1000U)) / 1000U));
+			log(LogLevel::Status, moduleName, message);
+		}
 
 		this->setMotionProfile(normalProfile);
 		endRoutine();

@@ -3426,11 +3426,11 @@ dependencies = [
  "ffmpeg-sidecar",
  "glam 0.29.3",
  "rosc",
+ "router-link",
  "router-proto",
  "router-report",
  "serde",
  "serde_json",
- "serialport",
  "thiserror 2.0.18",
  "tiny_http",
 ]
@@ -3443,6 +3443,17 @@ dependencies = [
  "router-core",
  "router-report",
  "serde_json",
+]
+
+[[package]]
+name = "router-link"
+version = "0.1.0"
+dependencies = [
+ "router-proto",
+ "router-report",
+ "serde_json",
+ "serialport",
+ "thiserror 2.0.18",
 ]
 
 [[package]]

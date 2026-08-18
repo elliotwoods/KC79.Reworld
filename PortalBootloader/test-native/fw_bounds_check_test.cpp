@@ -32,7 +32,7 @@ namespace {
 int failures = 0;
 int checks = 0;
 
-void check(bool ok, const char* what, uint32_t context)
+void check(bool ok, const char* what, uint32_t context = 0)
 {
 	checks++;
 	if (!ok) {
@@ -195,6 +195,76 @@ void testUnderflowRejected()
 	}
 }
 
+/// The long reboot magic word must not overflow the FIELDED bootloader's 3-byte buffer.
+///
+/// The application's reboot word was lengthened from "FW" to "FW!KC79" so a corrupted frame
+/// can't bounce a device into its bootloader mid-move. That word is BROADCAST, so it also
+/// reaches devices sitting in the old bootloader -- which parses the announce with
+///
+///     uint8_t allocatedSize = 3;
+///     char message[allocatedSize];
+///     msgpack::readString5(stream, message, allocatedSize, outputSize, true);
+///
+/// (PortalBootloader/cube-import/Core/Src/FWUpdateApp.cpp). Seven bytes into a three-byte
+/// stack array, on an image that can only be recovered with an ST-Link, would be an expensive
+/// way to find out that `readString5` doesn't bounds-check. It does -- `allocation >=
+/// outputSize + 1`, before the write -- and the bootloader's vendored copy of the library is
+/// byte-identical to the submodule this test compiles. But that safety was established by
+/// reading the code, and it is the kind of property that should fail a test rather than
+/// surprise someone, so: a canary either side of a 3-byte buffer, and the real parser.
+void testLongMagicWordDoesNotOverflowTheFieldedBootloadersBuffer()
+{
+	std::printf("the 7-byte magic word is rejected, not written, by a 3-byte buffer\n");
+
+	LoopbackStream loopback;
+	msgpack::COBSRWStream cobs(loopback);
+
+	// fixstr(7) + "FW!KC79" -- the exact bytes RouterRS emits for FwMagic::AnnounceLong.
+	const uint8_t body[] = {0xA7, 'F', 'W', '!', 'K', 'C', '7', '9'};
+	cobs.write(body, sizeof(body));
+	cobs.flush();
+
+	// The bootloader's frame, plus a canary on each side. `message` is deliberately the same
+	// 3 bytes the fielded code declares.
+	struct Framed {
+		uint8_t canaryBefore[8];
+		char message[3];
+		uint8_t canaryAfter[8];
+	};
+	Framed framed;
+	std::memset(&framed, 0xC3, sizeof(framed));
+
+	check(msgpack::nextDataTypeIs(cobs, msgpack::DataType::String5),
+		"a 7-byte fixstr still enters the String5 branch");
+
+	const uint8_t allocatedSize = 3;
+	uint8_t outputSize = 2;
+	const bool ok = msgpack::readString5(cobs, framed.message, allocatedSize, outputSize, true);
+
+	check(!ok, "readString5 rejects it rather than writing");
+
+	bool canaryIntact = true;
+	for (uint8_t b : framed.canaryBefore) canaryIntact = canaryIntact && (b == 0xC3);
+	for (uint8_t b : framed.canaryAfter) canaryIntact = canaryIntact && (b == 0xC3);
+	check(canaryIntact, "neither canary was touched (no overflow in either direction)");
+
+	// And the short word the bootloader actually acts on still parses, so the guard above is
+	// rejecting the long word specifically rather than rejecting everything.
+	LoopbackStream shortLoopback;
+	msgpack::COBSRWStream shortCobs(shortLoopback);
+	const uint8_t shortBody[] = {0xA2, 'F', 'W'};
+	shortCobs.write(shortBody, sizeof(shortBody));
+	shortCobs.flush();
+
+	char shortMessage[3];
+	uint8_t shortOutputSize = 2;
+	const bool shortOk =
+		msgpack::readString5(shortCobs, shortMessage, allocatedSize, shortOutputSize, true);
+	check(shortOk, "the legacy 2-byte \"FW\" still parses");
+	check(shortOutputSize == 2 && shortMessage[0] == 'F' && shortMessage[1] == 'W',
+		"and reads back as FW");
+}
+
 } // namespace
 
 int main()
@@ -206,6 +276,7 @@ int main()
 	testValidSizesAccepted();
 	testOversizedRejected();
 	testUnderflowRejected();
+	testLongMagicWordDoesNotOverflowTheFieldedBootloadersBuffer();
 
 	std::printf("\n%d checks, %d failures\n", checks, failures);
 	return failures == 0 ? 0 : 1;

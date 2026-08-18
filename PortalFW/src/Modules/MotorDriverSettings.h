@@ -6,7 +6,20 @@
 
 // 5V @ 20 Ohms from their spec sheet
 #define MOTORDRIVERSETTINGS_MAX_CURRENT 0.25f
-#define MOTORDRIVERSETTINGS_DEFAULT_CURRENT MOTORDRIVERSETTINGS_MAX_CURRENT
+
+// The current the board comes up at, before anything has had a chance to command otherwise.
+// Overridable as a build flag so a bring-up build can start gentler than production does
+// without editing this file -- see application_bank_optical_bringup in platformio.ini.
+//
+// This used to be defined as MAX_CURRENT and then never referenced, while the state
+// initialiser reached for MAX_CURRENT directly; so "default" and "maximum" were the same
+// number by accident rather than by decision, and there was no way to separate them. Bench
+// measurements put 100-250 mA as indistinguishable for both slip and homing precision, with
+// 150 mA running materially cooler -- but changing what every production board powers up at
+// is a decision to make deliberately, so the default here is left as it was.
+#ifndef MOTORDRIVERSETTINGS_DEFAULT_CURRENT
+	#define MOTORDRIVERSETTINGS_DEFAULT_CURRENT MOTORDRIVERSETTINGS_MAX_CURRENT
+#endif
 
 namespace Modules {
 	class MotorDriverSettings : public Base {
@@ -59,7 +72,7 @@ namespace Modules {
 		struct {
 			MicrostepResolution microStepResolution = MicrostepResolution::Default;
 			bool sleep = false;
-			Amps current = MOTORDRIVERSETTINGS_MAX_CURRENT;
+			Amps current = MOTORDRIVERSETTINGS_DEFAULT_CURRENT;
 		} state;
 	};
 }

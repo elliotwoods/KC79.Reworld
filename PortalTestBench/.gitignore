@@ -1,0 +1,22 @@
+# Same convention as PortalFlasher/ and RouterRS/: the repository root ignores node_modules/
+# and build/ but not target/ or web/dist/, so each app solves it locally rather than editing
+# the root file.
+/target/
+/web/dist/
+/web/node_modules/
+/node_modules/
+
+# `third_party/av-frameworks` is a DIRECTORY JUNCTION to PortalFlasher's submodule checkout,
+# created by tools/bootstrap.ps1. It is machine-local state, not content of this app -- one
+# framework checkout, one pinned revision, shared by both apps. See AGENTS.md.
+/third_party/av-frameworks
+
+# Session reports are evidence produced by runs, not source.
+/reports/*.ndjson
+/reports/*.summary.json
+
+*.pdb
+*.log
+/.idea/
+/.vscode/*.user
+*.user

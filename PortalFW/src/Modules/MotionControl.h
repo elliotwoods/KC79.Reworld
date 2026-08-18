@@ -56,7 +56,19 @@ namespace Modules {
 
 		struct MeasureRoutineSettings {
 			// Note that not all settings are used in all routines
+#ifdef HOME_SWITCH_LEGACY
 			uint8_t timeout_s = 120;
+#else
+			// The optical cold path is genuinely long: three settled background probes (each
+			// several RC settles), a revolution of seek, another revolution to identify the
+			// gearbox, then a threshold band scan that re-measures the flag width at each step.
+			// Measured against the real board that lands close enough to 120 s that a slightly
+			// slow run would time out mid-scan and be retried from scratch, which is both
+			// slower and much harder to read than simply allowing the scan to finish. This is a
+			// ceiling, not a duration -- a warm home still completes in a few seconds and is
+			// unaffected. uint8_t, so 255 is the hard maximum.
+			uint8_t timeout_s = 240;
+#endif
 			StepsPerSecond slowMoveSpeed = 2000;
 			Steps backOffDistance = MOTION_STEPS_PER_PRISM_ROTATION / 100; // Full steps
 			Steps debounceDistance = 32; // Full steps
@@ -143,6 +155,25 @@ namespace Modules {
 		// the optical switch in one pass. See HomeSwitchTest/portalfw_port/PORTING.md and
 		// HomeSwitchTest/reports/newring/HOME_ROUTINE_DESIGN.md for the bench provenance.
 		Exception fastHomeRoutine(const MeasureRoutineSettings&);
+
+		// ---- optical front-end diagnostics -------------------------------------------------
+		// Neither of these moves the motor, so both are safe to call outside a routine. They
+		// exist because the sensor's world is not a constant: the reflection profile shifts
+		// unit to unit and day to day, and on the production ring the background never crosses
+		// at any threshold at all. Before trusting fastHomeRoutine's gates on a given board you
+		// have to be able to see what its sensor actually reports -- which nothing else in the
+		// firmware exposes.
+
+		// The live comparator output at whatever the shared threshold DAC is currently set to.
+		bool getHomeSwitchActive() const;
+
+		// Settled binary search for the comparator crossing duty at the CURRENT position, using
+		// the same probe fastHomeRoutine calibrates with (real RC settle per step -- a fast
+		// sweep reads ~20 counts high and must not be used to pick a threshold). Returns the
+		// crossing duty, -1 if the sensor is railed across the whole sweep (railLo says which
+		// way: LOW/dark vs HIGH/bright), or -2 on abort/timeout. Leaves the shared DAC at the
+		// last probed value; the caller restores it.
+		int probeHomeCrossing(bool & railLo, uint32_t timeoutTime);
 #endif
 
 		void reportStatus(msgpack::Serializer&) override;

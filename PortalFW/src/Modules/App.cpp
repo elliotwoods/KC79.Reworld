@@ -172,6 +172,13 @@ namespace Modules
 		this->shouldEscapeFromRoutine = true;
 	}
 
+	//---------
+	bool
+	App::getShouldEscapeFromRoutine()
+	{
+		return App::instance->shouldEscapeFromRoutine;
+	}
+
 	//----------
 	MotionControl *
 	App::getMotionControl(uint8_t index)

@@ -1,16 +1,22 @@
 //! GUI-free core of the RouterRS app: domain model (Installation / Column /
-//! Portal / Pilot), configuration, RS485 transport, servers, simulator,
-//! image pipeline, and runtime.
+//! Portal / Pilot), configuration, servers, image pipeline, and runtime.
 
 pub mod config;
-pub mod fw_update;
 pub mod image;
 pub mod model;
-pub mod rs485;
 pub mod runtime;
 pub mod servers;
-pub mod sim;
+
+/// The RS485 link, re-exported from [`router_link`].
+///
+/// These three modules were moved out of this crate so that a program which only needs to talk
+/// to a portal -- the test bench, a diagnostic tool -- does not also have to build the image
+/// pipeline and the servers. They are re-exported at their original paths so that every
+/// existing `router_core::rs485::…` / `::sim::…` / `::fw_update::…` reference keeps working;
+/// nothing in RouterRS had to change.
+pub use router_link::{fw_update, rs485, sim};
 
 pub use glam::Vec2;
+pub use router_link as link;
 pub use router_proto as proto;
 pub use router_report as report;

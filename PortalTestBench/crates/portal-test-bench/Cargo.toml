@@ -1,0 +1,20 @@
+[package]
+name = "portal-test-bench"
+description = "Bench instrument for a single portal module: flash, drive, observe, record."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+bench-core = { workspace = true }
+av-gui-bus = { workspace = true }
+av-gui-host = { workspace = true }
+av-operator-app = { workspace = true }
+axum = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+
+[build-dependencies]
+av-app-icon = { workspace = true }

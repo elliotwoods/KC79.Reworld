@@ -1,0 +1,13 @@
+[package]
+name = "ptb"
+description = "Command-line front door to the portal test bench. The agent's tool."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+bench-core = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+ureq = { workspace = true }

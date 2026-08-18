@@ -1,0 +1,17 @@
+[package]
+name = "router-link"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The RS485 link to a portal: serial/TCP transports, outbox, worker timing, firmware update, and an in-process simulator"
+
+# Nothing here knows about the installation model, kinematics, image sources or the OSC/REST
+# servers -- which is the point of the split. A bench tool wants exactly this and none of that,
+# and pulling it out of `router-core` avoids dragging ffmpeg-sidecar, rosc, tiny_http, ab_glyph
+# and glam into a program that only ever talks to one module on a desk.
+[dependencies]
+router-proto = { path = "../router-proto" }
+router-report = { path = "../router-report" }
+serde_json = { workspace = true }
+serialport = "4"
+thiserror = { workspace = true }

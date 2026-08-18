@@ -66,6 +66,12 @@ impl RxKind {
 /// Internal channel message.
 pub(crate) enum Msg {
     Event(Event),
+    /// A pre-rendered payload from a caller with its own event vocabulary.
+    ///
+    /// The writer still stamps `v`, `ts` and `seq`, so a downstream profile shares one file,
+    /// one sequence and one storm-free path with the bus events rather than opening a second
+    /// log that has to be correlated by timestamp afterwards.
+    Line(serde_json::Value),
     /// Hot-path packet accounting (no allocation, no line written unless the
     /// event variant was chosen at emit time).
     Tx {
@@ -150,6 +156,18 @@ impl Reporter {
 
     pub fn emit(&self, event: Event) {
         self.send(Msg::Event(event));
+    }
+
+    /// Write a caller-shaped line into the same session file.
+    ///
+    /// `payload` must be a JSON object carrying its own `type`; the writer adds `v`, `ts` and
+    /// `seq`. This exists so a downstream tool with its own event vocabulary -- the portal test
+    /// bench and its `bench/1` profile -- can share one NDJSON file, one sequence and one
+    /// writer thread with the bus events, instead of producing a second log that has to be
+    /// correlated by timestamp afterwards.
+    pub fn emit_line(&self, payload: serde_json::Value) {
+        debug_assert!(payload.is_object(), "a report line must be a JSON object");
+        self.send(Msg::Line(payload));
     }
 
     pub fn is_verbose(&self) -> bool {

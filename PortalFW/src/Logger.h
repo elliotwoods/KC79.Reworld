@@ -56,6 +56,9 @@ public:
 	void printHelp();
 	void printOutbox();
 	void printAxesInfo();
+#ifndef HOME_SWITCH_LEGACY
+	void printHomeSwitchInfo();
+#endif
 	
 	static std::shared_ptr<Logger> get();
 
