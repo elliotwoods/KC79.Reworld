@@ -37,15 +37,27 @@ function HardwareBand() {
   const probe = useBool('/probe/connected');
   const target = useBool('/probe/target_present');
   const dut = useBool('/dut/present');
+  const flashDetail = useText('/flash/detail');
+  const mcuFirmware = useText('/mcu/firmware');
+  const dutVersion = useText('/dut/version');
+  const probeName = useText('/probe/name');
+  const probeFirmware = useText('/probe/firmware');
+  const mcuPart = useText('/mcu/part');
+  const mcuUid = useText('/mcu/uid');
+  const mcuIdcode = useText('/mcu/idcode');
+  const mcuDevId = useText('/mcu/dev_id');
+  const flashKb = useNumber('/mcu/flash_kb');
+  const mcuLayout = useText('/mcu/layout');
+  const mcuRdp = useText('/mcu/rdp');
   return <section className="hardware-band" data-av-surface="module-state">
-    <div className="hardware-status"><span className={`presence-dot ${probe && target ? 'is-ok' : 'is-warn'}`} /><div><strong>{target ? 'MCU connected' : probe ? 'ST-Link ready · no target' : 'No ST-Link'}</strong><small>{useText('/flash/detail') || (dut ? 'communications online' : 'waiting for hardware')}</small></div></div>
+    <div className="hardware-status"><span className={`presence-dot ${probe && target ? 'is-ok' : 'is-warn'}`} /><div><strong>{target ? 'MCU connected' : probe ? 'ST-Link ready · no target' : 'No ST-Link'}</strong><small>{flashDetail || (dut ? 'communications online' : 'waiting for hardware')}</small></div></div>
     <div className="hardware-facts">
-      <Fact label="Firmware" value={useText('/mcu/firmware') || useText('/dut/version') || '—'} />
-      <Fact label="ST-Link" value={[useText('/probe/name'), useText('/probe/firmware')].filter(Boolean).join(' · ') || '—'} />
-      <Fact label="MCU" value={useText('/mcu/part') || '—'} />
-      <Fact label="UID" value={useText('/mcu/uid') || '—'} />
-      <Fact label="IDCODE / DEV_ID" value={[useText('/mcu/idcode'), useText('/mcu/dev_id')].filter(Boolean).join(' / ') || '—'} />
-      <Fact label="Flash" value={useNumber('/mcu/flash_kb') > 0 ? `${useNumber('/mcu/flash_kb')} kB · ${useText('/mcu/layout')} · RDP ${useText('/mcu/rdp')}` : '—'} />
+      <Fact label="Firmware" value={mcuFirmware || dutVersion || '—'} />
+      <Fact label="ST-Link" value={[probeName, probeFirmware].filter(Boolean).join(' · ') || '—'} />
+      <Fact label="MCU" value={mcuPart || '—'} />
+      <Fact label="UID" value={mcuUid || '—'} />
+      <Fact label="IDCODE / DEV_ID" value={[mcuIdcode, mcuDevId].filter(Boolean).join(' / ') || '—'} />
+      <Fact label="Flash" value={flashKb > 0 ? `${flashKb} kB · ${mcuLayout} · RDP ${mcuRdp}` : '—'} />
     </div>
   </section>;
 }
@@ -162,13 +174,16 @@ function Operations() {
   const busy = useBool('/flash/busy');
   const armed = useBool('/flash/armed');
   const last = useText('/flash/last_outcome');
+  const step = useText('/flash/step');
+  const phase = useText('/flash/phase');
+  const scope = useText('/flash/scope');
   const simPresent = useParam<boolean>('/sim/module_present');
   return <Panel title="Operations">
     <div className="flash-operations" data-av-surface="firmware">
       <SetupPicker />
       <div className="flash-actions"><ManualFlashButton /><div className={`auto-card${armed ? ' is-armed' : ''}`}><div><strong>Automatic fixture flashing</strong><small>{armed ? 'Armed · remove the board after PASS' : 'Insert → flash → cycle → run-check'}</small></div><Toggle path="/flash/auto_enabled" /></div></div>
       {simPresent.decl && <div className="simulation-fixture"><span>Simulated board in fixture</span><Toggle path="/sim/module_present" /></div>}
-      <div className="flash-progress"><div style={{ width: `${Math.round(progress * 100)}%` }} /><span>{busy ? `${useText('/flash/step') || useText('/flash/phase')} · ${Math.round(progress * 100)}%` : last || `${useText('/flash/scope')} selected`}</span></div>
+      <div className="flash-progress"><div style={{ width: `${Math.round(progress * 100)}%` }} /><span>{busy ? `${step || phase} · ${Math.round(progress * 100)}%` : last || `${scope} selected`}</span></div>
     </div>
     <div className="secondary-operations">
       <Action path="/actions/startup" variant="primary">Run startup test</Action>
@@ -215,7 +230,9 @@ function AxisFacts({ axis }: { axis: 'a' | 'b' }) {
 
 function MotionControl() {
   const route = useEnumName('/motion/route');
-  const connected = route === 'rs485' ? useBool('/rs485/connected') : useBool('/serial/connected');
+  const rs485Connected = useBool('/rs485/connected');
+  const serialConnected = useBool('/serial/connected');
+  const connected = route === 'rs485' ? rs485Connected : serialConnected;
   const usteps = useNumber('/dut/usteps_per_rev');
   const a = useNumber('/motion/a/rotations'), b = useNumber('/motion/b/rotations');
   return <section className="motion-section" data-av-surface="live-telemetry">
@@ -246,7 +263,9 @@ function App() {
   const serialKind = useEnumName('/serial/observed');
   const rs485Target = useNumber('/rs485/target');
   const target = useBool('/probe/target_present'), probe = useBool('/probe/connected');
-  const busy = useBool('/flash/busy') || useBool('/run/busy');
+  const flashBusy = useBool('/flash/busy');
+  const runBusy = useBool('/run/busy');
+  const busy = flashBusy || runBusy;
   const passed = useNumber('/counts/passed'), failed = useNumber('/counts/failed'), faults = useNumber('/faults/active');
   return <div className="app app--filled bench">
     <TitleBar title="Portal Test Bench" sub={schema ? 'flashing · communications · motion diagnostics' : 'connecting'} />
