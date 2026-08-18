@@ -10,8 +10,18 @@ use crate::value::dump_uint;
 /// Magic words broadcast as bare strings.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FwMagic {
-    /// "FW": reboot into bootloader / announce firmware update
+    /// "FW": the bootloader's own announce word -- frozen (field-burned, only
+    /// re-flashable via ST-Link), so this stays exactly 2 bytes forever. Resets its
+    /// writePosition tracking. A device still running its application ignores this;
+    /// it only reboots on `AnnounceLong`.
     Announce,
+    /// "FW!KC79": reboots a running application into its bootloader. Longer and more
+    /// improbable than the bare "FW" so a corrupted frame that happens to decode as a
+    /// 2-byte match can't bounce a device mid-move (protocol-hardening.md Finding 4).
+    /// Send this first in an update sequence to bump every running app; once they've
+    /// had time to reboot, continue announcing with the short `Announce` word instead,
+    /// which is what the (already-entered) bootloader actually parses.
+    AnnounceLong,
     /// "ER": erase application flash
     Erase,
     /// "RU": run application
@@ -22,6 +32,7 @@ impl FwMagic {
     pub fn word(self) -> &'static str {
         match self {
             FwMagic::Announce => "FW",
+            FwMagic::AnnounceLong => "FW!KC79",
             FwMagic::Erase => "ER",
             FwMagic::Run => "RU",
         }
@@ -107,6 +118,10 @@ mod tests {
     #[test]
     fn magic_word_bytes() {
         assert_eq!(hex(&magic_word_envelope(FwMagic::Announce)), "93 D0 FF D0 00 A2 46 57");
+        assert_eq!(
+            hex(&magic_word_envelope(FwMagic::AnnounceLong)),
+            "93 D0 FF D0 00 A7 46 57 21 4B 43 37 39"
+        );
         assert_eq!(hex(&magic_word_envelope(FwMagic::Erase)), "93 D0 FF D0 00 A2 45 52");
         assert_eq!(hex(&magic_word_envelope(FwMagic::Run)), "93 D0 FF D0 00 A2 52 55");
     }

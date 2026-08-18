@@ -133,10 +133,13 @@ namespace Modules {
 		{
 			progressAction("Erasing flash");
 			this->eraseFirmware();
-			
-			// Send announcements whilst we're waiting for erase to finish
+
+			// Send announcements whilst we're waiting for erase to finish. By now every
+			// application has had the 5s from step 1 to see the long word and reboot, so this
+			// keeps re-announcing with the bootloader's own (frozen, short) word instead --
+			// see announceFirmwareLegacy().
 			for (int i = 0; i < 50; i++) {
-				this->announceFirmware();
+				this->announceFirmwareLegacy();
 				ofSleepMillis(100);
 			}
 		}
@@ -199,8 +202,23 @@ namespace Modules {
 	}
 
 	//----------
+	// Reboots every running application into its bootloader. A longer, improbable token
+	// ("FW!KC79", not the bootloader's own bare "FW") so a corrupted frame that happens to
+	// decode as a 2-byte match can't bounce a device mid-move -- see protocol-hardening.md
+	// Finding 4. The bootloader itself is frozen (field-burned, only re-flashable via
+	// ST-Link) and still expects exactly "FW"; announceFirmwareLegacy() below is for it.
 	void
 		FWUpdate::announceFirmware()
+	{
+		this->sendMagicWord(string("FW!KC79"));
+	}
+
+	//----------
+	// The bootloader's own announce word: resets its writePosition tracking, exactly as
+	// before Stage 1.5. Devices that are still running their application (rather than
+	// already in the bootloader) ignore this -- they only reboot on the long word above.
+	void
+		FWUpdate::announceFirmwareLegacy()
 	{
 		this->sendMagicWord('F', 'W');
 	}
@@ -222,6 +240,17 @@ namespace Modules {
 	//----------
 	void
 		FWUpdate::sendMagicWord(char a, char b)
+	{
+		string magicWord;
+		magicWord.resize(2);
+		magicWord[0] = a;
+		magicWord[1] = b;
+		this->sendMagicWord(magicWord);
+	}
+
+	//----------
+	void
+		FWUpdate::sendMagicWord(const string & magicWord)
 	{
 		auto rs485 = this->rs485.lock();
 		if (!rs485) {
@@ -249,10 +278,6 @@ namespace Modules {
 			msgpack_pack_fix_int8(&packer, 0);
 
 			// Third element is the message body
-			string magicWord;
-			magicWord.resize(2);
-			magicWord[0] = a;
-			magicWord[1] = b;
 			msgpack_pack_str(&packer, magicWord.size());
 			msgpack_pack_str_body(&packer, magicWord.c_str(), magicWord.size());
 		}

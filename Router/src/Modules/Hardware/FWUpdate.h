@@ -19,6 +19,7 @@ namespace Modules {
 		void uploadFirmware(const string& path, const function<void(const string&)> & onProgress = nullptr);
 	protected:
 		void announceFirmware();
+		void announceFirmwareLegacy();
 		void eraseFirmware();
 		void uploadFirmwarePacket(uint32_t frameOffset
 			, uint8_t* packetData
@@ -26,6 +27,7 @@ namespace Modules {
 		void runApplication();
 
 		void sendMagicWord(char, char);
+		void sendMagicWord(const string &);
 
 		weak_ptr<RS485> rs485;
 

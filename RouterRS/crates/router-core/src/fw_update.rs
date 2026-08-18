@@ -71,12 +71,15 @@ pub fn upload(rs485: &Rs485, firmware: &[u8], params: &FwUpdateParams) -> usize 
     rs485.clear_outbox();
     let mut count = 0usize;
 
-    // announce x50 (reboot to bootloader)
+    // announce x50 with the long word (reboot every running application to its
+    // bootloader) -- see FwMagic::AnnounceLong.
     for _ in 0..50 {
-        rs485.transmit(magic_packet(FwMagic::Announce, params.announce_period_ms));
+        rs485.transmit(magic_packet(FwMagic::AnnounceLong, params.announce_period_ms));
         count += 1;
     }
-    // erase, then announce x50 again
+    // erase, then announce x50 again with the short word: by now every application has
+    // had the 5s above to see the long word and reboot, so this keeps re-announcing with
+    // the bootloader's own (frozen, short) word instead, which is what it actually parses.
     rs485.transmit(magic_packet(FwMagic::Erase, params.announce_period_ms));
     count += 1;
     for _ in 0..50 {
