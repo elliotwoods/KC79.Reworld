@@ -13,7 +13,7 @@ use std::collections::VecDeque;
 
 use crate::dut::{Axis, FirmwareKind, GearRatio, Health};
 use crate::threshold::Band;
-use crate::transport::{LinkKind, MotionProfile};
+use crate::transport::{Channel, LinkDiagnostics, LinkKind, MotionProfile};
 
 /// How many log lines the bench keeps in memory.
 ///
@@ -99,6 +99,23 @@ pub struct LinkState {
     pub detail: Option<String>,
 }
 
+/// One independently connected communication lane and the evidence observed on it.
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct ChannelState {
+    pub link: LinkState,
+    pub dut: DutState,
+    /// RS485 source IDs heard since the last discovery reset. Empty for serial.
+    pub discovered: Vec<i8>,
+    pub selected_target: Option<i8>,
+    pub diagnostics: LinkDiagnostics,
+}
+
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct ChannelsState {
+    pub serial: ChannelState,
+    pub rs485: ChannelState,
+}
+
 // `LinkKind` is an enum of the transports; serialise it by name so a report reads the same
 // after the variants are reordered.
 impl Serialize for LinkKind {
@@ -129,11 +146,81 @@ pub struct LogRing {
     pub dropped: u64,
 }
 
+/// One real position observation. Velocity and acceleration are derived from these timestamps;
+/// they are never presented as firmware measurements.
+#[derive(Debug, Clone, Serialize)]
+pub struct TelemetrySample {
+    pub seq: u64,
+    pub at_ms: u64,
+    pub channel: Channel,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target_id: Option<i8>,
+    pub axis: Axis,
+    pub position: i32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target: Option<i32>,
+}
+
+pub const TELEMETRY_CAPACITY: usize = 8_192;
+
+#[derive(Debug, Default)]
+pub struct TelemetryRing {
+    samples: VecDeque<TelemetrySample>,
+    next_seq: u64,
+    pub dropped: u64,
+}
+
+impl TelemetryRing {
+    pub fn push(
+        &mut self,
+        at_ms: u64,
+        channel: Channel,
+        target_id: Option<i8>,
+        axis: Axis,
+        position: i32,
+        target: Option<i32>,
+    ) -> u64 {
+        let seq = self.next_seq;
+        self.next_seq += 1;
+        self.samples.push_back(TelemetrySample {
+            seq,
+            at_ms,
+            channel,
+            target_id,
+            axis,
+            position,
+            target,
+        });
+        while self.samples.len() > TELEMETRY_CAPACITY {
+            self.samples.pop_front();
+            self.dropped += 1;
+        }
+        seq
+    }
+
+    pub fn since(&self, from: u64) -> Vec<&TelemetrySample> {
+        self.samples
+            .iter()
+            .filter(|sample| sample.seq >= from)
+            .collect()
+    }
+
+    pub fn next_seq(&self) -> u64 {
+        self.next_seq
+    }
+}
+
 impl LogRing {
     pub fn push(&mut self, at_ms: u64, level: u8, source: &'static str, message: String) -> u64 {
         let seq = self.next_seq;
         self.next_seq += 1;
-        self.lines.push_back(LogLine { at_ms, level, message, source, seq });
+        self.lines.push_back(LogLine {
+            at_ms,
+            level,
+            message,
+            source,
+            seq,
+        });
         while self.lines.len() > LOG_CAPACITY {
             self.lines.pop_front();
             self.dropped += 1;
@@ -162,8 +249,12 @@ impl LogRing {
 /// Everything the bench currently believes, in one place.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct BenchState {
+    /// Compatibility mirror of the active channel.
     pub link: LinkState,
+    /// Compatibility mirror of the active channel's module.
     pub dut: DutState,
+    pub channels: ChannelsState,
+    pub active_channel: Channel,
     /// The motion profile the bench applies to moves it originates.
     pub profile: MotionProfile,
     pub faults: u32,
@@ -179,10 +270,18 @@ mod tests {
         assert_eq!(axis.error(), None);
 
         // A position with no target is still not an error of zero: nothing has been commanded.
-        let axis = AxisState { position: Some(100), target: None, health: None };
+        let axis = AxisState {
+            position: Some(100),
+            target: None,
+            health: None,
+        };
         assert_eq!(axis.error(), None);
 
-        let axis = AxisState { position: Some(100), target: Some(140), health: None };
+        let axis = AxisState {
+            position: Some(100),
+            target: Some(140),
+            health: None,
+        };
         assert_eq!(axis.error(), Some(40));
     }
 

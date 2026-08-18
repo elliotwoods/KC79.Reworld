@@ -37,9 +37,17 @@ pub const TRANSPORTS: &[(u32, &str)] = &[
     (5, "sim"),
 ];
 
+pub const SERIAL_DIALECTS: &[(u32, &str)] = &[(0, "none"), (1, "vcp"), (2, "bench-ascii")];
+pub const RS485_TRANSPORTS: &[(u32, &str)] = &[(0, "none"), (1, "rs485-serial"), (2, "rs485-tcp")];
+pub const CHANNELS: &[(u32, &str)] = &[(0, "serial"), (1, "rs485")];
+
 /// Which firmware image is on the module. Not a preference -- it decides which commands exist.
-pub const FIRMWARE_KINDS: &[(u32, &str)] =
-    &[(0, "unknown"), (1, "production"), (2, "bench"), (3, "bootloader-only")];
+pub const FIRMWARE_KINDS: &[(u32, &str)] = &[
+    (0, "unknown"),
+    (1, "production"),
+    (2, "bench"),
+    (3, "bootloader-only"),
+];
 
 /// The prism gearing. Auto-detected by the firmware's home routine; never assumed.
 pub const GEAR_RATIOS: &[(u32, &str)] = &[(0, "unknown"), (1, "16"), (2, "32")];
@@ -60,8 +68,13 @@ pub const RUN_PHASES: &[(u32, &str)] = &[
 /// driving the hardware in front of them.
 pub const RUN_ORIGINS: &[(u32, &str)] = &[(0, "none"), (1, "gui"), (2, "agent"), (3, "cli")];
 
-pub const VERDICTS: &[(u32, &str)] =
-    &[(0, "none"), (1, "pass"), (2, "fail"), (3, "aborted"), (4, "error")];
+pub const VERDICTS: &[(u32, &str)] = &[
+    (0, "none"),
+    (1, "pass"),
+    (2, "fail"),
+    (3, "aborted"),
+    (4, "error"),
+];
 
 /// One-shot events the page turns into sound. Paired with a monotonic `/cue_seq` so a
 /// reconnecting page adopts the current sequence rather than replaying the last cue.
@@ -90,10 +103,22 @@ pub fn declare(builder: &mut SchemaBuilder, simulated: bool) -> Result<(), Strin
     // Unlike the flasher's, this heartbeat does NOT cancel work when it goes stale. It blocks
     // *starting* something destructive, and nothing else. Closing a browser tab must never
     // abort an eight-hour soak; that would be a worse failure than a silent one. See AGENTS.md.
-    check(builder.param("/ui/heartbeat").i64(0).label("UI heartbeat").register())?;
+    check(
+        builder
+            .param("/ui/heartbeat")
+            .i64(0)
+            .label("UI heartbeat")
+            .register(),
+    )?;
 
     // --- transport ---------------------------------------------------------------------------
-    check(builder.param("/transport/desired").enumeration(0, TRANSPORTS).label("Transport").register())?;
+    check(
+        builder
+            .param("/transport/desired")
+            .enumeration(0, TRANSPORTS)
+            .label("Transport")
+            .register(),
+    )?;
     check(
         builder
             .param("/transport/observed")
@@ -102,12 +127,356 @@ pub fn declare(builder: &mut SchemaBuilder, simulated: bool) -> Result<(), Strin
             .read_only()
             .register(),
     )?;
-    check(builder.param("/transport/port").text("").label("Port").register())?;
-    check(builder.param("/transport/connected").bool(false).label("Connected").read_only().register())?;
-    check(builder.param("/transport/detail").text("").label("Link detail").read_only().register())?;
+    check(
+        builder
+            .param("/transport/port")
+            .text("")
+            .label("Port")
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/transport/connected")
+            .bool(false)
+            .label("Connected")
+            .read_only()
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/transport/detail")
+            .text("")
+            .label("Link detail")
+            .read_only()
+            .register(),
+    )?;
+
+    // Independent lanes. `/transport/*` remains as a compatibility mirror of the active lane.
+    check(
+        builder
+            .param("/serial/desired")
+            .enumeration(0, SERIAL_DIALECTS)
+            .label("Serial protocol")
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/serial/observed")
+            .enumeration(0, SERIAL_DIALECTS)
+            .label("Serial protocol (actual)")
+            .read_only()
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/serial/port")
+            .text("")
+            .label("Serial port")
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/serial/connected")
+            .bool(false)
+            .label("Serial connected")
+            .read_only()
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/serial/detail")
+            .text("")
+            .label("Serial detail")
+            .read_only()
+            .register(),
+    )?;
+
+    check(
+        builder
+            .param("/rs485/desired")
+            .enumeration(0, RS485_TRANSPORTS)
+            .label("RS485 transport")
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/rs485/observed")
+            .enumeration(0, RS485_TRANSPORTS)
+            .label("RS485 transport (actual)")
+            .read_only()
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/rs485/endpoint")
+            .text("")
+            .label("RS485 endpoint")
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/rs485/connected")
+            .bool(false)
+            .label("RS485 connected")
+            .read_only()
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/rs485/detail")
+            .text("")
+            .label("RS485 detail")
+            .read_only()
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/rs485/target")
+            .i32(1)
+            .range(1.0, 127.0)
+            .label("Target address")
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/rs485/discovered")
+            .text("")
+            .label("Discovered addresses")
+            .read_only()
+            .register(),
+    )?;
+    for (leaf, label) in [
+        ("tx", "TX packets"),
+        ("rx", "RX packets"),
+        ("acks", "Acknowledgements"),
+        ("ack_timeouts", "ACK timeouts"),
+        ("decode_errors", "Decode errors"),
+        ("outbox", "Queued packets"),
+    ] {
+        check(
+            builder
+                .param(&format!("/rs485/stats/{leaf}"))
+                .i64(0)
+                .label(label)
+                .read_only()
+                .register(),
+        )?;
+    }
+
+    // The route used by direct Operations and pilot controls. Plans keep their own validation.
+    check(
+        builder
+            .param("/motion/route")
+            .enumeration(0, CHANNELS)
+            .label("Command via")
+            .register(),
+    )?;
+    for axis in ["a", "b"] {
+        check(
+            builder
+                .param(&format!("/motion/{axis}/rotations"))
+                .f64(0.0)
+                .range(-1000.0, 1000.0)
+                .label(&format!("{} target rotations", axis.to_uppercase()))
+                .register(),
+        )?;
+    }
+    check(
+        builder
+            .param("/motion/profile/max_velocity")
+            .i32(24_000)
+            .range(1.0, 100_000.0)
+            .label("Maximum velocity")
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/motion/profile/acceleration")
+            .i32(20_000)
+            .range(1.0, 250_000.0)
+            .label("Acceleration")
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/motion/profile/min_velocity")
+            .i32(1_000)
+            .range(0.0, 100_000.0)
+            .label("Minimum velocity")
+            .register(),
+    )?;
+
+    // SWD flasher. High-volume artefact/device documents stay on HTTP; these are the live facts
+    // and choices an operator needs beside the irreversible controls.
+    check(
+        builder
+            .param("/flash/auto_enabled")
+            .bool(false)
+            .label("Auto-flash")
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/flash/armed")
+            .bool(false)
+            .label("Auto-flash armed")
+            .read_only()
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/flash/busy")
+            .bool(false)
+            .label("Flashing")
+            .read_only()
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/flash/phase")
+            .text("disarmed")
+            .label("Flash phase")
+            .read_only()
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/flash/step")
+            .text("")
+            .label("Flash step")
+            .read_only()
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/flash/progress")
+            .f64(0.0)
+            .range(0.0, 1.0)
+            .label("Flash progress")
+            .read_only()
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/flash/detail")
+            .text("")
+            .label("Flash detail")
+            .read_only()
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/flash/last_outcome")
+            .text("")
+            .label("Last flash result")
+            .read_only()
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/flash/boot_id")
+            .text("")
+            .label("Bootloader image")
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/flash/app_id")
+            .text("")
+            .label("Application image")
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/flash/scope")
+            .text("nothing")
+            .label("Flash scope")
+            .read_only()
+            .register(),
+    )?;
+
+    check(
+        builder
+            .param("/probe/selected")
+            .text("")
+            .label("Selected ST-Link")
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/probe/connected")
+            .bool(false)
+            .label("ST-Link connected")
+            .read_only()
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/probe/target_present")
+            .bool(false)
+            .label("MCU present")
+            .read_only()
+            .register(),
+    )?;
+    for (leaf, label) in [
+        ("name", "ST-Link"),
+        ("serial", "ST-Link serial"),
+        ("firmware", "ST-Link firmware"),
+    ] {
+        check(
+            builder
+                .param(&format!("/probe/{leaf}"))
+                .text("")
+                .label(label)
+                .read_only()
+                .register(),
+        )?;
+    }
+    check(
+        builder
+            .param("/probe/speed_khz")
+            .i32(0)
+            .label("SWD speed [kHz]")
+            .read_only()
+            .register(),
+    )?;
+
+    for (leaf, label) in [
+        ("part", "MCU"),
+        ("uid", "MCU UID"),
+        ("idcode", "DBGMCU IDCODE"),
+        ("dev_id", "MCU DEV_ID"),
+        ("layout", "Flash layout"),
+        ("rdp", "RDP level"),
+        ("firmware", "Firmware in flash"),
+    ] {
+        check(
+            builder
+                .param(&format!("/mcu/{leaf}"))
+                .text("")
+                .label(label)
+                .read_only()
+                .register(),
+        )?;
+    }
+    check(
+        builder
+            .param("/mcu/flash_kb")
+            .i32(0)
+            .label("MCU flash [kB]")
+            .read_only()
+            .register(),
+    )?;
 
     // --- the module under test ---------------------------------------------------------------
-    check(builder.param("/dut/present").bool(false).label("Module present").read_only().register())?;
+    check(
+        builder
+            .param("/dut/present")
+            .bool(false)
+            .label("Module present")
+            .read_only()
+            .register(),
+    )?;
     check(
         builder
             .param("/dut/firmware_kind")
@@ -116,23 +485,82 @@ pub fn declare(builder: &mut SchemaBuilder, simulated: bool) -> Result<(), Strin
             .read_only()
             .register(),
     )?;
-    check(builder.param("/dut/version").text("").label("Version").read_only().register())?;
-    check(builder.param("/dut/uptime_s").i32(0).label("Uptime").read_only().register())?;
-    check(builder.param("/dut/ratio").enumeration(0, GEAR_RATIOS).label("Gearing").read_only().register())?;
-    check(builder.param("/dut/usteps_per_rev").i32(0).label("Microsteps / rev").read_only().register())?;
+    check(
+        builder
+            .param("/dut/version")
+            .text("")
+            .label("Version")
+            .read_only()
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/dut/uptime_s")
+            .i32(0)
+            .label("Uptime")
+            .read_only()
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/dut/ratio")
+            .enumeration(0, GEAR_RATIOS)
+            .label("Gearing")
+            .read_only()
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/dut/usteps_per_rev")
+            .i32(0)
+            .label("Microsteps / rev")
+            .read_only()
+            .register(),
+    )?;
 
     for axis in ["a", "b"] {
         let up = axis.to_uppercase();
-        check(builder.param(&format!("/dut/{axis}/position")).i32(0).label(&format!("{up} position")).read_only().register())?;
-        check(builder.param(&format!("/dut/{axis}/target")).i32(0).label(&format!("{up} target")).read_only().register())?;
+        check(
+            builder
+                .param(&format!("/dut/{axis}/position"))
+                .i32(0)
+                .label(&format!("{up} position"))
+                .read_only()
+                .register(),
+        )?;
+        check(
+            builder
+                .param(&format!("/dut/{axis}/target"))
+                .i32(0)
+                .label(&format!("{up} target"))
+                .read_only()
+                .register(),
+        )?;
         // Whether a position has EVER been reported for this axis. `/dut/present` means a
         // module answered; it does not mean it reports positions. The VCP menu never does, so
         // without this the page draws a confident 0 for an axis nothing has measured.
-        check(builder.param(&format!("/dut/{axis}/position_known")).bool(false).label(&format!("{up} position known")).read_only().register())?;
-        check(builder.param(&format!("/dut/{axis}/health_known")).bool(false).label(&format!("{up} health known")).read_only().register())?;
-        for (flag, label) in
-            [("home", "homed"), ("switches", "switches"), ("backlash", "backlash"), ("measure_cycle", "measure cycle")]
-        {
+        check(
+            builder
+                .param(&format!("/dut/{axis}/position_known"))
+                .bool(false)
+                .label(&format!("{up} position known"))
+                .read_only()
+                .register(),
+        )?;
+        check(
+            builder
+                .param(&format!("/dut/{axis}/health_known"))
+                .bool(false)
+                .label(&format!("{up} health known"))
+                .read_only()
+                .register(),
+        )?;
+        for (flag, label) in [
+            ("home", "homed"),
+            ("switches", "switches"),
+            ("backlash", "backlash"),
+            ("measure_cycle", "measure cycle"),
+        ] {
             check(
                 builder
                     .param(&format!("/dut/{axis}/health_{flag}"))
@@ -150,9 +578,30 @@ pub fn declare(builder: &mut SchemaBuilder, simulated: bool) -> Result<(), Strin
     // the rig: the background it used to be derived from is unmeasurable on the production
     // ring, so the operating point comes from a per-run census of the flag itself. Hiding these
     // three numbers is exactly how a fixed constant creeps back in.
-    check(builder.param("/dut/threshold/floor").i32(0).label("Threshold floor").read_only().register())?;
-    check(builder.param("/dut/threshold/band").i32(0).label("Threshold band").read_only().register())?;
-    check(builder.param("/dut/threshold/applied").i32(0).label("Threshold applied").read_only().register())?;
+    check(
+        builder
+            .param("/dut/threshold/floor")
+            .i32(0)
+            .label("Threshold floor")
+            .read_only()
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/dut/threshold/band")
+            .i32(0)
+            .label("Threshold band")
+            .read_only()
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/dut/threshold/applied")
+            .i32(0)
+            .label("Threshold applied")
+            .read_only()
+            .register(),
+    )?;
     // -1 means "never calibrated this session", which is a distinct and alarming state, not a
     // zero. Anything that homes optically without this being set is refused before it starts.
     check(
@@ -169,53 +618,263 @@ pub fn declare(builder: &mut SchemaBuilder, simulated: bool) -> Result<(), Strin
     // Writable, unlike `/run/plan`, which reports the plan actually in flight. Two parameters
     // rather than one because "what I intend to run next" and "what is running" disagree for
     // the whole length of a run, and that disagreement is exactly what an operator needs to see.
-    check(builder.param("/plan/selected").text("startup").label("Plan").register())?;
+    check(
+        builder
+            .param("/plan/selected")
+            .text("startup")
+            .label("Plan")
+            .register(),
+    )?;
 
     // --- the run in flight ---------------------------------------------------------------------
-    check(builder.param("/run/busy").bool(false).label("Running").read_only().register())?;
-    check(builder.param("/run/plan").text("").label("Plan").read_only().register())?;
-    check(builder.param("/run/phase").enumeration(0, RUN_PHASES).label("Phase").read_only().register())?;
-    check(builder.param("/run/origin").enumeration(0, RUN_ORIGINS).label("Started by").read_only().register())?;
+    check(
+        builder
+            .param("/run/busy")
+            .bool(false)
+            .label("Running")
+            .read_only()
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/run/plan")
+            .text("")
+            .label("Plan")
+            .read_only()
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/run/phase")
+            .enumeration(0, RUN_PHASES)
+            .label("Phase")
+            .read_only()
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/run/origin")
+            .enumeration(0, RUN_ORIGINS)
+            .label("Started by")
+            .read_only()
+            .register(),
+    )?;
     // Names the firmware routine actually in flight, so the ACK-early-then-run gap reads as
     // "Home A" rather than a spinner. Routines take seconds to minutes.
-    check(builder.param("/run/step_name").text("").label("Step").read_only().register())?;
-    check(builder.param("/run/step_index").i32(0).label("Step index").read_only().register())?;
-    check(builder.param("/run/step_count").i32(0).label("Steps").read_only().register())?;
-    check(builder.param("/run/step_fraction").f64(0.0).range(0.0, 1.0).label("Step progress").read_only().register())?;
-    check(builder.param("/run/cycle").i32(0).label("Cycle").read_only().register())?;
-    check(builder.param("/run/cycle_count").i32(0).label("Cycles").read_only().register())?;
-    check(builder.param("/run/elapsed_s").i32(0).label("Elapsed").read_only().register())?;
-    check(builder.param("/run/eta_s").i32(-1).label("ETA").read_only().register())?;
+    check(
+        builder
+            .param("/run/step_name")
+            .text("")
+            .label("Step")
+            .read_only()
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/run/step_index")
+            .i32(0)
+            .label("Step index")
+            .read_only()
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/run/step_count")
+            .i32(0)
+            .label("Steps")
+            .read_only()
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/run/step_fraction")
+            .f64(0.0)
+            .range(0.0, 1.0)
+            .label("Step progress")
+            .read_only()
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/run/cycle")
+            .i32(0)
+            .label("Cycle")
+            .read_only()
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/run/cycle_count")
+            .i32(0)
+            .label("Cycles")
+            .read_only()
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/run/elapsed_s")
+            .i32(0)
+            .label("Elapsed")
+            .read_only()
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/run/eta_s")
+            .i32(-1)
+            .label("ETA")
+            .read_only()
+            .register(),
+    )?;
 
     // --- the last answer -----------------------------------------------------------------------
-    check(builder.param("/last/verdict").enumeration(0, VERDICTS).label("Verdict").read_only().register())?;
-    check(builder.param("/last/plan").text("").label("Plan").read_only().register())?;
-    check(builder.param("/last/reason").text("").label("Reason").read_only().register())?;
-    check(builder.param("/last/advice").text("").label("What to do").read_only().register())?;
-    check(builder.param("/last/measurements").text("").label("Measurements").read_only().register())?;
-    check(builder.param("/last/report_path").text("").label("Report").read_only().register())?;
+    check(
+        builder
+            .param("/last/verdict")
+            .enumeration(0, VERDICTS)
+            .label("Verdict")
+            .read_only()
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/last/plan")
+            .text("")
+            .label("Plan")
+            .read_only()
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/last/reason")
+            .text("")
+            .label("Reason")
+            .read_only()
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/last/advice")
+            .text("")
+            .label("What to do")
+            .read_only()
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/last/measurements")
+            .text("")
+            .label("Measurements")
+            .read_only()
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/last/report_path")
+            .text("")
+            .label("Report")
+            .read_only()
+            .register(),
+    )?;
     // Monotonic: distinguishes a fresh result from a repaint of the same one.
-    check(builder.param("/last/seq").i64(0).label("Result sequence").read_only().register())?;
+    check(
+        builder
+            .param("/last/seq")
+            .i64(0)
+            .label("Result sequence")
+            .read_only()
+            .register(),
+    )?;
 
-    check(builder.param("/counts/passed").i32(0).label("Passed").read_only().register())?;
-    check(builder.param("/counts/failed").i32(0).label("Failed").read_only().register())?;
-    check(builder.param("/counts/aborted").i32(0).label("Aborted").read_only().register())?;
-    check(builder.param("/faults/active").i32(0).label("Active faults").read_only().register())?;
+    check(
+        builder
+            .param("/counts/passed")
+            .i32(0)
+            .label("Passed")
+            .read_only()
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/counts/failed")
+            .i32(0)
+            .label("Failed")
+            .read_only()
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/counts/aborted")
+            .i32(0)
+            .label("Aborted")
+            .read_only()
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/faults/active")
+            .i32(0)
+            .label("Active faults")
+            .read_only()
+            .register(),
+    )?;
 
-    check(builder.param("/cue").enumeration(0, CUES).label("Cue").read_only().register())?;
-    check(builder.param("/cue_seq").i64(0).label("Cue sequence").read_only().register())?;
+    check(
+        builder
+            .param("/cue")
+            .enumeration(0, CUES)
+            .label("Cue")
+            .read_only()
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/cue_seq")
+            .i64(0)
+            .label("Cue sequence")
+            .read_only()
+            .register(),
+    )?;
 
     // --- how this bench is configured ------------------------------------------------------------
     //
     // All read-only, all on screen behind a ParamTree. A measurement whose conditions are not
     // recorded is not evidence, and the first question about a surprising result is always
     // "what was it set to".
-    check(builder.param("/setup/http_port").i32(0).label("HTTP port").read_only().register())?;
-    check(builder.param("/setup/simulated").bool(false).label("Simulated").read_only().register())?;
-    check(builder.param("/setup/report_profile").text("").label("Report profile").read_only().register())?;
+    check(
+        builder
+            .param("/setup/http_port")
+            .i32(0)
+            .label("HTTP port")
+            .read_only()
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/setup/simulated")
+            .bool(false)
+            .label("Simulated")
+            .read_only()
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/setup/report_profile")
+            .text("")
+            .label("Report profile")
+            .read_only()
+            .register(),
+    )?;
     // 300 ms is the C++ Router's `responseWindow_ms`, preserved bit-for-bit by RouterRS and
     // therefore by this bench: a timing change would make bus measurements incomparable.
-    check(builder.param("/setup/response_window_ms").i32(300).label("ACK window").read_only().register())?;
+    check(
+        builder
+            .param("/setup/response_window_ms")
+            .i32(300)
+            .label("ACK window")
+            .read_only()
+            .register(),
+    )?;
     // Above this, a move is refused outside a `characterise` plan. The 32:1 stall cliff sits at
     // 30-32k microsteps/s when ramped at 100k/s^2.
     check(
@@ -228,16 +887,41 @@ pub fn declare(builder: &mut SchemaBuilder, simulated: bool) -> Result<(), Strin
     )?;
     // 100-250 mA is indistinguishable in slip and in homing precision, so there are no dynamic
     // current games -- one fixed value plus the driver's own auto-sleep.
-    check(builder.param("/setup/default_current_a").f64(0.15).label("Default current").read_only().register())?;
+    check(
+        builder
+            .param("/setup/default_current_a")
+            .f64(0.15)
+            .label("Default current")
+            .read_only()
+            .register(),
+    )?;
 
     // --- actions -----------------------------------------------------------------------------------
     for name in ACTIONS {
-        check(builder.param(&format!("/actions/{name}")).i64(0).label(&action_label(name)).register())?;
+        check(
+            builder
+                .param(&format!("/actions/{name}"))
+                .i64(0)
+                .label(&action_label(name))
+                .register(),
+        )?;
     }
 
     if simulated {
-        check(builder.param("/sim/module_present").bool(true).label("Module present").register())?;
-        check(builder.param("/sim/fail_next_run").bool(false).label("Fail the next run").register())?;
+        check(
+            builder
+                .param("/sim/module_present")
+                .bool(true)
+                .label("Module present")
+                .register(),
+        )?;
+        check(
+            builder
+                .param("/sim/fail_next_run")
+                .bool(false)
+                .label("Fail the next run")
+                .register(),
+        )?;
     }
 
     Ok(())
@@ -255,6 +939,67 @@ pub struct AxisParams {
     pub health_known: ParamId,
 }
 
+pub struct LinkParams {
+    pub desired: ParamId,
+    pub observed: ParamId,
+    pub endpoint: ParamId,
+    pub connected: ParamId,
+    pub detail: ParamId,
+}
+
+pub struct Rs485StatsParams {
+    pub tx: ParamId,
+    pub rx: ParamId,
+    pub acks: ParamId,
+    pub ack_timeouts: ParamId,
+    pub decode_errors: ParamId,
+    pub outbox: ParamId,
+}
+
+pub struct MotionParams {
+    pub route: ParamId,
+    pub a_rotations: ParamId,
+    pub b_rotations: ParamId,
+    pub max_velocity: ParamId,
+    pub acceleration: ParamId,
+    pub min_velocity: ParamId,
+}
+
+pub struct FlashParams {
+    pub auto_enabled: ParamId,
+    pub armed: ParamId,
+    pub busy: ParamId,
+    pub phase: ParamId,
+    pub step: ParamId,
+    pub progress: ParamId,
+    pub detail: ParamId,
+    pub last_outcome: ParamId,
+    pub boot_id: ParamId,
+    pub app_id: ParamId,
+    pub scope: ParamId,
+}
+
+pub struct ProbeParams {
+    pub selected: ParamId,
+    pub connected: ParamId,
+    pub target_present: ParamId,
+    pub name: ParamId,
+    pub serial: ParamId,
+    pub firmware: ParamId,
+    pub speed_khz: ParamId,
+}
+
+pub struct McuParams {
+    pub part: ParamId,
+    pub uid: ParamId,
+    pub idcode: ParamId,
+    pub dev_id: ParamId,
+    pub layout: ParamId,
+    pub rdp: ParamId,
+    pub firmware: ParamId,
+    pub flash_kb: ParamId,
+}
+
 /// Every id the worker writes through, resolved once at start so no tick does a string lookup.
 pub struct Params {
     pub ui_heartbeat: ParamId,
@@ -264,6 +1009,16 @@ pub struct Params {
     pub transport_port: ParamId,
     pub transport_connected: ParamId,
     pub transport_detail: ParamId,
+
+    pub serial: LinkParams,
+    pub rs485: LinkParams,
+    pub rs485_target: ParamId,
+    pub rs485_discovered: ParamId,
+    pub rs485_stats: Rs485StatsParams,
+    pub motion: MotionParams,
+    pub flash: FlashParams,
+    pub probe: ProbeParams,
+    pub mcu: McuParams,
 
     pub dut_present: ParamId,
     pub dut_firmware_kind: ParamId,
@@ -320,7 +1075,8 @@ pub struct Params {
 impl Params {
     pub fn resolve(bus: &Bus) -> Result<Self, String> {
         let id = |path: &str| {
-            bus.id_of(path).ok_or_else(|| format!("{path} is not in the sealed schema"))
+            bus.id_of(path)
+                .ok_or_else(|| format!("{path} is not in the sealed schema"))
         };
         let axis = |name: &str| -> Result<AxisParams, String> {
             Ok(AxisParams {
@@ -348,6 +1104,71 @@ impl Params {
             transport_port: id("/transport/port")?,
             transport_connected: id("/transport/connected")?,
             transport_detail: id("/transport/detail")?,
+
+            serial: LinkParams {
+                desired: id("/serial/desired")?,
+                observed: id("/serial/observed")?,
+                endpoint: id("/serial/port")?,
+                connected: id("/serial/connected")?,
+                detail: id("/serial/detail")?,
+            },
+            rs485: LinkParams {
+                desired: id("/rs485/desired")?,
+                observed: id("/rs485/observed")?,
+                endpoint: id("/rs485/endpoint")?,
+                connected: id("/rs485/connected")?,
+                detail: id("/rs485/detail")?,
+            },
+            rs485_target: id("/rs485/target")?,
+            rs485_discovered: id("/rs485/discovered")?,
+            rs485_stats: Rs485StatsParams {
+                tx: id("/rs485/stats/tx")?,
+                rx: id("/rs485/stats/rx")?,
+                acks: id("/rs485/stats/acks")?,
+                ack_timeouts: id("/rs485/stats/ack_timeouts")?,
+                decode_errors: id("/rs485/stats/decode_errors")?,
+                outbox: id("/rs485/stats/outbox")?,
+            },
+            motion: MotionParams {
+                route: id("/motion/route")?,
+                a_rotations: id("/motion/a/rotations")?,
+                b_rotations: id("/motion/b/rotations")?,
+                max_velocity: id("/motion/profile/max_velocity")?,
+                acceleration: id("/motion/profile/acceleration")?,
+                min_velocity: id("/motion/profile/min_velocity")?,
+            },
+            flash: FlashParams {
+                auto_enabled: id("/flash/auto_enabled")?,
+                armed: id("/flash/armed")?,
+                busy: id("/flash/busy")?,
+                phase: id("/flash/phase")?,
+                step: id("/flash/step")?,
+                progress: id("/flash/progress")?,
+                detail: id("/flash/detail")?,
+                last_outcome: id("/flash/last_outcome")?,
+                boot_id: id("/flash/boot_id")?,
+                app_id: id("/flash/app_id")?,
+                scope: id("/flash/scope")?,
+            },
+            probe: ProbeParams {
+                selected: id("/probe/selected")?,
+                connected: id("/probe/connected")?,
+                target_present: id("/probe/target_present")?,
+                name: id("/probe/name")?,
+                serial: id("/probe/serial")?,
+                firmware: id("/probe/firmware")?,
+                speed_khz: id("/probe/speed_khz")?,
+            },
+            mcu: McuParams {
+                part: id("/mcu/part")?,
+                uid: id("/mcu/uid")?,
+                idcode: id("/mcu/idcode")?,
+                dev_id: id("/mcu/dev_id")?,
+                layout: id("/mcu/layout")?,
+                rdp: id("/mcu/rdp")?,
+                firmware: id("/mcu/firmware")?,
+                flash_kb: id("/mcu/flash_kb")?,
+            },
 
             dut_present: id("/dut/present")?,
             dut_firmware_kind: id("/dut/firmware_kind")?,
@@ -405,10 +1226,19 @@ impl Params {
 /// The action names, declared once so `declare` and `resolve` cannot drift apart.
 pub const ACTIONS: &[&str] = &[
     "rescan",
+    "connect_serial",
+    "disconnect_serial",
+    "identify_serial",
+    "connect_rs485",
+    "disconnect_rs485",
+    "discover_rs485",
+    "identify_rs485",
+    "select_rs485_target",
     "connect",
     "disconnect",
     "identify",
     "run",
+    "startup",
     "abort",
     "escape",
     "calibrate_threshold",
@@ -417,6 +1247,10 @@ pub const ACTIONS: &[&str] = &[
     "unjam_a",
     "unjam_b",
     "flash",
+    "flash_now",
+    "read_device",
+    "rescan_firmware",
+    "motion_push",
     "marker",
 ];
 
@@ -441,13 +1275,26 @@ pub fn get_u32(bus: &Bus, id: ParamId) -> u32 {
     }
 }
 
+pub fn get_i32(bus: &Bus, id: ParamId) -> i32 {
+    match bus.get(id) {
+        Some(Value::I32(value)) => value,
+        _ => 0,
+    }
+}
+
+pub fn get_f64(bus: &Bus, id: ParamId) -> f64 {
+    match bus.get(id) {
+        Some(Value::F64(value)) => value,
+        _ => 0.0,
+    }
+}
+
+pub fn get_bool(bus: &Bus, id: ParamId) -> bool {
+    matches!(bus.get(id), Some(Value::Bool(true)))
+}
+
 /// Publish the facts about this process that never change after start.
-pub fn publish_setup(
-    bus: &Bus,
-    params: &Params,
-    port: u16,
-    simulated: bool,
-) -> Result<(), String> {
+pub fn publish_setup(bus: &Bus, params: &Params, port: u16, simulated: bool) -> Result<(), String> {
     let set = |id: ParamId, value: Value| bus.set(id, value).map_err(|e| e.to_string());
     set(params.setup_http_port, Value::I32(i32::from(port)))?;
     set(params.setup_simulated, Value::Bool(simulated))?;
@@ -460,10 +1307,19 @@ pub fn publish_setup(
 fn action_label(name: &str) -> String {
     match name {
         "rescan" => "Rescan ports and probes".into(),
+        "connect_serial" => "Connect serial".into(),
+        "disconnect_serial" => "Disconnect serial".into(),
+        "identify_serial" => "Identify over serial".into(),
+        "connect_rs485" => "Connect RS485".into(),
+        "disconnect_rs485" => "Disconnect RS485".into(),
+        "discover_rs485" => "Discover RS485 devices".into(),
+        "identify_rs485" => "Identify RS485 target".into(),
+        "select_rs485_target" => "Select RS485 target".into(),
         "connect" => "Connect".into(),
         "disconnect" => "Disconnect".into(),
         "identify" => "Identify module".into(),
         "run" => "Run plan".into(),
+        "startup" => "Run startup test".into(),
         "abort" => "Abort".into(),
         "escape" => "Escape from routine".into(),
         "calibrate_threshold" => "Calibrate threshold".into(),
@@ -472,6 +1328,10 @@ fn action_label(name: &str) -> String {
         "unjam_a" => "Unjam A".into(),
         "unjam_b" => "Unjam B".into(),
         "flash" => "Flash firmware".into(),
+        "flash_now" => "Flash now".into(),
+        "read_device" => "Read device".into(),
+        "rescan_firmware" => "Rescan probes and firmware".into(),
+        "motion_push" => "Push motion target".into(),
         "marker" => "Drop a marker".into(),
         other => other.replace('_', " "),
     }

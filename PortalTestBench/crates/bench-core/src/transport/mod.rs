@@ -26,6 +26,27 @@ pub mod rs485;
 
 use crate::dut::{Axis, FirmwareKind, GearRatio, Health};
 
+/// The two physical communication lanes a bench may keep open at the same time.
+///
+/// A dialect still lives in [`LinkKind`]; this only answers which socket owns it. Keeping the
+/// distinction explicit prevents connecting RS485 from silently evicting a useful serial log.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Channel {
+    #[default]
+    Serial,
+    Rs485,
+}
+
+impl Channel {
+    pub fn name(self) -> &'static str {
+        match self {
+            Channel::Serial => "serial",
+            Channel::Rs485 => "rs485",
+        }
+    }
+}
+
 /// What kind of link this is, and to what.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LinkInfo {
@@ -51,6 +72,13 @@ pub enum LinkKind {
 }
 
 impl LinkKind {
+    pub fn channel(self) -> Channel {
+        match self {
+            LinkKind::Vcp | LinkKind::BenchAscii | LinkKind::Sim => Channel::Serial,
+            LinkKind::Rs485Serial | LinkKind::Rs485Tcp => Channel::Rs485,
+        }
+    }
+
     /// Which firmware image can be on the other end of this link.
     ///
     /// The pairing is physical, not a policy: the bench image speaks only its own line
@@ -93,15 +121,46 @@ pub enum Op {
     ///
     /// Both axes, always -- it is a module-level routine, not a per-axis one.
     Startup,
-    Home { axis: Axis },
-    Unjam { axis: Axis },
-    Calibrate { axis: Axis },
-    MeasureBacklash { axis: Axis },
-    MoveTo { axis: Axis, usteps: i32, profile: Option<MotionProfile> },
-    SetCurrent { amps: f32 },
-    SetMicrostep { resolution: u32 },
+    Home {
+        axis: Axis,
+    },
+    Unjam {
+        axis: Axis,
+    },
+    Calibrate {
+        axis: Axis,
+    },
+    MeasureBacklash {
+        axis: Axis,
+    },
+    MoveTo {
+        axis: Axis,
+        usteps: i32,
+        profile: Option<MotionProfile>,
+    },
+    /// A coordinated two-axis target, used by the pilot.
+    ///
+    /// Two independent `MoveTo` packets share an RS485 collation address and one can replace the
+    /// other before transmission. The firmware already has an atomic `m: [a, b]` command, so the
+    /// host vocabulary needs to preserve that atomicity too.
+    MoveAxes {
+        a: i32,
+        b: i32,
+    },
+    SetMotionProfile {
+        axis: Axis,
+        profile: MotionProfile,
+    },
+    SetCurrent {
+        amps: f32,
+    },
+    SetMicrostep {
+        resolution: u32,
+    },
     /// Set the optical comparator threshold. Only meaningful once calibrated.
-    SetHomeThreshold { value: i32 },
+    SetHomeThreshold {
+        value: i32,
+    },
     /// One revolution at a fixed, settled threshold, reporting every comparator transition.
     ///
     /// The only instrument whose answer may be used to choose an operating threshold: a fixed
@@ -111,7 +170,11 @@ pub enum Op {
     /// found on every lap. See [`crate::threshold`].
     ///
     /// `speed` of `None` means the firmware's own seek speed.
-    Census { axis: Axis, threshold: u8, speed: Option<i32> },
+    Census {
+        axis: Axis,
+        threshold: u8,
+        speed: Option<i32>,
+    },
     /// Ask the module to abandon whatever routine it is running.
     Escape,
     Reboot,
@@ -140,7 +203,11 @@ impl Default for MotionProfile {
     /// across 1,720 moves with zero degradation. The 16:1 stalls well below this, which is why
     /// the engine caps that gearing separately rather than lowering this for everyone.
     fn default() -> Self {
-        Self { max_velocity: 24_000, acceleration: 20_000, min_velocity: 1_000 }
+        Self {
+            max_velocity: 24_000,
+            acceleration: 20_000,
+            min_velocity: 1_000,
+        }
     }
 }
 
@@ -166,19 +233,31 @@ pub enum LinkEvent {
         banner: String,
     },
     /// A position report for one axis.
-    Position { axis: Axis, position: i32, target: Option<i32> },
+    Position {
+        axis: Axis,
+        position: i32,
+        target: Option<i32>,
+    },
     /// A health report for one axis.
     HealthReport { axis: Axis, health: Health },
     /// Firmware uptime, from a full status report.
     Uptime { seconds: i32 },
     /// A log line the firmware produced.
-    Log { level: u8, message: String, firmware_ms: Option<u64> },
+    Log {
+        level: u8,
+        message: String,
+        firmware_ms: Option<u64>,
+    },
     /// The optical comparator's current state, for the bench firmware's live stream.
     Sensor { active: bool, threshold: i32 },
     /// A routine reported progress or completion in the bench dialect, e.g. `O,done`.
     Token { kind: char, fields: Vec<String> },
     /// The module acknowledged a command.
-    Ack,
+    /// An RS485 source address answered. Discovery consumes this even when the reply body is not
+    /// selected as the active module.
+    PeerSeen { source: i8 },
+    /// A command acknowledgement. Line protocols do not carry an address.
+    Ack { source: Option<i8> },
     /// Something went wrong that is worth recording but is not fatal to the link.
     Fault(String),
 }
@@ -192,7 +271,10 @@ pub enum LinkError {
     NotOpen,
 
     #[error("{endpoint} is already open in another program{}", detail.as_deref().unwrap_or(""))]
-    Busy { endpoint: String, detail: Option<String> },
+    Busy {
+        endpoint: String,
+        detail: Option<String>,
+    },
 
     #[error("{0}")]
     Io(String),
@@ -210,6 +292,19 @@ pub trait Link: Send {
 
     fn is_open(&self) -> bool;
 
+    /// Select the addressed peer for a multi-drop transport.
+    fn set_target(&mut self, _target: i8) -> Result<(), LinkError> {
+        Err(LinkError::Unsupported {
+            kind: "link",
+            op: "select target".into(),
+        })
+    }
+
+    /// Live transport diagnostics. Links without counters return the default.
+    fn diagnostics(&self) -> LinkDiagnostics {
+        LinkDiagnostics::default()
+    }
+
     /// Send one op. Returns once it is on the wire, not once the module has finished:
     /// the long routines acknowledge immediately and then run for seconds to minutes, so
     /// completion arrives later as a [`LinkEvent`].
@@ -219,6 +314,20 @@ pub trait Link: Send {
     ///
     /// **The only reader.** Called from one place in the worker tick; see the module docs.
     fn poll(&mut self, now_ms: u64) -> Vec<LinkEvent>;
+}
+
+/// Small, stable diagnostics suitable for a status panel and API snapshot.
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize)]
+pub struct LinkDiagnostics {
+    pub tx: u64,
+    pub rx: u64,
+    /// Explicit boolean acknowledgements observed from the selected peer.
+    pub acks: u64,
+    pub ack_timeouts: u64,
+    pub decode_errors: u64,
+    pub outbox: usize,
+    pub last_rx_age_ms: Option<u64>,
+    pub last_tx_age_ms: Option<u64>,
 }
 
 #[cfg(test)]
@@ -232,7 +341,14 @@ mod tests {
         assert!(!Op::PollPosition.is_destructive());
         assert!(Op::Home { axis: Axis::A }.is_destructive());
         assert!(Op::Unjam { axis: Axis::B }.is_destructive());
-        assert!(Op::MoveTo { axis: Axis::A, usteps: 0, profile: None }.is_destructive());
+        assert!(
+            Op::MoveTo {
+                axis: Axis::A,
+                usteps: 0,
+                profile: None
+            }
+            .is_destructive()
+        );
         // Escape moves nothing itself, but it changes what the motor is doing, so it is gated
         // with the rest rather than being treated as a read.
         assert!(Op::Escape.is_destructive());
@@ -240,9 +356,18 @@ mod tests {
 
     #[test]
     fn each_link_kind_expects_the_firmware_that_can_answer_it() {
-        assert_eq!(LinkKind::BenchAscii.expects_firmware(), Some(FirmwareKind::Bench));
-        assert_eq!(LinkKind::Vcp.expects_firmware(), Some(FirmwareKind::Production));
-        assert_eq!(LinkKind::Rs485Tcp.expects_firmware(), Some(FirmwareKind::Production));
+        assert_eq!(
+            LinkKind::BenchAscii.expects_firmware(),
+            Some(FirmwareKind::Bench)
+        );
+        assert_eq!(
+            LinkKind::Vcp.expects_firmware(),
+            Some(FirmwareKind::Production)
+        );
+        assert_eq!(
+            LinkKind::Rs485Tcp.expects_firmware(),
+            Some(FirmwareKind::Production)
+        );
         // The simulator answers whatever it is asked to model.
         assert_eq!(LinkKind::Sim.expects_firmware(), None);
     }

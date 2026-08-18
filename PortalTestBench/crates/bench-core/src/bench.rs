@@ -15,9 +15,9 @@ use crate::dut::FirmwareKind;
 use crate::engine::{Engine, Phase, Progress, Tick};
 use crate::plan::{Plan, PlanError, ValidationContext};
 use crate::report::Report;
-use crate::state::{BenchState, LogRing};
-use crate::transport::{Link, LinkError, LinkEvent, LinkKind, Op};
-use crate::verdict::{summarise, Measurement, Verdict};
+use crate::state::{BenchState, ChannelState, LogRing, TelemetryRing};
+use crate::transport::{Channel, Link, LinkError, LinkEvent, LinkKind, Op};
+use crate::verdict::{Measurement, Verdict, summarise};
 
 /// How often the bench asks a connected module for a full status report.
 ///
@@ -84,13 +84,15 @@ pub struct RunStatus {
 }
 
 pub struct Bench {
-    link: Option<Box<dyn Link>>,
+    serial_link: Option<Box<dyn Link>>,
+    rs485_link: Option<Box<dyn Link>>,
     state: BenchState,
     log: LogRing,
+    telemetry: TelemetryRing,
     engine: Option<Engine>,
     run: Option<RunMeta>,
     last: Option<Outcome>,
-    queue: VecDeque<Op>,
+    queue: VecDeque<(Channel, Op)>,
     report: Report,
     started_ms: u64,
     next_full_poll_ms: u64,
@@ -110,9 +112,11 @@ struct RunMeta {
 impl Bench {
     pub fn new(report: Report) -> Self {
         Self {
-            link: None,
+            serial_link: None,
+            rs485_link: None,
             state: BenchState::default(),
             log: LogRing::default(),
+            telemetry: TelemetryRing::default(),
             engine: None,
             run: None,
             last: None,
@@ -133,6 +137,9 @@ impl Bench {
     }
     pub fn log(&self) -> &LogRing {
         &self.log
+    }
+    pub fn telemetry(&self) -> &TelemetryRing {
+        &self.telemetry
     }
     pub fn last_outcome(&self) -> Option<&Outcome> {
         self.last.as_ref()
@@ -168,47 +175,113 @@ impl Bench {
     // --- link ---------------------------------------------------------------------------
 
     pub fn connect(&mut self, kind: LinkKind, endpoint: &str, now_ms: u64) -> Result<(), String> {
-        self.disconnect(now_ms);
+        let channel = kind.channel();
+        self.disconnect_channel(channel, now_ms);
         let mut link = crate::open_link(kind, endpoint)?;
         match link.open() {
             Ok(info) => {
-                self.state.link.kind = Some(kind);
-                self.state.link.endpoint = Some(info.endpoint.clone());
-                self.state.link.connected = true;
-                self.state.link.detail = None;
-                self.link = Some(link);
-                self.report.device_connect(kind.name(), endpoint, true, None);
-                self.note(now_ms, crate::LOG_LEVEL_STATUS, format!("{} link open on {endpoint}", kind.name()));
+                let state = self.channel_state_mut(channel);
+                state.link.kind = Some(kind);
+                state.link.endpoint = Some(info.endpoint.clone());
+                state.link.connected = true;
+                state.link.detail = None;
+                if channel == Channel::Rs485 && state.selected_target.is_none() {
+                    state.selected_target = Some(crate::transport::rs485::DEFAULT_TARGET);
+                }
+                match channel {
+                    Channel::Serial => self.serial_link = Some(link),
+                    Channel::Rs485 => self.rs485_link = Some(link),
+                }
+                self.state.active_channel = channel;
+                self.sync_active();
+                self.report
+                    .device_connect(kind.name(), endpoint, true, None);
+                self.note(
+                    now_ms,
+                    crate::LOG_LEVEL_STATUS,
+                    format!("{} link open on {endpoint}", kind.name()),
+                );
                 // Ask immediately: production firmware says nothing until spoken to, so a
                 // silent port would otherwise be indistinguishable from a dead one.
-                self.queue.push_back(Op::Identify);
+                self.queue.push_back((channel, Op::Identify));
                 Ok(())
             }
             Err(error) => {
                 let detail = error.to_string();
-                self.state.link.detail = Some(detail.clone());
-                self.report.device_connect(kind.name(), endpoint, false, Some(&detail));
-                self.note(now_ms, crate::LOG_LEVEL_ERROR, format!("could not open {endpoint}: {detail}"));
+                self.channel_state_mut(channel).link.detail = Some(detail.clone());
+                self.sync_active();
+                self.report
+                    .device_connect(kind.name(), endpoint, false, Some(&detail));
+                self.note(
+                    now_ms,
+                    crate::LOG_LEVEL_ERROR,
+                    format!("could not open {endpoint}: {detail}"),
+                );
                 Err(detail)
             }
         }
     }
 
+    /// Compatibility operation: close both communication lanes.
     pub fn disconnect(&mut self, now_ms: u64) {
-        if let Some(link) = self.link.as_mut() {
+        self.disconnect_channel(Channel::Serial, now_ms);
+        self.disconnect_channel(Channel::Rs485, now_ms);
+    }
+
+    pub fn disconnect_channel(&mut self, channel: Channel, now_ms: u64) {
+        let link = match channel {
+            Channel::Serial => &mut self.serial_link,
+            Channel::Rs485 => &mut self.rs485_link,
+        };
+        if let Some(link) = link.as_mut() {
             link.close();
-            self.note(now_ms, crate::LOG_LEVEL_STATUS, "link closed");
+            self.log.push(
+                now_ms,
+                crate::LOG_LEVEL_STATUS,
+                "bench",
+                format!("{} link closed", channel.name()),
+            );
         }
-        self.link = None;
-        self.state.link.connected = false;
-        // What the module *was* is not what it *is*. Clearing this is what stops the page
-        // showing a confident identity for something no longer attached.
-        self.state.dut = Default::default();
+        *link = None;
+        *self.channel_state_mut(channel) = ChannelState::default();
+        self.sync_active();
+    }
+
+    pub fn select_channel(&mut self, channel: Channel) {
+        self.state.active_channel = channel;
+        self.sync_active();
+    }
+
+    pub fn select_rs485_target(&mut self, target: i8) -> Result<(), String> {
+        if !(1..=127).contains(&target) {
+            return Err(format!("RS485 target must be 1..=127, got {target}"));
+        }
+        if let Some(link) = self.rs485_link.as_mut() {
+            link.set_target(target).map_err(|error| error.to_string())?;
+        }
+        let state = &mut self.state.channels.rs485;
+        state.selected_target = Some(target);
+        state.dut = Default::default();
+        if !state.discovered.contains(&target) {
+            state.discovered.push(target);
+            state.discovered.sort_unstable();
+        }
+        self.sync_active();
+        Ok(())
+    }
+
+    pub fn discover_rs485(&mut self) {
+        self.state.channels.rs485.discovered.clear();
+        self.queue.push_back((Channel::Rs485, Op::Identify));
     }
 
     /// Queue one op for the module.
     pub fn submit(&mut self, op: Op) {
-        self.queue.push_back(op);
+        self.queue.push_back((self.state.active_channel, op));
+    }
+
+    pub fn submit_to(&mut self, channel: Channel, op: Op) {
+        self.queue.push_back((channel, op));
     }
 
     // --- runs ---------------------------------------------------------------------------
@@ -216,7 +289,10 @@ impl Bench {
     /// Validate and start a plan. Refuses if one is already in flight.
     pub fn start(&mut self, plan: Plan, origin: Origin, now_ms: u64) -> Result<String, StartError> {
         if let Some(status) = self.run_status() {
-            return Err(StartError::Busy { run_id: status.run_id, plan: status.plan });
+            return Err(StartError::Busy {
+                run_id: status.run_id,
+                plan: status.plan,
+            });
         }
 
         let context = ValidationContext {
@@ -234,9 +310,17 @@ impl Bench {
         self.runs += 1;
         let run_id = format!("r-{:04}", self.runs);
         self.report.plan_start(&run_id, &plan, origin.name());
-        self.note(now_ms, crate::LOG_LEVEL_STATUS, format!("{} started ({})", plan.name, origin.name()));
+        self.note(
+            now_ms,
+            crate::LOG_LEVEL_STATUS,
+            format!("{} started ({})", plan.name, origin.name()),
+        );
         self.engine = Some(Engine::new(plan, now_ms, self.log.next_seq()));
-        self.run = Some(RunMeta { id: run_id.clone(), origin, started_ms: now_ms });
+        self.run = Some(RunMeta {
+            id: run_id.clone(),
+            origin,
+            started_ms: now_ms,
+        });
         Ok(run_id)
     }
 
@@ -260,25 +344,24 @@ impl Bench {
     pub fn tick(&mut self, now_ms: u64) -> Option<Outcome> {
         self.started_ms = now_ms;
 
-        if let Some(link) = self.link.as_mut() {
-            let events = link.poll(now_ms);
-            let connected = link.is_open();
-            self.state.link.connected = connected;
-            for event in events {
-                self.apply(event, now_ms);
-            }
-        }
+        self.poll_channel(Channel::Serial, now_ms);
+        self.poll_channel(Channel::Rs485, now_ms);
+        self.sync_active();
 
         self.schedule_polls(now_ms);
 
         let mut finished = None;
         if let Some(engine) = self.engine.as_mut() {
             let mut outbox = Vec::new();
-            let mut tick =
-                Tick { now_ms, state: &self.state, log: &self.log, outbox: &mut outbox };
+            let mut tick = Tick {
+                now_ms,
+                state: &self.state,
+                log: &self.log,
+                outbox: &mut outbox,
+            };
             let progress = engine.tick(&mut tick);
             for op in outbox {
-                self.queue.push_back(op);
+                self.queue.push_back((self.state.active_channel, op));
             }
             if let Progress::Done(verdict) = progress {
                 finished = Some(verdict);
@@ -294,39 +377,67 @@ impl Bench {
     }
 
     fn schedule_polls(&mut self, now_ms: u64) {
-        if !self.state.link.connected {
-            return;
-        }
-        // Only RS485 has structured polls; the line dialects stream or answer keystrokes.
-        if !matches!(self.state.link.kind, Some(LinkKind::Rs485Serial) | Some(LinkKind::Rs485Tcp)) {
+        if !self.state.channels.rs485.link.connected {
             return;
         }
         if now_ms >= self.next_position_poll_ms {
-            self.queue.push_back(Op::PollPosition);
+            self.queue.push_back((Channel::Rs485, Op::PollPosition));
             self.next_position_poll_ms = now_ms + POSITION_POLL_PERIOD_MS;
         }
         if now_ms >= self.next_full_poll_ms {
-            self.queue.push_back(Op::Poll);
+            self.queue.push_back((Channel::Rs485, Op::Poll));
             self.next_full_poll_ms = now_ms + FULL_POLL_PERIOD_MS;
         }
     }
 
     fn drain_queue(&mut self, now_ms: u64) {
-        while let Some(op) = self.queue.pop_front() {
-            let Some(link) = self.link.as_mut() else {
-                self.note(now_ms, crate::LOG_LEVEL_WARNING, format!("dropped {op:?}: no link"));
+        while let Some((channel, op)) = self.queue.pop_front() {
+            let link = match channel {
+                Channel::Serial => self.serial_link.as_mut(),
+                Channel::Rs485 => self.rs485_link.as_mut(),
+            };
+            let Some(link) = link else {
+                self.note(
+                    now_ms,
+                    crate::LOG_LEVEL_WARNING,
+                    format!("dropped {op:?}: no {} link", channel.name()),
+                );
                 continue;
             };
             if let Err(error) = link.send(&op) {
                 let detail = match &error {
                     // Not a fault of the module: the plan asked for something this dialect
                     // cannot say. Validation should have caught it, so say so loudly.
-                    LinkError::Unsupported { .. } => format!("{error} (this should have been caught by plan validation)"),
+                    LinkError::Unsupported { .. } => {
+                        format!("{error} (this should have been caught by plan validation)")
+                    }
                     other => other.to_string(),
                 };
                 self.state.faults += 1;
-                self.note(now_ms, crate::LOG_LEVEL_ERROR, detail);
+                self.note(
+                    now_ms,
+                    crate::LOG_LEVEL_ERROR,
+                    format!("{}: {detail}", channel.name()),
+                );
             }
+        }
+    }
+
+    fn poll_channel(&mut self, channel: Channel, now_ms: u64) {
+        let (events, connected, diagnostics) = {
+            let link = match channel {
+                Channel::Serial => self.serial_link.as_mut(),
+                Channel::Rs485 => self.rs485_link.as_mut(),
+            };
+            let Some(link) = link else { return };
+            let events = link.poll(now_ms);
+            (events, link.is_open(), link.diagnostics())
+        };
+        let channel_state = self.channel_state_mut(channel);
+        channel_state.link.connected = connected;
+        channel_state.diagnostics = diagnostics;
+        for event in events {
+            self.apply_from(channel, event, now_ms);
         }
     }
 
@@ -367,63 +478,133 @@ impl Bench {
     }
 
     /// Fold one thing the module said into what we believe.
+    #[cfg(test)]
     fn apply(&mut self, event: LinkEvent, now_ms: u64) {
+        self.apply_from(self.state.active_channel, event, now_ms);
+    }
+
+    fn apply_from(&mut self, channel: Channel, event: LinkEvent, now_ms: u64) {
         match event {
-            LinkEvent::Identified { firmware, version, ratio, usteps_per_rev, banner } => {
-                let dut = &mut self.state.dut;
-                dut.present = true;
-                dut.firmware = firmware;
-                if version.is_some() {
-                    dut.version = version;
-                }
-                // Never downgrade a known gearing to unknown: the RS485 report does not carry
-                // it, so a later poll must not erase what the home routine established.
-                if ratio != crate::dut::GearRatio::Unknown {
-                    dut.ratio = ratio;
-                }
-                if usteps_per_rev.is_some() {
-                    dut.usteps_per_rev = usteps_per_rev;
-                }
-                dut.banner = Some(banner.clone());
-                self.report.dut_identity(dut);
-                self.note(now_ms, crate::LOG_LEVEL_STATUS, format!("identified: {banner}"));
+            LinkEvent::Identified {
+                firmware,
+                version,
+                ratio,
+                usteps_per_rev,
+                banner,
+            } => {
+                let dut = {
+                    let dut = &mut self.channel_state_mut(channel).dut;
+                    dut.present = true;
+                    dut.firmware = firmware;
+                    if version.is_some() {
+                        dut.version = version;
+                    }
+                    // Never downgrade a known gearing to unknown: the RS485 report does not carry
+                    // it, so a later poll must not erase what the home routine established.
+                    if ratio != crate::dut::GearRatio::Unknown {
+                        dut.ratio = ratio;
+                    }
+                    if usteps_per_rev.is_some() {
+                        dut.usteps_per_rev = usteps_per_rev;
+                    }
+                    dut.banner = Some(banner.clone());
+                    dut.clone()
+                };
+                self.report.dut_identity(&dut);
+                self.note(
+                    now_ms,
+                    crate::LOG_LEVEL_STATUS,
+                    format!("{} identified: {banner}", channel.name()),
+                );
             }
-            LinkEvent::Position { axis, position, target } => {
-                self.state.dut.present = true;
-                let axis_state = self.state.dut.axis_mut(axis);
-                axis_state.position = Some(position);
-                if target.is_some() {
-                    axis_state.target = target;
+            LinkEvent::Position {
+                axis,
+                position,
+                target,
+            } => {
+                let selected_target = self.channel_state(channel).selected_target;
+                {
+                    let dut = &mut self.channel_state_mut(channel).dut;
+                    dut.present = true;
+                    let axis_state = dut.axis_mut(axis);
+                    axis_state.position = Some(position);
+                    if target.is_some() {
+                        axis_state.target = target;
+                    }
                 }
+                self.telemetry
+                    .push(now_ms, channel, selected_target, axis, position, target);
             }
             LinkEvent::HealthReport { axis, health } => {
-                self.state.dut.present = true;
-                self.state.dut.axis_mut(axis).health = Some(health);
+                let dut = &mut self.channel_state_mut(channel).dut;
+                dut.present = true;
+                dut.axis_mut(axis).health = Some(health);
             }
             LinkEvent::Uptime { seconds } => {
-                self.state.dut.present = true;
-                self.state.dut.uptime_s = Some(seconds);
+                let dut = &mut self.channel_state_mut(channel).dut;
+                dut.present = true;
+                dut.uptime_s = Some(seconds);
             }
-            LinkEvent::Log { level, message, firmware_ms } => {
-                self.state.dut.present = true;
-                self.log.push(now_ms, level, "firmware", message.clone());
+            LinkEvent::Log {
+                level,
+                message,
+                firmware_ms,
+            } => {
+                self.channel_state_mut(channel).dut.present = true;
+                self.log
+                    .push(now_ms, level, channel.name(), message.clone());
                 self.report.firmware_log(level, &message, firmware_ms);
             }
             LinkEvent::Sensor { active, threshold } => {
                 // Streamed at 60 Hz by the bench firmware; it belongs in telemetry, not the log.
                 let _ = (active, threshold);
-                self.state.dut.present = true;
+                self.channel_state_mut(channel).dut.present = true;
             }
             LinkEvent::Token { kind, fields } => {
                 self.report.token(kind, &fields);
             }
-            LinkEvent::Ack => {}
+            LinkEvent::PeerSeen { source } => {
+                if channel == Channel::Rs485 && source > 0 {
+                    let found = &mut self.state.channels.rs485.discovered;
+                    if !found.contains(&source) {
+                        found.push(source);
+                        found.sort_unstable();
+                    }
+                }
+            }
+            LinkEvent::Ack { .. } => {}
             LinkEvent::Fault(detail) => {
                 self.state.faults += 1;
-                self.log.push(now_ms, crate::LOG_LEVEL_ERROR, "fault", detail.clone());
+                self.log.push(
+                    now_ms,
+                    crate::LOG_LEVEL_ERROR,
+                    "fault",
+                    format!("{}: {detail}", channel.name()),
+                );
                 self.report.fault(&detail);
             }
         }
+        self.sync_active();
+    }
+
+    fn channel_state(&self, channel: Channel) -> &ChannelState {
+        match channel {
+            Channel::Serial => &self.state.channels.serial,
+            Channel::Rs485 => &self.state.channels.rs485,
+        }
+    }
+
+    fn channel_state_mut(&mut self, channel: Channel) -> &mut ChannelState {
+        match channel {
+            Channel::Serial => &mut self.state.channels.serial,
+            Channel::Rs485 => &mut self.state.channels.rs485,
+        }
+    }
+
+    fn sync_active(&mut self) {
+        let active = self.channel_state(self.state.active_channel).clone();
+        self.state.link = active.link;
+        self.state.dut = active.dut;
     }
 }
 
@@ -450,10 +631,16 @@ mod tests {
         let mut bench = bench();
         bench.state.link.connected = true;
         bench.state.link.kind = Some(LinkKind::Sim);
-        bench.state.dut.threshold =
-            Some(crate::state::ThresholdState::from_band(crate::threshold::Band::new(240, 252).unwrap(), 0));
+        bench.state.dut.threshold = Some(crate::state::ThresholdState::from_band(
+            crate::threshold::Band::new(240, 252).unwrap(),
+            0,
+        ));
 
-        let plan = Plan { name: "first".into(), body: Body::Once(vec![Step::Poll]), ..Plan::default() };
+        let plan = Plan {
+            name: "first".into(),
+            body: Body::Once(vec![Step::Poll]),
+            ..Plan::default()
+        };
         let id = bench.start(plan.clone(), Origin::Gui, 0).unwrap();
 
         let error = bench.start(plan, Origin::Agent, 0).unwrap_err();
@@ -470,11 +657,16 @@ mod tests {
 
         let plan = Plan {
             name: "home".into(),
-            body: Body::Once(vec![Step::Home { axis: crate::dut::Axis::A }]),
+            body: Body::Once(vec![Step::Home {
+                axis: crate::dut::Axis::A,
+            }]),
             ..Plan::default()
         };
         let error = bench.start(plan, Origin::Cli, 0).unwrap_err();
-        assert!(matches!(error, StartError::Invalid(PlanError::UncalibratedHome { .. })));
+        assert!(matches!(
+            error,
+            StartError::Invalid(PlanError::UncalibratedHome { .. })
+        ));
     }
 
     /// Disconnecting must clear the module's identity. Leaving it behind is how a page ends up
@@ -533,13 +725,88 @@ mod tests {
     fn firmware_log_lines_reach_the_ring() {
         let mut bench = bench();
         bench.apply(
-            LinkEvent::Log { level: 20, message: "[E Routines.init] Fail".into(), firmware_ms: None },
+            LinkEvent::Log {
+                level: 20,
+                message: "[E Routines.init] Fail".into(),
+                firmware_ms: None,
+            },
             5,
         );
         let lines = bench.log().since(0);
         assert_eq!(lines.len(), 1);
         assert_eq!(lines[0].level, 20);
-        assert_eq!(lines[0].source, "firmware");
+        assert_eq!(lines[0].source, "serial");
+    }
+
+    #[test]
+    fn serial_and_rs485_observations_stay_independent() {
+        let mut bench = bench();
+        bench.apply_from(
+            Channel::Serial,
+            LinkEvent::Identified {
+                firmware: FirmwareKind::Bench,
+                version: Some("bench-7".into()),
+                ratio: crate::dut::GearRatio::R32,
+                usteps_per_rev: Some(189_704),
+                banner: "bench".into(),
+            },
+            1,
+        );
+        bench.apply_from(
+            Channel::Rs485,
+            LinkEvent::Identified {
+                firmware: FirmwareKind::Production,
+                version: Some("prod-9".into()),
+                ratio: crate::dut::GearRatio::Unknown,
+                usteps_per_rev: None,
+                banner: "production".into(),
+            },
+            2,
+        );
+
+        assert_eq!(
+            bench.state.channels.serial.dut.version.as_deref(),
+            Some("bench-7")
+        );
+        assert_eq!(
+            bench.state.channels.rs485.dut.version.as_deref(),
+            Some("prod-9")
+        );
+        bench.select_channel(Channel::Rs485);
+        assert_eq!(bench.state.dut.version.as_deref(), Some("prod-9"));
+        bench.select_channel(Channel::Serial);
+        assert_eq!(bench.state.dut.version.as_deref(), Some("bench-7"));
+    }
+
+    #[test]
+    fn discovery_is_sorted_deduplicated_and_never_treats_broadcast_as_a_peer() {
+        let mut bench = bench();
+        for source in [7, 2, 7, -1, 1] {
+            bench.apply_from(Channel::Rs485, LinkEvent::PeerSeen { source }, 0);
+        }
+        assert_eq!(bench.state.channels.rs485.discovered, vec![1, 2, 7]);
+        assert!(bench.state.channels.serial.discovered.is_empty());
+    }
+
+    #[test]
+    fn measured_motion_records_its_channel_axis_and_selected_peer() {
+        let mut bench = bench();
+        bench.state.channels.rs485.selected_target = Some(12);
+        bench.apply_from(
+            Channel::Rs485,
+            LinkEvent::Position {
+                axis: crate::dut::Axis::B,
+                position: 42,
+                target: Some(50),
+            },
+            123,
+        );
+        let samples = bench.telemetry().since(0);
+        assert_eq!(samples.len(), 1);
+        assert_eq!(samples[0].channel, Channel::Rs485);
+        assert_eq!(samples[0].target_id, Some(12));
+        assert_eq!(samples[0].axis, crate::dut::Axis::B);
+        assert_eq!(samples[0].position, 42);
     }
 
     #[test]

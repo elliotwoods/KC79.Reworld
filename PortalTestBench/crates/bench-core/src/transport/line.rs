@@ -18,7 +18,7 @@
 //! a serial monitor with a keyboard, which is exactly what it is during bring-up.
 
 use crate::dut::{Axis, FirmwareKind};
-use crate::transport::{ascii, Link, LinkError, LinkEvent, LinkInfo, LinkKind, Op};
+use crate::transport::{Link, LinkError, LinkEvent, LinkInfo, LinkKind, Op, ascii};
 use router_link::rs485::SerialDevice;
 
 /// Cap on the unterminated tail we will hold while waiting for a newline.
@@ -116,7 +116,9 @@ fn open_serial(endpoint: &str) -> Result<Box<dyn SerialDevice>, LinkError> {
         if error.kind() == std::io::ErrorKind::PermissionDenied {
             LinkError::Busy {
                 endpoint: endpoint.to_string(),
-                detail: Some(" -- close the bench GUI, or point ptb at it instead of --local".into()),
+                detail: Some(
+                    " -- close the bench GUI, or point ptb at it instead of --local".into(),
+                ),
             }
         } else {
             LinkError::Io(format!("could not open {endpoint}: {error}"))
@@ -161,12 +163,15 @@ impl Link for LineLink {
                 return Err(LinkError::Unsupported {
                     kind: other.name(),
                     op: format!("{op:?}"),
-                })
+                });
             }
         };
 
         let Some(rendered) = rendered else {
-            return Err(LinkError::Unsupported { kind: self.kind.name(), op: format!("{op:?}") });
+            return Err(LinkError::Unsupported {
+                kind: self.kind.name(),
+                op: format!("{op:?}"),
+            });
         };
 
         let device = self.device.as_mut().ok_or(LinkError::NotOpen)?;
@@ -185,11 +190,15 @@ impl Link for LineLink {
         if terminate {
             bytes.push(b'\n');
         }
-        device.transmit(&bytes).map_err(|e| LinkError::Io(e.to_string()))
+        device
+            .transmit(&bytes)
+            .map_err(|e| LinkError::Io(e.to_string()))
     }
 
     fn poll(&mut self, _now_ms: u64) -> Vec<LinkEvent> {
-        let Some(device) = self.device.as_mut() else { return Vec::new() };
+        let Some(device) = self.device.as_mut() else {
+            return Vec::new();
+        };
 
         let bytes = match device.receive_available() {
             Ok(bytes) => bytes,
@@ -264,16 +273,27 @@ fn render_vcp_op(op: &Op) -> Option<String> {
         Op::Escape => "\x1b".to_string(),
         Op::Reboot => "r".to_string(),
         Op::SetHomeThreshold { value } => format!(":t {}", (*value).clamp(0, 255)),
-        Op::Census { axis, threshold, speed } => {
+        Op::Census {
+            axis,
+            threshold,
+            speed,
+        } => {
             // `:n <duty> [speed] [axis]` -- positional, so a named axis with a default speed
             // still has to state the speed. 0 means "the firmware's own seek speed".
-            format!(":n {} {} {}", threshold, speed.unwrap_or(0), axis_argument(*axis))
+            format!(
+                ":n {} {} {}",
+                threshold,
+                speed.unwrap_or(0),
+                axis_argument(*axis)
+            )
         }
         // Both-axis only on this menu; see above.
         Op::Home { .. }
         | Op::Unjam { .. }
         | Op::MeasureBacklash { .. }
         | Op::MoveTo { .. }
+        | Op::MoveAxes { .. }
+        | Op::SetMotionProfile { .. }
         | Op::SetCurrent { .. }
         | Op::SetMicrostep { .. } => return None,
     })
@@ -321,7 +341,11 @@ fn parse_vcp_line(line: &str, banner: &mut Option<String>) -> Option<LinkEvent> 
     } else {
         crate::LOG_LEVEL_STATUS
     };
-    Some(LinkEvent::Log { level, message: text.to_string(), firmware_ms: None })
+    Some(LinkEvent::Log {
+        level,
+        message: text.to_string(),
+        firmware_ms: None,
+    })
 }
 
 #[cfg(test)]
@@ -369,7 +393,11 @@ mod tests {
         let written = Arc::new(Mutex::new(Vec::new()));
         let to_host: Vec<Vec<u8>> = chunks.into_iter().map(|c| c.as_bytes().to_vec()).collect();
         let captured = Arc::clone(&written);
-        let mut device = Some(FakeDevice { to_host, written: Arc::clone(&written), connected: true });
+        let mut device = Some(FakeDevice {
+            to_host,
+            written: Arc::clone(&written),
+            connected: true,
+        });
         let mut link = LineLink::with_opener(
             kind,
             "fake",
@@ -391,11 +419,18 @@ mod tests {
     fn records_split_across_reads_are_reassembled() {
         let (mut link, _) = link_over(
             LinkKind::BenchAscii,
-            vec!["S,125000,1,246,47", "426,900,0,1,0,1\nS,125", "016,0,246,47430,900,0,1,0,1\n"],
+            vec![
+                "S,125000,1,246,47",
+                "426,900,0,1,0,1\nS,125",
+                "016,0,246,47430,900,0,1,0,1\n",
+            ],
         );
 
         let first = link.poll(0);
-        assert!(first.is_empty(), "half a record must produce nothing yet, got {first:?}");
+        assert!(
+            first.is_empty(),
+            "half a record must produce nothing yet, got {first:?}"
+        );
 
         let second = link.poll(1);
         assert!(second.contains(&LinkEvent::Position {
@@ -414,8 +449,10 @@ mod tests {
 
     #[test]
     fn a_banner_is_remembered_on_the_link() {
-        let (mut link, _) =
-            link_over(LinkKind::BenchAscii, vec!["# usteps_per_rev=189704 default_threshold=220 gear_ratio=32\n"]);
+        let (mut link, _) = link_over(
+            LinkKind::BenchAscii,
+            vec!["# usteps_per_rev=189704 default_threshold=220 gear_ratio=32\n"],
+        );
         link.poll(0);
         assert_eq!(
             link.info().banner.as_deref(),
@@ -427,8 +464,14 @@ mod tests {
     fn bench_ops_go_out_as_single_letter_commands() {
         let (mut link, written) = link_over(LinkKind::BenchAscii, vec![]);
         link.send(&Op::SetHomeThreshold { value: 246 }).unwrap();
-        link.send(&Op::Home { axis: crate::dut::Axis::A }).unwrap();
-        assert_eq!(String::from_utf8(written.lock().unwrap().clone()).unwrap(), "T,246\nO\n");
+        link.send(&Op::Home {
+            axis: crate::dut::Axis::A,
+        })
+        .unwrap();
+        assert_eq!(
+            String::from_utf8(written.lock().unwrap().clone()).unwrap(),
+            "T,246\nO\n"
+        );
     }
 
     /// The production menu dispatches on a bare keystroke, so a trailing newline is a **second
@@ -440,7 +483,10 @@ mod tests {
         link.send(&Op::Identify).unwrap();
         link.send(&Op::Escape).unwrap();
         // `v` for version, then a bare ESC. Nothing else.
-        assert_eq!(String::from_utf8(written.lock().unwrap().clone()).unwrap(), "v\x1b");
+        assert_eq!(
+            String::from_utf8(written.lock().unwrap().clone()).unwrap(),
+            "v\x1b"
+        );
     }
 
     /// The production menu has no single-axis home. Doing both axes because the operator asked
@@ -448,7 +494,11 @@ mod tests {
     #[test]
     fn the_vcp_menu_refuses_a_single_axis_op_rather_than_doing_both() {
         let (mut link, _) = link_over(LinkKind::Vcp, vec![]);
-        let error = link.send(&Op::Home { axis: crate::dut::Axis::A }).unwrap_err();
+        let error = link
+            .send(&Op::Home {
+                axis: crate::dut::Axis::A,
+            })
+            .unwrap_err();
         assert!(matches!(error, LinkError::Unsupported { kind: "vcp", .. }));
     }
 
@@ -457,7 +507,9 @@ mod tests {
         let (mut link, _) = link_over(LinkKind::Vcp, vec!["Portal v2026-08-18_17.21 a94ae48+\n"]);
         let events = link.poll(0);
         match &events[0] {
-            LinkEvent::Identified { firmware, version, .. } => {
+            LinkEvent::Identified {
+                firmware, version, ..
+            } => {
                 assert_eq!(*firmware, FirmwareKind::Production);
                 assert_eq!(version.as_deref(), Some("2026-08-18_17.21 a94ae48+"));
             }
@@ -526,12 +578,22 @@ mod cr_tests {
         let (mut link, _) = link_over(LinkKind::Vcp, vec![&stream]);
         let events = link.poll(0);
 
-        assert_eq!(events.len(), 1, "the redraws should not have produced events: {events:?}");
+        assert_eq!(
+            events.len(),
+            1,
+            "the redraws should not have produced events: {events:?}"
+        );
         match &events[0] {
             LinkEvent::Log { level, message, .. } => {
                 assert_eq!(*level, crate::LOG_LEVEL_ERROR);
-                assert_eq!(message, "[E MotionControl_A.routineFindSwitchAccurate] Switch not seen");
-                assert!(!message.contains("189773"), "the redraws leaked into the message");
+                assert_eq!(
+                    message,
+                    "[E MotionControl_A.routineFindSwitchAccurate] Switch not seen"
+                );
+                assert!(
+                    !message.contains("189773"),
+                    "the redraws leaked into the message"
+                );
             }
             other => panic!("expected a log line, got {other:?}"),
         }

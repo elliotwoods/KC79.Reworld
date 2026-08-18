@@ -2771,6 +2771,7 @@ dependencies = [
  "av-operator-app",
  "axum",
  "bench-core",
+ "portal-swd",
  "serde",
  "serde_json",
  "tracing",

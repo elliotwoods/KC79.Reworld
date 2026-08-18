@@ -24,6 +24,7 @@ use av_gui_host::HostConfig;
 use av_operator_app::{AppBuilder, AppResult, OperatorApp, RunContext, UiKind, WindowSpec};
 
 mod bench_api;
+mod flash;
 mod schema;
 mod worker;
 
@@ -63,7 +64,10 @@ impl OperatorApp for PortalTestBenchApp {
     }
 
     fn create(context: &RunContext) -> AppResult<Self> {
-        Ok(Self { simulate: context.flag("--simulate"), port: HTTP_PORT })
+        Ok(Self {
+            simulate: context.flag("--simulate"),
+            port: HTTP_PORT,
+        })
     }
 
     fn configure(&mut self, context: &RunContext, app: &mut AppBuilder) -> AppResult<()> {
@@ -85,7 +89,10 @@ impl OperatorApp for PortalTestBenchApp {
             }
         };
         self.port = port;
-        app.host(HostConfig { bind: ([127, 0, 0, 1], port).into(), ..Default::default() });
+        app.host(HostConfig {
+            bind: ([127, 0, 0, 1], port).into(),
+            ..Default::default()
+        });
         Ok(())
     }
 
@@ -94,7 +101,12 @@ impl OperatorApp for PortalTestBenchApp {
         Ok(())
     }
 
-    fn start(&mut self, _context: &RunContext, live: &Arc<LiveBus>, app: &mut AppBuilder) -> AppResult<()> {
+    fn start(
+        &mut self,
+        _context: &RunContext,
+        live: &Arc<LiveBus>,
+        app: &mut AppBuilder,
+    ) -> AppResult<()> {
         let bus = live.current();
         let params = schema::Params::resolve(&bus).map_err(std::io::Error::other)?;
         schema::publish_setup(&bus, &params, self.port, self.simulate)
@@ -102,13 +114,14 @@ impl OperatorApp for PortalTestBenchApp {
 
         // The session file. A bench that cannot write its evidence is still a usable
         // instrument, so a failure here is a warning rather than a refusal to start.
-        let report = match bench_core::report::Report::open(&reports_dir(), env!("CARGO_PKG_VERSION")) {
-            Ok(report) => report,
-            Err(error) => {
-                eprintln!("  no session file: {error}");
-                bench_core::report::Report::disabled()
-            }
-        };
+        let report =
+            match bench_core::report::Report::open(&reports_dir(), env!("CARGO_PKG_VERSION")) {
+                Ok(report) => report,
+                Err(error) => {
+                    eprintln!("  no session file: {error}");
+                    bench_core::report::Report::disabled()
+                }
+            };
 
         let shared = Arc::new(worker::Shared::default());
         app.routes(bench_api::routes(Arc::clone(&shared)));
@@ -119,6 +132,7 @@ impl OperatorApp for PortalTestBenchApp {
             bench_core::bench::Bench::new(report),
             shared,
             plans_dir(),
+            self.simulate,
         );
         std::thread::Builder::new()
             .name("portal-test-bench-worker".into())
@@ -126,7 +140,11 @@ impl OperatorApp for PortalTestBenchApp {
         Ok(())
     }
 
-    fn window(&mut self, _context: &RunContext, _live: &Arc<LiveBus>) -> AppResult<Option<WindowSpec>> {
+    fn window(
+        &mut self,
+        _context: &RunContext,
+        _live: &Arc<LiveBus>,
+    ) -> AppResult<Option<WindowSpec>> {
         Ok(Some(WindowSpec::new("Portal Test Bench", 1280, 900)))
     }
 }

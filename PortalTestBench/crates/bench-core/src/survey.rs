@@ -8,7 +8,7 @@
 use serde::Serialize;
 
 use crate::transport::line::LineLink;
-use crate::transport::rs485::{Rs485Link, DEFAULT_TARGET};
+use crate::transport::rs485::{DEFAULT_TARGET, Rs485Link};
 use crate::transport::{Link, LinkEvent, LinkKind};
 
 /// A serial port, as the operating system reports it.
@@ -32,6 +32,8 @@ pub struct ProbeEntry {
     pub name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub serial_number: Option<String>,
+    /// Backend family as reported by probe-rs (for example `STLink`).
+    pub kind: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -45,25 +47,34 @@ pub struct Survey {
 
 /// Everything this machine offers a bench right now.
 pub fn survey() -> Survey {
-    Survey { ports: ports(), probes: probes(), swd_support: cfg!(feature = "swd") }
+    Survey {
+        ports: ports(),
+        probes: probes(),
+        swd_support: cfg!(feature = "swd"),
+    }
 }
 
 fn ports() -> Vec<PortEntry> {
-    let Ok(found) = serialport::available_ports() else { return Vec::new() };
+    let Ok(found) = serialport::available_ports() else {
+        return Vec::new();
+    };
     found
         .into_iter()
         .map(|port| {
             let (kind, product, serial_number) = match &port.port_type {
-                serialport::SerialPortType::UsbPort(info) => (
-                    "usb",
-                    info.product.clone(),
-                    info.serial_number.clone(),
-                ),
+                serialport::SerialPortType::UsbPort(info) => {
+                    ("usb", info.product.clone(), info.serial_number.clone())
+                }
                 serialport::SerialPortType::BluetoothPort => ("bluetooth", None, None),
                 serialport::SerialPortType::PciPort => ("pci", None, None),
                 serialport::SerialPortType::Unknown => ("unknown", None, None),
             };
-            PortEntry { name: port.port_name, kind: kind.to_string(), product, serial_number }
+            PortEntry {
+                name: port.port_name,
+                kind: kind.to_string(),
+                product,
+                serial_number,
+            }
         })
         .collect()
 }
@@ -78,6 +89,7 @@ fn probes() -> Vec<ProbeEntry> {
             identifier: probe.id.clone(),
             name: Some(probe.name.clone()),
             serial_number: probe.serial.clone(),
+            kind: probe.kind.clone(),
         })
         .collect()
 }
@@ -104,7 +116,13 @@ pub fn open_link(kind: LinkKind, endpoint: &str) -> Result<Box<dyn Link>, String
 /// refactored: a report read months later must not depend on today's variant names.
 pub fn event_json(event: &LinkEvent) -> String {
     let value = match event {
-        LinkEvent::Identified { firmware, version, ratio, usteps_per_rev, banner } => {
+        LinkEvent::Identified {
+            firmware,
+            version,
+            ratio,
+            usteps_per_rev,
+            banner,
+        } => {
             serde_json::json!({
                 "event": "identified",
                 "firmware": format!("{firmware:?}").to_lowercase(),
@@ -114,7 +132,11 @@ pub fn event_json(event: &LinkEvent) -> String {
                 "banner": banner,
             })
         }
-        LinkEvent::Position { axis, position, target } => serde_json::json!({
+        LinkEvent::Position {
+            axis,
+            position,
+            target,
+        } => serde_json::json!({
             "event": "position",
             "axis": axis.suffix().to_lowercase(),
             "position": position,
@@ -128,8 +150,14 @@ pub fn event_json(event: &LinkEvent) -> String {
             "backlash_ok": health.backlash_ok,
             "home_ok": health.home_ok,
         }),
-        LinkEvent::Uptime { seconds } => serde_json::json!({ "event": "uptime", "seconds": seconds }),
-        LinkEvent::Log { level, message, firmware_ms } => serde_json::json!({
+        LinkEvent::Uptime { seconds } => {
+            serde_json::json!({ "event": "uptime", "seconds": seconds })
+        }
+        LinkEvent::Log {
+            level,
+            message,
+            firmware_ms,
+        } => serde_json::json!({
             "event": "log",
             "level": level,
             "message": message,
@@ -145,7 +173,10 @@ pub fn event_json(event: &LinkEvent) -> String {
             "kind": kind.to_string(),
             "fields": fields,
         }),
-        LinkEvent::Ack => serde_json::json!({ "event": "ack" }),
+        LinkEvent::PeerSeen { source } => {
+            serde_json::json!({ "event": "peer_seen", "source": source })
+        }
+        LinkEvent::Ack { source } => serde_json::json!({ "event": "ack", "source": source }),
         LinkEvent::Fault(detail) => serde_json::json!({ "event": "fault", "detail": detail }),
     };
     value.to_string()
@@ -167,7 +198,11 @@ mod tests {
 
     #[test]
     fn events_serialise_with_stable_names() {
-        let json = event_json(&LinkEvent::Position { axis: Axis::A, position: 47_426, target: Some(47_430) });
+        let json = event_json(&LinkEvent::Position {
+            axis: Axis::A,
+            position: 47_426,
+            target: Some(47_430),
+        });
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed["event"], "position");
         assert_eq!(parsed["axis"], "a");
@@ -175,7 +210,12 @@ mod tests {
 
         let json = event_json(&LinkEvent::HealthReport {
             axis: Axis::B,
-            health: Health { measure_cycle_ok: true, switches_ok: true, backlash_ok: false, home_ok: true },
+            health: Health {
+                measure_cycle_ok: true,
+                switches_ok: true,
+                backlash_ok: false,
+                home_ok: true,
+            },
         });
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed["event"], "health");

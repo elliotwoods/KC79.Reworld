@@ -8,6 +8,7 @@ publish.workspace = true
 
 [dependencies]
 bench-core = { workspace = true }
+portal-swd = { workspace = true }
 av-gui-bus = { workspace = true }
 av-gui-host = { workspace = true }
 av-operator-app = { workspace = true }

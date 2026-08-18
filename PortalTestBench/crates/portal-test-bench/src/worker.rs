@@ -14,14 +14,16 @@
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use av_gui_bus::{Bus, Value};
+use av_gui_bus::{Bus, ParamId, Value};
 use bench_core::bench::{Bench, Origin, Outcome, RunStatus};
 use bench_core::dut::{Axis, FirmwareKind, GearRatio};
 use bench_core::engine::Phase;
 use bench_core::plan::Plan;
 use bench_core::state::BenchState;
-use bench_core::transport::{LinkKind, Op};
+use bench_core::transport::{Channel, LinkKind, MotionProfile, Op};
+use portal_swd::Pass;
 
+use crate::flash::{FlashController, FlashSnapshot};
 use crate::schema::{self, AxisParams, Params};
 
 /// Worker tick period.
@@ -35,8 +37,16 @@ const TICK: Duration = Duration::from_millis(20);
 pub enum Request {
     Connect { kind: LinkKind, endpoint: String },
     Disconnect,
+    DisconnectChannel(Channel),
     Submit(Op),
+    SubmitTo { channel: Channel, op: Op },
+    SelectRs485Target(i8),
+    DiscoverRs485,
+    SelectChannel(Channel),
     Run { plan: Box<Plan>, origin: Origin },
+    FlashNow,
+    ReadDevice,
+    RescanFirmware,
     Abort,
 }
 
@@ -48,6 +58,11 @@ pub struct Shared {
     pub last: Mutex<Option<Outcome>>,
     /// Log lines, already rendered, with their cursor.
     pub log: Mutex<Vec<serde_json::Value>>,
+    /// Bounded raw motion samples for canvas consumers and agents.
+    pub telemetry: Mutex<Vec<serde_json::Value>>,
+    /// SWD/probe state and the production artefact catalogue.
+    pub flash: Mutex<FlashSnapshot>,
+    pub artefacts: Mutex<serde_json::Value>,
     /// Requests waiting to be drained by the worker.
     pub requests: Mutex<Vec<Request>>,
     /// Filled in by the worker when a `Run` request could not start.
@@ -72,6 +87,13 @@ pub struct Worker {
     cue_seq: i64,
     last_seq: i64,
     log_cursor: u64,
+    telemetry_cursor: u64,
+    flash: FlashController,
+    flash_selection_seen: (String, String),
+    probe_selection_seen: String,
+    flash_heartbeat_seen: i64,
+    flash_was_armed: bool,
+    sim_module_present: Option<ParamId>,
     /// Last heartbeat value seen from the page, and when we saw it change.
     heartbeat: (i64, u64),
 }
@@ -89,8 +111,17 @@ impl Worker {
         bench: Bench,
         shared: Arc<Shared>,
         plans_dir: std::path::PathBuf,
+        simulated: bool,
     ) -> Self {
         let action_count = params.actions.len();
+        let sim_module_present = bus.id_of("/sim/module_present");
+        let flash = FlashController::new(simulated);
+        let initial = flash.snapshot();
+        let _ = bus.set_text(params.flash.boot_id, &initial.boot_id);
+        let _ = bus.set_text(params.flash.app_id, &initial.app_id);
+        let _ = bus.set_text(params.probe.selected, flash.probe_selector());
+        *shared.flash.lock().unwrap() = initial.clone();
+        *shared.artefacts.lock().unwrap() = flash.artefacts_json();
         Self {
             bus,
             params,
@@ -104,6 +135,13 @@ impl Worker {
             cue_seq: 0,
             last_seq: 0,
             log_cursor: 0,
+            telemetry_cursor: 0,
+            flash_selection_seen: (initial.boot_id.clone(), initial.app_id.clone()),
+            probe_selection_seen: flash.probe_selector().to_string(),
+            flash_heartbeat_seen: 0,
+            flash_was_armed: false,
+            sim_module_present,
+            flash,
             heartbeat: (0, 0),
         }
     }
@@ -141,6 +179,43 @@ impl Worker {
             self.handle_actions(now);
             self.handle_requests(now);
 
+            self.sync_flash_selection(now);
+            self.sync_probe_selection(now);
+            if let Some(id) = self.sim_module_present {
+                self.flash.set_sim_present(schema::get_bool(&self.bus, id));
+            }
+            // Feed the flasher state machine only real browser beats. Re-sending "alive" on
+            // every 20 ms worker tick would extend its five-second dead-man to ten seconds.
+            let heartbeat = schema::get_i64(&self.bus, self.params.ui_heartbeat);
+            let page_heartbeat = heartbeat != self.flash_heartbeat_seen;
+            if page_heartbeat {
+                self.flash_heartbeat_seen = heartbeat;
+            }
+            let requested_auto = schema::get_bool(&self.bus, self.params.flash.auto_enabled);
+            let auto_enabled = requested_auto && !self.bench.is_busy();
+            if requested_auto && self.bench.is_busy() {
+                let _ = self
+                    .bus
+                    .set(self.params.flash.auto_enabled, Value::Bool(false));
+                self.bench.note(
+                    now,
+                    bench_core::LOG_LEVEL_WARNING,
+                    "auto-flash refused while a test plan is running",
+                );
+            }
+            if let Some(pass) = self.flash.tick(now, page_heartbeat, auto_enabled) {
+                self.run_flash(now, pass, true);
+            }
+            let armed = self.flash.snapshot().armed;
+            if self.flash_was_armed && !armed && auto_enabled {
+                // A safety/failure transition owns the observed truth. Retract the desired
+                // toggle or the page would still claim automatic flashing is enabled.
+                let _ = self
+                    .bus
+                    .set(self.params.flash.auto_enabled, Value::Bool(false));
+            }
+            self.flash_was_armed = armed;
+
             if let Some(outcome) = self.bench.tick(now) {
                 self.publish_outcome(&outcome);
                 *self.shared.last.lock().unwrap() = Some(outcome);
@@ -166,17 +241,41 @@ impl Worker {
 
     fn act(&mut self, name: &str, now: u64) {
         match name {
+            "connect_serial" => self.connect_from(Channel::Serial, now),
+            "disconnect_serial" => self.bench.disconnect_channel(Channel::Serial, now),
+            "identify_serial" => self.bench.submit_to(Channel::Serial, Op::Identify),
+            "connect_rs485" => self.connect_from(Channel::Rs485, now),
+            "disconnect_rs485" => self.bench.disconnect_channel(Channel::Rs485, now),
+            "discover_rs485" => self.bench.discover_rs485(),
+            "identify_rs485" => self.bench.submit_to(Channel::Rs485, Op::Identify),
+            "select_rs485_target" => {
+                let target = schema::get_i32(&self.bus, self.params.rs485_target) as i8;
+                if let Err(error) = self.bench.select_rs485_target(target) {
+                    self.bench.note(now, bench_core::LOG_LEVEL_ERROR, error);
+                } else {
+                    self.bench.submit_to(Channel::Rs485, Op::Identify);
+                }
+            }
             "connect" => {
-                let kind = transport_from(schema::get_u32(&self.bus, self.params.transport_desired));
+                let kind =
+                    transport_from(schema::get_u32(&self.bus, self.params.transport_desired));
                 let endpoint = schema::get_text(&self.bus, self.params.transport_port);
                 match kind {
                     Some(kind) => {
                         if let Err(error) = self.bench.connect(kind, &endpoint, now) {
                             let _ = self.bus.set_text(self.params.transport_detail, &error);
                         }
-                        self.cue(if self.bench.state().link.connected { "connected" } else { "lost" });
+                        self.cue(if self.bench.state().link.connected {
+                            "connected"
+                        } else {
+                            "lost"
+                        });
                     }
-                    None => self.bench.note(now, bench_core::LOG_LEVEL_WARNING, "pick a transport first"),
+                    None => self.bench.note(
+                        now,
+                        bench_core::LOG_LEVEL_WARNING,
+                        "pick a transport first",
+                    ),
                 }
             }
             "disconnect" => {
@@ -184,18 +283,21 @@ impl Worker {
                 self.cue("lost");
             }
             "identify" => self.bench.submit(Op::Identify),
-            "escape" => self.bench.submit(Op::Escape),
-            "home_a" => self.bench.submit(Op::Home { axis: Axis::A }),
-            "home_b" => self.bench.submit(Op::Home { axis: Axis::B }),
-            "unjam_a" => self.bench.submit(Op::Unjam { axis: Axis::A }),
-            "unjam_b" => self.bench.submit(Op::Unjam { axis: Axis::B }),
+            "escape" => self.submit_direct(Op::Escape),
+            "calibrate_threshold" => self.submit_direct(Op::Calibrate { axis: Axis::A }),
+            "home_a" => self.submit_direct(Op::Home { axis: Axis::A }),
+            "home_b" => self.submit_direct(Op::Home { axis: Axis::B }),
+            "unjam_a" => self.submit_direct(Op::Unjam { axis: Axis::A }),
+            "unjam_b" => self.submit_direct(Op::Unjam { axis: Axis::B }),
             "abort" => {
                 if self.bench.abort(now) {
                     self.cue("abort");
                 }
             }
-            "marker" => self.bench.note(now, bench_core::LOG_LEVEL_STATUS, "operator marker"),
-            "run" => {
+            "marker" => self
+                .bench
+                .note(now, bench_core::LOG_LEVEL_STATUS, "operator marker"),
+            "run" | "startup" => {
                 if self.page_is_stale(now) {
                     // The press arrived, so a page exists -- but it has not beaten in five
                     // seconds, which means the bus is not carrying its writes. Starting a
@@ -209,18 +311,330 @@ impl Worker {
                     self.cue("attention");
                     return;
                 }
-                let name = schema::get_text(&self.bus, self.params.plan_selected);
-                let name = if name.is_empty() { "startup".to_string() } else { name };
+                let name = if name == "startup" {
+                    "startup".to_string()
+                } else {
+                    let selected = schema::get_text(&self.bus, self.params.plan_selected);
+                    if selected.is_empty() {
+                        "startup".to_string()
+                    } else {
+                        selected
+                    }
+                };
+                self.bench.select_channel(self.motion_channel());
                 self.start_named(&name, Origin::Gui, now);
             }
-            // Rescan and flash land with M4; saying so beats a button that silently does
-            // nothing when pressed.
+            "motion_push" => self.push_motion(now),
+            "flash" | "flash_now" => {
+                if self.page_is_stale(now) {
+                    self.bench.note(
+                        now,
+                        bench_core::LOG_LEVEL_WARNING,
+                        "refused flash: page heartbeat is stale",
+                    );
+                } else if self.bench.is_busy() {
+                    self.bench.note(
+                        now,
+                        bench_core::LOG_LEVEL_WARNING,
+                        "refused flash: a test plan is running",
+                    );
+                } else if let Err(error) = self.flash.manual_ready() {
+                    self.bench.note(now, bench_core::LOG_LEVEL_WARNING, error);
+                } else {
+                    self.run_flash(now, Pass::Flash, false);
+                }
+            }
+            "read_device" => self.flash.read_device(),
+            "rescan_firmware" => self.rescan_setup(now),
+            "rescan" => {
+                self.rescan_setup(now);
+                let survey = bench_core::survey();
+                self.bench.note(
+                    now,
+                    bench_core::LOG_LEVEL_STATUS,
+                    format!(
+                        "rescan: {} serial ports, {} debug probes",
+                        survey.ports.len(),
+                        survey.probes.len()
+                    ),
+                );
+            }
             other => self.bench.note(
                 now,
                 bench_core::LOG_LEVEL_WARNING,
                 format!("`{other}` is not wired up yet"),
             ),
         }
+    }
+
+    fn motion_channel(&self) -> Channel {
+        match schema::get_u32(&self.bus, self.params.motion.route) {
+            1 => Channel::Rs485,
+            _ => Channel::Serial,
+        }
+    }
+
+    fn submit_direct(&mut self, op: Op) {
+        self.bench.submit_to(self.motion_channel(), op);
+    }
+
+    fn connect_from(&mut self, channel: Channel, now: u64) {
+        let (kind, endpoint) = match channel {
+            Channel::Serial => (
+                match schema::get_u32(&self.bus, self.params.serial.desired) {
+                    1 => Some(LinkKind::Vcp),
+                    2 => Some(LinkKind::BenchAscii),
+                    _ => None,
+                },
+                schema::get_text(&self.bus, self.params.serial.endpoint),
+            ),
+            Channel::Rs485 => (
+                match schema::get_u32(&self.bus, self.params.rs485.desired) {
+                    1 => Some(LinkKind::Rs485Serial),
+                    2 => Some(LinkKind::Rs485Tcp),
+                    _ => None,
+                },
+                schema::get_text(&self.bus, self.params.rs485.endpoint),
+            ),
+        };
+        let Some(kind) = kind else {
+            self.bench.note(
+                now,
+                bench_core::LOG_LEVEL_WARNING,
+                format!("pick a {} transport first", channel.name()),
+            );
+            return;
+        };
+        if let Err(error) = self.bench.connect(kind, &endpoint, now) {
+            let param = match channel {
+                Channel::Serial => self.params.serial.detail,
+                Channel::Rs485 => self.params.rs485.detail,
+            };
+            let _ = self.bus.set_text(param, &error);
+            self.cue("lost");
+        } else {
+            if channel == Channel::Rs485 {
+                let target = schema::get_i32(&self.bus, self.params.rs485_target) as i8;
+                let _ = self.bench.select_rs485_target(target);
+            }
+            self.cue("connected");
+        }
+    }
+
+    fn push_motion(&mut self, now: u64) {
+        let channel = self.motion_channel();
+        self.bench.select_channel(channel);
+        let usteps = self.bench.state().dut.usteps_per_rev;
+        let Some(usteps) = usteps else {
+            self.bench.note(
+                now,
+                bench_core::LOG_LEVEL_WARNING,
+                "identify or home the module before commanding rotations",
+            );
+            return;
+        };
+        let to_steps = |rotations: f64, invert: f64| -> i32 {
+            (rotations * f64::from(usteps) * invert)
+                .round()
+                .clamp(i32::MIN as f64, i32::MAX as f64) as i32
+        };
+        let a = to_steps(
+            schema::get_f64(&self.bus, self.params.motion.a_rotations),
+            1.0,
+        );
+        let b = to_steps(
+            schema::get_f64(&self.bus, self.params.motion.b_rotations),
+            -1.0,
+        );
+        let profile = MotionProfile {
+            max_velocity: schema::get_i32(&self.bus, self.params.motion.max_velocity),
+            acceleration: schema::get_i32(&self.bus, self.params.motion.acceleration),
+            min_velocity: schema::get_i32(&self.bus, self.params.motion.min_velocity),
+        };
+        if profile.max_velocity > 28_000 {
+            self.bench.note(
+                now,
+                bench_core::LOG_LEVEL_ERROR,
+                "refused pilot move above the 28,000 µsteps/s stall guard",
+            );
+            return;
+        }
+        match channel {
+            Channel::Rs485 => {
+                self.bench.submit_to(
+                    channel,
+                    Op::SetMotionProfile {
+                        axis: Axis::A,
+                        profile,
+                    },
+                );
+                self.bench.submit_to(
+                    channel,
+                    Op::SetMotionProfile {
+                        axis: Axis::B,
+                        profile,
+                    },
+                );
+                self.bench.submit_to(channel, Op::MoveAxes { a, b });
+            }
+            Channel::Serial => {
+                self.bench.submit_to(
+                    channel,
+                    Op::MoveTo {
+                        axis: Axis::A,
+                        usteps: a,
+                        profile: Some(profile),
+                    },
+                );
+                if b != 0 {
+                    self.bench.note(
+                        now,
+                        bench_core::LOG_LEVEL_WARNING,
+                        "bench serial controls only axis A; axis B was not sent",
+                    );
+                }
+            }
+        }
+    }
+
+    fn setup_is_locked(&self) -> bool {
+        let flash = self.flash.snapshot();
+        flash.armed || flash.busy || self.bench.is_busy()
+    }
+
+    fn sync_flash_selection(&mut self, now: u64) {
+        let selection = (
+            schema::get_text(&self.bus, self.params.flash.boot_id),
+            schema::get_text(&self.bus, self.params.flash.app_id),
+        );
+        if selection != self.flash_selection_seen {
+            if self.setup_is_locked() {
+                let _ = self
+                    .bus
+                    .set_text(self.params.flash.boot_id, &self.flash_selection_seen.0);
+                let _ = self
+                    .bus
+                    .set_text(self.params.flash.app_id, &self.flash_selection_seen.1);
+                self.bench.note(
+                    now,
+                    bench_core::LOG_LEVEL_WARNING,
+                    "firmware selection is locked while the fixture is active",
+                );
+                return;
+            }
+            self.flash.select(selection.0.clone(), selection.1.clone());
+            self.flash_selection_seen = selection;
+            *self.shared.artefacts.lock().unwrap() = self.flash.artefacts_json();
+        }
+    }
+
+    fn sync_probe_selection(&mut self, now: u64) {
+        let selected = schema::get_text(&self.bus, self.params.probe.selected);
+        if selected != self.probe_selection_seen {
+            if self.setup_is_locked() {
+                let _ = self
+                    .bus
+                    .set_text(self.params.probe.selected, &self.probe_selection_seen);
+                self.bench.note(
+                    now,
+                    bench_core::LOG_LEVEL_WARNING,
+                    "probe selection is locked while the fixture is active",
+                );
+                return;
+            }
+            self.flash.select_probe(selected);
+            self.probe_selection_seen = self.flash.probe_selector().to_string();
+            let _ = self
+                .bus
+                .set_text(self.params.probe.selected, &self.probe_selection_seen);
+        }
+    }
+
+    fn rescan_setup(&mut self, now: u64) {
+        if self.setup_is_locked() {
+            self.bench.note(
+                now,
+                bench_core::LOG_LEVEL_WARNING,
+                "fixture rescan is locked while the fixture is active",
+            );
+            return;
+        }
+        self.flash.rescan();
+        *self.shared.artefacts.lock().unwrap() = self.flash.artefacts_json();
+        self.flash_selection_seen = (
+            self.flash.snapshot().boot_id.clone(),
+            self.flash.snapshot().app_id.clone(),
+        );
+        self.probe_selection_seen = self.flash.probe_selector().to_string();
+        let _ = self
+            .bus
+            .set_text(self.params.flash.boot_id, &self.flash_selection_seen.0);
+        let _ = self
+            .bus
+            .set_text(self.params.flash.app_id, &self.flash_selection_seen.1);
+        let _ = self
+            .bus
+            .set_text(self.params.probe.selected, &self.probe_selection_seen);
+    }
+
+    /// SWD owns reset while a pass runs. Save both communication lanes, close them, and restore
+    /// them afterwards so serial and RS485 readers can never race the probe over a reboot.
+    fn run_flash(&mut self, now: u64, pass: Pass, automatic: bool) {
+        let before = self.bench.state().clone();
+        let serial = before
+            .channels
+            .serial
+            .link
+            .kind
+            .zip(before.channels.serial.link.endpoint.clone());
+        let rs485 = before
+            .channels
+            .rs485
+            .link
+            .kind
+            .zip(before.channels.rs485.link.endpoint.clone());
+        let target = before.channels.rs485.selected_target;
+        self.bench.disconnect(now);
+
+        let _ = self.bus.set(self.params.flash.busy, Value::Bool(true));
+        let _ = self
+            .bus
+            .set_text(self.params.flash.phase, &pass.to_string());
+        let _ = self.bus.set(self.params.flash.progress, Value::F64(0.0));
+        let mut in_flight = self.flash.snapshot().clone();
+        in_flight.busy = true;
+        in_flight.phase = pass.to_string();
+        in_flight.progress = 0.0;
+        *self.shared.flash.lock().unwrap() = in_flight;
+
+        let bus = Arc::clone(&self.bus);
+        let step_id = self.params.flash.step;
+        let progress_id = self.params.flash.progress;
+        let mut progress = move |step: &str, fraction: f64| {
+            let _ = bus.set_text(step_id, step);
+            let _ = bus.set(progress_id, Value::F64(fraction.clamp(0.0, 1.0)));
+        };
+        let ok = self.flash.execute(now, pass, automatic, &mut progress);
+        self.bench.note(
+            now,
+            if ok {
+                bench_core::LOG_LEVEL_STATUS
+            } else {
+                bench_core::LOG_LEVEL_ERROR
+            },
+            self.flash.snapshot().last_outcome.clone(),
+        );
+
+        if let Some((kind, endpoint)) = serial {
+            let _ = self.bench.connect(kind, &endpoint, now);
+        }
+        if let Some((kind, endpoint)) = rs485 {
+            let _ = self.bench.connect(kind, &endpoint, now);
+            if let Some(target) = target {
+                let _ = self.bench.select_rs485_target(target);
+            }
+        }
+        *self.shared.flash.lock().unwrap() = self.flash.snapshot().clone();
     }
 
     fn start_named(&mut self, name: &str, origin: Origin, now: u64) {
@@ -266,8 +680,34 @@ impl Worker {
                     let _ = self.bus.set_text(self.params.transport_port, &endpoint);
                 }
                 Request::Disconnect => self.bench.disconnect(now),
+                Request::DisconnectChannel(channel) => self.bench.disconnect_channel(channel, now),
                 Request::Submit(op) => self.bench.submit(op),
+                Request::SubmitTo { channel, op } => self.bench.submit_to(channel, op),
+                Request::SelectRs485Target(target) => {
+                    if let Err(error) = self.bench.select_rs485_target(target) {
+                        self.bench.note(now, bench_core::LOG_LEVEL_ERROR, error);
+                    }
+                }
+                Request::DiscoverRs485 => self.bench.discover_rs485(),
+                Request::SelectChannel(channel) => self.bench.select_channel(channel),
                 Request::Run { plan, origin } => self.start(*plan, origin, now),
+                Request::FlashNow => {
+                    if self.bench.is_busy() {
+                        self.bench.note(
+                            now,
+                            bench_core::LOG_LEVEL_WARNING,
+                            "refused flash: a test plan is running",
+                        );
+                    } else if let Err(error) = self.flash.manual_ready() {
+                        self.bench.note(now, bench_core::LOG_LEVEL_WARNING, error);
+                    } else {
+                        self.run_flash(now, Pass::Flash, false);
+                    }
+                }
+                Request::ReadDevice => self.flash.read_device(),
+                Request::RescanFirmware => {
+                    self.rescan_setup(now);
+                }
                 Request::Abort => {
                     self.bench.abort(now);
                 }
@@ -276,7 +716,11 @@ impl Worker {
     }
 
     fn cue(&mut self, name: &str) {
-        let value = schema::CUES.iter().find(|(_, n)| *n == name).map(|(v, _)| *v).unwrap_or(0);
+        let value = schema::CUES
+            .iter()
+            .find(|(_, n)| *n == name)
+            .map(|(v, _)| *v)
+            .unwrap_or(0);
         self.cue_seq += 1;
         let _ = self.bus.set(self.params.cue, Value::Enum(value));
         let _ = self.bus.set(self.params.cue_seq, Value::I64(self.cue_seq));
@@ -292,29 +736,103 @@ impl Worker {
             let _ = self.bus.set_text(id, value);
         };
 
-        set(self.params.transport_connected, Value::Bool(state.link.connected));
+        set(
+            self.params.transport_connected,
+            Value::Bool(state.link.connected),
+        );
         set(
             self.params.transport_observed,
             Value::Enum(state.link.kind.map(transport_value).unwrap_or(0)),
         );
-        text(self.params.transport_detail, state.link.detail.as_deref().unwrap_or(""));
+        text(
+            self.params.transport_detail,
+            state.link.detail.as_deref().unwrap_or(""),
+        );
+
+        publish_link(
+            &self.bus,
+            &self.params.serial,
+            &state.channels.serial,
+            serial_transport_value,
+        );
+        publish_link(
+            &self.bus,
+            &self.params.rs485,
+            &state.channels.rs485,
+            rs485_transport_value,
+        );
+        let discovered = state
+            .channels
+            .rs485
+            .discovered
+            .iter()
+            .map(i8::to_string)
+            .collect::<Vec<_>>()
+            .join(", ");
+        text(self.params.rs485_discovered, &discovered);
+        if let Some(target) = state.channels.rs485.selected_target {
+            set(self.params.rs485_target, Value::I32(i32::from(target)));
+        }
+        let stats = &state.channels.rs485.diagnostics;
+        set(self.params.rs485_stats.tx, Value::I64(stats.tx as i64));
+        set(self.params.rs485_stats.rx, Value::I64(stats.rx as i64));
+        set(self.params.rs485_stats.acks, Value::I64(stats.acks as i64));
+        set(
+            self.params.rs485_stats.ack_timeouts,
+            Value::I64(stats.ack_timeouts as i64),
+        );
+        set(
+            self.params.rs485_stats.decode_errors,
+            Value::I64(stats.decode_errors as i64),
+        );
+        set(
+            self.params.rs485_stats.outbox,
+            Value::I64(stats.outbox as i64),
+        );
 
         set(self.params.dut_present, Value::Bool(state.dut.present));
-        set(self.params.dut_firmware_kind, Value::Enum(firmware_value(state.dut.firmware)));
-        text(self.params.dut_version, state.dut.version.as_deref().unwrap_or(""));
-        set(self.params.dut_uptime_s, Value::I32(state.dut.uptime_s.unwrap_or(0)));
-        set(self.params.dut_ratio, Value::Enum(ratio_value(state.dut.ratio)));
-        set(self.params.dut_usteps_per_rev, Value::I32(state.dut.usteps_per_rev.unwrap_or(0)));
+        set(
+            self.params.dut_firmware_kind,
+            Value::Enum(firmware_value(state.dut.firmware)),
+        );
+        text(
+            self.params.dut_version,
+            state.dut.version.as_deref().unwrap_or(""),
+        );
+        set(
+            self.params.dut_uptime_s,
+            Value::I32(state.dut.uptime_s.unwrap_or(0)),
+        );
+        set(
+            self.params.dut_ratio,
+            Value::Enum(ratio_value(state.dut.ratio)),
+        );
+        set(
+            self.params.dut_usteps_per_rev,
+            Value::I32(state.dut.usteps_per_rev.unwrap_or(0)),
+        );
 
         publish_axis(&self.bus, &self.params.axis_a, state.dut.axis(Axis::A));
         publish_axis(&self.bus, &self.params.axis_b, state.dut.axis(Axis::B));
 
         match state.dut.threshold {
             Some(threshold) => {
-                set(self.params.threshold_floor, Value::I32(threshold.floor as i32));
-                set(self.params.threshold_band, Value::I32(threshold.band as i32));
-                set(self.params.threshold_applied, Value::I32(threshold.applied as i32));
-                set(self.params.threshold_calibrated_at_s, Value::I32(threshold.calibrated_at_s));
+                set(
+                    self.params.threshold_floor,
+                    Value::I32(threshold.floor as i32),
+                );
+                set(
+                    self.params.threshold_band,
+                    Value::I32(threshold.band as i32),
+                );
+                set(
+                    self.params.threshold_applied,
+                    Value::I32(threshold.applied as i32),
+                );
+                set(
+                    self.params.threshold_calibrated_at_s,
+                    Value::I32(threshold.calibrated_at_s),
+                );
             }
             // -1 is "never this session", and the page draws that as its own alarming state
             // rather than as a row of zeroes.
@@ -322,20 +840,41 @@ impl Worker {
         }
 
         set(self.params.faults_active, Value::I32(state.faults as i32));
-        set(self.params.counts_passed, Value::I32(self.bench.passed as i32));
-        set(self.params.counts_failed, Value::I32(self.bench.failed as i32));
-        set(self.params.counts_aborted, Value::I32(self.bench.aborted as i32));
+        set(
+            self.params.counts_passed,
+            Value::I32(self.bench.passed as i32),
+        );
+        set(
+            self.params.counts_failed,
+            Value::I32(self.bench.failed as i32),
+        );
+        set(
+            self.params.counts_aborted,
+            Value::I32(self.bench.aborted as i32),
+        );
 
         let status = self.bench.run_status();
         set(self.params.run_busy, Value::Bool(status.is_some()));
         match &status {
             Some(status) => {
                 text(self.params.run_plan, &status.plan);
-                set(self.params.run_phase, Value::Enum(phase_value(status.phase)));
-                set(self.params.run_origin, Value::Enum(origin_value(status.origin)));
+                set(
+                    self.params.run_phase,
+                    Value::Enum(phase_value(status.phase)),
+                );
+                set(
+                    self.params.run_origin,
+                    Value::Enum(origin_value(status.origin)),
+                );
                 text(self.params.run_step_name, &status.step_name);
-                set(self.params.run_step_index, Value::I32(status.step_index as i32));
-                set(self.params.run_step_count, Value::I32(status.step_count as i32));
+                set(
+                    self.params.run_step_index,
+                    Value::I32(status.step_index as i32),
+                );
+                set(
+                    self.params.run_step_count,
+                    Value::I32(status.step_count as i32),
+                );
                 set(
                     self.params.run_step_fraction,
                     Value::F64(match status.step_count {
@@ -344,7 +883,10 @@ impl Worker {
                     }),
                 );
                 set(self.params.run_cycle, Value::I32(status.cycle as i32));
-                set(self.params.run_cycle_count, Value::I32(status.cycle_count as i32));
+                set(
+                    self.params.run_cycle_count,
+                    Value::I32(status.cycle_count as i32),
+                );
                 set(self.params.run_elapsed_s, Value::I32(status.elapsed_s));
                 // -1 is "unknown", and it stays that way until there is a real basis for an
                 // estimate. A made-up ETA on a routine whose duration varies with how cold the
@@ -363,7 +905,55 @@ impl Worker {
         *self.shared.run.lock().unwrap() = status;
 
         *self.shared.state.lock().unwrap() = state;
+        self.publish_flash();
         self.publish_log(now);
+        self.publish_telemetry();
+    }
+
+    fn publish_flash(&self) {
+        let snapshot = self.flash.snapshot();
+        let p = &self.params;
+        let _ = self.bus.set(p.flash.armed, Value::Bool(snapshot.armed));
+        let _ = self.bus.set(p.flash.busy, Value::Bool(snapshot.busy));
+        let _ = self.bus.set_text(p.flash.phase, &snapshot.phase);
+        let _ = self.bus.set_text(p.flash.step, &snapshot.step);
+        let _ = self
+            .bus
+            .set(p.flash.progress, Value::F64(snapshot.progress));
+        let _ = self.bus.set_text(p.flash.detail, &snapshot.detail);
+        let _ = self
+            .bus
+            .set_text(p.flash.last_outcome, &snapshot.last_outcome);
+        let _ = self.bus.set_text(p.flash.scope, &snapshot.scope);
+
+        let _ = self
+            .bus
+            .set(p.probe.connected, Value::Bool(snapshot.probe_connected));
+        let _ = self
+            .bus
+            .set(p.probe.target_present, Value::Bool(snapshot.target_present));
+        let _ = self.bus.set_text(p.probe.name, &snapshot.probe_name);
+        let _ = self.bus.set_text(p.probe.serial, &snapshot.probe_serial);
+        let _ = self
+            .bus
+            .set_text(p.probe.firmware, &snapshot.probe_firmware);
+        let _ = self
+            .bus
+            .set(p.probe.speed_khz, Value::I32(snapshot.speed_khz as i32));
+
+        if let Some(mcu) = &snapshot.mcu {
+            let _ = self.bus.set_text(p.mcu.part, &mcu.part);
+            let _ = self.bus.set_text(p.mcu.uid, &mcu.uid);
+            let _ = self.bus.set_text(p.mcu.idcode, &mcu.idcode);
+            let _ = self.bus.set_text(p.mcu.dev_id, &mcu.dev_id);
+            let _ = self.bus.set_text(p.mcu.layout, &mcu.layout);
+            let _ = self.bus.set_text(p.mcu.rdp, &mcu.rdp);
+            let _ = self.bus.set_text(p.mcu.firmware, &mcu.firmware);
+            let _ = self
+                .bus
+                .set(p.mcu.flash_kb, Value::I32(i32::from(mcu.flash_kb)));
+        }
+        *self.shared.flash.lock().unwrap() = snapshot.clone();
     }
 
     fn publish_log(&mut self, _now: u64) {
@@ -396,6 +986,28 @@ impl Worker {
         }
     }
 
+    fn publish_telemetry(&mut self) {
+        let samples: Vec<serde_json::Value> = self
+            .bench
+            .telemetry()
+            .since(self.telemetry_cursor)
+            .iter()
+            .map(|sample| serde_json::to_value(sample).expect("telemetry sample serialises"))
+            .collect();
+        if samples.is_empty() {
+            return;
+        }
+        self.telemetry_cursor = self.bench.telemetry().next_seq();
+        let mut shared = self.shared.telemetry.lock().unwrap();
+        shared.extend(samples);
+        let excess = shared
+            .len()
+            .saturating_sub(bench_core::state::TELEMETRY_CAPACITY);
+        if excess > 0 {
+            shared.drain(..excess);
+        }
+    }
+
     fn publish_outcome(&mut self, outcome: &Outcome) {
         let set = |id, value| {
             let _ = self.bus.set(id, value);
@@ -404,18 +1016,26 @@ impl Worker {
             let _ = self.bus.set_text(id, value);
         };
 
-        set(self.params.last_verdict, Value::Enum(verdict_value(outcome.verdict.name())));
+        set(
+            self.params.last_verdict,
+            Value::Enum(verdict_value(outcome.verdict.name())),
+        );
         text(self.params.last_plan, &outcome.plan);
         text(self.params.last_reason, &outcome.verdict.reason());
         text(
             self.params.last_advice,
             match &outcome.verdict {
-                bench_core::verdict::Verdict::Error { advice, .. } => advice.as_deref().unwrap_or(""),
+                bench_core::verdict::Verdict::Error { advice, .. } => {
+                    advice.as_deref().unwrap_or("")
+                }
                 _ => "",
             },
         );
         text(self.params.last_measurements, &outcome.summary());
-        text(self.params.last_report_path, outcome.report_path.as_deref().unwrap_or(""));
+        text(
+            self.params.last_report_path,
+            outcome.report_path.as_deref().unwrap_or(""),
+        );
         self.last_seq += 1;
         set(self.params.last_seq, Value::I64(self.last_seq));
 
@@ -424,6 +1044,33 @@ impl Worker {
             bench_core::verdict::Verdict::Fail { .. } => "fail",
             _ => "abort",
         });
+    }
+}
+
+fn publish_link(
+    bus: &Bus,
+    params: &schema::LinkParams,
+    state: &bench_core::state::ChannelState,
+    value: fn(Option<LinkKind>) -> u32,
+) {
+    let _ = bus.set(params.connected, Value::Bool(state.link.connected));
+    let _ = bus.set(params.observed, Value::Enum(value(state.link.kind)));
+    let _ = bus.set_text(params.detail, state.link.detail.as_deref().unwrap_or(""));
+}
+
+fn serial_transport_value(kind: Option<LinkKind>) -> u32 {
+    match kind {
+        Some(LinkKind::Vcp) => 1,
+        Some(LinkKind::BenchAscii) => 2,
+        _ => 0,
+    }
+}
+
+fn rs485_transport_value(kind: Option<LinkKind>) -> u32 {
+    match kind {
+        Some(LinkKind::Rs485Serial) => 1,
+        Some(LinkKind::Rs485Tcp) => 2,
+        _ => 0,
     }
 }
 
@@ -441,13 +1088,20 @@ fn publish_axis(bus: &Bus, params: &AxisParams, state: &bench_core::state::AxisS
     set(params.health_home, Value::Bool(health.home_ok));
     set(params.health_switches, Value::Bool(health.switches_ok));
     set(params.health_backlash, Value::Bool(health.backlash_ok));
-    set(params.health_measure_cycle, Value::Bool(health.measure_cycle_ok));
+    set(
+        params.health_measure_cycle,
+        Value::Bool(health.measure_cycle_ok),
+    );
 }
 
 // --- enum mapping, by name in both directions ------------------------------------------
 
 pub fn transport_from(value: u32) -> Option<LinkKind> {
-    match schema::TRANSPORTS.iter().find(|(v, _)| *v == value).map(|(_, n)| *n) {
+    match schema::TRANSPORTS
+        .iter()
+        .find(|(v, _)| *v == value)
+        .map(|(_, n)| *n)
+    {
         Some("vcp") => Some(LinkKind::Vcp),
         Some("bench-ascii") => Some(LinkKind::BenchAscii),
         Some("rs485-serial") => Some(LinkKind::Rs485Serial),
@@ -458,7 +1112,11 @@ pub fn transport_from(value: u32) -> Option<LinkKind> {
 }
 
 fn by_name(table: &[(u32, &str)], name: &str) -> u32 {
-    table.iter().find(|(_, n)| *n == name).map(|(v, _)| *v).unwrap_or(0)
+    table
+        .iter()
+        .find(|(_, n)| *n == name)
+        .map(|(v, _)| *v)
+        .unwrap_or(0)
 }
 
 fn transport_value(kind: LinkKind) -> u32 {
@@ -517,7 +1175,11 @@ mod tests {
             LinkKind::Sim,
         ] {
             let value = transport_value(kind);
-            assert_eq!(transport_from(value), Some(kind), "{kind:?} did not round trip");
+            assert_eq!(
+                transport_from(value),
+                Some(kind),
+                "{kind:?} did not round trip"
+            );
         }
 
         // A non-default variant must not collapse to 0.

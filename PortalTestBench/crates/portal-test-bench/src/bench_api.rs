@@ -17,6 +17,7 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use bench_core::bench::Origin;
 use bench_core::transport::Op;
+use bench_core::transport::{Channel, MotionProfile};
 
 use crate::worker::{Request, Shared};
 
@@ -25,6 +26,8 @@ pub fn routes(shared: Arc<Shared>) -> Router {
         .route("/api/bench/state", get(state))
         .route("/api/bench/plans", get(plans))
         .route("/api/bench/log", get(log))
+        .route("/api/bench/telemetry", get(telemetry))
+        .route("/api/bench/firmware", get(firmware))
         .route("/api/bench/run", post(run))
         .route("/api/bench/abort", post(abort))
         .route("/api/bench/command", post(command))
@@ -40,10 +43,14 @@ async fn state(State(shared): State<Arc<Shared>>) -> impl IntoResponse {
     let state = shared.state.lock().unwrap().clone();
     let run = shared.run.lock().unwrap().clone();
     let last = shared.last.lock().unwrap().clone();
+    let flash = shared.flash.lock().unwrap().clone();
 
     Json(serde_json::json!({
         "link": state.link,
         "dut": state.dut,
+        "channels": state.channels,
+        "active_channel": state.active_channel,
+        "flash": flash,
         "faults": state.faults,
         "running": run.map(|status| serde_json::json!({
             "run_id": status.run_id,
@@ -74,6 +81,10 @@ async fn ports() -> impl IntoResponse {
     Json(bench_core::survey())
 }
 
+async fn firmware(State(shared): State<Arc<Shared>>) -> impl IntoResponse {
+    Json(shared.artefacts.lock().unwrap().clone())
+}
+
 #[derive(serde::Deserialize)]
 struct PlansQuery {
     #[serde(default)]
@@ -85,7 +96,10 @@ struct PlansQuery {
 /// A plan that fails to load is listed **with its error** rather than omitted: a plan silently
 /// missing from the list is indistinguishable from one that was never written.
 async fn plans(Query(query): Query<PlansQuery>) -> impl IntoResponse {
-    let dir = query.dir.map(std::path::PathBuf::from).unwrap_or_else(crate::plans_dir);
+    let dir = query
+        .dir
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(crate::plans_dir);
     let entries: Vec<serde_json::Value> = bench_core::plan::load_dir(&dir)
         .into_iter()
         .map(|(name, result)| match result {
@@ -110,14 +124,38 @@ struct LogQuery {
 }
 
 /// Log lines from a cursor, so a follower resumes without re-reading.
-async fn log(State(shared): State<Arc<Shared>>, Query(query): Query<LogQuery>) -> impl IntoResponse {
+async fn log(
+    State(shared): State<Arc<Shared>>,
+    Query(query): Query<LogQuery>,
+) -> impl IntoResponse {
     let lines = shared.log.lock().unwrap();
     let tail: Vec<&serde_json::Value> = lines
         .iter()
         .filter(|line| line["seq"].as_u64().unwrap_or(0) >= query.from)
         .collect();
-    let next = lines.last().and_then(|line| line["seq"].as_u64()).map(|s| s + 1).unwrap_or(query.from);
+    let next = lines
+        .last()
+        .and_then(|line| line["seq"].as_u64())
+        .map(|s| s + 1)
+        .unwrap_or(query.from);
     Json(serde_json::json!({ "from": query.from, "next": next, "lines": tail }))
+}
+
+async fn telemetry(
+    State(shared): State<Arc<Shared>>,
+    Query(query): Query<LogQuery>,
+) -> impl IntoResponse {
+    let samples = shared.telemetry.lock().unwrap();
+    let tail: Vec<&serde_json::Value> = samples
+        .iter()
+        .filter(|sample| sample["seq"].as_u64().unwrap_or(0) >= query.from)
+        .collect();
+    let next = samples
+        .last()
+        .and_then(|sample| sample["seq"].as_u64())
+        .map(|seq| seq + 1)
+        .unwrap_or(query.from);
+    Json(serde_json::json!({ "from": query.from, "next": next, "samples": tail }))
 }
 
 #[derive(serde::Deserialize)]
@@ -128,6 +166,9 @@ struct RunBody {
     /// Or a plan inline, as JSON.
     #[serde(default)]
     inline: Option<bench_core::plan::Plan>,
+    /// Communication lane used by this run. Omitted preserves the current active lane.
+    #[serde(default)]
+    channel: Option<Channel>,
 }
 
 async fn run(State(shared): State<Arc<Shared>>, Json(body): Json<RunBody>) -> impl IntoResponse {
@@ -145,15 +186,23 @@ async fn run(State(shared): State<Arc<Shared>>, Json(body): Json<RunBody>) -> im
             .into_response();
     }
 
-    let plan = match (body.inline, body.plan) {
+    let RunBody {
+        plan: plan_name,
+        inline,
+        channel,
+    } = body;
+    let plan = match (inline, plan_name) {
         (Some(plan), _) => plan,
         (None, Some(name)) => {
             let path = crate::plans_dir().join(format!("{name}.toml"));
             match bench_core::plan::load(&path) {
                 Ok(plan) => plan,
                 Err(error) => {
-                    return (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": error })))
-                        .into_response()
+                    return (
+                        StatusCode::BAD_REQUEST,
+                        Json(serde_json::json!({ "error": error })),
+                    )
+                        .into_response();
                 }
             }
         }
@@ -162,15 +211,25 @@ async fn run(State(shared): State<Arc<Shared>>, Json(body): Json<RunBody>) -> im
                 StatusCode::BAD_REQUEST,
                 Json(serde_json::json!({ "error": "give either `plan` or `inline`" })),
             )
-                .into_response()
+                .into_response();
         }
     };
 
     let name = plan.name.clone();
     *shared.last_start_error.lock().unwrap() = None;
-    shared.push(Request::Run { plan: Box::new(plan), origin: Origin::Agent });
+    if let Some(channel) = channel {
+        shared.push(Request::SelectChannel(channel));
+    }
+    shared.push(Request::Run {
+        plan: Box::new(plan),
+        origin: Origin::Agent,
+    });
 
-    (StatusCode::ACCEPTED, Json(serde_json::json!({ "accepted": true, "plan": name }))).into_response()
+    (
+        StatusCode::ACCEPTED,
+        Json(serde_json::json!({ "accepted": true, "plan": name })),
+    )
+        .into_response()
 }
 
 async fn abort(State(shared): State<Arc<Shared>>) -> impl IntoResponse {
@@ -183,19 +242,70 @@ async fn abort(State(shared): State<Arc<Shared>>) -> impl IntoResponse {
 #[derive(serde::Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case")]
 enum CommandBody {
-    Connect { kind: String, endpoint: String },
-    Disconnect,
-    Identify,
-    Poll,
-    Escape,
-    Home { axis: bench_core::dut::Axis },
-    Unjam { axis: bench_core::dut::Axis },
+    Connect {
+        kind: String,
+        endpoint: String,
+    },
+    Disconnect {
+        #[serde(default)]
+        channel: Option<Channel>,
+    },
+    Identify {
+        #[serde(default)]
+        channel: Option<Channel>,
+    },
+    Poll {
+        #[serde(default)]
+        channel: Option<Channel>,
+    },
+    DiscoverRs485,
+    SelectRs485Target {
+        target: i8,
+    },
+    Escape {
+        #[serde(default)]
+        channel: Option<Channel>,
+    },
+    Home {
+        axis: bench_core::dut::Axis,
+        #[serde(default)]
+        channel: Option<Channel>,
+    },
+    Unjam {
+        axis: bench_core::dut::Axis,
+        #[serde(default)]
+        channel: Option<Channel>,
+    },
+    Move {
+        axis: bench_core::dut::Axis,
+        usteps: i32,
+        #[serde(default)]
+        profile: Option<MotionProfile>,
+        #[serde(default)]
+        channel: Option<Channel>,
+    },
+    MoveAxes {
+        a: i32,
+        b: i32,
+        #[serde(default)]
+        channel: Option<Channel>,
+    },
+    Flash,
+    ReadDevice,
+    RescanFirmware,
     /// Soft-reset the module. The startup routine then runs from a genuine power-on state,
     /// which is the only way to exercise the cold/default path more than once per session --
     /// every home after the first reuses the axis's cached calibration.
-    Reboot,
+    Reboot {
+        #[serde(default)]
+        channel: Option<Channel>,
+    },
     /// Set the shared optical comparator threshold. One DAC feeds both axes, so no axis here.
-    SetHomeThreshold { value: i32 },
+    SetHomeThreshold {
+        value: i32,
+        #[serde(default)]
+        channel: Option<Channel>,
+    },
     /// One revolution at a fixed settled threshold, reporting every comparator transition.
     ///
     /// Exposed on the command route rather than only inside a plan because choosing a threshold
@@ -206,10 +316,15 @@ enum CommandBody {
         threshold: u8,
         #[serde(default)]
         speed: Option<i32>,
+        #[serde(default)]
+        channel: Option<Channel>,
     },
 }
 
-async fn command(State(shared): State<Arc<Shared>>, Json(body): Json<CommandBody>) -> impl IntoResponse {
+async fn command(
+    State(shared): State<Arc<Shared>>,
+    Json(body): Json<CommandBody>,
+) -> impl IntoResponse {
     let request = match body {
         CommandBody::Connect { kind, endpoint } => {
             let Some(kind) = kind_from_name(&kind) else {
@@ -221,20 +336,61 @@ async fn command(State(shared): State<Arc<Shared>>, Json(body): Json<CommandBody
             };
             Request::Connect { kind, endpoint }
         }
-        CommandBody::Disconnect => Request::Disconnect,
-        CommandBody::Identify => Request::Submit(Op::Identify),
-        CommandBody::Poll => Request::Submit(Op::Poll),
-        CommandBody::Escape => Request::Submit(Op::Escape),
-        CommandBody::Home { axis } => Request::Submit(Op::Home { axis }),
-        CommandBody::Unjam { axis } => Request::Submit(Op::Unjam { axis }),
-        CommandBody::Reboot => Request::Submit(Op::Reboot),
-        CommandBody::SetHomeThreshold { value } => Request::Submit(Op::SetHomeThreshold { value }),
-        CommandBody::Census { axis, threshold, speed } => {
-            Request::Submit(Op::Census { axis, threshold, speed })
+        CommandBody::Disconnect {
+            channel: Some(channel),
+        } => Request::DisconnectChannel(channel),
+        CommandBody::Disconnect { channel: None } => Request::Disconnect,
+        CommandBody::DiscoverRs485 => Request::DiscoverRs485,
+        CommandBody::SelectRs485Target { target } => Request::SelectRs485Target(target),
+        CommandBody::Identify { channel } => routed(channel, Op::Identify),
+        CommandBody::Poll { channel } => routed(channel, Op::Poll),
+        CommandBody::Escape { channel } => routed(channel, Op::Escape),
+        CommandBody::Home { axis, channel } => routed(channel, Op::Home { axis }),
+        CommandBody::Unjam { axis, channel } => routed(channel, Op::Unjam { axis }),
+        CommandBody::Move {
+            axis,
+            usteps,
+            profile,
+            channel,
+        } => routed(
+            channel,
+            Op::MoveTo {
+                axis,
+                usteps,
+                profile,
+            },
+        ),
+        CommandBody::MoveAxes { a, b, channel } => routed(channel, Op::MoveAxes { a, b }),
+        CommandBody::Flash => Request::FlashNow,
+        CommandBody::ReadDevice => Request::ReadDevice,
+        CommandBody::RescanFirmware => Request::RescanFirmware,
+        CommandBody::Reboot { channel } => routed(channel, Op::Reboot),
+        CommandBody::SetHomeThreshold { value, channel } => {
+            routed(channel, Op::SetHomeThreshold { value })
         }
+        CommandBody::Census {
+            axis,
+            threshold,
+            speed,
+            channel,
+        } => routed(
+            channel,
+            Op::Census {
+                axis,
+                threshold,
+                speed,
+            },
+        ),
     };
     shared.push(request);
     Json(serde_json::json!({ "accepted": true })).into_response()
+}
+
+fn routed(channel: Option<Channel>, op: Op) -> Request {
+    match channel {
+        Some(channel) => Request::SubmitTo { channel, op },
+        None => Request::Submit(op),
+    }
 }
 
 fn kind_from_name(name: &str) -> Option<bench_core::transport::LinkKind> {
@@ -259,7 +415,10 @@ mod tests {
             if *name == "none" {
                 continue;
             }
-            assert!(kind_from_name(name).is_some(), "`{name}` is declared but not accepted by the API");
+            assert!(
+                kind_from_name(name).is_some(),
+                "`{name}` is declared but not accepted by the API"
+            );
         }
     }
 
@@ -270,7 +429,13 @@ mod tests {
             "op": "home", "axis": "a"
         }))
         .unwrap();
-        assert!(matches!(body, CommandBody::Home { axis: bench_core::dut::Axis::A }));
+        assert!(matches!(
+            body,
+            CommandBody::Home {
+                axis: bench_core::dut::Axis::A,
+                channel: None
+            }
+        ));
 
         let body: CommandBody = serde_json::from_value(serde_json::json!({
             "op": "connect", "kind": "vcp", "endpoint": "COM3"

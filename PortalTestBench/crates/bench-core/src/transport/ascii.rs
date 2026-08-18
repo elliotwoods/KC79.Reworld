@@ -63,7 +63,10 @@ pub fn parse_line(line: &str) -> Option<Vec<LinkEvent>> {
         // Parsed from the raw line rather than the trimmed fields: a log message is prose, and
         // splitting it on commas and rejoining loses the spaces after them.
         'L' => Some(vec![parse_log(line)]),
-        _ => Some(vec![LinkEvent::Token { kind: kind_char, fields }]),
+        _ => Some(vec![LinkEvent::Token {
+            kind: kind_char,
+            fields,
+        }]),
     }
 }
 
@@ -78,7 +81,9 @@ fn parse_banner(rest: &str, whole: &str) -> LinkEvent {
     let mut ratio = GearRatio::Unknown;
 
     for token in rest.split_whitespace() {
-        let Some((key, value)) = token.split_once('=') else { continue };
+        let Some((key, value)) = token.split_once('=') else {
+            continue;
+        };
         match key {
             "usteps_per_rev" => usteps_per_rev = value.parse::<i32>().ok(),
             "gear_ratio" => {
@@ -116,15 +121,24 @@ fn parse_status(fields: &[String], whole: &str) -> Vec<LinkEvent> {
     let mut events = Vec::with_capacity(4);
 
     if let Some(ms) = number(0) {
-        events.push(LinkEvent::Uptime { seconds: (ms / 1000) as i32 });
+        events.push(LinkEvent::Uptime {
+            seconds: (ms / 1000) as i32,
+        });
     }
     if let (Some(active), Some(threshold)) = (flag(1), number(2)) {
-        events.push(LinkEvent::Sensor { active, threshold: threshold as i32 });
+        events.push(LinkEvent::Sensor {
+            active,
+            threshold: threshold as i32,
+        });
     }
     if let Some(position) = number(3) {
         // The bench firmware reports where the axis *is*; it has no notion of a commanded
         // target, so `target` stays `None` rather than being faked equal to the position.
-        events.push(LinkEvent::Position { axis: BENCH_AXIS, position: position as i32, target: None });
+        events.push(LinkEvent::Position {
+            axis: BENCH_AXIS,
+            position: position as i32,
+            target: None,
+        });
     }
     if let Some(true) = flag(7) {
         events.push(LinkEvent::Fault("motor driver reports a fault".into()));
@@ -165,17 +179,23 @@ pub fn render_op(op: &crate::transport::Op) -> Option<String> {
         Op::Poll | Op::PollPosition => "P".to_string(),
         // `O` is the fast home + backlash routine -- the production-candidate one, and the
         // only homing worth measuring on this rig.
-        Op::Home { .. } => "O".to_string(),
+        Op::Home { axis } if *axis == BENCH_AXIS => "O".to_string(),
+        Op::Home { .. } => return None,
         Op::SetHomeThreshold { value } => format!("T,{value}"),
         // `N [T] [vmax] [accel] [M]` -- the census this whole threshold rule was derived from.
         // The bench rig wires one axis only (`BENCH_AXIS`), so a census naming the other one is
         // refused rather than silently redirected.
-        Op::Census { axis, threshold, speed } if *axis == BENCH_AXIS => match speed {
+        Op::Census {
+            axis,
+            threshold,
+            speed,
+        } if *axis == BENCH_AXIS => match speed {
             Some(speed) => format!("N,{threshold},{speed}"),
             None => format!("N,{threshold}"),
         },
         Op::Census { .. } => return None,
-        Op::MoveTo { usteps, .. } => format!("G,{usteps}"),
+        Op::MoveTo { axis, usteps, .. } if *axis == BENCH_AXIS => format!("G,{usteps}"),
+        Op::MoveTo { .. } | Op::MoveAxes { .. } | Op::SetMotionProfile { .. } => return None,
         Op::Escape => "X".to_string(),
         Op::SetMicrostep { resolution } => format!("U,{resolution}"),
         // The bench build has no unjam, no per-axis calibrate, no backlash-only routine (`O`
@@ -194,9 +214,15 @@ mod tests {
 
     #[test]
     fn banner_carries_the_measured_gearing() {
-        let events = parse_line("# usteps_per_rev=189704 default_threshold=220 gear_ratio=32").unwrap();
+        let events =
+            parse_line("# usteps_per_rev=189704 default_threshold=220 gear_ratio=32").unwrap();
         match &events[0] {
-            LinkEvent::Identified { firmware, ratio, usteps_per_rev, .. } => {
+            LinkEvent::Identified {
+                firmware,
+                ratio,
+                usteps_per_rev,
+                ..
+            } => {
                 assert_eq!(*firmware, FirmwareKind::Bench);
                 assert_eq!(*ratio, GearRatio::R32);
                 assert_eq!(*usteps_per_rev, Some(189_704));
@@ -209,9 +235,14 @@ mod tests {
     /// adopt the new figure. 92,252 is measured; the nominal 94,852 is 2.8% wrong.
     #[test]
     fn a_reprinted_banner_reports_the_16_to_1_gearing() {
-        let events = parse_line("# usteps_per_rev=92252 default_threshold=230 gear_ratio=16").unwrap();
+        let events =
+            parse_line("# usteps_per_rev=92252 default_threshold=230 gear_ratio=16").unwrap();
         match &events[0] {
-            LinkEvent::Identified { ratio, usteps_per_rev, .. } => {
+            LinkEvent::Identified {
+                ratio,
+                usteps_per_rev,
+                ..
+            } => {
                 assert_eq!(*ratio, GearRatio::R16);
                 assert_eq!(*usteps_per_rev, Some(92_252));
             }
@@ -224,7 +255,10 @@ mod tests {
         // millis, sensorActive, threshold, pos, deg*10, running, enabled, fault, homed
         let events = parse_line("S,125000,1,246,47426,900,0,1,0,1").unwrap();
         assert!(events.contains(&LinkEvent::Uptime { seconds: 125 }));
-        assert!(events.contains(&LinkEvent::Sensor { active: true, threshold: 246 }));
+        assert!(events.contains(&LinkEvent::Sensor {
+            active: true,
+            threshold: 246
+        }));
         assert!(events.contains(&LinkEvent::Position {
             axis: BENCH_AXIS,
             position: 47_426,
@@ -300,7 +334,10 @@ mod tests {
     fn ops_the_bench_dialect_cannot_express_are_refused_rather_than_approximated() {
         use crate::transport::Op;
         assert_eq!(render_op(&Op::Home { axis: Axis::A }).as_deref(), Some("O"));
-        assert_eq!(render_op(&Op::SetHomeThreshold { value: 246 }).as_deref(), Some("T,246"));
+        assert_eq!(
+            render_op(&Op::SetHomeThreshold { value: 246 }).as_deref(),
+            Some("T,246")
+        );
         assert_eq!(render_op(&Op::Escape).as_deref(), Some("X"));
         // There is no unjam on this build. Silently sending something else would move the
         // motor in a way the operator did not ask for.
