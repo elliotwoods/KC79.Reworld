@@ -108,7 +108,17 @@ Both axes share a single DRV8825-compatible driver IC for sleep, microstep resol
 
 ### Home / Limit Switches
 
-Active-low inputs (switch pulls to GND). No pull-up resistors configured in code (bare INPUT mode — relies on external pull-ups or driver IC internal pull-ups on the connector).
+Two hardware variants share this connector, selected by which `Modules::HomeSwitch`
+implementation is compiled in (`src/Modules/HomeSwitch.h`'s typedef, driven by the
+`HOME_SWITCH_LEGACY` build flag — see `platformio.ini`'s `application_bank_optical` /
+`application_bank_mechanical` envs). **They use PC15 completely differently** — this
+table was mechanical-only and wrong for the optical build (the production default)
+until it was corrected here.
+
+**Mechanical (rev-1 PCB, `HomeSwitchMechanical`, `-D HOME_SWITCH_LEGACY`):** active-low
+digital inputs (switch pulls to GND), two independent switches per axis. No pull-up
+resistors configured in code (bare INPUT mode — relies on external pull-ups or driver IC
+internal pull-ups on the connector).
 
 | Pin  | Mode   | Project Use             | Active Peripheral | Notes                                                |
 |------|--------|-------------------------|-------------------|------------------------------------------------------|
@@ -116,6 +126,20 @@ Active-low inputs (switch pulls to GND). No pull-up resistors configured in code
 | PC13 | INPUT  | Home Switch A Forwards  | GPIO              | Limited alternate functions on PC13 on this MCU.                    |
 | PC14 | INPUT  | Home Switch B Backwards | GPIO              | OSC32_IN — using this disables any LSE/RTC crystal   |
 | PC15 | INPUT  | Home Switch B Forwards  | GPIO              | OSC32_OUT — using this disables any LSE/RTC crystal  |
+
+**Optical (production default, `HomeSwitchOptical`):** a reflective IR sensor +
+comparator front-end, active-high, **one sensor pin per axis** rather than two
+independent switches — `getForwardsActive()`/`getBackwardsActive()` both read the same
+pin. The comparator's threshold is a **software-PWM DAC on PC15, shared by both axes**
+(one signal feeds both comparators — a TIM6 ISR toggles it, RC-filtered externally to a
+clean DC level; runtime-tunable via the `homeThreshold` msgpack key, `#ifndef
+HOME_SWITCH_LEGACY`-gated in `App.cpp`). PC7 is unused in this variant.
+
+| Pin  | Mode              | Project Use                           | Active Peripheral | Notes                                                            |
+|------|-------------------|----------------------------------------|--------------------|-------------------------------------------------------------------|
+| PC13 | INPUT             | Home Sensor A (forwards == backwards) | GPIO (comparator output, push-pull, no pull-up needed) | Limited alternate functions on PC13 on this MCU. |
+| PC14 | INPUT             | Home Sensor B (forwards == backwards) | GPIO (comparator output) | OSC32_IN — using this disables any LSE/RTC crystal   |
+| PC15 | OUTPUT (soft PWM) | Shared comparator threshold DAC (both axes) | GPIO, toggled by TIM6 ISR at ~80 Hz x 256 steps | OSC32_OUT — using this disables any LSE/RTC crystal; externally RC-filtered (100 kOhm/1 uF, ~1.6 Hz corner) to DC |
 
 ---
 

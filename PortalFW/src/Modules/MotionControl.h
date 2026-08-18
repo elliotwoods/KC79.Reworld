@@ -36,7 +36,10 @@
 
 namespace Modules {
 	class Routines;
-	
+#ifndef HOME_SWITCH_LEGACY
+	struct FastHomeParams; // defined in MotionControl.cpp, alongside fastHomeRoutine
+#endif
+
 	class MotionControl : public Base {
 	public:
 		struct MotionProfile {
@@ -135,6 +138,12 @@ namespace Modules {
 		Exception measureBacklashRoutine(const MeasureRoutineSettings&);
 		Exception homeRoutine(const MeasureRoutineSettings&);
 		Exception measureCycleRoutine(const MeasureRoutineSettings&);
+#ifndef HOME_SWITCH_LEGACY
+		// Self-calibrating optical home: replaces measureBacklashRoutine + homeRoutine for
+		// the optical switch in one pass. See HomeSwitchTest/portalfw_port/PORTING.md and
+		// HomeSwitchTest/reports/newring/HOME_ROUTINE_DESIGN.md for the bench provenance.
+		Exception fastHomeRoutine(const MeasureRoutineSettings&);
+#endif
 
 		void reportStatus(msgpack::Serializer&) override;
 
@@ -231,13 +240,40 @@ namespace Modules {
 			bool invertSwitches = false;
 			SwitchesSeen switchesSeen; // written in interrupt. read/cleared in updateStepCount
 			Steps stepCount = 0;
+
+			// Consecutive-sample debounce run counters for the switch latch, reset whenever
+			// the raw reading drops out of the wanted state. See enableInterrupt().
+			volatile uint16_t fwRun = 0;
+			volatile uint16_t bwRun = 0;
 		} inInterrupt;
 
 		FrameSwitchEvents frameSwitchEvents;
 
 		bool interruptEnabled = false;
 		MotionState currentMotionState;
-		
+
 		HealthStatus healthStatus;
+
+		// Debounce window (µstep samples of agreement) for the switch latch in
+		// enableInterrupt(). 1 = the original one-shot latch (unchanged behaviour for
+		// HOME_SWITCH_LEGACY, which never touches this); fastHomeRoutine raises it for the
+		// optical build's shallower, noisier dip flanks.
+		volatile uint16_t switchLatchDebounce = 1;
+
+#ifndef HOME_SWITCH_LEGACY
+		// Cached optical calibration, warm-reused across fastHomeRoutine calls until a
+		// failure or a >25% width drift clears it (0 = not calibrated -- forces a cold,
+		// self-calibrating run). opticalWidthCached is the flag width measured AT
+		// opticalThresholdCached (W_cal in HOME_ROUTINE_DESIGN.md), used to derive
+		// width-relative gates so they auto-scale to whatever ring is actually attached.
+		int16_t opticalThresholdCached = 0;
+		Steps opticalWidthCached = 0;
+
+		// Motor generation (32:1 original vs 16:1 2026 module), auto-detected by
+		// fastHomeRoutine on the first cold run each power-up from measured lead-to-lead
+		// revolution distance -- RAM only, not persisted.
+		const FastHomeParams * fastHomeParams = nullptr;
+		bool fastHomeRatioConfirmed = false;
+#endif
 	};
 }

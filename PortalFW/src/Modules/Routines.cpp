@@ -153,6 +153,45 @@ namespace Modules {
 		return Exception::None();
 	}
 
+#ifndef HOME_SWITCH_LEGACY
+	//----------
+	// One axis's share of Routines::calibrate() for the optical switch: fastHomeRoutine
+	// replaces the measureBacklashRoutine+homeRoutine pair in a single self-calibrating pass,
+	// retried up to settings.tryCount times (a failure clears fastHomeRoutine's threshold
+	// cache, so each retry after the first recalibrates cold rather than repeating whatever
+	// went wrong).
+	//
+	// A cold run's datum can sit up to ~0.2 deg off the warm one -- the calibration probing
+	// perturbs the thermo-optical profile right before the precise pass (see
+	// HomeSwitchTest/portalfw_port/PORTING.md item 7). So after a run that started cold
+	// (opticalThresholdCached was 0 coming in), run once more immediately: the second run is
+	// warm and its datum is the one to keep.
+	Exception
+	Routines::calibrateAxisFastHome(MotionControl * motionControl
+		, const MotionControl::MeasureRoutineSettings & settings)
+	{
+		const bool wasCold = motionControl->opticalThresholdCached == 0;
+		Exception exception = Exception::None();
+		for(uint8_t i = 0; i < settings.tryCount; i++) {
+			exception = motionControl->fastHomeRoutine(settings);
+			if(!exception) {
+				break;
+			}
+			log(exception);
+		}
+		if(exception) {
+			return exception;
+		}
+		if(wasCold) {
+			exception = motionControl->fastHomeRoutine(settings);
+			if(exception) {
+				log(exception);
+			}
+		}
+		return exception;
+	}
+#endif
+
 	//----------
 	Exception
 	Routines::calibrate(const MotionControl::MeasureRoutineSettings & settings)
@@ -168,6 +207,21 @@ namespace Modules {
 
 		bool failedAnywhere = false;
 
+#ifndef HOME_SWITCH_LEGACY
+		if(this->calibrateAxisFastHome(app->motionControlA, settings)) {
+			if(settings.stopAllRoutinesIfOneFails) {
+				return Exception(moduleName, "Fail on fastHome A");
+			}
+			failedAnywhere = true;
+		}
+
+		if(this->calibrateAxisFastHome(app->motionControlB, settings)) {
+			if(settings.stopAllRoutinesIfOneFails) {
+				return Exception(moduleName, "Fail on fastHome B");
+			}
+			failedAnywhere = true;
+		}
+#else
 		if(app->motionControlA->measureBacklashRoutine(settings).report()) {
 			if(settings.stopAllRoutinesIfOneFails) {
 				return Exception(moduleName, "Fail on measure backlash A");
@@ -193,11 +247,12 @@ namespace Modules {
 			}
 			failedAnywhere = true;
 		}
+#endif
 
 		if(failedAnywhere) {
 			return Exception(moduleName, "Fail");
 		}
-		
+
 		log(LogLevel::Status, moduleName, "end");
 		return Exception::None();
 	}

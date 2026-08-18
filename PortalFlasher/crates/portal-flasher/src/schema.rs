@@ -556,7 +556,7 @@ pub fn declare(builder: &mut SchemaBuilder, simulated: bool) -> Result<(), Strin
         ("/image/boot_sha", "Bootloader SHA-256"),
         ("/image/app_sha", "Application SHA-256"),
         // What is missing and how to produce it. A fresh clone has never built PortalFW, and
-        // "run `pio run -e application_bank`" is more use than an empty list.
+        // "run `pio run -e application_bank_optical`" is more use than an empty list.
         ("/image/hint", "Hint"),
         // Whether this image can be *proved* to run after it is flashed. Absent is a legitimate
         // state, not a fault -- but the operator should learn it before arming auto-flash, not

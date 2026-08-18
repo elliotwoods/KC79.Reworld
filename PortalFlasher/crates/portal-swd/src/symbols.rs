@@ -345,7 +345,7 @@ mod tests {
     #[test]
     fn the_real_portalfw_build_resolves_if_it_has_been_built() {
         let elf = crate::artefacts::repo_root()
-            .join("PortalFW/.pio/build/application_bank/firmware.elf");
+            .join("PortalFW/.pio/build/application_bank_optical/firmware.elf");
         if !elf.is_file() {
             eprintln!("skipping: PortalFW has not been built here");
             return;

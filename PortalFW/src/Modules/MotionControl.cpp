@@ -240,17 +240,44 @@ namespace Modules {
 			this->inInterrupt.stepCount++;
 
 			if(this->switchesArmed) {
+				// Debounced over switchLatchDebounce consecutive µstep samples in the wanted
+				// state, not a one-shot latch: the optical sensor's dip flanks are shallow
+				// enough that comparator noise alone can dither the edge and latch a phantom
+				// micro-flag (see HomeSwitchTest bench notes / PORTING.md). The reported
+				// position is the FIRST sample of the confirmed run (subtract M-1 pulses,
+				// clamped at 0 for a run that started within the first M pulses of this
+				// frame) so both edges bias "late" by the same amount and the midpoint datum
+				// stays clean. switchLatchDebounce stays 1 for HOME_SWITCH_LEGACY (mechanical
+				// switch) builds, which makes this identical to the original one-shot latch:
+				// with M=1, the run threshold fires on the very first matching sample and the
+				// position offset is stepCount - 0.
 				if(!switchesSeen.forwards.seen) {
 					if (this->homeSwitch.getForwardsActive() ^ this->inInterrupt.invertSwitches) {
-						switchesSeen.forwards.seen = true;
-						switchesSeen.forwards.stepCountFirstSeen = this->inInterrupt.stepCount;
+						if(++this->inInterrupt.fwRun >= this->switchLatchDebounce) {
+							switchesSeen.forwards.seen = true;
+							Steps debounceOffset = (Steps)(this->switchLatchDebounce - 1);
+							switchesSeen.forwards.stepCountFirstSeen =
+								this->inInterrupt.stepCount > debounceOffset
+									? this->inInterrupt.stepCount - debounceOffset
+									: 0;
+						}
+					} else {
+						this->inInterrupt.fwRun = 0;
 					}
 				}
 
 				if(!switchesSeen.backwards.seen) {
 					if (this->homeSwitch.getBackwardsActive() ^ this->inInterrupt.invertSwitches) {
-						switchesSeen.backwards.seen = true;
-						switchesSeen.backwards.stepCountFirstSeen = this->inInterrupt.stepCount;
+						if(++this->inInterrupt.bwRun >= this->switchLatchDebounce) {
+							switchesSeen.backwards.seen = true;
+							Steps debounceOffset = (Steps)(this->switchLatchDebounce - 1);
+							switchesSeen.backwards.stepCountFirstSeen =
+								this->inInterrupt.stepCount > debounceOffset
+									? this->inInterrupt.stepCount - debounceOffset
+									: 0;
+						}
+					} else {
+						this->inInterrupt.bwRun = 0;
 					}
 				}
 			}
@@ -353,7 +380,20 @@ namespace Modules {
 	{
 		auto microstepsPerStep = this->motorDriverSettings.getMicrostepsPerStep();
 
-		return (MOTION_STEPS_PER_PRISM_ROTATION) * microstepsPerStep;
+		// MOTION_STEPS_PER_PRISM_ROTATION expands to 32*118*9759/296/21 in left-to-right
+		// integer math = 5928, but the exact ratio is 5928.247 full steps -- the truncated
+		// constant is 7.9 microsteps/rev short at 32 microsteps/step (bench-measured as a
+		// systematic shift after commanded full rotations; see HomeSwitchTest/portalfw_port
+		// /PORTING.md). Homing is self-referencing so it still zeros correctly regardless,
+		// but every position computed FROM this constant (multi-rev moves,
+		// getClosestHomePosition, degree readouts) accumulates the truncation error, so
+		// compute it as a single rounded rational instead of the compile-time macro.
+		const int64_t num = (int64_t) MOTION_STEPS_PER_MOTOR_ROTATION
+			* (int64_t) MOTION_GEAR_RING
+			* 9759LL
+			* (int64_t) microstepsPerStep;
+		const int64_t den = 296LL * (int64_t) MOTION_GEAR_DRIVE;
+		return (Steps)((num + den / 2) / den);
 	}
 
 	//----------
@@ -823,7 +863,12 @@ namespace Modules {
 		// We need to move
 
 		bool directionToTarget = this->targetPosition - position > 0;
-		StepsPerSecond maxDeltaV = this->motionProfile.acceleration * dt_us / 1000000;
+		// Cast through int64_t: at acceleration=100000 (the fast-home seek profile) this
+		// multiplication overflows a 32-bit int for any dt_us above ~21 ms and corrupts the
+		// ramp -- a real risk here since App::updateFromRoutine's blocking loops don't
+		// guarantee a tight frame period.
+		StepsPerSecond maxDeltaV = (StepsPerSecond)(
+			(int64_t) this->motionProfile.acceleration * (int64_t) dt_us / 1000000);
 
 		auto speed = this->currentMotionState.speed;
 
@@ -1793,4 +1838,500 @@ namespace Modules {
 		}
 		return result;
 	}
+
+#ifndef HOME_SWITCH_LEGACY
+	// fastHomeRoutine -- self-calibrating optical home
+	// =========================================================================================
+	// Replaces BOTH measureBacklashRoutine + homeRoutine for the optical switch in
+	// Routines::calibrate(): one pass produces the home centre, the switch size, and the
+	// backlash. Ported from HomeSwitchTest/portalfw_port/FastHomeRoutine.cpp (bench-validated
+	// 2026-07-10, 2,337/2,338-home overnight bake) with its threshold-calibration phase
+	// replaced by the band-centred design in
+	// HomeSwitchTest/reports/newring/HOME_ROUTINE_DESIGN.md, which is what's actually validated
+	// against the injection-moulded ring in production -- the old "T = background - margin"
+	// scheme is structurally inapplicable to it (the background never crosses at any threshold).
+	//
+	// Algorithm:
+	//   0 GUARD      three settled background probes ~120deg apart; T_cap = (max measured
+	//                crossing) - 3, or a hard dark-ring fallback if none of the three probes
+	//                found a crossing at all. Cold runs only.
+	//   1 SEEK       forward up to 1.25 rev at T_cap (cold) or the cached T_op (warm), with the
+	//                (debounced) switch latch armed. Background is inactive by construction, so
+	//                any span found is the flag.
+	//   1c DETECT    (ratio unconfirmed) continue to the NEXT leading edge; lead-to-lead
+	//                distance classifies the module as 32:1 or 16:1 and selects the matching
+	//                FastHomeParams. Until confirmed the seek runs at the SLOWER generation's
+	//                cruise speed -- the 16:1 motor stalls hard at the 32:1 cruise.
+	//   2 BAND       (cold only) step T down from T_cap in 2-count steps; at each step a LOCAL
+	//                two-edge re-scan (no full lap) measures the flag width. T_floor = lowest T
+	//                still giving a plausible width; T_shoulder = lowest T where width blows out
+	//                past the shoulder. Gate: band = (T_shoulder-1) - T_floor must be >= 6
+	//                counts ("insufficient optical contrast" otherwise).
+	//   3 OPERATE    (cold only) T_op = T_floor + round(0.55 * band); cache T_op and the width
+	//                measured there (W_cal). Every width-relative gate below is scaled from
+	//                W_cal, not an absolute constant -- this ring's flag is 130-190 microsteps,
+	//                an order of magnitude narrower than the 32:1 params were originally tuned
+	//                for.
+	//   4 PRECISE    FASTHOME_PASSES forward two-edge passes (averaged), each latching the
+	//                leading then trailing edge in the same engaged frame -- no backlash model
+	//                needed for the midpoint. A width outside the W_cal-relative gate here (on a
+	//                warm run in particular) is exactly the >25% drift that HOME_ROUTINE_DESIGN
+	//                .md says should force recalibration -- fail() clears the cache so the next
+	//                attempt runs cold.
+	//   5 BACKLASH   walk past the trailing edge, verify disengaged, reverse, latch re-entry:
+	//                backlash = trail - reenter.
+	//   6 APPLY      position -= home; park via a forward-engaged approach (same frame as the
+	//                edge pass).
+	//
+	// CALLER POLICY (Routines::calibrate): after a COLD run (threshold was not cached coming
+	// in), run this routine ONCE MORE immediately -- the second run is warm and its datum is the
+	// one to keep. A cold run's datum can sit up to ~114 microsteps (0.2 deg) off the warm one
+	// (the calibration probing perturbs the thermo-optical profile right before the precise
+	// pass); warm homes repeat to within a few microsteps.
+	//
+	// Deliberately simplified vs. the bench original (bench_main.cpp fastHome, command O): no
+	// false-feature reject/re-seek loop, no flank-blip retry, no telemetry streaming -- relies
+	// on the tryCount retry loop Routines::calibrate wraps this in instead. Lift those loops
+	// across (they are straight copies in the bench source) if field units show frequent gate
+	// failures.
+
+	// ---- per-generation constants (bench-frozen; see PORTING.md for provenance) -----------
+	struct FastHomeParams {
+		uint8_t                 ratio;          // output gear ratio (set name), logging only
+		StepsPerSecond          seekSpeed;      // forward seek cruise, >=20% below the stall cliff
+		StepsPerSecondPerSecond seekAccel;
+		StepsPerSecond          reposSpeed;     // datum-critical approach moves (slip here biases
+		                                        // the datum, unlike the coarse seek)
+		StepsPerSecond          edgeSpeed;      // precise pass; the datum depends on this value
+		uint16_t                coarseDebounceM; // debounce for the coarse seek/detect phases,
+		                                        // before the flag width (and so the calibrated
+		                                        // debounce) is known
+		Steps                   clearance;      // > backlash, room to arm
+		Steps                   takeup;         // overshoot-return, forward-engaged
+		Steps                   coarseWidthMax; // generation-scale estimate, used only to make
+		                                        // sure the flag has been exited (Phase 1c) --
+		                                        // NOT a precision gate
+		Steps                   backlashMax;
+		Steps                   ustepsPerRev;   // must match getMicrostepsPerPrismRotation()
+	};
+
+	// 32:1 (original modules). Rev = exact rational 32*118*9759*32/(296*21) rounded.
+	static const FastHomeParams FASTHOME_32 =
+		{ 32, 24000, 100000, 24000, 2000, 32, 5000, 2000, 4200, 3000, 189704 };
+	// 16:1 (2026 modules). Rev = 92,252 MEASURED (nominal half-rational 94,852 is 2.8% wrong).
+	// BACKWARD has a mid-band resonance that stalls the motor dead at a 5-6k cruise cold, so
+	// all datum-critical approaches run at 4k, below any band.
+	static const FastHomeParams FASTHOME_16 =
+		{ 16, 14000, 100000, 4000, 2000, 48, 2500, 1000, 2100, 1500, 92252 };
+
+	#define FASTHOME_T_CAP_DARK        253    // background guard fallback: no measurable background
+	#define FASTHOME_BG_GUARD_MARGIN   3      // T_cap = bg - 3 when the background IS measurable
+	#define FASTHOME_CAL_BRACKET_LO    140    // settled-probe bracket [lo..255]
+	#define FASTHOME_CAL_ITERS         5      // binary probes (resolution ~4 duty)
+	#define FASTHOME_CAL_SETTLE_MS     220    // per probe; threshold RC tau ~100 ms
+	#define FASTHOME_SETTLE_MS        300     // after a large DAC step
+	#define FASTHOME_BAND_STEP         2      // duty counts per band-scan step
+	#define FASTHOME_BAND_MIN          6      // minimum acceptable [T_floor..T_shoulder) band
+	#define FASTHOME_WIDTH_MIN_ABS     40     // W_MIN: minimum plausible flag width, microsteps
+	#define FASTHOME_SHOULDER_FACTOR   3.0f   // width > this * W_med => shoulder onset
+	#define FASTHOME_T_OP_FRACTION     0.55f  // T_op = T_floor + round(F * band)
+	#define FASTHOME_MAX_BAND_STEPS    32     // safety cap on the Phase 2 scan (~6 expected)
+	#define FASTHOME_DEBOUNCE_MIN      8
+	#define FASTHOME_DEBOUNCE_MAX      32
+	#define FASTHOME_PASSES            2      // bench-measured sweet spot; more passes let
+	                                          // thermal drift outpace averaging
+
+	// ---- helper: settled crossing probe at the current position ---------------------------
+	// Binary-search the comparator flip over [lo..255] with a real RC settle per probe (the
+	// threshold DAC is RC-filtered, tau ~100 ms -- fast sweeps read ~20+ duty high and MUST NOT
+	// be used to derive thresholds). Returns the crossing duty; -1 = stuck (railLo tells which
+	// rail); -2 = aborted. Leaves the DAC at the last probe -- caller restores it.
+	static int fastHomeSettledCrossingProbe(HomeSwitch& homeSwitch, bool& railLo, uint32_t timeoutTime)
+	{
+		auto settle = [&](uint8_t duty) -> bool {
+			HomeSwitch::setThreshold(duty);
+			uint32_t until = millis() + FASTHOME_CAL_SETTLE_MS;
+			while(millis() < until) {
+				if(App::updateFromRoutine()) return false;
+				if(millis() > timeoutTime) return false;
+				HAL_Delay(1);
+			}
+			return true;
+		};
+
+		railLo = false;
+		if(!settle(FASTHOME_CAL_BRACKET_LO)) return -2;
+		const bool atLo = homeSwitch.getForwardsActive();
+		if(!settle(255)) return -2;
+		const bool atHi = homeSwitch.getForwardsActive();
+		if(atLo == atHi) {
+			railLo = atLo;
+			return -1;
+		}
+		int lo = FASTHOME_CAL_BRACKET_LO, hi = 255;
+		for(int i = 0; i < FASTHOME_CAL_ITERS; i++) {
+			int mid = (lo + hi) / 2;
+			if(!settle((uint8_t) mid)) return -2;
+			if(homeSwitch.getForwardsActive() == atLo) lo = mid; else hi = mid;
+		}
+		return (lo + hi) / 2;
+	}
+
+	//----------
+	Exception
+	MotionControl::fastHomeRoutine(const MeasureRoutineSettings& settings)
+	{
+		const char * moduleName = this->getName();
+		this->stop();
+		if(!this->timer.hardwareTimer) {
+			return Exception(moduleName, "No hardware timer");
+		}
+
+		const auto microstepsPerStep = this->motorDriverSettings.getMicrostepsPerStep();
+		if(!this->fastHomeParams) {
+			this->fastHomeParams = &FASTHOME_32; // default guess until Phase 1c confirms
+		}
+		const FastHomeParams * p = this->fastHomeParams;
+		Steps lapBudget = p->ustepsPerRev + p->ustepsPerRev / 4;
+		const uint32_t timeoutTime = millis() + (uint32_t) settings.timeout_s * 1000U;
+		const MotionProfile normalProfile = this->getMotionProfile();
+
+		auto endRoutine = [this]() {
+			this->stop();
+			this->switchesArmed = false;
+			this->inInterrupt.invertSwitches = false;
+		};
+		// Every failure exit goes through here: clears the calibration cache (so the next
+		// attempt recalibrates cold), restores the default threshold and the caller's motion
+		// profile, and stops. Folding the profile restore in here (rather than repeating it
+		// before every `return fail(...)`) is deliberate -- that repetition is exactly the kind
+		// of thing that's easy to miss at one call site among a dozen.
+		auto fail = [&](const char * msg) -> Exception {
+			this->opticalThresholdCached = 0;
+			this->opticalWidthCached = 0;
+			HomeSwitch::setThreshold(HOMESWITCHOPTICAL_DEFAULT_THRESHOLD);
+			this->setMotionProfile(normalProfile);
+			endRoutine();
+			return Exception(moduleName, msg);
+		};
+
+		StepsPerSecond seekSpeed = p->seekSpeed;
+		if(!this->fastHomeRatioConfirmed) {
+			if(FASTHOME_16.seekSpeed < seekSpeed) seekSpeed = FASTHOME_16.seekSpeed;
+			if(FASTHOME_32.seekSpeed < seekSpeed) seekSpeed = FASTHOME_32.seekSpeed;
+		}
+		MotionProfile seekProfile;
+		seekProfile.maximumSpeed = seekSpeed;
+		seekProfile.acceleration = p->seekAccel;
+		seekProfile.minimumSpeed = 1000;
+		this->setMotionProfile(seekProfile);
+		this->switchLatchDebounce = p->coarseDebounceM;
+
+		const bool warm = (this->opticalThresholdCached > 0) && (this->opticalWidthCached > 0);
+		int T = warm ? this->opticalThresholdCached : 0;
+		Steps W_cal = warm ? this->opticalWidthCached : 0;
+
+		// ---- Phase 0: background guard (cold runs only) ------------------------------------
+		int T_cap = T; // warm: seek directly at the cached operating threshold
+		if(!warm) {
+			int maxBg = -1;
+			bool anyMeasured = false;
+			for(int i = 0; i < 3; i++) {
+				if(i > 0) {
+					auto r = this->routineMoveTo(this->getPosition() + p->ustepsPerRev / 3, timeoutTime);
+					if(r.exception) return fail("abort");
+				}
+				bool rail;
+				int c = fastHomeSettledCrossingProbe(this->homeSwitch, rail, timeoutTime);
+				if(c == -2) return fail("abort");
+				if(c >= 0) {
+					anyMeasured = true;
+					if(c > maxBg) maxBg = c;
+				}
+			}
+			T_cap = anyMeasured ? (maxBg - FASTHOME_BG_GUARD_MARGIN) : FASTHOME_T_CAP_DARK;
+			if(T_cap < 16) T_cap = 16;
+			if(T_cap > 255) T_cap = 255;
+		}
+		HomeSwitch::setThreshold((uint8_t) T_cap);
+		HAL_Delay(FASTHOME_SETTLE_MS);
+
+		// ---- Phase 1: seek a coarse leading edge --------------------------------------------
+		this->switchesArmed = true;
+		if(this->homeSwitch.getForwardsActive()) {
+			// Background should be inactive by construction at T_cap (cold) or T_op (warm; T_op
+			// is always <= the T_cap that would have been derived from the same background, see
+			// Phase 3). If it's active at rest here the world has moved since the threshold was
+			// set -- fail and let the caller's retry recalibrate cold, rather than the bench
+			// original's adaptive T-walk (see the simplification note above).
+			return fail("active at rest");
+		}
+		Steps coarseLead;
+		{
+			auto r = this->routineMoveToUntilSeeSwitch(this->getPosition() + lapBudget,
+				SwitchesMask{ true, false }, timeoutTime);
+			if(r.exception || !r.frameSwitchEvents.forwards.seen) {
+				return fail("flag not found");
+			}
+			coarseLead = r.frameSwitchEvents.forwards.positionSeen;
+		}
+
+		// ---- Phase 1c: motor generation detection (lead-to-lead = one revolution) -----------
+		if(!this->fastHomeRatioConfirmed) {
+			if(this->homeSwitch.getForwardsActive()) {
+				this->inInterrupt.invertSwitches = true;
+				this->updateStepsAndSwitches();
+				auto r = this->routineMoveToUntilSeeSwitch(
+					this->getPosition() + p->coarseWidthMax + p->takeup,
+					SwitchesMask{ true, false }, timeoutTime);
+				this->inInterrupt.invertSwitches = false;
+				if(r.exception || !r.frameSwitchEvents.forwards.seen) {
+					return fail("motor detect: stuck active");
+				}
+			}
+			auto r = this->routineMoveTo(this->getPosition() + p->takeup, timeoutTime);
+			if(r.exception) return fail(r.exception.getMessage().c_str());
+			r = this->routineMoveToUntilSeeSwitch(this->getPosition() + lapBudget,
+				SwitchesMask{ true, false }, timeoutTime);
+			if(r.exception || !r.frameSwitchEvents.forwards.seen) {
+				return fail("motor detect: flag not found");
+			}
+			const Steps lead2 = r.frameSwitchEvents.forwards.positionSeen;
+			const Steps measuredRev = lead2 - coarseLead;
+			const FastHomeParams * detected = nullptr;
+			for(const FastHomeParams * cand : { &FASTHOME_16, &FASTHOME_32 }) {
+				const Steps expect = cand->ustepsPerRev;
+				if(measuredRev > expect - expect / 10 && measuredRev < expect + expect / 10) {
+					detected = cand;
+				}
+			}
+			if(!detected) return fail("motor detect: rev out of range");
+			this->fastHomeParams = detected;
+			this->fastHomeRatioConfirmed = true;
+			p = detected;
+			lapBudget = p->ustepsPerRev + p->ustepsPerRev / 4;
+			this->switchLatchDebounce = p->coarseDebounceM;
+			seekProfile.maximumSpeed = p->seekSpeed;
+			seekProfile.acceleration = p->seekAccel;
+			this->setMotionProfile(seekProfile);
+			coarseLead = lead2;
+		}
+
+		// ---- Phase 2/3: band-centred threshold calibration (cold runs only) -----------------
+		// See HomeSwitchTest/reports/newring/HOME_ROUTINE_DESIGN.md. Replaces the old
+		// background-margin scheme, which has no inputs on a ring whose background never
+		// crosses at any threshold.
+		if(!warm) {
+			// Local width probe: jog to leadGuess - clearance, then latch lead+trail forward at
+			// edgeSpeed within a short, bounded local search. Returns width, or -1 if not found.
+			auto localWidthProbe = [&](Steps leadGuess) -> Steps {
+				auto r = this->routineMoveTo(leadGuess - p->clearance, timeoutTime);
+				if(r.exception) return -1;
+				uint32_t localDeadline = millis() + 3000;
+				if(localDeadline > timeoutTime) localDeadline = timeoutTime;
+				r = this->routineMoveToFindSwitch(true, p->edgeSpeed, SwitchesMask{ true, false }, localDeadline);
+				if(r.exception || !r.frameSwitchEvents.forwards.seen) return -1;
+				Steps lead = r.frameSwitchEvents.forwards.positionSeen;
+
+				this->inInterrupt.invertSwitches = true;
+				this->updateStepsAndSwitches();
+				localDeadline = millis() + 3000;
+				if(localDeadline > timeoutTime) localDeadline = timeoutTime;
+				r = this->routineMoveToFindSwitch(true, p->edgeSpeed, SwitchesMask{ true, false }, localDeadline);
+				this->inInterrupt.invertSwitches = false;
+				if(r.exception || !r.frameSwitchEvents.forwards.seen) return -1;
+				Steps trail = r.frameSwitchEvents.forwards.positionSeen;
+
+				return trail - lead;
+			};
+
+			struct BandSample { int T; Steps width; };
+			BandSample samples[FASTHOME_MAX_BAND_STEPS];
+			int sampleCount = 0;
+			int belowFloorStreak = 0;
+			int Tscan = T_cap;
+			while(sampleCount < FASTHOME_MAX_BAND_STEPS && Tscan >= 16) {
+				if(millis() > timeoutTime) return fail("timeout");
+				if(App::updateFromRoutine()) return fail("abort");
+				HomeSwitch::setThreshold((uint8_t) Tscan);
+				HAL_Delay(FASTHOME_CAL_SETTLE_MS);
+				Steps width = localWidthProbe(coarseLead);
+				if(width >= 0) {
+					samples[sampleCount++] = BandSample{ Tscan, width };
+					belowFloorStreak = (width < FASTHOME_WIDTH_MIN_ABS) ? belowFloorStreak + 1 : 0;
+				}
+				else {
+					belowFloorStreak++;
+				}
+				if(belowFloorStreak >= 2 && sampleCount > 0) break;
+				Tscan -= FASTHOME_BAND_STEP;
+			}
+			if(sampleCount == 0) return fail("band scan: flag not found at any threshold");
+
+			// Median width across found samples (insertion sort -- sampleCount is tiny).
+			Steps widths[FASTHOME_MAX_BAND_STEPS];
+			for(int i = 0; i < sampleCount; i++) widths[i] = samples[i].width;
+			for(int i = 1; i < sampleCount; i++) {
+				Steps v = widths[i];
+				int j = i - 1;
+				while(j >= 0 && widths[j] > v) { widths[j + 1] = widths[j]; j--; }
+				widths[j + 1] = v;
+			}
+			Steps W_med = widths[sampleCount / 2];
+			if(sampleCount % 2 == 0 && sampleCount > 1) {
+				W_med = (widths[sampleCount / 2 - 1] + widths[sampleCount / 2]) / 2;
+			}
+			if(W_med <= 0) return fail("band scan: degenerate width");
+
+			int T_floor = 256, T_shoulder = -1;
+			for(int i = 0; i < sampleCount; i++) {
+				if(samples[i].width >= FASTHOME_WIDTH_MIN_ABS && samples[i].T < T_floor) {
+					T_floor = samples[i].T;
+				}
+				if((float) samples[i].width > FASTHOME_SHOULDER_FACTOR * (float) W_med
+					&& (T_shoulder < 0 || samples[i].T < T_shoulder)) {
+					T_shoulder = samples[i].T;
+				}
+			}
+			if(T_floor > 255) return fail("band scan: no width above the floor");
+			// No shoulder observed within the scanned range: Phase 0 already put T_cap below
+			// the measured background, so the true shoulder is at or above T_cap by construction.
+			if(T_shoulder < 0) T_shoulder = T_cap + 1;
+
+			int band = (T_shoulder - 1) - T_floor;
+			if(band < FASTHOME_BAND_MIN) return fail("insufficient optical contrast");
+
+			int T_op = T_floor + (int) round(FASTHOME_T_OP_FRACTION * (float) band);
+			if(T_op < T_floor + 2) T_op = T_floor + 2;
+			if(T_op > T_shoulder - 2) T_op = T_shoulder - 2;
+
+			HomeSwitch::setThreshold((uint8_t) T_op);
+			HAL_Delay(FASTHOME_SETTLE_MS);
+			Steps W_atOp = localWidthProbe(coarseLead);
+			if(W_atOp < 0) return fail("operating point: flag not found");
+
+			T = T_op;
+			W_cal = W_atOp;
+		}
+
+		HomeSwitch::setThreshold((uint8_t) T);
+		HAL_Delay(FASTHOME_SETTLE_MS);
+		if(this->homeSwitch.getForwardsActive()) {
+			return fail("shoulder gate: active below lead");
+		}
+
+		// Width-relative gates and debounce, scaled from the calibrated flag width so they
+		// auto-scale to whatever ring is actually attached (HOME_ROUTINE_DESIGN.md).
+		Steps widthMin = (Steps)((float) W_cal * 0.65f);
+		Steps widthMax = (Steps)((float) W_cal * 1.35f);
+		uint16_t calibratedDebounce = (uint16_t)(W_cal / 8);
+		if(calibratedDebounce < FASTHOME_DEBOUNCE_MIN) calibratedDebounce = FASTHOME_DEBOUNCE_MIN;
+		if(calibratedDebounce > FASTHOME_DEBOUNCE_MAX) calibratedDebounce = FASTHOME_DEBOUNCE_MAX;
+		this->switchLatchDebounce = calibratedDebounce;
+
+		// ---- Phase 4: precise forward two-edge pass(es) -------------------------------------
+		MotionProfile reposProfile = seekProfile;
+		reposProfile.maximumSpeed = p->reposSpeed;
+		{
+			this->setMotionProfile(reposProfile);
+			auto r = this->routineMoveTo(coarseLead - p->clearance - p->takeup, timeoutTime);
+			if(!r.exception) r = this->routineMoveTo(coarseLead - p->clearance, timeoutTime);
+			this->setMotionProfile(seekProfile);
+			if(r.exception) return fail(r.exception.getMessage().c_str());
+		}
+		if(this->homeSwitch.getForwardsActive()) {
+			return fail("active at pass arming point");
+		}
+
+		Steps lead = 0, trail = 0;
+		Steps midSum = 0, widthSum = 0;
+		for(int pass = 0; pass < FASTHOME_PASSES; pass++) {
+			if(pass > 0) {
+				this->setMotionProfile(reposProfile);
+				auto r = this->routineMoveTo(coarseLead - p->clearance - p->takeup, timeoutTime);
+				if(!r.exception) r = this->routineMoveTo(coarseLead - p->clearance, timeoutTime);
+				this->setMotionProfile(seekProfile);
+				if(r.exception) return fail(r.exception.getMessage().c_str());
+				if(this->homeSwitch.getForwardsActive()) {
+					return fail("active at pass arming point");
+				}
+			}
+
+			auto r = this->routineMoveToFindSwitch(true, p->edgeSpeed, SwitchesMask{ true, false }, timeoutTime);
+			if(r.exception || !r.frameSwitchEvents.forwards.seen) {
+				return fail("leading edge");
+			}
+			lead = r.frameSwitchEvents.forwards.positionSeen;
+
+			this->inInterrupt.invertSwitches = true;
+			this->updateStepsAndSwitches();
+			r = this->routineMoveToFindSwitch(true, p->edgeSpeed, SwitchesMask{ true, false }, timeoutTime);
+			this->inInterrupt.invertSwitches = false;
+			if(r.exception || !r.frameSwitchEvents.forwards.seen) {
+				return fail("trailing edge");
+			}
+			trail = r.frameSwitchEvents.forwards.positionSeen;
+
+			if(trail - lead < widthMin || trail - lead > widthMax) {
+				// On a warm run this is exactly the >25% width-drift-from-W_cal recalibration
+				// trigger in HOME_ROUTINE_DESIGN.md -- fail() clears the cache, so the next
+				// attempt (the tryCount retry Routines::calibrate wraps this in) runs cold.
+				return fail("width gate");
+			}
+			midSum += (lead + trail) / 2;
+			widthSum += trail - lead;
+		}
+		const Steps width = (Steps)(widthSum / FASTHOME_PASSES);
+		const Steps home = (Steps)(midSum / FASTHOME_PASSES);
+
+		// ---- Phase 5: backlash at the trailing edge ------------------------------------------
+		this->backlashControl.systemBacklash = 0;
+		this->backlashControl.positionWithinBacklash = 0;
+		{
+			auto r = this->routineMoveTo(trail + settings.debounceDistance * microstepsPerStep, timeoutTime);
+			if(r.exception) return fail(r.exception.getMessage().c_str());
+		}
+		if(this->homeSwitch.getForwardsActive()) {
+			return fail("no disengage after trailing edge");
+		}
+		Steps reenter;
+		{
+			auto r = this->routineMoveToFindSwitch(false, p->edgeSpeed, SwitchesMask{ false, true }, timeoutTime);
+			if(r.exception || !r.frameSwitchEvents.backwards.seen) {
+				return fail("backlash re-entry");
+			}
+			reenter = r.frameSwitchEvents.backwards.positionSeen;
+		}
+		Steps backlash = trail - reenter;
+		if(backlash < -32 || backlash > p->backlashMax) {
+			return fail("backlash out of range");
+		}
+		if(backlash < 0) backlash = 0;
+
+		// ---- Phase 6: apply --------------------------------------------------------------------
+		{
+			this->setMotionProfile(reposProfile);
+			auto r = this->routineMoveTo(home - p->clearance - p->takeup, timeoutTime);
+			if(!r.exception) r = this->routineMoveTo(home - p->clearance, timeoutTime);
+			if(!r.exception) r = this->routineMoveTo(home, timeoutTime);
+			this->setMotionProfile(seekProfile);
+			if(r.exception) return fail(r.exception.getMessage().c_str());
+		}
+
+		this->backlashControl.systemBacklash = backlash;
+		this->backlashControl.positionWithinBacklash = 0;
+		this->homing.switchSize = width;
+		this->position -= home;
+		this->targetPosition = 0;
+		this->opticalThresholdCached = (int16_t) T;
+		this->opticalWidthCached = W_cal;
+		this->healthStatus.homeOK = true;
+		this->healthStatus.backlashOK = true;
+		this->healthStatus.switchesOK = true;
+
+		this->setMotionProfile(normalProfile);
+		endRoutine();
+		return Exception::None();
+	}
+#endif
 }

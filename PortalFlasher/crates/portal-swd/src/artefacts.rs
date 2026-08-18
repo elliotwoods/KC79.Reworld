@@ -1,10 +1,18 @@
 //! Finding the firmware this repository can actually flash.
 //!
-//! # Only `application_bank` is ever offered for the application
+//! # Two PCB revisions, both offered, neither auto-detected
 //!
-//! `PortalFW` builds three environments. `application_bank` links at `0x08006000` via
-//! `set_bank2.py`; `no_bootloader` and `debug_no_bootloader` link at `0x08000000`. The second two
-//! produce a binary that programs cleanly into the application slot, verifies cleanly, and never
+//! `PortalFW` builds two application environments, one per PCB revision in production:
+//! `application_bank_optical` (v6, the reflective-sensor home switch, default) and
+//! `application_bank_mechanical` (v4, rev-1 mechanical switches, `-D HOME_SWITCH_LEGACY`). Both
+//! link at `0x08006000` via `set_bank2.py` and are offered side by side, the same way a built
+//! bootloader and the committed reference are both offered — there is no hardware strap on the
+//! board that would let this module tell which revision is attached, so the operator picks by
+//! board type rather than the flasher guessing. [`Discovery::application`] still gives a default
+//! (optical) for the common case; it is a starting point, not a substitute for the choice.
+//!
+//! `no_bootloader` and `debug_no_bootloader` link at `0x08000000` instead of `0x08006000`. Either
+//! produces a binary that programs cleanly into the application slot, verifies cleanly, and never
 //! runs — the board on the bench during development turned out to be exactly that. So they are
 //! refused **by name here** and again **by reset vector** in [`ImageBundle::validate`]; one check
 //! is a policy and two are a guarantee.
@@ -86,10 +94,27 @@ pub struct Discovery {
 }
 
 impl Discovery {
+    /// A default application pick for the common case: the optical (v6, production-default)
+    /// build if it exists, otherwise whichever application variant is available. Never a
+    /// substitute for the operator's own board-type choice — see the module docs — the picker
+    /// offers every discovered application artefact regardless of what this returns.
     pub fn application(&self) -> Option<&Artefact> {
+        let apps = || {
+            self.found
+                .iter()
+                .filter(|a| a.region == RegionName::Application)
+        };
+        apps()
+            .find(|a| a.id == "portalfw:application_bank_optical")
+            .or_else(|| apps().next())
+    }
+
+    /// Every discovered application artefact, across both PCB variants — what the board-type
+    /// picker actually shows.
+    pub fn applications(&self) -> impl Iterator<Item = &Artefact> {
         self.found
             .iter()
-            .find(|a| a.region == RegionName::Application)
+            .filter(|a| a.region == RegionName::Application)
     }
 
     /// A built bootloader if there is one, otherwise the committed reference. Preferring the
@@ -130,25 +155,27 @@ pub fn discover_in(root: &Path) -> Discovery {
     let mut found = Vec::new();
     let mut missing = Vec::new();
 
-    // ---- the application
-    let app_dir = root.join("PortalFW/.pio/build/application_bank");
-    let app_bin = app_dir.join("firmware.bin");
-    match stat(&app_bin) {
-        Some((bytes, modified)) => found.push(Artefact {
-            id: "portalfw:application_bank".into(),
-            label: "PortalFW application".into(),
-            region: RegionName::Application,
-            origin: Origin::Built,
-            path: app_bin,
-            bytes,
-            modified,
-            elf: exists(app_dir.join("firmware.elf")),
-        }),
-        None => missing.push(Missing {
-            label: "PortalFW application".into(),
-            path: app_bin,
-            hint: "not built yet — run `pio run -e application_bank` in PortalFW".into(),
-        }),
+    // ---- the application: one entry per PCB revision, see the module docs
+    for (env, label) in APPLICATION_ENVS {
+        let app_dir = root.join("PortalFW/.pio/build").join(env);
+        let app_bin = app_dir.join("firmware.bin");
+        match stat(&app_bin) {
+            Some((bytes, modified)) => found.push(Artefact {
+                id: format!("portalfw:{env}"),
+                label: (*label).into(),
+                region: RegionName::Application,
+                origin: Origin::Built,
+                path: app_bin,
+                bytes,
+                modified,
+                elf: exists(app_dir.join("firmware.elf")),
+            }),
+            None => missing.push(Missing {
+                label: (*label).into(),
+                path: app_bin,
+                hint: format!("not built yet — run `pio run -e {env}` in PortalFW"),
+            }),
+        }
     }
 
     // ---- the bootloader, built
@@ -203,6 +230,20 @@ pub fn discover_in(root: &Path) -> Discovery {
     }
 }
 
+/// The two PCB revisions in production, and the env + label each one builds as. Kept as data so
+/// discovery and the module docs stay in sync with what `PortalFW/platformio.ini` actually
+/// defines.
+const APPLICATION_ENVS: &[(&str, &str)] = &[
+    (
+        "application_bank_optical",
+        "PortalFW application (optical, PCB v6)",
+    ),
+    (
+        "application_bank_mechanical",
+        "PortalFW application (mechanical, PCB v4)",
+    ),
+];
+
 /// The environments that must never be offered as an application, and why.
 ///
 /// Kept as data so the reason is greppable from the one place that would otherwise silently
@@ -221,7 +262,7 @@ pub const REFUSED_APPLICATION_ENVS: &[(&str, &str)] = &[
 
 /// Whether a PlatformIO environment may supply the application region.
 pub fn env_supplies_application(env: &str) -> bool {
-    env == "application_bank"
+    APPLICATION_ENVS.iter().any(|(name, _)| *name == env)
 }
 
 fn stat(path: &Path) -> Option<(u64, Option<u64>)> {
@@ -291,7 +332,7 @@ mod tests {
             found
                 .missing
                 .iter()
-                .any(|m| m.hint.contains("pio run -e application_bank")),
+                .any(|m| m.hint.contains("pio run -e application_bank_optical")),
             "a missing application should carry the command that produces it"
         );
     }
@@ -301,12 +342,12 @@ mod tests {
         let root = scratch("app");
         write(
             &root,
-            "PortalFW/.pio/build/application_bank/firmware.bin",
+            "PortalFW/.pio/build/application_bank_optical/firmware.bin",
             60_000,
         );
         write(
             &root,
-            "PortalFW/.pio/build/application_bank/firmware.elf",
+            "PortalFW/.pio/build/application_bank_optical/firmware.elf",
             120_000,
         );
 
@@ -321,6 +362,46 @@ mod tests {
             "the ELF beside it is what a liveness symbol comes from"
         );
         assert!(app.fits());
+    }
+
+    #[test]
+    fn both_pcb_variants_are_offered_distinctly_and_optical_is_the_default_pick() {
+        let root = scratch("variants");
+        write(
+            &root,
+            "PortalFW/.pio/build/application_bank_optical/firmware.bin",
+            60_000,
+        );
+        write(
+            &root,
+            "PortalFW/.pio/build/application_bank_mechanical/firmware.bin",
+            61_000,
+        );
+
+        let found = discover_in(&root);
+        let apps: Vec<_> = found.applications().collect();
+        assert_eq!(apps.len(), 2, "both variants should be offered side by side");
+        assert!(
+            apps.iter().any(|a| a.id == "portalfw:application_bank_optical"),
+            "optical should be discoverable by a stable id"
+        );
+        assert!(
+            apps.iter()
+                .any(|a| a.id == "portalfw:application_bank_mechanical"),
+            "mechanical should be discoverable by a stable id"
+        );
+        assert_ne!(
+            apps[0].label, apps[1].label,
+            "the picker distinguishes them by label, so the labels must differ"
+        );
+
+        // No hardware strap tells the flasher which board is attached (see the module docs), so
+        // the default pick is a starting point for the common case, not a guess at the truth.
+        assert_eq!(
+            found.application().unwrap().id,
+            "portalfw:application_bank_optical",
+            "optical is the production default"
+        );
     }
 
     #[test]
@@ -380,8 +461,9 @@ mod tests {
     }
 
     #[test]
-    fn only_application_bank_may_supply_the_application() {
-        assert!(env_supplies_application("application_bank"));
+    fn only_the_two_pcb_variant_envs_may_supply_the_application() {
+        assert!(env_supplies_application("application_bank_optical"));
+        assert!(env_supplies_application("application_bank_mechanical"));
         for (env, reason) in REFUSED_APPLICATION_ENVS {
             assert!(!env_supplies_application(env), "{env} must be refused");
             assert!(!reason.is_empty(), "{env} must say why");
@@ -445,8 +527,10 @@ mod tests {
     #[test]
     fn a_directory_is_not_mistaken_for_a_binary() {
         let root = scratch("dir");
-        std::fs::create_dir_all(root.join("PortalFW/.pio/build/application_bank/firmware.bin"))
-            .unwrap();
+        std::fs::create_dir_all(
+            root.join("PortalFW/.pio/build/application_bank_optical/firmware.bin"),
+        )
+        .unwrap();
         assert!(discover_in(&root).application().is_none());
     }
 }
@@ -622,7 +706,7 @@ mod load_tests {
     fn tree(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("portal-load-{name}"));
         let _ = std::fs::remove_dir_all(&dir);
-        let app = dir.join("PortalFW/.pio/build/application_bank");
+        let app = dir.join("PortalFW/.pio/build/application_bank_optical");
         std::fs::create_dir_all(&app).unwrap();
         std::fs::write(app.join("firmware.bin"), application_bytes(60_000)).unwrap();
         let reference = dir.join("PortalBootloader/reference");
@@ -706,7 +790,7 @@ mod load_tests {
         // and the resulting binary programs and verifies cleanly into the application slot but
         // never runs. Refused by name during discovery, and again here by reset vector.
         let dir = tree("wrong-link");
-        let app = dir.join("PortalFW/.pio/build/application_bank/firmware.bin");
+        let app = dir.join("PortalFW/.pio/build/application_bank_optical/firmware.bin");
         let mut bytes = application_bytes(60_000);
         bytes[4..8].copy_from_slice(&(addr::FLASH_BASE + 0x241).to_le_bytes());
         std::fs::write(&app, bytes).unwrap();
@@ -766,7 +850,7 @@ mod load_tests {
     /// The same tree, plus a firmware.elf that resolves.
     fn tree_with_elf(name: &str, symbols: &[(&str, u64, u64)]) -> PathBuf {
         let dir = tree(name);
-        let app = dir.join("PortalFW/.pio/build/application_bank");
+        let app = dir.join("PortalFW/.pio/build/application_bank_optical");
         std::fs::write(
             app.join("firmware.elf"),
             crate::symbols::elf_with(symbols),

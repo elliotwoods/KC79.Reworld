@@ -26,5 +26,14 @@ namespace Modules {
 		bool stepUpCurrent();
 	protected:
 		App * app;
+
+#ifndef HOME_SWITCH_LEGACY
+		// One axis's share of calibrate() for the optical switch -- see the definition for the
+		// cold/warm retry policy. A member (not a free function) so it can reach
+		// MotionControl's protected fastHomeRoutine()/opticalThresholdCached via the
+		// `friend Routines;` grant in MotionControl.h.
+		Exception calibrateAxisFastHome(MotionControl * motionControl
+			, const MotionControl::MeasureRoutineSettings & settings);
+#endif
 	};
 }
