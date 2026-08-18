@@ -112,10 +112,16 @@ namespace Modules {
 				// try to process current buffer
 				if(this->incomingBytes.size() == 4) {
 					auto targetID = this->incomingBytes[0];
-					if(targetID ^ 'C' == this->incomingBytes[1]
-						&& targetID ^ 'R' == this->incomingBytes[2]
-						&& targetID ^ 'C' == this->incomingBytes[3]) {
-						
+					// Parenthesised: `^` binds looser than `==` in C++, so the unparenthesised
+					// form parsed as `targetID ^ ('C' == incomingBytes[1])` -- i.e.
+					// `targetID ^ (0 or 1)` -- which is not the intended checksum comparison and
+					// effectively always "passed". A single noise byte on the ID line could be
+					// accepted as a real ID and, because each device forwards received+1, shift
+					// the addressing of every downstream device.
+					if((targetID ^ 'C') == this->incomingBytes[1]
+						&& (targetID ^ 'R') == this->incomingBytes[2]
+						&& (targetID ^ 'C') == this->incomingBytes[3]) {
+
 						auto newValue = targetID + 1;
 						if(newValue != this->value) {
 							this->value = newValue;
@@ -123,6 +129,9 @@ namespace Modules {
 						}
 					}
 				}
+				// Clear on every terminator, valid or not -- otherwise bytes from a rejected or
+				// short message can combine with the next one.
+				this->incomingBytes.clear();
 			}
 			else {
 				// add the current buffer
