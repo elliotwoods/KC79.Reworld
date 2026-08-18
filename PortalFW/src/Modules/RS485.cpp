@@ -1,5 +1,6 @@
 #include "RS485.h"
 #include <Arduino.h>
+#include <string.h>
 
 #include <msgpack.hpp>
 
@@ -76,9 +77,9 @@ namespace Modules {
 		this->beginTransmission();
 
 		const auto ourID = this->app->id->get();
-		
-		// Packer [target, sender, message]
-		msgpack::writeArraySize4(cobsStream, 3);
+
+		// Packer [target, sender, message, seq, crc16]
+		msgpack::writeArraySize4(cobsStream, 5);
 		{
 			msgpack::writeInt8(cobsStream, 0);
 			msgpack::writeInt8(cobsStream, ourID);
@@ -88,7 +89,7 @@ namespace Modules {
 			this->app->reportStatus(serializer);
 		}
 
-		this->endTransmission();
+		this->finishFrame();
 	}
 
 	//---------
@@ -101,9 +102,9 @@ namespace Modules {
 		this->beginTransmission();
 
 		const auto ourID = this->app->id->get();
-		
-		// Packer [target, sender, message]
-		msgpack::writeArraySize4(cobsStream, 3);
+
+		// Packer [target, sender, message, seq, crc16]
+		msgpack::writeArraySize4(cobsStream, 5);
 		{
 			msgpack::writeInt8(cobsStream, 0);
 			msgpack::writeInt8(cobsStream, ourID);
@@ -124,7 +125,7 @@ namespace Modules {
 			}
 		}
 
-		this->endTransmission();
+		this->finishFrame();
 	}
 
 	//---------
@@ -147,6 +148,35 @@ namespace Modules {
 	RS485::replyAllowed()
 	{
 		return !RS485::instance->disableACK && !RS485::instance->sentACKEarly;
+	}
+
+	//---------
+	bool
+	RS485::checkChecksum()
+	{
+		if(!RS485::instance->verifyChecksumEnabled) {
+			return true;
+		}
+		uint8_t seq;
+		if(!cobsStream.checkChecksum(seq)) {
+			return false;
+		}
+		RS485::instance->lastRxSeq = seq;
+		return true;
+	}
+
+	//---------
+	void
+	RS485::setVerifyChecksumEnabled(bool value)
+	{
+		RS485::instance->verifyChecksumEnabled = value;
+	}
+
+	//---------
+	bool
+	RS485::getVerifyChecksumEnabled()
+	{
+		return RS485::instance->verifyChecksumEnabled;
 	}
 
 	//---------
@@ -269,7 +299,23 @@ namespace Modules {
 					if(!msgpack::readString5(cobsStream, word, 64, wordSize)) {
 						return Exception::MessageFormatError(moduleName);
 					}
-					if(word[0] == 'F' && word[1] == 'W') {
+					// A longer, improbable token rather than the old bare "FW" (2 bytes) --
+					// the bootloader's own announce word stays "FW" (it's frozen, field-burned,
+					// and only re-flashable via ST-Link), so this only guards the running
+					// application against an accidental/corrupt 2-byte match bouncing it into
+					// the bootloader mid-move. The Router announces this word first to bump
+					// every running app into its bootloader, then continues with the legacy
+					// "FW" for the bootloader itself.
+					if(wordSize == 7 && memcmp(word, "FW!KC79", 7) == 0) {
+						// The magic word is the entire body (a bare string) -- nothing else
+						// follows it, so the stream is exactly at the trailer here, and this
+						// is the single highest-priority place for the commit gate: an
+						// unauthenticated reboot-to-bootloader is exactly what Finding 4 in
+						// protocol-hardening.md is about. No-ops (returns true) until
+						// verifyChecksumEnabled is turned on -- see RS485::checkChecksum().
+						if(!RS485::checkChecksum()) {
+							return Exception(moduleName, "Checksum FAIL");
+						}
 						// Firmware announce packet
 						// Reset into the bootloader
 						log(LogLevel::Status, moduleName, "Firmware announced, rebooting...");
@@ -308,6 +354,21 @@ namespace Modules {
 
 	//---------
 	void
+	RS485::finishFrame()
+	{
+		// [..., seq, crc16] -- seq echoes the last request this device successfully verified
+		// (see checkChecksum()); crc16 is a snapshot of the running CRC taken right after
+		// writing seq, so it covers everything before itself, matching what the receiver's
+		// checkChecksum() computes at the same point. Both are forced-width encodings
+		// (writeIntU8/writeIntU16, never minimised to a smaller msgpack type) so a receiver
+		// never has to guess how many bytes the trailer occupies.
+		msgpack::writeIntU8(cobsStream, this->lastRxSeq);
+		msgpack::writeIntU16(cobsStream, cobsStream.getTxRunningCRC());
+		this->endTransmission();
+	}
+
+	//---------
+	void
 	RS485::sendACK(bool success)
 	{
 		if(!this->replyAllowed()) {
@@ -316,7 +377,7 @@ namespace Modules {
 
 		this->beginTransmission();
 
-		msgpack::writeArraySize4(cobsStream, 3);
+		msgpack::writeArraySize4(cobsStream, 5);
 		{
 			// First element is target address (0 = Host)
 			msgpack::writeIntU7(cobsStream, 0);
@@ -330,6 +391,6 @@ namespace Modules {
 				msgpack::writeBool(cobsStream, success);
 			}
 		}
-		this->endTransmission();
+		this->finishFrame();
 	}
 }

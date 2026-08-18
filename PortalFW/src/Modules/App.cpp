@@ -240,29 +240,41 @@ namespace Modules
 				return true;
 			}
 
-			// Special 2-axis move message
+			// Special 2-axis move message. Positions are staged in locals and only applied
+			// after checkChecksum() -- the array is the entire body (nothing follows it), so
+			// once both elements are read the stream is exactly at the trailer.
 			size_t arraySize;
 			if (!msgpack::readArraySize(stream, arraySize))
 			{
 				return false;
 			}
+			bool haveA = false, haveB = false;
+			Steps positionA = 0, positionB = 0;
 			if (arraySize >= 1)
 			{
-				Steps position;
-				if (!msgpack::readInt<int32_t>(stream, position))
+				if (!msgpack::readInt<int32_t>(stream, positionA))
 				{
 					return false;
 				}
-				this->motionControlA->setTargetPositionWithMotionFiltering(position);
+				haveA = true;
 			}
 			if (arraySize >= 2)
 			{
-				Steps position;
-				if (!msgpack::readInt<int32_t>(stream, position))
+				if (!msgpack::readInt<int32_t>(stream, positionB))
 				{
 					return false;
 				}
-				this->motionControlB->setTargetPositionWithMotionFiltering(position);
+				haveB = true;
+			}
+
+			if(!RS485::checkChecksum()) {
+				return false;
+			}
+			if(haveA) {
+				this->motionControlA->setTargetPositionWithMotionFiltering(positionA);
+			}
+			if(haveB) {
+				this->motionControlB->setTargetPositionWithMotionFiltering(positionB);
 			}
 
 			if(RS485::replyAllowed()) {
@@ -327,9 +339,17 @@ namespace Modules
 			if(!MotionControl::readMeasureRoutineSettings(stream, settings)) {
 				return false;
 			}
-			
+
+			// Nil or the settings array is the entire body -- the stream is exactly at the
+			// trailer here. Gated before sendACKEarly(), not just before the routine itself:
+			// the early ACK is its own side effect (it tells the Router "started"), and
+			// shouldn't fire for a corrupted frame either.
+			if(!RS485::checkChecksum()) {
+				return false;
+			}
+
 			RS485::sendACKEarly(true);
-			
+
 			this->routines->init(settings);
 			return true;
 		}
@@ -345,9 +365,13 @@ namespace Modules
 			if(!MotionControl::readMeasureRoutineSettings(stream, settings)) {
 				return false;
 			}
-			
+
+			if(!RS485::checkChecksum()) {
+				return false;
+			}
+
 			RS485::sendACKEarly(true);
-			
+
 			this->routines->calibrate(settings);
 			return true;
 		}
@@ -363,9 +387,13 @@ namespace Modules
 			if(!MotionControl::readMeasureRoutineSettings(stream, settings)) {
 				return false;
 			}
-			
+
+			if(!RS485::checkChecksum()) {
+				return false;
+			}
+
 			RS485::sendACKEarly(true);
-			
+
 			this->routines->home(settings);
 			return true;
 		}
@@ -381,9 +409,13 @@ namespace Modules
 			if(!MotionControl::readMeasureRoutineSettings(stream, settings)) {
 				return false;
 			}
-			
+
+			if(!RS485::checkChecksum()) {
+				return false;
+			}
+
 			RS485::sendACKEarly(true);
-			
+
 			this->routines->unjam(settings);
 			return true;
 		}
@@ -464,7 +496,28 @@ namespace Modules
 
 		else if (strcmp(key, "reset") == 0)
 		{
+			if(!msgpack::readNil(stream)) {
+				return false;
+			}
+			// Nil is the entire body -- nothing else follows it, so the stream is exactly at
+			// the trailer here. No-ops (returns true) until verifyChecksumEnabled is turned
+			// on -- see RS485::checkChecksum().
+			if(!RS485::checkChecksum()) {
+				return false;
+			}
 			NVIC_SystemReset();
+		}
+
+		else if (strcmp(key, "verifyChecksum") == 0) {
+			// Toggle RS485::checkChecksum() actually verifying the trailing [seq, crc16]
+			// rather than being a no-op -- see the flag's doc comment in RS485.h. Left off
+			// until the Router side is confirmed to be sending the trailer on everything.
+			bool value;
+			if(!msgpack::readBool(stream, value)) {
+				return false;
+			}
+			RS485::setVerifyChecksumEnabled(value);
+			return true;
 		}
 
 		else if (strcmp(key, "keyframe") == 0)
