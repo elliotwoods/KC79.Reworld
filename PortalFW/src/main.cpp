@@ -63,8 +63,14 @@ void SystemClock_Config(void)
 }
 
 void setup() {
-	// This breaks our RS485 comms so we disable it for now
-	SystemClock_Config();
+	// SystemClock_Config() above overrides the Arduino core's weak default and is
+	// already called automatically by hw_config_init() (SrcWrapper/src/stm32/hw_config.c)
+	// before setup() ever runs -- so a second explicit call here just reconfigures an
+	// already-configured PLL a second time, mid-setup, which is a plausible source of a
+	// transient clock glitch to anything already running (UART, step timers). This
+	// second call was disabled for exactly that suspected reason (2024-11-23) then
+	// silently re-enabled the next day without investigation; removing it restores the
+	// intended 64 MHz clock via the core's single automatic call.
 
 	// LED's
 	pinMode(PB3, OUTPUT);
