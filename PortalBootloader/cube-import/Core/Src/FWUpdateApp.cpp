@@ -103,8 +103,21 @@ FWUpdateApp::processIncoming(msgpack::Stream& stream)
 			if(!msgpack::readBinarySize(stream, packetBodyAndChecksumSize16, true)) {
 				return Exception::MessageFormatError();
 			}
-			size_t packetBodyAndChecksumSize = packetBodyAndChecksumSize16;
+
 			size_t checksumSize = sizeof(CRCType);
+
+			// Bounds check before sizing the stack VLA below. Without this, a corrupt or
+			// malicious frame could claim up to 65535 bytes here and smash the stack of
+			// an image that can only be re-flashed via ST-Link -- and a claimed size
+			// smaller than the checksum itself would underflow packetBodySize below.
+			// FW_FRAME_SIZE + FW_CHECKSUM_SIZE is the largest legitimate frame the
+			// Router ever sends.
+			if(packetBodyAndChecksumSize16 < checksumSize
+				|| packetBodyAndChecksumSize16 > FW_FRAME_SIZE + FW_CHECKSUM_SIZE) {
+				return Exception::MessageFormatError();
+			}
+
+			size_t packetBodyAndChecksumSize = packetBodyAndChecksumSize16;
 			size_t packetBodySize = packetBodyAndChecksumSize - checksumSize;
 
 			uint8_t dataWithChecksum[packetBodyAndChecksumSize];
@@ -159,7 +172,6 @@ FWUpdateApp::processIncoming(msgpack::Stream& stream)
 	}
 	else {
 		msgpack::DataType dataType;
-		auto data = stream.peek();
 		msgpack::getNextDataType(stream, dataType, true);
 		return Exception::MessageFormatError();
 	}

@@ -62,14 +62,19 @@ Exception flash_write(const uint8_t *src, uint32_t dst, uint32_t size)
 	// Clear the flash validity flag
 	__HAL_FLASH_CLEAR_FLAG(FLASH_FLAG_OPTVERR);
 
-	auto start = (uint64_t*) src;
-	auto end = (uint64_t*) (src + size);
-	auto data = start;
+	// A final chunk whose length isn't a multiple of 8 is padded with 0xFF (flash's
+	// erased-state value) rather than reading past the end of the caller's buffer for
+	// the remaining bytes of the double-word. The original implementation advanced a
+	// raw uint64_t* from `src` to `src + size` regardless of 8-byte alignment, so any
+	// non-aligned final chunk read past the caller's buffer (here, always a stack VLA
+	// in FWUpdateApp::processIncoming) and programmed whatever garbage was there.
+	uint32_t bytesWritten = 0;
 
-	while(data < end) {
-		// I think the data needs to be aligned here or something like that?
-		uint64_t doubleWord;
-		memcpy(&doubleWord, data, sizeof(uint64_t));
+	while(bytesWritten < size) {
+		uint64_t doubleWord = 0xFFFFFFFFFFFFFFFFULL;
+		uint32_t remaining = size - bytesWritten;
+		uint32_t chunk = remaining < sizeof(uint64_t) ? remaining : sizeof(uint64_t);
+		memcpy(&doubleWord, src + bytesWritten, chunk);
 
 		if(HAL_FLASH_Program(FLASH_TYPEPROGRAM_DOUBLEWORD, dst, doubleWord) != HAL_OK) {
 			HAL_FLASH_Lock();
@@ -82,7 +87,7 @@ Exception flash_write(const uint8_t *src, uint32_t dst, uint32_t size)
 			return Exception(message);
 		}
 
-		data++;
+		bytesWritten += chunk;
 		dst += sizeof(uint64_t);
 	}
 

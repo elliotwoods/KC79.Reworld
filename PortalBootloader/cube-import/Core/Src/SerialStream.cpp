@@ -184,7 +184,10 @@ SerialStream::getSerialStream(UART_HandleTypeDef* uart)
 			return mappedStream->serialStream;
 		}
 	}
-	// No error checking here - presume user knows what they're doing
+	// Should never happen -- every UART this callback fires for was registered by a
+	// SerialStream constructor -- but returning nullptr on the way out is a free
+	// safety net against reading an uninitialized register as a pointer.
+	return nullptr;
 }
 
 //----------

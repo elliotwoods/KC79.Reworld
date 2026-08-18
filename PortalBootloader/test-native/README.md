@@ -52,3 +52,20 @@ buffer. The bootloader fielded today carries an older snapshot of the library wi
 buffer, in which a 32-byte frame at a uint32 offset occupies 47 of those 64 bytes — it fits, with
 no margin. That is an argument for unifying on the submodule, and it is why the acceptance test
 for the RS485 path is still an on-bench upload of a >64 kB image followed by an SWD readback.
+`PortalBootloader/cube-import/Core/msgpack-arduino` still carries the fielded 64-byte-buffer
+snapshot, not this submodule — see the root `PortalBootloader/README.md`'s "Not yet done" section
+for why unifying them is a separate, bigger change than a build-system port.
+
+## `fw_bounds_check_test.cpp`
+
+Regression test for a real bug found while reading the bootloader source (see
+`PortalBootloader/README.md`'s "Fixes layered on top of the import"): the original
+`FWUpdateApp::processIncoming` sized a stack VLA directly from a wire-supplied `uint16` with no
+upper bound, and subtracted `sizeof(CRCType)` from it with no lower bound — a corrupt or malicious
+frame could claim up to 65,535 bytes (stack smash on an image only re-flashable via ST-Link) or a
+value smaller than the checksum (unsigned underflow).
+`PortalBootloader/cube-import/Core/Src/FWUpdateApp.cpp` now rejects any declared size outside
+`[sizeof(CRCType), FW_FRAME_SIZE + FW_CHECKSUM_SIZE]` before the
+VLA is declared. This test replays the same real-parser decode sequence as
+`fw_frame_offset_test.cpp` and applies that exact condition, without needing the real 65 KB stack
+buffer to exist, so a future edit to the bound or to `constants.h` gets caught here.

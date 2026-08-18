@@ -110,7 +110,7 @@ int main(void)
   /* USER CODE BEGIN 2 */
 
   serialStream2.init();
-  log(LogLevel::Status, "Bootloader v4");
+  log(LogLevel::Status, "Bootloader v5");
   logPrint(".");
 
   /* USER CODE END 2 */
@@ -151,6 +151,17 @@ int main(void)
 
 /**
   * @brief System Clock Configuration
+  *
+  * PLLN raised from 8 to 16 (32 MHz -> 64 MHz SYSCLK, same 8 MHz HSE crystal and
+  * PLLM/PLLP/PLLR as before) to match the application, which already runs at 64 MHz off
+  * the same crystal (see PortalFW/src/main.cpp's SystemClock_Config -- PLLN=16 there
+  * too). FLASH_LATENCY bumped from _1 to _2, required above 48 MHz at voltage scale 1.
+  * This targets the "uploads need to be slowed down and still see occasional failures"
+  * problem: UART baud is recomputed from the live peripheral clock at
+  * MX_USART{1,2}_UART_Init time (which runs after this function), and
+  * HAL_RCC_ClockConfig() re-derives SysTick internally on every call -- so this is a
+  * pure internal timing change with no wire-protocol effect. Needs a bench pass to
+  * confirm real electrical margin at the new BRR divisor.
   * @retval None
   */
 void SystemClock_Config(void)
@@ -170,7 +181,7 @@ void SystemClock_Config(void)
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
   RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
   RCC_OscInitStruct.PLL.PLLM = RCC_PLLM_DIV1;
-  RCC_OscInitStruct.PLL.PLLN = 8;
+  RCC_OscInitStruct.PLL.PLLN = 16;
   RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
   RCC_OscInitStruct.PLL.PLLR = RCC_PLLR_DIV2;
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
@@ -186,7 +197,7 @@ void SystemClock_Config(void)
   RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
   RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV1;
 
-  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_1) != HAL_OK)
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_2) != HAL_OK)
   {
     Error_Handler();
   }

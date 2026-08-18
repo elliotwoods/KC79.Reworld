@@ -55,13 +55,16 @@ had the wrong way round. So the gate is behavioural equivalence, structurally di
 
 | | reference | `bootloader` | `bootloader_nolto` |
 |---|---|---|---|
-| text | 22,692 | 13,948 | 19,380 |
+| text | 22,692 | 13,988 | 19,396 |
 | data | 16 | 128 | 12 |
 | bss | 2,884 | 2,884 | 2,880 |
 | defined symbols | 370 | 219 | 323 |
 | initial SP | `0x20009000` | `0x20009000` | `0x20009000` |
-| reset vector | `0x0800123D` | `0x08002A51` | `0x08003EBD` |
-| banner | `Bootloader v4` | `Bootloader v4` | — |
+| reset vector | `0x0800123D` | `0x08002A79` | `0x08003ECD` |
+| banner | `Bootloader v4` | `Bootloader v5` | `Bootloader v5` |
+
+(The `text`/reset-vector numbers above are after the fixes in the next section — the defined-symbol
+count is unchanged by them, since every fix edits an existing function rather than adding one.)
 
 Two effects account for the whole of the difference, and neither is missing functionality.
 
@@ -81,6 +84,49 @@ limitation.
 The vector table agrees exactly on the initial stack pointer, the reset vector is inside the bank
 with the Thumb bit set, and the `Bootloader v4` banner survives into the image — which is what
 `PortalFlasher`'s readback scrapes to identify a board.
+
+## Fixes layered on top of the import
+
+Found by reading the source while answering "can the bootloader be improved at all,
+without breaking compatibility" — none change the wire protocol, so a mixed fleet of old
+and new bootloaders stays interoperable with the same Router.
+
+**Clock raised to match the application (`PLLN` 8 -> 16, 32 -> 64 MHz).** Both the
+bootloader and the application already run off the same 8 MHz HSE crystal through the
+PLL; the bootloader was just at half the application's multiplier. UART baud is
+recomputed from the live peripheral clock at `MX_USART{1,2}_UART_Init` time (which runs
+after `SystemClock_Config`), and `HAL_RCC_ClockConfig()` re-derives SysTick internally on
+every call, so this is a pure internal timing change. `FLASH_LATENCY_1` -> `_2`, required
+above 48 MHz at voltage scale 1. Motivation: today's RS485 uploads need to be slowed down
+and still see occasional failures — this is the most direct lever available without
+touching the protocol, and needs a bench pass to confirm the real electrical margin.
+
+**`FWUpdateApp::processIncoming` sized a stack VLA from an unbounded wire value.**
+`packetBodyAndChecksumSize16` came straight off the wire as a `uint16_t` with no upper
+bound before sizing `uint8_t dataWithChecksum[packetBodyAndChecksumSize]` — a corrupt or
+malicious frame claiming up to 65,535 bytes would smash the stack of an image only
+re-flashable via ST-Link. A value smaller than `sizeof(CRCType)` also underflowed
+`packetBodySize` (unsigned wraparound). Now rejected before the VLA is declared:
+`packetBodyAndChecksumSize16` must be in `[sizeof(CRCType), FW_FRAME_SIZE +
+FW_CHECKSUM_SIZE]`. `test-native/fw_bounds_check_test.cpp` regression-tests this against
+the real parser.
+
+**`flash_write` read past the caller's buffer on a non-8-byte-multiple chunk.** The
+double-word program loop advanced a raw `uint64_t*` from `src` to `src + size`
+regardless of alignment, so any final chunk whose length wasn't a multiple of 8 read
+past the buffer (the VLA above) for the last double-word and programmed whatever
+was there. Now pads the final partial double-word with `0xFF` (flash's erased-state
+value) instead.
+
+**No IRQ masking around the bootloader -> application jump.** `run_application()` swaps
+`SCB->VTOR` and reloads MSP with no `__disable_irq()` guarding the transition — a still-
+pending NVIC interrupt could in principle fire against the *new* vector table while still
+on the *old* stack pointer. `__disable_irq()` now runs immediately before
+`HAL_RCC_DeInit()`, matching normal jump-to-application practice.
+
+**`SerialStream::getSerialStream` could fall off the end of a non-void function.** Same
+category of bug as the `assert`/`lwrb_init` one above — undefined behaviour dressed up as
+"this can't happen." Now returns `nullptr` explicitly in that case.
 
 ## Not yet done
 
