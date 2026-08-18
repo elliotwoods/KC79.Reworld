@@ -21,7 +21,9 @@
 //! whatever rate it likes without consuming the log, and the full poll can run slowly.
 
 use crate::dut::{Axis, FirmwareKind, GearRatio, Health};
-use crate::transport::{Link, LinkDiagnostics, LinkError, LinkEvent, LinkInfo, LinkKind, Op};
+use crate::transport::{
+    Link, LinkDiagnostics, LinkError, LinkEvent, LinkInfo, LinkKind, Op, RawSignal,
+};
 use router_link::rs485::{Packet, Rs485};
 use router_proto::commands;
 use router_proto::replies::{MotionControlStatus, PortalReport, Reply, classify_reply};
@@ -346,6 +348,34 @@ impl Link for Rs485Link {
         Ok(())
     }
 
+    fn send_raw(&mut self, signal: &RawSignal) -> Result<(), LinkError> {
+        let RawSignal::Rs485Json { body } = signal else {
+            return Err(LinkError::Unsupported {
+                kind: "rs485",
+                op: "raw VCOM text".into(),
+            });
+        };
+        if !self.opened {
+            return Err(LinkError::NotOpen);
+        }
+        if serde_json::to_vec(body)
+            .map_err(|error| LinkError::Io(error.to_string()))?
+            .len()
+            > 4096
+        {
+            return Err(LinkError::Io("raw RS485 payload exceeds 4096 bytes".into()));
+        }
+        let body = json_to_msgpack(body)?;
+        if !matches!(body, router_proto::Value::Map(_)) {
+            return Err(LinkError::Io(
+                "raw RS485 payload must be a JSON object".into(),
+            ));
+        }
+        self.bus
+            .transmit(Packet::from_body(self.target, &body, "raw"));
+        Ok(())
+    }
+
     fn poll(&mut self, _now_ms: u64) -> Vec<LinkEvent> {
         if !self.opened {
             return Vec::new();
@@ -382,6 +412,40 @@ impl Link for Rs485Link {
         }
         events
     }
+}
+
+fn json_to_msgpack(value: &serde_json::Value) -> Result<router_proto::Value, LinkError> {
+    use router_proto::Value;
+    Ok(match value {
+        serde_json::Value::Null => Value::Nil,
+        serde_json::Value::Bool(value) => Value::Boolean(*value),
+        serde_json::Value::Number(value) => {
+            if let Some(value) = value.as_i64() {
+                Value::from(value)
+            } else if let Some(value) = value.as_u64() {
+                Value::from(value)
+            } else {
+                Value::from(
+                    value
+                        .as_f64()
+                        .ok_or_else(|| LinkError::Io("invalid JSON number".into()))?,
+                )
+            }
+        }
+        serde_json::Value::String(value) => Value::from(value.as_str()),
+        serde_json::Value::Array(values) => Value::Array(
+            values
+                .iter()
+                .map(json_to_msgpack)
+                .collect::<Result<Vec<_>, _>>()?,
+        ),
+        serde_json::Value::Object(entries) => Value::Map(
+            entries
+                .iter()
+                .map(|(key, value)| Ok((Value::from(key.as_str()), json_to_msgpack(value)?)))
+                .collect::<Result<Vec<_>, LinkError>>()?,
+        ),
+    })
 }
 
 #[cfg(test)]

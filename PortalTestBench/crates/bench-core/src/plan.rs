@@ -27,7 +27,25 @@ pub struct Requires {
     pub firmware: Option<FirmwareKind>,
     /// Restrict to one transport. Rarely needed — `validate` already refuses steps a transport
     /// cannot express, which is the check that actually matters.
-    pub transport: Option<String>,
+    pub transport: Option<TransportRequirement>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum TransportRequirement {
+    Vcp,
+    Rs485,
+    BenchAscii,
+}
+
+impl TransportRequirement {
+    pub fn accepts(self, kind: LinkKind) -> bool {
+        match self {
+            Self::Vcp => kind == LinkKind::Vcp,
+            Self::Rs485 => matches!(kind, LinkKind::Rs485Serial | LinkKind::Rs485Tcp),
+            Self::BenchAscii => kind == LinkKind::BenchAscii,
+        }
+    }
 }
 
 /// Bounds the engine enforces above whatever the individual steps do.
@@ -80,17 +98,42 @@ pub enum Source {
     ///
     /// Used for the firmware's own `Duration: 42s` lines, which are the only place some
     /// routines report how long they took.
-    LogNumber { after: String, before: String },
+    LogNumber {
+        after: String,
+        before: String,
+    },
     /// How many log lines at or above `min_level` have arrived since the plan started.
-    LogCount { min_level: u8 },
+    LogCount {
+        min_level: u8,
+    },
     /// Whether a log line containing this text was seen.
-    LogSeen { contains: String },
+    LogSeen {
+        contains: String,
+    },
     /// One of an axis's four health flags.
-    Health { axis: Axis, flag: HealthFlag },
-    Position { axis: Axis },
+    Health {
+        axis: Axis,
+        flag: HealthFlag,
+    },
+    Position {
+        axis: Axis,
+    },
     /// The applied optical threshold, and the band it came from.
     ThresholdApplied,
     ThresholdBand,
+    TransportDelta {
+        counter: TransportCounter,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TransportCounter {
+    Tx,
+    Rx,
+    Acks,
+    AckTimeouts,
+    DecodeErrors,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -112,16 +155,39 @@ pub enum Step {
     /// The firmware's whole-module startup routine: measure cycle, then calibrate, then both
     /// axes to zero. Minutes, not seconds.
     Startup,
-    Home { axis: Axis },
-    Calibrate { axis: Axis },
-    Unjam { axis: Axis },
-    MeasureBacklash { axis: Axis },
-    MoveTo { axis: Axis, usteps: i32, #[serde(default)] profile: Option<MotionProfile> },
-    SetCurrent { amps: f32 },
-    SetMicrostep { resolution: u32 },
-    SetHomeThreshold { value: i32 },
+    Home {
+        axis: Axis,
+    },
+    Calibrate {
+        axis: Axis,
+    },
+    Unjam {
+        axis: Axis,
+    },
+    MeasureBacklash {
+        axis: Axis,
+    },
+    MoveTo {
+        axis: Axis,
+        usteps: i32,
+        #[serde(default)]
+        profile: Option<MotionProfile>,
+    },
+    SetCurrent {
+        amps: f32,
+    },
+    SetMicrostep {
+        resolution: u32,
+    },
+    SetHomeThreshold {
+        value: i32,
+    },
     /// Measure the optical band and adopt its operating point.
-    CalibrateThreshold { axis: Axis, #[serde(default = "one")] passes: u8 },
+    CalibrateThreshold {
+        axis: Axis,
+        #[serde(default = "one")]
+        passes: u8,
+    },
     /// Wait for a log line containing `contains`, or fail after `timeout_s`.
     ///
     /// This is how a routine's *completion* is detected. The firmware acknowledges a routine
@@ -135,9 +201,17 @@ pub enum Step {
         #[serde(default)]
         fail_if: Option<String>,
     },
-    Sleep { ms: u64 },
-    Record { name: String, #[serde(flatten)] from: Source },
-    Marker { label: String },
+    Sleep {
+        ms: u64,
+    },
+    Record {
+        name: String,
+        #[serde(flatten)]
+        from: Source,
+    },
+    Marker {
+        label: String,
+    },
     Escape,
 }
 
@@ -164,7 +238,9 @@ impl Step {
             Step::SetCurrent { amps } => format!("Set current {amps} A"),
             Step::SetMicrostep { resolution } => format!("Set microstep 1/{resolution}"),
             Step::SetHomeThreshold { value } => format!("Set threshold {value}"),
-            Step::CalibrateThreshold { axis, .. } => format!("Calibrate threshold {}", axis.suffix()),
+            Step::CalibrateThreshold { axis, .. } => {
+                format!("Calibrate threshold {}", axis.suffix())
+            }
             Step::AwaitLog { contains, .. } => format!("Wait for \"{contains}\""),
             Step::Sleep { ms } => format!("Wait {ms} ms"),
             Step::Record { name, .. } => format!("Record {name}"),
@@ -183,11 +259,19 @@ impl Step {
             Step::Calibrate { axis } => Op::Calibrate { axis: *axis },
             Step::Unjam { axis } => Op::Unjam { axis: *axis },
             Step::MeasureBacklash { axis } => Op::MeasureBacklash { axis: *axis },
-            Step::MoveTo { axis, usteps, profile } => {
-                Op::MoveTo { axis: *axis, usteps: *usteps, profile: *profile }
-            }
+            Step::MoveTo {
+                axis,
+                usteps,
+                profile,
+            } => Op::MoveTo {
+                axis: *axis,
+                usteps: *usteps,
+                profile: *profile,
+            },
             Step::SetCurrent { amps } => Op::SetCurrent { amps: *amps },
-            Step::SetMicrostep { resolution } => Op::SetMicrostep { resolution: *resolution },
+            Step::SetMicrostep { resolution } => Op::SetMicrostep {
+                resolution: *resolution,
+            },
             Step::SetHomeThreshold { value } => Op::SetHomeThreshold { value: *value },
             Step::Escape => Op::Escape,
             Step::Connect
@@ -263,10 +347,23 @@ pub enum PlanError {
     Empty,
 
     #[error("plan needs {needed:?} firmware, but this module is running {found:?}")]
-    WrongFirmware { needed: FirmwareKind, found: FirmwareKind },
+    WrongFirmware {
+        needed: FirmwareKind,
+        found: FirmwareKind,
+    },
+
+    #[error("plan needs {needed:?}, but the selected link is {found}")]
+    WrongTransport {
+        needed: TransportRequirement,
+        found: &'static str,
+    },
 
     #[error("the {transport} link cannot carry step {index} ({step})")]
-    UnsupportedStep { transport: &'static str, index: usize, step: String },
+    UnsupportedStep {
+        transport: &'static str,
+        index: usize,
+        step: String,
+    },
 
     #[error(
         "step {index} ({step}) homes an optical module, but nothing calibrated the threshold \
@@ -280,7 +377,11 @@ pub enum PlanError {
         "step {index} moves at {speed} usteps/s, past the {limit} stall guard. Only a \
          `characterise` plan may cross it -- that is what such a plan is for."
     )]
-    PastStallGuard { index: usize, speed: i32, limit: i32 },
+    PastStallGuard {
+        index: usize,
+        speed: i32,
+        limit: i32,
+    },
 
     #[error("criterion refers to measurement `{0}`, which no step records")]
     DanglingCriterion(String),
@@ -301,7 +402,11 @@ pub struct ValidationContext {
 impl Plan {
     /// Every step, in execution order, with its index.
     pub fn all_steps(&self) -> Vec<&Step> {
-        self.setup.iter().chain(self.body.steps()).chain(self.teardown.iter()).collect()
+        self.setup
+            .iter()
+            .chain(self.body.steps())
+            .chain(self.teardown.iter())
+            .collect()
     }
 
     /// Refuse a plan that cannot work, before anything moves.
@@ -313,7 +418,19 @@ impl Plan {
         if let Some(needed) = self.requires.firmware
             && context.firmware != needed
         {
-            return Err(PlanError::WrongFirmware { needed, found: context.firmware });
+            return Err(PlanError::WrongFirmware {
+                needed,
+                found: context.firmware,
+            });
+        }
+
+        if let Some(needed) = self.requires.transport
+            && !needed.accepts(context.transport)
+        {
+            return Err(PlanError::WrongTransport {
+                needed,
+                found: context.transport.name(),
+            });
         }
 
         // Track whether a threshold is live as we walk the plan: a `calibrate_threshold` step
@@ -349,11 +466,16 @@ impl Plan {
                 // module that has not calibrated this session that is a stale constant, which
                 // is the failure this rule exists to prevent.
                 Step::Home { .. } if context.optical && !threshold_live => {
-                    return Err(PlanError::UncalibratedHome { index, step: step.name() });
+                    return Err(PlanError::UncalibratedHome {
+                        index,
+                        step: step.name(),
+                    });
                 }
-                Step::MoveTo { profile: Some(profile), .. }
-                    if self.kind != Kind::Characterise
-                        && profile.max_velocity > self.limits.stall_guard_usteps_per_s =>
+                Step::MoveTo {
+                    profile: Some(profile),
+                    ..
+                } if self.kind != Kind::Characterise
+                    && profile.max_velocity > self.limits.stall_guard_usteps_per_s =>
                 {
                     return Err(PlanError::PastStallGuard {
                         index,
@@ -411,7 +533,11 @@ mod tests {
     }
 
     fn plan_with(steps: Vec<Step>) -> Plan {
-        Plan { name: "t".into(), body: Body::Once(steps), ..Plan::default() }
+        Plan {
+            name: "t".into(),
+            body: Body::Once(steps),
+            ..Plan::default()
+        }
     }
 
     /// The invariant that matters most in this whole crate. The production ring's background
@@ -423,7 +549,10 @@ mod tests {
     fn homing_an_optical_module_without_establishing_a_threshold_is_refused() {
         let plan = plan_with(vec![Step::Home { axis: Axis::A }]);
         let error = plan.validate(&context()).unwrap_err();
-        assert!(matches!(error, PlanError::UncalibratedHome { .. }), "got {error:?}");
+        assert!(
+            matches!(error, PlanError::UncalibratedHome { .. }),
+            "got {error:?}"
+        );
     }
 
     /// `startup` and `calibrate` run the firmware's own self-calibrating optical home, which
@@ -433,17 +562,27 @@ mod tests {
     #[test]
     fn the_self_calibrating_routines_establish_a_threshold_rather_than_needing_one() {
         assert!(plan_with(vec![Step::Startup]).validate(&context()).is_ok());
-        assert!(plan_with(vec![Step::Calibrate { axis: Axis::A }]).validate(&context()).is_ok());
+        assert!(
+            plan_with(vec![Step::Calibrate { axis: Axis::A }])
+                .validate(&context())
+                .is_ok()
+        );
 
         // And having run one, a later bare home is fine.
-        let plan = plan_with(vec![Step::Calibrate { axis: Axis::A }, Step::Home { axis: Axis::A }]);
+        let plan = plan_with(vec![
+            Step::Calibrate { axis: Axis::A },
+            Step::Home { axis: Axis::A },
+        ]);
         assert!(plan.validate(&context()).is_ok());
     }
 
     #[test]
     fn a_calibrate_step_earlier_in_the_same_plan_satisfies_a_later_home() {
         let plan = plan_with(vec![
-            Step::CalibrateThreshold { axis: Axis::A, passes: 3 },
+            Step::CalibrateThreshold {
+                axis: Axis::A,
+                passes: 3,
+            },
             Step::Home { axis: Axis::A },
         ]);
         assert!(plan.validate(&context()).is_ok());
@@ -452,7 +591,10 @@ mod tests {
     #[test]
     fn a_threshold_already_measured_this_session_satisfies_a_home() {
         let plan = plan_with(vec![Step::Home { axis: Axis::A }]);
-        let context = ValidationContext { threshold_calibrated: true, ..context() };
+        let context = ValidationContext {
+            threshold_calibrated: true,
+            ..context()
+        };
         assert!(plan.validate(&context).is_ok());
     }
 
@@ -461,18 +603,35 @@ mod tests {
     #[test]
     fn a_mechanical_module_may_home_without_a_threshold() {
         let plan = plan_with(vec![Step::Home { axis: Axis::A }]);
-        let context = ValidationContext { optical: false, ..context() };
+        let context = ValidationContext {
+            optical: false,
+            ..context()
+        };
         assert!(plan.validate(&context).is_ok());
     }
 
     #[test]
     fn a_move_past_the_stall_guard_is_refused_outside_a_characterise_plan() {
-        let fast = MotionProfile { max_velocity: 34_000, acceleration: 100_000, min_velocity: 1_000 };
+        let fast = MotionProfile {
+            max_velocity: 34_000,
+            acceleration: 100_000,
+            min_velocity: 1_000,
+        };
         let mut plan = plan_with(vec![
-            Step::CalibrateThreshold { axis: Axis::A, passes: 1 },
-            Step::MoveTo { axis: Axis::A, usteps: 1000, profile: Some(fast) },
+            Step::CalibrateThreshold {
+                axis: Axis::A,
+                passes: 1,
+            },
+            Step::MoveTo {
+                axis: Axis::A,
+                usteps: 1000,
+                profile: Some(fast),
+            },
         ]);
-        assert!(matches!(plan.validate(&context()).unwrap_err(), PlanError::PastStallGuard { .. }));
+        assert!(matches!(
+            plan.validate(&context()).unwrap_err(),
+            PlanError::PastStallGuard { .. }
+        ));
 
         // Finding the cliff is precisely what a characterisation plan is for.
         plan.kind = Kind::Characterise;
@@ -482,14 +641,20 @@ mod tests {
     #[test]
     fn a_plan_needing_the_other_firmware_is_refused_by_name() {
         let plan = Plan {
-            requires: Requires { firmware: Some(FirmwareKind::Bench), transport: None },
+            requires: Requires {
+                firmware: Some(FirmwareKind::Bench),
+                transport: None,
+            },
             body: Body::Once(vec![Step::Poll]),
             ..Plan::default()
         };
         let error = plan.validate(&context()).unwrap_err();
         assert!(matches!(
             error,
-            PlanError::WrongFirmware { needed: FirmwareKind::Bench, found: FirmwareKind::Production }
+            PlanError::WrongFirmware {
+                needed: FirmwareKind::Bench,
+                found: FirmwareKind::Production
+            }
         ));
     }
 
@@ -498,12 +663,27 @@ mod tests {
     #[test]
     fn a_step_the_transport_cannot_express_is_refused_up_front() {
         let plan = plan_with(vec![
-            Step::CalibrateThreshold { axis: Axis::A, passes: 1 },
+            Step::CalibrateThreshold {
+                axis: Axis::A,
+                passes: 1,
+            },
             Step::Home { axis: Axis::A },
         ]);
-        let context = ValidationContext { transport: LinkKind::Vcp, ..context() };
+        let context = ValidationContext {
+            transport: LinkKind::Vcp,
+            ..context()
+        };
         let error = plan.validate(&context).unwrap_err();
-        assert!(matches!(error, PlanError::UnsupportedStep { transport: "vcp", .. }), "got {error:?}");
+        assert!(
+            matches!(
+                error,
+                PlanError::UnsupportedStep {
+                    transport: "vcp",
+                    ..
+                }
+            ),
+            "got {error:?}"
+        );
     }
 
     /// A verdict that can never be reached is a plan defect, not a result.
@@ -525,7 +705,10 @@ mod tests {
 
     #[test]
     fn an_empty_plan_is_refused() {
-        assert!(matches!(Plan::default().validate(&context()).unwrap_err(), PlanError::Empty));
+        assert!(matches!(
+            Plan::default().validate(&context()).unwrap_err(),
+            PlanError::Empty
+        ));
     }
 
     /// A plan file is the Rust type, spelled in TOML. If this drifts, plans in the repository
@@ -575,13 +758,19 @@ pub fn load(path: &std::path::Path) -> Result<Plan, String> {
 
 /// Every `*.toml` in a directory, by name.
 pub fn load_dir(dir: &std::path::Path) -> Vec<(String, Result<Plan, String>)> {
-    let Ok(entries) = std::fs::read_dir(dir) else { return Vec::new() };
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return Vec::new();
+    };
     let mut plans: Vec<(String, Result<Plan, String>)> = entries
         .flatten()
         .map(|entry| entry.path())
         .filter(|path| path.extension().is_some_and(|e| e == "toml"))
         .map(|path| {
-            let name = path.file_stem().unwrap_or_default().to_string_lossy().into_owned();
+            let name = path
+                .file_stem()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .into_owned();
             (name, load(&path))
         })
         .collect();
@@ -599,7 +788,11 @@ mod repository_tests {
         let plans = super::load_dir(&dir);
         assert!(!plans.is_empty(), "no plans found in {}", dir.display());
         for (name, result) in plans {
-            assert!(result.is_ok(), "{name} did not parse: {}", result.unwrap_err());
+            assert!(
+                result.is_ok(),
+                "{name} did not parse: {}",
+                result.unwrap_err()
+            );
         }
     }
 }

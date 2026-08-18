@@ -12,13 +12,13 @@ pub mod dut;
 pub mod engine;
 pub mod plan;
 pub mod report;
-pub mod transport;
 pub mod state;
 pub mod survey;
 pub mod threshold;
+pub mod transport;
 pub mod verdict;
 
-pub use survey::{event_json, open_link, survey, PortEntry, ProbeEntry, Survey};
+pub use survey::{PortEntry, ProbeEntry, Survey, event_json, open_link, survey};
 
 /// The report profile this build writes.
 ///

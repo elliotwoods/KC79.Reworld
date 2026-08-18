@@ -16,7 +16,7 @@ use crate::engine::{Engine, Phase, Progress, Tick};
 use crate::plan::{Plan, PlanError, ValidationContext};
 use crate::report::Report;
 use crate::state::{BenchState, ChannelState, LogRing, TelemetryRing};
-use crate::transport::{Channel, Link, LinkError, LinkEvent, LinkKind, Op};
+use crate::transport::{Channel, Link, LinkError, LinkEvent, LinkKind, Op, RawSignal};
 use crate::verdict::{Measurement, Verdict, summarise};
 
 /// How often the bench asks a connected module for a full status report.
@@ -92,7 +92,7 @@ pub struct Bench {
     engine: Option<Engine>,
     run: Option<RunMeta>,
     last: Option<Outcome>,
-    queue: VecDeque<(Channel, Op)>,
+    queue: VecDeque<(Channel, Outbound)>,
     report: Report,
     started_ms: u64,
     next_full_poll_ms: u64,
@@ -101,6 +101,12 @@ pub struct Bench {
     pub passed: u32,
     pub failed: u32,
     pub aborted: u32,
+}
+
+#[derive(Debug)]
+enum Outbound {
+    Op(Op),
+    Raw(RawSignal),
 }
 
 struct RunMeta {
@@ -203,7 +209,7 @@ impl Bench {
                 );
                 // Ask immediately: production firmware says nothing until spoken to, so a
                 // silent port would otherwise be indistinguishable from a dead one.
-                self.queue.push_back((channel, Op::Identify));
+                self.queue.push_back((channel, Outbound::Op(Op::Identify)));
                 Ok(())
             }
             Err(error) => {
@@ -272,16 +278,29 @@ impl Bench {
 
     pub fn discover_rs485(&mut self) {
         self.state.channels.rs485.discovered.clear();
-        self.queue.push_back((Channel::Rs485, Op::Identify));
+        self.queue
+            .push_back((Channel::Rs485, Outbound::Op(Op::Identify)));
     }
 
     /// Queue one op for the module.
     pub fn submit(&mut self, op: Op) {
-        self.queue.push_back((self.state.active_channel, op));
+        self.queue
+            .push_back((self.state.active_channel, Outbound::Op(op)));
     }
 
     pub fn submit_to(&mut self, channel: Channel, op: Op) {
-        self.queue.push_back((channel, op));
+        self.queue.push_back((channel, Outbound::Op(op)));
+    }
+
+    pub fn submit_raw(&mut self, channel: Channel, signal: RawSignal, now_ms: u64) {
+        let summary = match &signal {
+            RawSignal::VcomText { text, ending } => {
+                format!("VCOM raw {:?}: {text:?}", ending)
+            }
+            RawSignal::Rs485Json { body } => format!("RS485 raw: {body}"),
+        };
+        self.note(now_ms, crate::LOG_LEVEL_STATUS, summary);
+        self.queue.push_back((channel, Outbound::Raw(signal)));
     }
 
     // --- runs ---------------------------------------------------------------------------
@@ -315,7 +334,16 @@ impl Bench {
             crate::LOG_LEVEL_STATUS,
             format!("{} started ({})", plan.name, origin.name()),
         );
-        self.engine = Some(Engine::new(plan, now_ms, self.log.next_seq()));
+        let baseline = self
+            .channel_state(self.state.active_channel)
+            .diagnostics
+            .clone();
+        self.engine = Some(Engine::new_with_transport(
+            plan,
+            now_ms,
+            self.log.next_seq(),
+            baseline,
+        ));
         self.run = Some(RunMeta {
             id: run_id.clone(),
             origin,
@@ -361,7 +389,8 @@ impl Bench {
             };
             let progress = engine.tick(&mut tick);
             for op in outbox {
-                self.queue.push_back((self.state.active_channel, op));
+                self.queue
+                    .push_back((self.state.active_channel, Outbound::Op(op)));
             }
             if let Progress::Done(verdict) = progress {
                 finished = Some(verdict);
@@ -381,17 +410,19 @@ impl Bench {
             return;
         }
         if now_ms >= self.next_position_poll_ms {
-            self.queue.push_back((Channel::Rs485, Op::PollPosition));
+            self.queue
+                .push_back((Channel::Rs485, Outbound::Op(Op::PollPosition)));
             self.next_position_poll_ms = now_ms + POSITION_POLL_PERIOD_MS;
         }
         if now_ms >= self.next_full_poll_ms {
-            self.queue.push_back((Channel::Rs485, Op::Poll));
+            self.queue
+                .push_back((Channel::Rs485, Outbound::Op(Op::Poll)));
             self.next_full_poll_ms = now_ms + FULL_POLL_PERIOD_MS;
         }
     }
 
     fn drain_queue(&mut self, now_ms: u64) {
-        while let Some((channel, op)) = self.queue.pop_front() {
+        while let Some((channel, outbound)) = self.queue.pop_front() {
             let link = match channel {
                 Channel::Serial => self.serial_link.as_mut(),
                 Channel::Rs485 => self.rs485_link.as_mut(),
@@ -400,11 +431,15 @@ impl Bench {
                 self.note(
                     now_ms,
                     crate::LOG_LEVEL_WARNING,
-                    format!("dropped {op:?}: no {} link", channel.name()),
+                    format!("dropped {outbound:?}: no {} link", channel.name()),
                 );
                 continue;
             };
-            if let Err(error) = link.send(&op) {
+            let sent = match &outbound {
+                Outbound::Op(op) => link.send(op),
+                Outbound::Raw(signal) => link.send_raw(signal),
+            };
+            if let Err(error) = sent {
                 let detail = match &error {
                     // Not a fault of the module: the plan asked for something this dialect
                     // cannot say. Validation should have caught it, so say so loudly.

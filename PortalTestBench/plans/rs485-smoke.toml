@@ -1,0 +1,32 @@
+name = "rs485-smoke"
+kind = "busdiag"
+requires = { firmware = "production", transport = "rs485" }
+
+setup = [
+  { op = "connect" },
+]
+
+[body]
+once = [
+  { op = "marker", label = "RS485 smoke begins" },
+  { op = "poll" },
+  { op = "sleep", ms = 800 },
+  { op = "record", name = "acks", from = "transport_delta", counter = "acks" },
+  { op = "record", name = "ack_timeouts", from = "transport_delta", counter = "ack_timeouts" },
+  { op = "record", name = "decode_errors", from = "transport_delta", counter = "decode_errors" },
+]
+
+[[criteria]]
+measurement = "acks"
+must = { at_least = 1.0 }
+
+[[criteria]]
+measurement = "ack_timeouts"
+must = { at_most = 0.0 }
+
+[[criteria]]
+measurement = "decode_errors"
+must = { at_most = 0.0 }
+
+[limits]
+max_duration_s = 10

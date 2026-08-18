@@ -68,7 +68,10 @@ pub enum Predicate {
     IsFalse,
     AtMost(f64),
     AtLeast(f64),
-    Between { lo: f64, hi: f64 },
+    Between {
+        lo: f64,
+        hi: f64,
+    },
     /// Present and not [`MeasureValue::Missing`]. Useful when the fact of a reading is the test.
     IsPresent,
 }
@@ -99,11 +102,18 @@ pub enum Verdict {
     /// Every criterion held.
     Pass,
     /// The run completed and a criterion did not. A real answer.
-    Fail { criterion: String, got: String, expected: String },
+    Fail {
+        criterion: String,
+        got: String,
+        expected: String,
+    },
     /// Stopped before it could decide.
     Aborted { reason: String },
     /// The bench could not carry the test out at all.
-    Error { detail: String, advice: Option<String> },
+    Error {
+        detail: String,
+        advice: Option<String>,
+    },
 }
 
 impl Verdict {
@@ -130,7 +140,11 @@ impl Verdict {
     pub fn reason(&self) -> String {
         match self {
             Verdict::Pass => String::new(),
-            Verdict::Fail { criterion, got, expected } => {
+            Verdict::Fail {
+                criterion,
+                got,
+                expected,
+            } => {
                 format!("{criterion} {expected}, got {got}")
             }
             Verdict::Aborted { reason } => reason.clone(),
@@ -145,8 +159,10 @@ impl Verdict {
 /// earliest thing that went wrong rather than whichever happened to be last in the list.
 pub fn evaluate(criteria: &[Criterion], measurements: &[Measurement]) -> Verdict {
     for criterion in criteria {
-        let Some(measurement) =
-            measurements.iter().rev().find(|m| m.name == criterion.measurement)
+        let Some(measurement) = measurements
+            .iter()
+            .rev()
+            .find(|m| m.name == criterion.measurement)
         else {
             // A criterion whose measurement never arrived cannot pass. Silently ignoring it
             // would turn a run that lost its evidence into a clean pass.
@@ -201,14 +217,26 @@ mod tests {
     use super::*;
 
     fn measured(name: &str, value: MeasureValue) -> Measurement {
-        Measurement { name: name.into(), value, unit: None, at_ms: 0, step_index: 0 }
+        Measurement {
+            name: name.into(),
+            value,
+            unit: None,
+            at_ms: 0,
+            step_index: 0,
+        }
     }
 
     #[test]
     fn all_criteria_holding_is_a_pass() {
         let criteria = vec![
-            Criterion { measurement: "home_ok".into(), must: Predicate::IsTrue },
-            Criterion { measurement: "backlash".into(), must: Predicate::AtMost(900.0) },
+            Criterion {
+                measurement: "home_ok".into(),
+                must: Predicate::IsTrue,
+            },
+            Criterion {
+                measurement: "backlash".into(),
+                must: Predicate::AtMost(900.0),
+            },
         ];
         let measurements = vec![
             measured("home_ok", MeasureValue::Bool(true)),
@@ -219,7 +247,10 @@ mod tests {
 
     #[test]
     fn a_failing_criterion_names_itself_and_what_it_wanted() {
-        let criteria = vec![Criterion { measurement: "backlash".into(), must: Predicate::AtMost(900.0) }];
+        let criteria = vec![Criterion {
+            measurement: "backlash".into(),
+            must: Predicate::AtMost(900.0),
+        }];
         let measurements = vec![measured("backlash", MeasureValue::Number(1240.0))];
         let verdict = evaluate(&criteria, &measurements);
         assert_eq!(
@@ -238,7 +269,10 @@ mod tests {
     /// not come back clean.
     #[test]
     fn a_criterion_whose_measurement_never_arrived_fails() {
-        let criteria = vec![Criterion { measurement: "home_ok".into(), must: Predicate::IsTrue }];
+        let criteria = vec![Criterion {
+            measurement: "home_ok".into(),
+            must: Predicate::IsTrue,
+        }];
         let verdict = evaluate(&criteria, &[]);
         assert!(matches!(&verdict, Verdict::Fail { got, .. } if got == "never recorded"));
     }
@@ -255,7 +289,10 @@ mod tests {
             Predicate::AtLeast(-1e9),
             Predicate::Between { lo: -1e9, hi: 1e9 },
         ] {
-            let criteria = vec![Criterion { measurement: "home_ok".into(), must: predicate }];
+            let criteria = vec![Criterion {
+                measurement: "home_ok".into(),
+                must: predicate,
+            }];
             assert!(
                 matches!(evaluate(&criteria, &measurements), Verdict::Fail { .. }),
                 "{predicate:?} accepted a missing value"
@@ -268,36 +305,68 @@ mod tests {
     #[test]
     fn the_first_failing_criterion_is_the_one_reported() {
         let criteria = vec![
-            Criterion { measurement: "home_ok".into(), must: Predicate::IsTrue },
-            Criterion { measurement: "backlash".into(), must: Predicate::AtMost(900.0) },
+            Criterion {
+                measurement: "home_ok".into(),
+                must: Predicate::IsTrue,
+            },
+            Criterion {
+                measurement: "backlash".into(),
+                must: Predicate::AtMost(900.0),
+            },
         ];
         let measurements = vec![
             measured("home_ok", MeasureValue::Bool(false)),
             measured("backlash", MeasureValue::Number(5000.0)),
         ];
-        assert!(matches!(evaluate(&criteria, &measurements), Verdict::Fail { criterion, .. } if criterion == "home_ok"));
+        assert!(
+            matches!(evaluate(&criteria, &measurements), Verdict::Fail { criterion, .. } if criterion == "home_ok")
+        );
     }
 
     /// A soak records the same name once per cycle; the criterion should judge the latest.
     #[test]
     fn a_repeated_measurement_is_judged_on_its_most_recent_value() {
-        let criteria = vec![Criterion { measurement: "backlash".into(), must: Predicate::AtMost(900.0) }];
+        let criteria = vec![Criterion {
+            measurement: "backlash".into(),
+            must: Predicate::AtMost(900.0),
+        }];
         let measurements = vec![
             measured("backlash", MeasureValue::Number(500.0)),
             measured("backlash", MeasureValue::Number(1500.0)),
         ];
-        assert!(matches!(evaluate(&criteria, &measurements), Verdict::Fail { .. }));
+        assert!(matches!(
+            evaluate(&criteria, &measurements),
+            Verdict::Fail { .. }
+        ));
     }
 
     #[test]
     fn exit_codes_distinguish_a_failing_test_from_a_broken_bench() {
         assert_eq!(Verdict::Pass.exit_code(), 0);
         assert_eq!(
-            Verdict::Fail { criterion: "x".into(), got: "1".into(), expected: "0".into() }.exit_code(),
+            Verdict::Fail {
+                criterion: "x".into(),
+                got: "1".into(),
+                expected: "0".into()
+            }
+            .exit_code(),
             1
         );
-        assert_eq!(Verdict::Aborted { reason: "operator".into() }.exit_code(), 2);
-        assert_eq!(Verdict::Error { detail: "link lost".into(), advice: None }.exit_code(), 3);
+        assert_eq!(
+            Verdict::Aborted {
+                reason: "operator".into()
+            }
+            .exit_code(),
+            2
+        );
+        assert_eq!(
+            Verdict::Error {
+                detail: "link lost".into(),
+                advice: None
+            }
+            .exit_code(),
+            3
+        );
     }
 
     #[test]
@@ -312,6 +381,9 @@ mod tests {
             },
             measured("home_ok", MeasureValue::Bool(true)),
         ];
-        assert_eq!(summarise(&measurements), "backlash 612 usteps · home_ok true");
+        assert_eq!(
+            summarise(&measurements),
+            "backlash 612 usteps · home_ok true"
+        );
     }
 }

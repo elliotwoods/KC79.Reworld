@@ -31,19 +31,30 @@ pub struct Report {
 impl Report {
     /// A report that writes nothing.
     pub fn disabled() -> Self {
-        Self { reporter: Reporter::disabled(), handle: None, path: None }
+        Self {
+            reporter: Reporter::disabled(),
+            handle: None,
+            path: None,
+        }
     }
 
     /// Open a session file in `dir`.
     pub fn open(dir: &Path, app_version: &str) -> std::io::Result<Self> {
-        let config = ReportConfig { dir: dir.to_path_buf(), ..Default::default() };
+        let config = ReportConfig {
+            dir: dir.to_path_buf(),
+            ..Default::default()
+        };
         let session = SessionInfo {
             app_version: app_version.to_string(),
             host: hostname(),
             config: serde_json::json!({ "profile": crate::REPORT_PROFILE }),
         };
         let (reporter, handle) = Reporter::start(config, session)?;
-        let mut report = Self { reporter, handle: Some(handle), path: None };
+        let mut report = Self {
+            reporter,
+            handle: Some(handle),
+            path: None,
+        };
         report.line(serde_json::json!({
             "type": "bench_session_start",
             "profile": crate::REPORT_PROFILE,
@@ -71,7 +82,13 @@ impl Report {
 
     // --- the bench vocabulary ------------------------------------------------------------
 
-    pub fn device_connect(&mut self, transport: &str, endpoint: &str, ok: bool, error: Option<&str>) {
+    pub fn device_connect(
+        &mut self,
+        transport: &str,
+        endpoint: &str,
+        ok: bool,
+        error: Option<&str>,
+    ) {
         self.line(serde_json::json!({
             "type": "device_connect",
             "transport": transport,

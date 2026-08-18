@@ -1,0 +1,23 @@
+name = "vcom-smoke"
+kind = "busdiag"
+requires = { firmware = "production", transport = "vcp" }
+
+setup = [
+  { op = "connect" },
+]
+
+[body]
+once = [
+  { op = "marker", label = "VCOM smoke begins" },
+  { op = "identify" },
+  { op = "poll" },
+  { op = "sleep", ms = 1000 },
+  { op = "record", name = "rx_packets", from = "transport_delta", counter = "rx" },
+]
+
+[[criteria]]
+measurement = "rx_packets"
+must = { at_least = 1.0 }
+
+[limits]
+max_duration_s = 10

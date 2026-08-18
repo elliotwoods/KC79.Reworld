@@ -1,6 +1,6 @@
 import {
   Badge, Banner, Button, EmptyState, EnumSelect, NumberField, Panel, ParamTree, Row, StatusBar, StatusItem,
-  TextField, TitleBar, Toggle,
+  Tabs, TextField, TitleBar, Toggle,
 } from '@auroravision/av-gui/controls';
 import { mount, useParam, useSchema } from '@auroravision/av-gui/runtime';
 import '@auroravision/av-gui/styles.css';
@@ -169,7 +169,7 @@ function ManualFlashButton() {
   return <span className="hero-action" title={why ?? 'Press twice within five seconds'}><Button variant={confirmUntil > Date.now() ? 'danger' : 'primary'} disabled={!!why || !action.decl} onClick={click}>{confirmUntil > Date.now() ? 'Confirm flash now' : 'Flash manually'}</Button></span>;
 }
 
-function Operations() {
+function FlashTab() {
   const progress = useNumber('/flash/progress');
   const busy = useBool('/flash/busy');
   const armed = useBool('/flash/armed');
@@ -178,7 +178,7 @@ function Operations() {
   const phase = useText('/flash/phase');
   const scope = useText('/flash/scope');
   const simPresent = useParam<boolean>('/sim/module_present');
-  return <Panel title="Operations">
+  return <Panel title="Flash">
     <div className="flash-operations" data-av-surface="firmware">
       <SetupPicker />
       <div className="flash-actions"><ManualFlashButton /><div className={`auto-card${armed ? ' is-armed' : ''}`}><div><strong>Automatic fixture flashing</strong><small>{armed ? 'Armed · remove the board after PASS' : 'Insert → flash → cycle → run-check'}</small></div><Toggle path="/flash/auto_enabled" /></div></div>
@@ -186,19 +186,161 @@ function Operations() {
       <div className="flash-progress"><div style={{ width: `${Math.round(progress * 100)}%` }} /><span>{busy ? `${step || phase} · ${Math.round(progress * 100)}%` : last || `${scope} selected`}</span></div>
     </div>
     <div className="secondary-operations">
-      <Action path="/actions/startup" variant="primary">Run startup test</Action>
-      <Action path="/actions/abort" variant="danger">Abort</Action>
-      <Action path="/actions/escape">Escape routine</Action>
-      <Action path="/actions/calibrate_threshold">Calibrate threshold</Action>
-      <Action path="/actions/home_a">Home A</Action><Action path="/actions/home_b">Home B</Action>
-      <Action path="/actions/unjam_a">Unjam A</Action><Action path="/actions/unjam_b">Unjam B</Action>
-      <Action path="/actions/read_device">Read device</Action><Action path="/actions/marker">Drop marker</Action>
+      <Action path="/actions/read_device">Read device identity</Action>
     </div>
   </Panel>;
 }
 
 function LinkState({ connected, observed, detail }: { connected: boolean; observed: string; detail: string }) {
   return <div className="link-state"><Badge tone={connected ? 'ok' : 'offline'}>{connected ? observed : 'down'}</Badge><span>{detail || (connected ? 'receiving evidence' : 'not connected')}</span></div>;
+}
+
+interface ProcedureEntry {
+  name: string;
+  ok: boolean;
+  kind?: string;
+  requires?: { firmware?: string | null; transport?: string | null };
+  steps?: number;
+  criteria?: number;
+  error?: string;
+}
+
+function ProcedureRunner() {
+  const selected = useParam<string>('/plan/selected');
+  const run = useParam<number>('/actions/run');
+  const route = useEnumName('/motion/route');
+  const serialKind = useEnumName('/serial/observed');
+  const rs485Kind = useEnumName('/rs485/observed');
+  const serialConnected = useBool('/serial/connected');
+  const rs485Connected = useBool('/rs485/connected');
+  const busy = useBool('/run/busy');
+  const flashBusy = useBool('/flash/busy');
+  const flashArmed = useBool('/flash/armed');
+  const flashLocked = flashBusy || flashArmed;
+  const runningPlan = useText('/run/plan');
+  const phase = useEnumName('/run/phase');
+  const step = useText('/run/step_name');
+  const stepIndex = useNumber('/run/step_index');
+  const stepCount = useNumber('/run/step_count');
+  const fraction = useNumber('/run/step_fraction');
+  const elapsed = useNumber('/run/elapsed_s');
+  const [plans, setPlans] = useState<ProcedureEntry[]>([]);
+  const [directory, setDirectory] = useState('');
+  useEffect(() => {
+    let cancelled = false;
+    void fetch('/api/bench/plans', { cache: 'no-store' })
+      .then((response) => response.ok ? response.json() : Promise.reject())
+      .then((body) => {
+        if (!cancelled) {
+          setPlans(body.plans ?? []);
+          setDirectory(body.dir ?? '');
+        }
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+  const connected = route === 'rs485' ? rs485Connected : serialConnected;
+  const observed = route === 'rs485' ? rs485Kind : serialKind;
+  const incompatibility = (plan: ProcedureEntry): string | null => {
+    if (!plan.ok) return plan.error || 'procedure does not parse';
+    if (!connected) return `${route} is not connected`;
+    const required = plan.requires?.transport;
+    if (required === 'vcp' && observed !== 'vcp') return 'requires a production VCOM link';
+    if (required === 'rs485' && !observed.startsWith('rs485')) return 'requires an RS485 link';
+    if (required === 'bench-ascii' && observed !== 'bench-ascii') return 'requires the bench serial protocol';
+    if (busy) return `${runningPlan || 'another procedure'} is running`;
+    if (flashLocked) return 'flashing owns the fixture';
+    return null;
+  };
+  const start = (name: string) => {
+    selected.set(name);
+    window.setTimeout(() => run.set((run.value ?? 0) + 1), 0);
+  };
+  return <Panel title="Procedures" right={<Badge tone={busy ? 'active' : 'idle'}>{busy ? 'running' : `${plans.length} available`}</Badge>}>
+    {busy && <div className="procedure-progress">
+      <div><strong>{runningPlan}</strong><span>{phase} - {step || 'starting'} - {elapsed}s</span></div>
+      <div className="procedure-progress-track"><i style={{ width: `${Math.round(fraction * 100)}%` }} /></div>
+      <span>Step {Math.min(stepIndex + 1, stepCount || 1)} of {stepCount || 1}</span>
+      <Action path="/actions/abort" variant="danger">Abort procedure</Action>
+    </div>}
+    {plans.length === 0 ? <EmptyState inline detail="No procedure files were found." /> :
+      <div className="procedure-list" role="list" aria-label="Test procedures">{plans.map((plan) => {
+        const why = incompatibility(plan);
+        const active = busy && runningPlan === plan.name;
+        return <article key={plan.name} className={`procedure-row${active ? ' is-running' : ''}`} role="listitem">
+          <div><strong>{plan.name}</strong><small>{plan.kind || 'invalid'} - {plan.steps ?? 0} steps - {plan.criteria ?? 0} criteria</small></div>
+          <span className="procedure-tags"><Badge tone="idle">{plan.requires?.transport || 'either route'}</Badge>{plan.requires?.firmware && <Badge tone="idle">{plan.requires.firmware}</Badge>}</span>
+          <span title={why ?? `Run ${plan.name}`}><Button variant={active ? 'quiet' : 'primary'} disabled={!!why} onClick={() => start(plan.name)}>{active ? 'Running' : 'Run'}</Button></span>
+          {plan.error && <small className="procedure-error">{plan.error}</small>}
+        </article>;
+      })}</div>}
+    <footer className="procedure-directory" title={directory}>{directory}</footer>
+  </Panel>;
+}
+
+function QuickCommands() {
+  const route = useEnumName('/motion/route');
+  const serialKind = useEnumName('/serial/observed');
+  const rs485Kind = useEnumName('/rs485/observed');
+  const serialConnected = useBool('/serial/connected');
+  const rs485Connected = useBool('/rs485/connected');
+  const connected = route === 'rs485' ? rs485Connected : serialConnected;
+  const runBusy = useBool('/run/busy');
+  const flashBusy = useBool('/flash/busy');
+  const flashArmed = useBool('/flash/armed');
+  const flashLocked = flashBusy || flashArmed;
+  const kind = route === 'rs485' ? rs485Kind : serialKind;
+  const rs485 = kind.startsWith('rs485') || kind === 'sim';
+  const vcom = kind === 'vcp' || kind === 'sim';
+  const locked = runBusy || flashLocked;
+  const why = (supported = true) => !connected ? `${route} is not connected` : locked ? 'the fixture is busy' : !supported ? `${kind} cannot express this command` : null;
+  return <Panel title="Quick routines" right={<Badge tone={connected ? 'ok' : 'offline'}>{route} / {connected ? kind : 'down'}</Badge>}>
+    <div className="quick-command-groups">
+      <section><h3>Module</h3><div className="button-row">
+        <Action path="/actions/identify" why={why()}>Identify</Action><Action path="/actions/poll" why={why()}>Poll status</Action>
+        <Action path="/actions/routine_startup" why={why(vcom || rs485)}>Startup</Action><Action path="/actions/calibrate_module" why={why(vcom || rs485)}>Calibrate both axes</Action>
+        <Action path="/actions/reboot" why={why(vcom || rs485)}>Reboot</Action><Action path="/actions/escape" why={!connected ? `${route} is not connected` : null} variant="danger">Escape</Action>
+      </div></section>
+      <section><h3>Axis diagnostics</h3><div className="button-row">
+        <Action path="/actions/home_a" why={why(rs485)}>Home A</Action><Action path="/actions/home_b" why={why(rs485)}>Home B</Action>
+        <Action path="/actions/backlash_a" why={why(rs485)}>Backlash A</Action><Action path="/actions/backlash_b" why={why(rs485)}>Backlash B</Action>
+        <Action path="/actions/unjam_a" why={why(rs485)}>Unjam both axes</Action>
+      </div></section>
+      <section className="quick-fields"><h3>Driver and optical</h3>
+        <div><Row label="Current (A)"><NumberField path="/test/current_a" /></Row><Action path="/actions/set_current" why={why(rs485)}>Apply current</Action></div>
+        <div><Row label="Microstep"><NumberField path="/test/microstep" /></Row><Action path="/actions/set_microstep" why={why(rs485)}>Apply microstep</Action></div>
+        <div><Row label="Threshold"><NumberField path="/test/home_threshold" /></Row><Action path="/actions/set_threshold" why={why(vcom || rs485)}>Apply threshold</Action></div>
+        <div><Row label="Census speed"><NumberField path="/test/census_speed" /></Row><span className="button-row"><Action path="/actions/census_a" why={why(vcom)}>Census A</Action><Action path="/actions/census_b" why={why(vcom)}>Census B</Action></span></div>
+      </section>
+    </div>
+  </Panel>;
+}
+
+function RawSignalPanel() {
+  const route = useEnumName('/motion/route');
+  const serialConnected = useBool('/serial/connected');
+  const rs485Connected = useBool('/rs485/connected');
+  const runBusy = useBool('/run/busy');
+  const flashBusy = useBool('/flash/busy');
+  const flashArmed = useBool('/flash/armed');
+  const flashLocked = flashBusy || flashArmed;
+  const vcomText = useText('/test/raw/vcom_text');
+  const rs485Json = useText('/test/raw/rs485_json');
+  const rs485Target = useNumber('/rs485/target');
+  const connected = route === 'rs485' ? rs485Connected : serialConnected;
+  let invalidJson = false;
+  if (route === 'rs485') {
+    try { invalidJson = typeof JSON.parse(rs485Json) !== 'object' || Array.isArray(JSON.parse(rs485Json)) || JSON.parse(rs485Json) === null; }
+    catch { invalidJson = true; }
+  }
+  const reason = !connected ? `${route} is not connected` : runBusy || flashLocked ? 'the fixture is busy' : route === 'serial' && !vcomText ? 'enter a VCOM payload' : invalidJson ? 'enter a JSON object' : null;
+  return <details className="raw-signal-panel">
+    <summary><span>Advanced raw signal</span><Badge tone="warn">single-click send</Badge></summary>
+    <Banner tone="warn">This bypasses the command vocabulary, but still uses the selected link's normal framing and address.</Banner>
+    {route === 'serial' ? <div className="raw-fields"><Row label="VCOM text"><TextField path="/test/raw/vcom_text" /></Row><Row label="Line ending"><EnumSelect path="/test/raw/line_ending" /></Row></div> :
+      <div className="raw-fields"><Row label="MessagePack body (JSON)"><TextField path="/test/raw/rs485_json" /></Row><Fact label="Target" value={rs485Target} /></div>}
+    <Action path="/actions/send_raw" variant="danger" why={reason}>Send raw over {route}</Action>
+  </details>;
 }
 
 function TransportPanels() {
@@ -255,10 +397,31 @@ function Evidence() {
   </section>;
 }
 
+function TestTab() {
+  const route = useEnumName('/motion/route');
+  const serialConnected = useBool('/serial/connected');
+  const rs485Connected = useBool('/rs485/connected');
+  const connected = route === 'rs485' ? rs485Connected : serialConnected;
+  return <>
+    <section className="test-route">
+      <div><span className="label-caps">Test route</span><strong>{route === 'rs485' ? 'RS485 addressed bus' : 'VCOM / serial'}</strong><small>Both links can stay connected; this selects where procedures and commands go.</small></div>
+      <EnumSelect path="/motion/route" />
+      <Badge tone={connected ? 'ok' : 'offline'}>{connected ? 'connected' : 'not connected'}</Badge>
+    </section>
+    <ProcedureRunner />
+    <QuickCommands />
+    <TransportPanels />
+    <MotionControl />
+    <RawSignalPanel />
+    <Evidence />
+  </>;
+}
+
 function useHeartbeat() { const p = useParam<number>('/ui/heartbeat'); useEffect(() => { const id = setInterval(() => p.set(Date.now()), 1000); return () => clearInterval(id); }, [p.set]); }
 
 function App() {
   const schema = useSchema(); useHeartbeat();
+  const [tab, setTab] = useState<'flash' | 'test'>('flash');
   const serial = useBool('/serial/connected'), rs485 = useBool('/rs485/connected');
   const serialKind = useEnumName('/serial/observed');
   const rs485Target = useNumber('/rs485/target');
@@ -269,10 +432,13 @@ function App() {
   const passed = useNumber('/counts/passed'), failed = useNumber('/counts/failed'), faults = useNumber('/faults/active');
   return <div className="app app--filled bench">
     <TitleBar title="Portal Test Bench" sub={schema ? 'flashing · communications · motion diagnostics' : 'connecting'} />
-    <div className="bench-main"><div className="stack bench-stack">
-      <HardwareBand />
-      <section className={`readiness ${busy ? 'is-busy' : target ? 'is-ready' : 'is-waiting'}`} data-av-surface="test-runner"><strong>{busy ? 'WORKING' : target ? 'READY' : probe ? 'WAITING FOR MCU' : 'WAITING FOR ST-LINK'}</strong><span>{useText('/flash/phase')} {useText('/flash/last_outcome')}</span></section>
-      <Operations /><TransportPanels /><MotionControl /><Evidence />
+    <div className="bench-main"><div className="bench-workspace">
+      <div className="bench-shared">
+        <HardwareBand />
+        <section className={`readiness ${busy ? 'is-busy' : target ? 'is-ready' : 'is-waiting'}`} data-av-surface="test-runner"><strong>{busy ? 'WORKING' : target ? 'READY' : probe ? 'WAITING FOR MCU' : 'WAITING FOR ST-LINK'}</strong><span>{useText('/flash/phase')} {useText('/flash/last_outcome')}</span></section>
+        <Tabs value={tab} onChange={setTab} label="Portal test bench workspaces" items={[{ id: 'flash', label: 'Flash' }, { id: 'test', label: 'Test', count: faults || undefined }]} />
+      </div>
+      <div className="tab-content"><div className="stack bench-stack">{tab === 'flash' ? <FlashTab /> : <TestTab />}</div></div>
     </div><SessionLog /></div>
     <StatusBar stream={null}><StatusItem label="serial" value={serial ? serialKind : 'down'} tone={serial ? 'ok' : 'warn'} /><StatusItem label="RS485" value={rs485 ? `target ${rs485Target}` : 'down'} tone={rs485 ? 'ok' : 'warn'} /><StatusItem label="probe" value={target ? 'MCU present' : probe ? 'ready' : 'down'} tone={target ? 'ok' : probe ? 'warn' : 'error'} /><StatusItem label="runs" value={`${passed} pass · ${failed} fail`} />{faults > 0 && <StatusItem label="faults" value={String(faults)} tone="error" />}</StatusBar>
   </div>;

@@ -40,6 +40,7 @@ pub const TRANSPORTS: &[(u32, &str)] = &[
 pub const SERIAL_DIALECTS: &[(u32, &str)] = &[(0, "none"), (1, "vcp"), (2, "bench-ascii")];
 pub const RS485_TRANSPORTS: &[(u32, &str)] = &[(0, "none"), (1, "rs485-serial"), (2, "rs485-tcp")];
 pub const CHANNELS: &[(u32, &str)] = &[(0, "serial"), (1, "rs485")];
+pub const LINE_ENDINGS: &[(u32, &str)] = &[(0, "none"), (1, "cr"), (2, "lf"), (3, "crlf")];
 
 /// Which firmware image is on the module. Not a preference -- it decides which commands exist.
 pub const FIRMWARE_KINDS: &[(u32, &str)] = &[
@@ -303,6 +304,62 @@ pub fn declare(builder: &mut SchemaBuilder, simulated: bool) -> Result<(), Strin
             .i32(1_000)
             .range(0.0, 100_000.0)
             .label("Minimum velocity")
+            .register(),
+    )?;
+
+    // Advanced testing controls. They remain schema parameters so the human page and an agent
+    // use the same worker-owned queue and can never race the physical links.
+    check(
+        builder
+            .param("/test/raw/vcom_text")
+            .text("")
+            .label("VCOM payload")
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/test/raw/line_ending")
+            .enumeration(0, LINE_ENDINGS)
+            .label("Line ending")
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/test/raw/rs485_json")
+            .text("{\"poll\":null}")
+            .label("RS485 MessagePack body")
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/test/current_a")
+            .f64(0.15)
+            .range(0.05, 1.0)
+            .label("Motor current")
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/test/microstep")
+            .i32(16)
+            .range(1.0, 256.0)
+            .label("Microstep resolution")
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/test/home_threshold")
+            .i32(246)
+            .range(0.0, 255.0)
+            .label("Home threshold")
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/test/census_speed")
+            .i32(0)
+            .range(0.0, 100_000.0)
+            .label("Census speed")
             .register(),
     )?;
 
@@ -965,6 +1022,16 @@ pub struct MotionParams {
     pub min_velocity: ParamId,
 }
 
+pub struct TestParams {
+    pub raw_vcom_text: ParamId,
+    pub raw_line_ending: ParamId,
+    pub raw_rs485_json: ParamId,
+    pub current_a: ParamId,
+    pub microstep: ParamId,
+    pub home_threshold: ParamId,
+    pub census_speed: ParamId,
+}
+
 pub struct FlashParams {
     pub auto_enabled: ParamId,
     pub armed: ParamId,
@@ -1016,6 +1083,7 @@ pub struct Params {
     pub rs485_discovered: ParamId,
     pub rs485_stats: Rs485StatsParams,
     pub motion: MotionParams,
+    pub test: TestParams,
     pub flash: FlashParams,
     pub probe: ProbeParams,
     pub mcu: McuParams,
@@ -1137,6 +1205,15 @@ impl Params {
                 acceleration: id("/motion/profile/acceleration")?,
                 min_velocity: id("/motion/profile/min_velocity")?,
             },
+            test: TestParams {
+                raw_vcom_text: id("/test/raw/vcom_text")?,
+                raw_line_ending: id("/test/raw/line_ending")?,
+                raw_rs485_json: id("/test/raw/rs485_json")?,
+                current_a: id("/test/current_a")?,
+                microstep: id("/test/microstep")?,
+                home_threshold: id("/test/home_threshold")?,
+                census_speed: id("/test/census_speed")?,
+            },
             flash: FlashParams {
                 auto_enabled: id("/flash/auto_enabled")?,
                 armed: id("/flash/armed")?,
@@ -1237,15 +1314,27 @@ pub const ACTIONS: &[&str] = &[
     "connect",
     "disconnect",
     "identify",
+    "poll",
     "run",
     "startup",
+    "routine_startup",
     "abort",
     "escape",
     "calibrate_threshold",
+    "calibrate_module",
     "home_a",
     "home_b",
     "unjam_a",
     "unjam_b",
+    "backlash_a",
+    "backlash_b",
+    "reboot",
+    "set_current",
+    "set_microstep",
+    "set_threshold",
+    "census_a",
+    "census_b",
+    "send_raw",
     "flash",
     "flash_now",
     "read_device",
@@ -1318,15 +1407,27 @@ fn action_label(name: &str) -> String {
         "connect" => "Connect".into(),
         "disconnect" => "Disconnect".into(),
         "identify" => "Identify module".into(),
+        "poll" => "Poll module".into(),
         "run" => "Run plan".into(),
         "startup" => "Run startup test".into(),
+        "routine_startup" => "Start module routine".into(),
         "abort" => "Abort".into(),
         "escape" => "Escape from routine".into(),
         "calibrate_threshold" => "Calibrate threshold".into(),
+        "calibrate_module" => "Calibrate module".into(),
         "home_a" => "Home A".into(),
         "home_b" => "Home B".into(),
         "unjam_a" => "Unjam A".into(),
         "unjam_b" => "Unjam B".into(),
+        "backlash_a" => "Measure backlash A".into(),
+        "backlash_b" => "Measure backlash B".into(),
+        "reboot" => "Reboot module".into(),
+        "set_current" => "Set motor current".into(),
+        "set_microstep" => "Set microstep resolution".into(),
+        "set_threshold" => "Set home threshold".into(),
+        "census_a" => "Run census A".into(),
+        "census_b" => "Run census B".into(),
+        "send_raw" => "Send raw signal".into(),
         "flash" => "Flash firmware".into(),
         "flash_now" => "Flash now".into(),
         "read_device" => "Read device".into(),

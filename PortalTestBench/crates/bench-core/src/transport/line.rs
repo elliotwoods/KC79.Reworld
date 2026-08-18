@@ -18,7 +18,9 @@
 //! a serial monitor with a keyboard, which is exactly what it is during bring-up.
 
 use crate::dut::{Axis, FirmwareKind};
-use crate::transport::{Link, LinkError, LinkEvent, LinkInfo, LinkKind, Op, ascii};
+use crate::transport::{
+    Link, LinkDiagnostics, LinkError, LinkEvent, LinkInfo, LinkKind, Op, RawSignal, ascii,
+};
 use router_link::rs485::SerialDevice;
 
 /// Cap on the unterminated tail we will hold while waiting for a newline.
@@ -41,6 +43,8 @@ pub struct LineLink {
     /// Bytes received but not yet terminated by a newline.
     pending: String,
     banner: Option<String>,
+    tx: u64,
+    rx: u64,
     open_device: DeviceOpener,
 }
 
@@ -63,6 +67,8 @@ impl LineLink {
             device: None,
             pending: String::new(),
             banner: None,
+            tx: 0,
+            rx: 0,
             open_device,
         }
     }
@@ -155,6 +161,14 @@ impl Link for LineLink {
         self.device.as_ref().is_some_and(|d| d.is_connected())
     }
 
+    fn diagnostics(&self) -> LinkDiagnostics {
+        LinkDiagnostics {
+            tx: self.tx,
+            rx: self.rx,
+            ..LinkDiagnostics::default()
+        }
+    }
+
     fn send(&mut self, op: &Op) -> Result<(), LinkError> {
         let rendered = match self.kind {
             LinkKind::BenchAscii => ascii::render_op(op),
@@ -192,7 +206,35 @@ impl Link for LineLink {
         }
         device
             .transmit(&bytes)
-            .map_err(|e| LinkError::Io(e.to_string()))
+            .map_err(|e| LinkError::Io(e.to_string()))?;
+        self.tx += 1;
+        Ok(())
+    }
+
+    fn send_raw(&mut self, signal: &RawSignal) -> Result<(), LinkError> {
+        let RawSignal::VcomText { text, ending } = signal else {
+            return Err(LinkError::Unsupported {
+                kind: self.kind.name(),
+                op: "RS485 JSON payload".into(),
+            });
+        };
+        if self.kind != LinkKind::Vcp {
+            return Err(LinkError::Unsupported {
+                kind: self.kind.name(),
+                op: "raw VCOM text".into(),
+            });
+        }
+        if text.len() > 4096 {
+            return Err(LinkError::Io("raw VCOM payload exceeds 4096 bytes".into()));
+        }
+        let device = self.device.as_mut().ok_or(LinkError::NotOpen)?;
+        let mut bytes = text.as_bytes().to_vec();
+        bytes.extend_from_slice(ending.bytes());
+        device
+            .transmit(&bytes)
+            .map_err(|e| LinkError::Io(e.to_string()))?;
+        self.tx += 1;
+        Ok(())
     }
 
     fn poll(&mut self, _now_ms: u64) -> Vec<LinkEvent> {
@@ -206,6 +248,9 @@ impl Link for LineLink {
         };
         if bytes.is_empty() && self.pending.len() <= MAX_PENDING {
             return Vec::new();
+        }
+        if !bytes.is_empty() {
+            self.rx += 1;
         }
 
         let lines = self.take_lines(&bytes);
@@ -487,6 +532,18 @@ mod tests {
             String::from_utf8(written.lock().unwrap().clone()).unwrap(),
             "v\x1b"
         );
+    }
+
+    #[test]
+    fn raw_vcom_text_uses_the_explicit_line_ending_and_counts_tx() {
+        let (mut link, written) = link_over(LinkKind::Vcp, vec![]);
+        link.send_raw(&RawSignal::VcomText {
+            text: ":t 246".into(),
+            ending: crate::transport::LineEnding::Crlf,
+        })
+        .unwrap();
+        assert_eq!(written.lock().unwrap().as_slice(), b":t 246\r\n");
+        assert_eq!(link.diagnostics().tx, 1);
     }
 
     /// The production menu has no single-axis home. Doing both axes because the operator asked

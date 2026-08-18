@@ -180,6 +180,36 @@ pub enum Op {
     Reboot,
 }
 
+/// Deliberately advanced payloads sent without translating them into an [`Op`].
+///
+/// These still use the link's normal framing and single-owner queue. They are "raw" at the
+/// firmware protocol level, not arbitrary bytes injected around COBS or MessagePack.
+#[derive(Debug, Clone, PartialEq)]
+pub enum RawSignal {
+    VcomText { text: String, ending: LineEnding },
+    Rs485Json { body: serde_json::Value },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum LineEnding {
+    None,
+    Cr,
+    Lf,
+    Crlf,
+}
+
+impl LineEnding {
+    pub fn bytes(self) -> &'static [u8] {
+        match self {
+            Self::None => b"",
+            Self::Cr => b"\r",
+            Self::Lf => b"\n",
+            Self::Crlf => b"\r\n",
+        }
+    }
+}
+
 /// How a move is ramped.
 ///
 /// All three are needed together: the firmware's `move` takes
@@ -309,6 +339,13 @@ pub trait Link: Send {
     /// the long routines acknowledge immediately and then run for seconds to minutes, so
     /// completion arrives later as a [`LinkEvent`].
     fn send(&mut self, op: &Op) -> Result<(), LinkError>;
+
+    fn send_raw(&mut self, signal: &RawSignal) -> Result<(), LinkError> {
+        Err(LinkError::Unsupported {
+            kind: self.info().kind.name(),
+            op: format!("raw {signal:?}"),
+        })
+    }
 
     /// Drain whatever the module has said since the last call.
     ///

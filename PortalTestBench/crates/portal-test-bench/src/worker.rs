@@ -20,7 +20,7 @@ use bench_core::dut::{Axis, FirmwareKind, GearRatio};
 use bench_core::engine::Phase;
 use bench_core::plan::Plan;
 use bench_core::state::BenchState;
-use bench_core::transport::{Channel, LinkKind, MotionProfile, Op};
+use bench_core::transport::{Channel, LineEnding, LinkKind, MotionProfile, Op, RawSignal};
 use portal_swd::Pass;
 
 use crate::flash::{FlashController, FlashSnapshot};
@@ -47,6 +47,7 @@ pub enum Request {
     FlashNow,
     ReadDevice,
     RescanFirmware,
+    SendRaw { channel: Channel, signal: RawSignal },
     Abort,
 }
 
@@ -282,13 +283,41 @@ impl Worker {
                 self.bench.disconnect(now);
                 self.cue("lost");
             }
-            "identify" => self.bench.submit(Op::Identify),
+            "identify" => self.submit_test(now, Op::Identify),
+            "poll" => self.submit_test(now, Op::Poll),
             "escape" => self.submit_direct(Op::Escape),
-            "calibrate_threshold" => self.submit_direct(Op::Calibrate { axis: Axis::A }),
-            "home_a" => self.submit_direct(Op::Home { axis: Axis::A }),
-            "home_b" => self.submit_direct(Op::Home { axis: Axis::B }),
-            "unjam_a" => self.submit_direct(Op::Unjam { axis: Axis::A }),
-            "unjam_b" => self.submit_direct(Op::Unjam { axis: Axis::B }),
+            "calibrate_threshold" => self.submit_test(now, Op::Calibrate { axis: Axis::A }),
+            "calibrate_module" => self.submit_test(now, Op::Calibrate { axis: Axis::A }),
+            "routine_startup" => self.submit_test(now, Op::Startup),
+            "home_a" => self.submit_test(now, Op::Home { axis: Axis::A }),
+            "home_b" => self.submit_test(now, Op::Home { axis: Axis::B }),
+            "unjam_a" => self.submit_test(now, Op::Unjam { axis: Axis::A }),
+            "unjam_b" => self.submit_test(now, Op::Unjam { axis: Axis::B }),
+            "backlash_a" => self.submit_test(now, Op::MeasureBacklash { axis: Axis::A }),
+            "backlash_b" => self.submit_test(now, Op::MeasureBacklash { axis: Axis::B }),
+            "reboot" => self.submit_test(now, Op::Reboot),
+            "set_current" => self.submit_test(
+                now,
+                Op::SetCurrent {
+                    amps: schema::get_f64(&self.bus, self.params.test.current_a) as f32,
+                },
+            ),
+            "set_microstep" => self.submit_test(
+                now,
+                Op::SetMicrostep {
+                    resolution: schema::get_i32(&self.bus, self.params.test.microstep).max(1)
+                        as u32,
+                },
+            ),
+            "set_threshold" => self.submit_test(
+                now,
+                Op::SetHomeThreshold {
+                    value: schema::get_i32(&self.bus, self.params.test.home_threshold),
+                },
+            ),
+            "census_a" => self.run_census(now, Axis::A),
+            "census_b" => self.run_census(now, Axis::B),
+            "send_raw" => self.send_raw(now),
             "abort" => {
                 if self.bench.abort(now) {
                     self.cue("abort");
@@ -378,6 +407,80 @@ impl Worker {
         self.bench.submit_to(self.motion_channel(), op);
     }
 
+    fn submit_test(&mut self, now: u64, op: Op) {
+        if self.flash.snapshot().armed || self.flash.snapshot().busy || self.bench.is_busy() {
+            self.bench.note(
+                now,
+                bench_core::LOG_LEVEL_WARNING,
+                "test command refused while the fixture is active",
+            );
+            return;
+        }
+        self.bench.submit_to(self.motion_channel(), op);
+    }
+
+    fn run_census(&mut self, now: u64, axis: Axis) {
+        self.submit_test(
+            now,
+            Op::Census {
+                axis,
+                threshold: schema::get_i32(&self.bus, self.params.test.home_threshold).clamp(0, 255)
+                    as u8,
+                speed: match schema::get_i32(&self.bus, self.params.test.census_speed) {
+                    0 => None,
+                    speed => Some(speed),
+                },
+            },
+        );
+    }
+
+    fn send_raw(&mut self, now: u64) {
+        if self.flash.snapshot().armed || self.flash.snapshot().busy || self.bench.is_busy() {
+            self.bench.note(
+                now,
+                bench_core::LOG_LEVEL_WARNING,
+                "raw signal refused while the fixture is active",
+            );
+            return;
+        }
+        let channel = self.motion_channel();
+        let signal = match channel {
+            Channel::Serial => RawSignal::VcomText {
+                text: schema::get_text(&self.bus, self.params.test.raw_vcom_text),
+                ending: match schema::get_u32(&self.bus, self.params.test.raw_line_ending) {
+                    1 => LineEnding::Cr,
+                    2 => LineEnding::Lf,
+                    3 => LineEnding::Crlf,
+                    _ => LineEnding::None,
+                },
+            },
+            Channel::Rs485 => {
+                let text = schema::get_text(&self.bus, self.params.test.raw_rs485_json);
+                let body: serde_json::Value = match serde_json::from_str(&text) {
+                    Ok(serde_json::Value::Object(entries)) => serde_json::Value::Object(entries),
+                    Ok(_) => {
+                        self.bench.note(
+                            now,
+                            bench_core::LOG_LEVEL_ERROR,
+                            "raw RS485 payload must be a JSON object",
+                        );
+                        return;
+                    }
+                    Err(error) => {
+                        self.bench.note(
+                            now,
+                            bench_core::LOG_LEVEL_ERROR,
+                            format!("raw RS485 JSON is invalid: {error}"),
+                        );
+                        return;
+                    }
+                };
+                RawSignal::Rs485Json { body }
+            }
+        };
+        self.bench.submit_raw(channel, signal, now);
+    }
+
     fn connect_from(&mut self, channel: Channel, now: u64) {
         let (kind, endpoint) = match channel {
             Channel::Serial => (
@@ -422,6 +525,14 @@ impl Worker {
     }
 
     fn push_motion(&mut self, now: u64) {
+        if self.flash.snapshot().armed || self.flash.snapshot().busy || self.bench.is_busy() {
+            self.bench.note(
+                now,
+                bench_core::LOG_LEVEL_WARNING,
+                "motion command refused while the fixture is active",
+            );
+            return;
+        }
         let channel = self.motion_channel();
         self.bench.select_channel(channel);
         let usteps = self.bench.state().dut.usteps_per_rev;
@@ -705,6 +816,20 @@ impl Worker {
                     }
                 }
                 Request::ReadDevice => self.flash.read_device(),
+                Request::SendRaw { channel, signal } => {
+                    if self.flash.snapshot().armed
+                        || self.flash.snapshot().busy
+                        || self.bench.is_busy()
+                    {
+                        self.bench.note(
+                            now,
+                            bench_core::LOG_LEVEL_WARNING,
+                            "raw signal refused while the fixture is active",
+                        );
+                    } else {
+                        self.bench.submit_raw(channel, signal, now);
+                    }
+                }
                 Request::RescanFirmware => {
                     self.rescan_setup(now);
                 }

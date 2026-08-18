@@ -79,7 +79,10 @@ impl Band {
         let band = Band { floor, shoulder };
         let width = band.width();
         if width < MIN_BAND_WIDTH {
-            return Err(BandError::TooNarrow { width, min: MIN_BAND_WIDTH });
+            return Err(BandError::TooNarrow {
+                width,
+                min: MIN_BAND_WIDTH,
+            });
         }
         Ok(band)
     }
@@ -106,7 +109,10 @@ impl Band {
     /// point up into the region where homing latches phantom features.
     pub fn from_census(detected: &[u8]) -> Result<Self, BandError> {
         if detected.is_empty() {
-            return Err(BandError::TooNarrow { width: 0, min: MIN_BAND_WIDTH });
+            return Err(BandError::TooNarrow {
+                width: 0,
+                min: MIN_BAND_WIDTH,
+            });
         }
         let mut sorted = detected.to_vec();
         sorted.sort_unstable();
@@ -143,7 +149,10 @@ mod tests {
     fn production_ring_operating_point_is_in_the_measured_optimum() {
         for floor in [240u8, 241, 242] {
             let op = Band::new(floor, 252).unwrap().operating();
-            assert!((246..=248).contains(&op), "floor {floor} gave {op}, outside 246..=248");
+            assert!(
+                (246..=248).contains(&op),
+                "floor {floor} gave {op}, outside 246..=248"
+            );
         }
         assert_eq!(Band::new(240, 252).unwrap().width(), 13);
     }
@@ -168,7 +177,13 @@ mod tests {
     #[test]
     fn inverted_band_is_refused() {
         let err = Band::new(250, 240).unwrap_err();
-        assert!(matches!(err, BandError::Inverted { floor: 250, shoulder: 240 }));
+        assert!(matches!(
+            err,
+            BandError::Inverted {
+                floor: 250,
+                shoulder: 240
+            }
+        ));
     }
 
     /// A census that also caught one dithering sample at 255 must not be widened by it.
@@ -176,9 +191,17 @@ mod tests {
     /// latches 90-degree-wide phantom flags.
     #[test]
     fn census_ignores_dither_outliers() {
-        let detected = [240, 241, 242, 243, 244, 245, 246, 247, 248, 249, 250, 251, 252, 255];
+        let detected = [
+            240, 241, 242, 243, 244, 245, 246, 247, 248, 249, 250, 251, 252, 255,
+        ];
         let band = Band::from_census(&detected).unwrap();
-        assert_eq!(band, Band { floor: 240, shoulder: 252 });
+        assert_eq!(
+            band,
+            Band {
+                floor: 240,
+                shoulder: 252
+            }
+        );
         assert!((246..=248).contains(&band.operating()));
     }
 
@@ -186,7 +209,13 @@ mod tests {
     fn census_takes_the_longest_run_not_the_first() {
         let detected = [10, 11, 12, 240, 241, 242, 243, 244, 245, 246];
         let band = Band::from_census(&detected).unwrap();
-        assert_eq!(band, Band { floor: 240, shoulder: 246 });
+        assert_eq!(
+            band,
+            Band {
+                floor: 240,
+                shoulder: 246
+            }
+        );
     }
 
     #[test]
@@ -205,7 +234,10 @@ mod tests {
                 };
                 let band = Band::new(floor, shoulder).unwrap();
                 let op = band.operating();
-                assert!(op >= floor && op <= shoulder, "{op} outside {floor}..={shoulder}");
+                assert!(
+                    op >= floor && op <= shoulder,
+                    "{op} outside {floor}..={shoulder}"
+                );
             }
         }
     }

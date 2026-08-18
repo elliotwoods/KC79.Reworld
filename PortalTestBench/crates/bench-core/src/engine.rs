@@ -20,10 +20,10 @@
 //! unconditionally — which is where the escape and the restore live — and only then reports
 //! [`Verdict::Aborted`]. Teardown runs on **every** exit path, including an error.
 
-use crate::plan::{Body, HealthFlag, Plan, Source, Step, Until};
+use crate::plan::{Body, HealthFlag, Plan, Source, Step, TransportCounter, Until};
 use crate::state::{BenchState, LogRing};
-use crate::transport::Op;
-use crate::verdict::{evaluate, MeasureValue, Measurement, Verdict};
+use crate::transport::{Channel, LinkDiagnostics, Op};
+use crate::verdict::{MeasureValue, Measurement, Verdict, evaluate};
 
 /// What the engine is doing, for the progress display.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -84,10 +84,20 @@ pub struct Engine {
     cancelled: bool,
     /// True once the current step's op has been queued, so a tick that waits does not resend.
     dispatched: bool,
+    transport_baseline: LinkDiagnostics,
 }
 
 impl Engine {
     pub fn new(plan: Plan, now_ms: u64, log_seq: u64) -> Self {
+        Self::new_with_transport(plan, now_ms, log_seq, LinkDiagnostics::default())
+    }
+
+    pub fn new_with_transport(
+        plan: Plan,
+        now_ms: u64,
+        log_seq: u64,
+        transport_baseline: LinkDiagnostics,
+    ) -> Self {
         Self {
             plan,
             phase: Phase::Setup,
@@ -100,6 +110,7 @@ impl Engine {
             pending: None,
             cancelled: false,
             dispatched: false,
+            transport_baseline,
         }
     }
 
@@ -119,7 +130,10 @@ impl Engine {
     /// Total cycles, when the plan is a soak with a fixed count.
     pub fn cycle_count(&self) -> u32 {
         match &self.plan.body {
-            Body::Repeat { until: Until::Cycles(n), .. } => *n,
+            Body::Repeat {
+                until: Until::Cycles(n),
+                ..
+            } => *n,
             _ => 1,
         }
     }
@@ -169,12 +183,18 @@ impl Engine {
             && tick.now_ms.saturating_sub(self.started_ms) > self.plan.limits.max_duration_s * 1000
         {
             self.fail(Verdict::Aborted {
-                reason: format!("plan exceeded its {} s limit", self.plan.limits.max_duration_s),
+                reason: format!(
+                    "plan exceeded its {} s limit",
+                    self.plan.limits.max_duration_s
+                ),
             });
         }
 
-        if self.cancelled && !matches!(self.phase, Phase::Teardown | Phase::Escaping | Phase::Done) {
-            self.pending.get_or_insert(Verdict::Aborted { reason: "stopped by the operator".into() });
+        if self.cancelled && !matches!(self.phase, Phase::Teardown | Phase::Escaping | Phase::Done)
+        {
+            self.pending.get_or_insert(Verdict::Aborted {
+                reason: "stopped by the operator".into(),
+            });
             // Escape first, then let teardown restore whatever the plan changed.
             tick.outbox.push(Op::Escape);
             self.enter(Phase::Escaping, tick.now_ms);
@@ -297,10 +317,16 @@ impl Engine {
                 StepResult::Advance
             }
 
-            Step::AwaitLog { contains, timeout_s, fail_if } => {
+            Step::AwaitLog {
+                contains,
+                timeout_s,
+                fail_if,
+            } => {
                 let lines = tick.log.since(self.log_start_seq);
                 if let Some(fail_text) = fail_if
-                    && let Some(hit) = lines.iter().find(|l| l.message.contains(fail_text.as_str()))
+                    && let Some(hit) = lines
+                        .iter()
+                        .find(|l| l.message.contains(fail_text.as_str()))
                 {
                     return StepResult::Failed(Verdict::Fail {
                         criterion: step.name(),
@@ -381,9 +407,9 @@ impl Engine {
                 })
                 .map_or(MeasureValue::Missing, MeasureValue::Number),
 
-            Source::LogCount { min_level } => MeasureValue::Number(
-                lines.iter().filter(|l| l.level >= *min_level).count() as f64,
-            ),
+            Source::LogCount { min_level } => {
+                MeasureValue::Number(lines.iter().filter(|l| l.level >= *min_level).count() as f64)
+            }
 
             Source::LogSeen { contains } => {
                 MeasureValue::Bool(lines.iter().any(|l| l.message.contains(contains.as_str())))
@@ -400,20 +426,41 @@ impl Engine {
                 None => MeasureValue::Missing,
             },
 
-            Source::Position { axis } => tick.state.dut.axis(*axis).position
+            Source::Position { axis } => tick
+                .state
+                .dut
+                .axis(*axis)
+                .position
                 .map_or(MeasureValue::Missing, |p| MeasureValue::Number(p as f64)),
 
-            Source::ThresholdApplied => tick
-                .state
-                .dut
-                .threshold
-                .map_or(MeasureValue::Missing, |t| MeasureValue::Number(t.applied as f64)),
+            Source::ThresholdApplied => {
+                tick.state.dut.threshold.map_or(MeasureValue::Missing, |t| {
+                    MeasureValue::Number(t.applied as f64)
+                })
+            }
 
-            Source::ThresholdBand => tick
-                .state
-                .dut
-                .threshold
-                .map_or(MeasureValue::Missing, |t| MeasureValue::Number(t.band as f64)),
+            Source::ThresholdBand => tick.state.dut.threshold.map_or(MeasureValue::Missing, |t| {
+                MeasureValue::Number(t.band as f64)
+            }),
+
+            Source::TransportDelta { counter } => {
+                let current = match tick.state.active_channel {
+                    Channel::Serial => &tick.state.channels.serial.diagnostics,
+                    Channel::Rs485 => &tick.state.channels.rs485.diagnostics,
+                };
+                let (current, baseline) = match counter {
+                    TransportCounter::Tx => (current.tx, self.transport_baseline.tx),
+                    TransportCounter::Rx => (current.rx, self.transport_baseline.rx),
+                    TransportCounter::Acks => (current.acks, self.transport_baseline.acks),
+                    TransportCounter::AckTimeouts => {
+                        (current.ack_timeouts, self.transport_baseline.ack_timeouts)
+                    }
+                    TransportCounter::DecodeErrors => {
+                        (current.decode_errors, self.transport_baseline.decode_errors)
+                    }
+                };
+                MeasureValue::Number(current.saturating_sub(baseline) as f64)
+            }
         }
     }
 }
@@ -423,6 +470,7 @@ fn unit_for(source: &Source) -> Option<String> {
         Source::Elapsed => Some("s".into()),
         Source::Position { .. } => Some("usteps".into()),
         Source::ThresholdApplied | Source::ThresholdBand => Some("counts".into()),
+        Source::TransportDelta { .. } => Some("packets".into()),
         _ => None,
     }
 }
@@ -449,7 +497,11 @@ mod tests {
         fn connected() -> Self {
             let mut state = BenchState::default();
             state.link.connected = true;
-            Self { state, log: LogRing::default(), sent: Vec::new() }
+            Self {
+                state,
+                log: LogRing::default(),
+                sent: Vec::new(),
+            }
         }
 
         /// Run the engine to completion, with a clock the test controls entirely.
@@ -457,8 +509,12 @@ mod tests {
             let mut now = 0u64;
             for _ in 0..max_ticks {
                 let mut outbox = Vec::new();
-                let mut tick =
-                    Tick { now_ms: now, state: &self.state, log: &self.log, outbox: &mut outbox };
+                let mut tick = Tick {
+                    now_ms: now,
+                    state: &self.state,
+                    log: &self.log,
+                    outbox: &mut outbox,
+                };
                 let progress = engine.tick(&mut tick);
                 self.sent.append(&mut outbox);
                 if let Progress::Done(verdict) = progress {
@@ -471,13 +527,20 @@ mod tests {
     }
 
     fn plan(steps: Vec<Step>, criteria: Vec<Criterion>) -> Plan {
-        Plan { name: "t".into(), body: Body::Once(steps), criteria, ..Plan::default() }
+        Plan {
+            name: "t".into(),
+            body: Body::Once(steps),
+            criteria,
+            ..Plan::default()
+        }
     }
 
     #[test]
     fn a_plan_whose_criteria_hold_passes() {
         let mut harness = Harness::connected();
-        harness.log.push(0, 0, "firmware", "| END Routines.init".into());
+        harness
+            .log
+            .push(0, 0, "firmware", "| END Routines.init".into());
 
         let mut engine = Engine::new(
             plan(
@@ -485,10 +548,15 @@ mod tests {
                     Step::Connect,
                     Step::Record {
                         name: "finished".into(),
-                        from: Source::LogSeen { contains: "END Routines.init".into() },
+                        from: Source::LogSeen {
+                            contains: "END Routines.init".into(),
+                        },
                     },
                 ],
-                vec![Criterion { measurement: "finished".into(), must: Predicate::IsTrue }],
+                vec![Criterion {
+                    measurement: "finished".into(),
+                    must: Predicate::IsTrue,
+                }],
             ),
             0,
             0,
@@ -521,11 +589,17 @@ mod tests {
         let mut now = 0;
         for tick_index in 0..10 {
             if tick_index == 3 {
-                harness.log.push(now, 0, "firmware", "| END Routines.init".into());
+                harness
+                    .log
+                    .push(now, 0, "firmware", "| END Routines.init".into());
             }
             let mut outbox = Vec::new();
-            let mut tick =
-                Tick { now_ms: now, state: &harness.state, log: &harness.log, outbox: &mut outbox };
+            let mut tick = Tick {
+                now_ms: now,
+                state: &harness.state,
+                log: &harness.log,
+                outbox: &mut outbox,
+            };
             let progress = engine.tick(&mut tick);
             harness.sent.append(&mut outbox);
             if let Progress::Done(verdict) = progress {
@@ -543,7 +617,9 @@ mod tests {
     #[test]
     fn await_log_fails_early_when_the_failure_line_arrives_first() {
         let mut harness = Harness::connected();
-        harness.log.push(0, 20, "firmware", "[E Routines.init] Fail".into());
+        harness
+            .log
+            .push(0, 20, "firmware", "[E Routines.init] Fail".into());
 
         let mut engine = Engine::new(
             plan(
@@ -566,7 +642,14 @@ mod tests {
     fn await_log_times_out_rather_than_hanging() {
         let mut harness = Harness::connected();
         let mut engine = Engine::new(
-            plan(vec![Step::AwaitLog { contains: "never".into(), timeout_s: 1, fail_if: None }], vec![]),
+            plan(
+                vec![Step::AwaitLog {
+                    contains: "never".into(),
+                    timeout_s: 1,
+                    fail_if: None,
+                }],
+                vec![],
+            ),
             0,
             0,
         );
@@ -627,8 +710,12 @@ mod tests {
                 engine.cancel();
             }
             let mut outbox = Vec::new();
-            let mut tick =
-                Tick { now_ms: now, state: &harness.state, log: &harness.log, outbox: &mut outbox };
+            let mut tick = Tick {
+                now_ms: now,
+                state: &harness.state,
+                log: &harness.log,
+                outbox: &mut outbox,
+            };
             let progress = engine.tick(&mut tick);
             harness.sent.append(&mut outbox);
             if let Progress::Done(v) = progress {
@@ -638,9 +725,19 @@ mod tests {
             now += 100;
         }
 
-        assert!(matches!(verdict, Some(Verdict::Aborted { .. })), "got {verdict:?}");
-        assert!(harness.sent.contains(&Op::Escape), "no escape was sent: {:?}", harness.sent);
-        assert!(harness.sent.contains(&Op::SetCurrent { amps: 0.15 }), "teardown did not run");
+        assert!(
+            matches!(verdict, Some(Verdict::Aborted { .. })),
+            "got {verdict:?}"
+        );
+        assert!(
+            harness.sent.contains(&Op::Escape),
+            "no escape was sent: {:?}",
+            harness.sent
+        );
+        assert!(
+            harness.sent.contains(&Op::SetCurrent { amps: 0.15 }),
+            "teardown did not run"
+        );
     }
 
     #[test]
@@ -673,7 +770,10 @@ mod tests {
                     timeout_s: 10_000,
                     fail_if: None,
                 }]),
-                limits: crate::plan::Limits { max_duration_s: 1, ..Default::default() },
+                limits: crate::plan::Limits {
+                    max_duration_s: 1,
+                    ..Default::default()
+                },
                 ..Plan::default()
             },
             0,
@@ -687,15 +787,23 @@ mod tests {
     #[test]
     fn a_number_can_be_lifted_out_of_a_firmware_log_line() {
         let mut harness = Harness::connected();
-        harness.log.push(0, 0, "firmware", "[Routines.init] Duration: 42s".into());
+        harness
+            .log
+            .push(0, 0, "firmware", "[Routines.init] Duration: 42s".into());
 
         let mut engine = Engine::new(
             plan(
                 vec![Step::Record {
                     name: "duration_s".into(),
-                    from: Source::LogNumber { after: "Duration: ".into(), before: "s".into() },
+                    from: Source::LogNumber {
+                        after: "Duration: ".into(),
+                        before: "s".into(),
+                    },
                 }],
-                vec![Criterion { measurement: "duration_s".into(), must: Predicate::AtMost(240.0) }],
+                vec![Criterion {
+                    measurement: "duration_s".into(),
+                    must: Predicate::AtMost(240.0),
+                }],
             ),
             0,
             0,
@@ -713,9 +821,15 @@ mod tests {
             plan(
                 vec![Step::Record {
                     name: "home_ok".into(),
-                    from: Source::Health { axis: crate::dut::Axis::A, flag: HealthFlag::Home },
+                    from: Source::Health {
+                        axis: crate::dut::Axis::A,
+                        flag: HealthFlag::Home,
+                    },
                 }],
-                vec![Criterion { measurement: "home_ok".into(), must: Predicate::IsTrue }],
+                vec![Criterion {
+                    measurement: "home_ok".into(),
+                    must: Predicate::IsTrue,
+                }],
             ),
             0,
             0,
@@ -731,6 +845,8 @@ mod tests {
         harness.state.link.connected = false;
         let mut engine = Engine::new(plan(vec![Step::Connect], vec![]), 0, 0);
         let verdict = harness.run(&mut engine, 1000, 50);
-        assert!(matches!(&verdict, Verdict::Error { advice: Some(a), .. } if a.contains("connect")));
+        assert!(
+            matches!(&verdict, Verdict::Error { advice: Some(a), .. } if a.contains("connect"))
+        );
     }
 }

@@ -17,7 +17,7 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use bench_core::bench::Origin;
 use bench_core::transport::Op;
-use bench_core::transport::{Channel, MotionProfile};
+use bench_core::transport::{Channel, LineEnding, MotionProfile, RawSignal};
 
 use crate::worker::{Request, Shared};
 
@@ -319,6 +319,20 @@ enum CommandBody {
         #[serde(default)]
         channel: Option<Channel>,
     },
+    RawVcom {
+        text: String,
+        #[serde(default = "default_line_ending")]
+        line_ending: LineEnding,
+    },
+    RawRs485 {
+        body: serde_json::Value,
+        #[serde(default)]
+        target: Option<i8>,
+    },
+}
+
+fn default_line_ending() -> LineEnding {
+    LineEnding::None
 }
 
 async fn command(
@@ -381,6 +395,29 @@ async fn command(
                 speed,
             },
         ),
+        CommandBody::RawVcom { text, line_ending } => Request::SendRaw {
+            channel: Channel::Serial,
+            signal: RawSignal::VcomText {
+                text,
+                ending: line_ending,
+            },
+        },
+        CommandBody::RawRs485 { body, target } => {
+            if !body.is_object() {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(serde_json::json!({ "error": "raw RS485 body must be a JSON object" })),
+                )
+                    .into_response();
+            }
+            if let Some(target) = target {
+                shared.push(Request::SelectRs485Target(target));
+            }
+            Request::SendRaw {
+                channel: Channel::Rs485,
+                signal: RawSignal::Rs485Json { body },
+            }
+        }
     };
     shared.push(request);
     Json(serde_json::json!({ "accepted": true })).into_response()
@@ -442,5 +479,29 @@ mod tests {
         }))
         .unwrap();
         assert!(matches!(body, CommandBody::Connect { .. }));
+
+        let body: CommandBody = serde_json::from_value(serde_json::json!({
+            "op": "raw_vcom", "text": ":t 246", "line_ending": "crlf"
+        }))
+        .unwrap();
+        assert!(matches!(
+            body,
+            CommandBody::RawVcom {
+                line_ending: LineEnding::Crlf,
+                ..
+            }
+        ));
+
+        let body: CommandBody = serde_json::from_value(serde_json::json!({
+            "op": "raw_rs485", "target": 7, "body": { "poll": null }
+        }))
+        .unwrap();
+        assert!(matches!(
+            body,
+            CommandBody::RawRs485 {
+                target: Some(7),
+                ..
+            }
+        ));
     }
 }
