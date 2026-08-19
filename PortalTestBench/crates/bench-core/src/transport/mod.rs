@@ -21,6 +21,7 @@
 //! rather than halfway through a sequence that has already moved the motor.
 
 pub mod ascii;
+pub mod direct;
 pub mod line;
 pub mod rs485;
 
@@ -155,6 +156,21 @@ pub enum Op {
         amps: f32,
     },
     ReadSettings,
+    /// Switch the production VCP from its human menu to the framed binary session.
+    EnterDirect,
+    /// Return a production VCP Direct Mode session to the human menu.
+    ExitDirect,
+    /// Keep the firmware's Direct Mode dead-man alive.
+    DirectHeartbeat,
+    /// Velocity jog. Zero is an immediate stop.
+    Jog {
+        axis: Axis,
+        speed: i32,
+    },
+    /// Run a bounded optical flag survey on exactly one axis.
+    Survey {
+        config: direct::SurveyConfig,
+    },
     WriteSettings {
         current_ma: u16,
         full_current_home_recovery: bool,
@@ -254,7 +270,13 @@ impl Op {
     pub fn is_destructive(&self) -> bool {
         !matches!(
             self,
-            Op::Identify | Op::Poll | Op::PollPosition | Op::ReadSettings
+            Op::Identify
+                | Op::Poll
+                | Op::PollPosition
+                | Op::ReadSettings
+                | Op::EnterDirect
+                | Op::ExitDirect
+                | Op::DirectHeartbeat
         )
     }
 }
@@ -262,6 +284,19 @@ impl Op {
 /// Everything a module can tell us, normalised across the dialects.
 #[derive(Debug, Clone, PartialEq)]
 pub enum LinkEvent {
+    DirectMode {
+        mode: direct::SessionMode,
+        detail: String,
+    },
+    SurveyBegin {
+        config: direct::SurveyConfig,
+        expected: usize,
+    },
+    SurveySample(direct::SurveySample),
+    SurveyEnd {
+        aborted: bool,
+        detail: String,
+    },
     /// The module identified itself.
     Identified {
         firmware: FirmwareKind,
@@ -378,6 +413,21 @@ pub trait Link: Send {
         })
     }
 
+    /// Queue a complete field update. Only an RS485 link implements this capability.
+    fn begin_firmware_upload(
+        &mut self,
+        _firmware: &[u8],
+    ) -> Result<FirmwareUploadProgress, LinkError> {
+        Err(LinkError::Unsupported {
+            kind: self.info().kind.name(),
+            op: "bootloader firmware upload".into(),
+        })
+    }
+
+    fn firmware_upload_progress(&self) -> Option<FirmwareUploadProgress> {
+        None
+    }
+
     /// Drain whatever the module has said since the last call.
     ///
     /// **The only reader.** Called from one place in the worker tick; see the module docs.
@@ -396,6 +446,15 @@ pub struct LinkDiagnostics {
     pub outbox: usize,
     pub last_rx_age_ms: Option<u64>,
     pub last_tx_age_ms: Option<u64>,
+}
+
+/// Progress for a firmware upload already queued on a transport.
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize)]
+pub struct FirmwareUploadProgress {
+    pub total_packets: usize,
+    pub remaining_packets: usize,
+    pub sent_packets: usize,
+    pub connected: bool,
 }
 
 #[cfg(test)]

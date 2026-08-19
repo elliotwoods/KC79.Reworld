@@ -213,10 +213,20 @@ pub enum Step {
         label: String,
     },
     Escape,
+    /// Re-upload the selected application through the resident RS485 bootloader, then verify it
+    /// independently over SWD. The host adapter supplies the selected bytes and probe evidence.
+    BootloaderUpload {
+        #[serde(default = "default_field_update_timeout_s")]
+        timeout_s: u64,
+    },
 }
 
 fn one() -> u8 {
     1
+}
+
+fn default_field_update_timeout_s() -> u64 {
+    90
 }
 
 impl Step {
@@ -246,6 +256,7 @@ impl Step {
             Step::Record { name, .. } => format!("Record {name}"),
             Step::Marker { label } => format!("Marker: {label}"),
             Step::Escape => "Escape routine".into(),
+            Step::BootloaderUpload { .. } => "Bootloader upload check".into(),
         }
     }
 
@@ -279,7 +290,8 @@ impl Step {
             | Step::AwaitLog { .. }
             | Step::Sleep { .. }
             | Step::Record { .. }
-            | Step::Marker { .. } => return None,
+            | Step::Marker { .. }
+            | Step::BootloaderUpload { .. } => return None,
         })
     }
 }
@@ -385,6 +397,12 @@ pub enum PlanError {
 
     #[error("criterion refers to measurement `{0}`, which no step records")]
     DanglingCriterion(String),
+
+    #[error("bootloader_upload must appear exactly once in a non-repeating plan body")]
+    UnsafeFieldUpdatePlacement,
+
+    #[error("bootloader_upload requires an RS485 transport")]
+    FieldUpdateNeedsRs485,
 }
 
 /// What the module looks like right now, for validation purposes.
@@ -431,6 +449,39 @@ impl Plan {
                 needed,
                 found: context.transport.name(),
             });
+        }
+
+        let field_updates = self
+            .all_steps()
+            .into_iter()
+            .filter(|step| matches!(step, Step::BootloaderUpload { .. }))
+            .count();
+        if field_updates > 0 {
+            let in_once_body = matches!(
+                &self.body,
+                Body::Once(steps)
+                    if steps
+                        .iter()
+                        .filter(|step| matches!(step, Step::BootloaderUpload { .. }))
+                        .count()
+                        == 1
+            ) && !self
+                .setup
+                .iter()
+                .any(|step| matches!(step, Step::BootloaderUpload { .. }))
+                && !self
+                    .teardown
+                    .iter()
+                    .any(|step| matches!(step, Step::BootloaderUpload { .. }));
+            if field_updates != 1 || !in_once_body {
+                return Err(PlanError::UnsafeFieldUpdatePlacement);
+            }
+            if !matches!(
+                context.transport,
+                LinkKind::Rs485Serial | LinkKind::Rs485Tcp
+            ) {
+                return Err(PlanError::FieldUpdateNeedsRs485);
+            }
         }
 
         // Track whether a threshold is live as we walk the plan: a `calibrate_threshold` step
@@ -504,6 +555,12 @@ impl Plan {
         }
 
         Ok(())
+    }
+
+    pub fn is_destructive(&self) -> bool {
+        self.all_steps()
+            .iter()
+            .any(|step| matches!(step, Step::BootloaderUpload { .. }))
     }
 }
 
@@ -661,7 +718,7 @@ mod tests {
     /// Operations without a production VCOM form are refused before a run begins.
     #[test]
     fn a_step_the_transport_cannot_express_is_refused_up_front() {
-		let plan = plan_with(vec![Step::MeasureBacklash { axis: Axis::A }]);
+        let plan = plan_with(vec![Step::MeasureBacklash { axis: Axis::A }]);
         let context = ValidationContext {
             transport: LinkKind::Vcp,
             ..context()
@@ -739,6 +796,39 @@ must = { at_most = 240.0 }
         assert_eq!(plan.requires.firmware, Some(FirmwareKind::Production));
         assert_eq!(plan.body.steps().len(), 3);
         assert_eq!(plan.criteria.len(), 1);
+    }
+
+    #[test]
+    fn bootloader_upload_is_one_destructive_rs485_body_step() {
+        let plan = Plan {
+            requires: Requires {
+                firmware: Some(FirmwareKind::Production),
+                transport: Some(TransportRequirement::Rs485),
+            },
+            body: Body::Once(vec![Step::BootloaderUpload { timeout_s: 90 }]),
+            ..Plan::default()
+        };
+        assert!(plan.validate(&context()).is_ok());
+        assert!(plan.is_destructive());
+
+        let mut vcp = context();
+        vcp.transport = LinkKind::Vcp;
+        assert!(matches!(
+            plan.validate(&vcp),
+            Err(PlanError::WrongTransport { .. } | PlanError::FieldUpdateNeedsRs485)
+        ));
+
+        let repeated = Plan {
+            body: Body::Repeat {
+                until: Until::Cycles(2),
+                steps: vec![Step::BootloaderUpload { timeout_s: 90 }],
+            },
+            ..Plan::default()
+        };
+        assert_eq!(
+            repeated.validate(&context()),
+            Err(PlanError::UnsafeFieldUpdatePlacement)
+        );
     }
 }
 

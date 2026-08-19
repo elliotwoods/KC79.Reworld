@@ -22,7 +22,8 @@
 
 use crate::dut::{Axis, FirmwareKind, GearRatio, Health};
 use crate::transport::{
-    Link, LinkDiagnostics, LinkError, LinkEvent, LinkInfo, LinkKind, Op, RawSignal,
+    FirmwareUploadProgress, Link, LinkDiagnostics, LinkError, LinkEvent, LinkInfo, LinkKind, Op,
+    RawSignal,
 };
 use router_link::rs485::{Packet, Rs485};
 use router_proto::commands;
@@ -42,6 +43,7 @@ pub struct Rs485Link {
     banner: Option<String>,
     opened: bool,
     acks: u64,
+    firmware_upload: Option<(usize, u64)>,
 }
 
 impl Rs485Link {
@@ -58,6 +60,7 @@ impl Rs485Link {
             banner: None,
             opened: false,
             acks: 0,
+            firmware_upload: None,
         }
     }
 
@@ -422,6 +425,48 @@ impl Link for Rs485Link {
         self.bus
             .transmit(Packet::from_body(self.target, &body, "raw"));
         Ok(())
+    }
+
+    fn begin_firmware_upload(
+        &mut self,
+        firmware: &[u8],
+    ) -> Result<FirmwareUploadProgress, LinkError> {
+        if !self.is_open() {
+            return Err(LinkError::NotOpen);
+        }
+        let start_tx = self.bus.stats().tx_count;
+        // A sustained 5 ms stream can fill the Windows serial driver's output queue and turn
+        // its 1 ms device timeout into a mid-image disconnect. The Router's mass-update pacing
+        // is proven on the same transport; keep its 10 ms frame gap. Firmware frames are
+        // broadcast and unacknowledged, so send each one twice even on a single-module fixture.
+        let params = router_link::fw_update::FwUpdateParams {
+            wait_between_frames_ms: 10,
+            frame_repetitions: 2,
+            ..router_link::fw_update::FwUpdateParams::default()
+        };
+        let mut total = router_link::fw_update::upload(&self.bus, firmware, &params)
+            .map_err(|error| LinkError::Io(error.to_string()))?;
+        // Upload only queues announce/erase/data. RU is deliberately a separate Router action.
+        // A test of the complete bootloader contract must request the application handoff too.
+        router_link::fw_update::run_application(&self.bus, &params);
+        total += 1;
+        self.firmware_upload = Some((total, start_tx));
+        Ok(self.firmware_upload_progress().unwrap_or_default())
+    }
+
+    fn firmware_upload_progress(&self) -> Option<FirmwareUploadProgress> {
+        let (total_packets, start_tx) = self.firmware_upload?;
+        let stats = self.bus.stats();
+        let sent_packets = stats
+            .tx_count
+            .saturating_sub(start_tx)
+            .min(total_packets as u64) as usize;
+        Some(FirmwareUploadProgress {
+            total_packets,
+            remaining_packets: stats.outbox_size,
+            sent_packets,
+            connected: self.is_open(),
+        })
     }
 
     fn poll(&mut self, _now_ms: u64) -> Vec<LinkEvent> {

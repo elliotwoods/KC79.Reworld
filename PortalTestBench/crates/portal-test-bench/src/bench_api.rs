@@ -12,11 +12,13 @@ use std::sync::Arc;
 
 use axum::extract::{Query, State};
 use axum::http::StatusCode;
+use axum::http::header;
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use bench_core::bench::Origin;
 use bench_core::transport::Op;
+use bench_core::transport::direct::SurveyConfig;
 use bench_core::transport::{Channel, LineEnding, MotionProfile, RawSignal};
 
 use crate::worker::{Request, Shared};
@@ -27,6 +29,9 @@ pub fn routes(shared: Arc<Shared>) -> Router {
         .route("/api/bench/plans", get(plans))
         .route("/api/bench/log", get(log))
         .route("/api/bench/telemetry", get(telemetry))
+        .route("/api/bench/survey", get(survey))
+        .route("/api/bench/survey/export.json", get(export_survey_json))
+        .route("/api/bench/survey/export.csv", get(export_survey_csv))
         .route("/api/bench/firmware", get(firmware))
         .route("/api/bench/provision", get(provision))
         .route("/api/bench/provision/history", get(provision_history))
@@ -53,9 +58,12 @@ async fn state(State(shared): State<Arc<Shared>>) -> impl IntoResponse {
         "dut": state.dut,
         "channels": state.channels,
         "active_channel": state.active_channel,
+        "field_update": state.field_update,
         "flash": flash,
         "provision": provision,
         "faults": state.faults,
+        "direct": state.direct,
+        "survey": state.survey,
         "running": run.map(|status| serde_json::json!({
             "run_id": status.run_id,
             "plan": status.plan,
@@ -154,6 +162,7 @@ async fn plans(Query(query): Query<PlansQuery>) -> impl IntoResponse {
                 "requires": plan.requires,
                 "steps": plan.all_steps().len(),
                 "criteria": plan.criteria.len(),
+                "destructive": plan.is_destructive(),
             }),
             Err(error) => serde_json::json!({ "name": name, "ok": false, "error": error }),
         })
@@ -202,6 +211,55 @@ async fn telemetry(
     Json(serde_json::json!({ "from": query.from, "next": next, "samples": tail }))
 }
 
+async fn survey(State(shared): State<Arc<Shared>>) -> impl IntoResponse {
+    Json(shared.state.lock().unwrap().survey.clone())
+}
+
+async fn export_survey_json(State(shared): State<Arc<Shared>>) -> impl IntoResponse {
+    let snapshot = shared.state.lock().unwrap().survey.clone();
+    let body = serde_json::to_string_pretty(&snapshot).unwrap_or_else(|_| "{}".into());
+    (
+        [
+            (header::CONTENT_TYPE, "application/json; charset=utf-8"),
+            (
+                header::CONTENT_DISPOSITION,
+                "attachment; filename=\"home-flag-survey.json\"",
+            ),
+        ],
+        body,
+    )
+}
+
+async fn export_survey_csv(State(shared): State<Arc<Shared>>) -> impl IntoResponse {
+    let snapshot = shared.state.lock().unwrap().survey.clone();
+    let mut body = String::from("index,position,offset,crossing,class\n");
+    for sample in snapshot.samples {
+        body.push_str(&format!(
+            "{},{},{},{},{}\n",
+            sample.index,
+            sample.position,
+            sample.offset,
+            sample
+                .crossing
+                .map(|value| value.to_string())
+                .unwrap_or_default(),
+            serde_json::to_string(&sample.class)
+                .unwrap_or_else(|_| "\"failed\"".into())
+                .trim_matches('"')
+        ));
+    }
+    (
+        [
+            (header::CONTENT_TYPE, "text/csv; charset=utf-8"),
+            (
+                header::CONTENT_DISPOSITION,
+                "attachment; filename=\"home-flag-survey.csv\"",
+            ),
+        ],
+        body,
+    )
+}
+
 #[derive(serde::Deserialize)]
 struct RunBody {
     /// A plan by name from the plans directory.
@@ -213,6 +271,9 @@ struct RunBody {
     /// Communication lane used by this run. Omitted preserves the current active lane.
     #[serde(default)]
     channel: Option<Channel>,
+    /// Required for plans that erase/rewrite device flash.
+    #[serde(default)]
+    confirm_destructive: bool,
 }
 
 async fn run(State(shared): State<Arc<Shared>>, Json(body): Json<RunBody>) -> impl IntoResponse {
@@ -234,6 +295,7 @@ async fn run(State(shared): State<Arc<Shared>>, Json(body): Json<RunBody>) -> im
         plan: plan_name,
         inline,
         channel,
+        confirm_destructive,
     } = body;
     let plan = match (inline, plan_name) {
         (Some(plan), _) => plan,
@@ -258,6 +320,16 @@ async fn run(State(shared): State<Arc<Shared>>, Json(body): Json<RunBody>) -> im
                 .into_response();
         }
     };
+
+    if plan.is_destructive() && !confirm_destructive {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "error": "this plan rewrites application flash; repeat with confirm_destructive=true"
+            })),
+        )
+            .into_response();
+    }
 
     let name = plan.name.clone();
     *shared.last_start_error.lock().unwrap() = None;
@@ -286,6 +358,15 @@ async fn abort(State(shared): State<Arc<Shared>>) -> impl IntoResponse {
 #[derive(serde::Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case")]
 enum CommandBody {
+    EnterDirect,
+    ExitDirect,
+    Jog {
+        axis: bench_core::dut::Axis,
+        speed: i32,
+    },
+    StartSurvey {
+        config: SurveyConfig,
+    },
     Connect {
         kind: String,
         endpoint: String,
@@ -407,6 +488,28 @@ async fn command(
     Json(body): Json<CommandBody>,
 ) -> impl IntoResponse {
     let request = match body {
+        CommandBody::EnterDirect => routed(Some(Channel::Serial), Op::EnterDirect),
+        CommandBody::ExitDirect => routed(Some(Channel::Serial), Op::ExitDirect),
+        CommandBody::Jog { axis, speed } => {
+            if !(-14_080..=14_080).contains(&speed) {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(serde_json::json!({ "error": "speed must be within +/-14080" })),
+                )
+                    .into_response();
+            }
+            routed(Some(Channel::Serial), Op::Jog { axis, speed })
+        }
+        CommandBody::StartSurvey { config } => {
+            if let Err(error) = config.sample_count() {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(serde_json::json!({ "error": error })),
+                )
+                    .into_response();
+            }
+            routed(Some(Channel::Serial), Op::Survey { config })
+        }
         CommandBody::Connect { kind, endpoint } => {
             let Some(kind) = kind_from_name(&kind) else {
                 return (
@@ -632,5 +735,16 @@ mod tests {
                 recovery: false
             }
         ));
+
+        let body: CommandBody = serde_json::from_value(serde_json::json!({
+            "op": "start_survey",
+            "config": {
+                "axis": "b", "mode": "settled", "center": 42,
+                "center_is_home": false, "half_range": 500, "step": 10,
+                "duty_min": 200, "duty_max": 255
+            }
+        }))
+        .unwrap();
+        assert!(matches!(body, CommandBody::StartSurvey { .. }));
     }
 }

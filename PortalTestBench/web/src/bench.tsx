@@ -9,6 +9,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { type Cue, soundFor } from './bench-model';
 import { SessionLog } from './bench-log';
 import { MotionGraphs, MotionPilot } from './motion';
+import { InspectTab } from './inspect';
 
 function useEnumName(path: string): string {
   const p = useParam<number>(path);
@@ -206,6 +207,8 @@ function FlashActionStrip({ soundEnabled, onSoundEnabledChange }: { soundEnabled
   const flashBusy = useBool('/flash/busy');
   const runBusy = useBool('/run/busy');
   const armed = useBool('/flash/armed');
+  const forceWrite = useParam<boolean>('/flash/force_write');
+  const autoFlash = useParam<boolean>('/flash/auto_enabled');
   const flashStep = useText('/flash/step');
   const flashPhase = useText('/flash/phase');
   const flashProgress = useNumber('/flash/progress');
@@ -216,12 +219,17 @@ function FlashActionStrip({ soundEnabled, onSoundEnabledChange }: { soundEnabled
   const progress = Math.max(0, Math.min(1, flashBusy ? flashProgress : runProgress));
   const detail = (flashBusy ? flashStep || flashPhase : runStep || runPhase) || 'Starting';
   const state = busy ? 'WORKING' : target ? 'READY' : probe ? 'WAITING FOR MCU' : 'WAITING FOR ST-LINK';
+  const toggleForceWrite = () => {
+    const enabled = !forceWrite.value;
+    if (enabled && !autoFlash.value) autoFlash.set(true);
+    forceWrite.set(enabled);
+  };
   return <section className={`action-strip ${busy ? 'is-busy' : target ? 'is-ready' : 'is-waiting'}`} data-av-surface="test-runner">
     {busy && <span className="action-progress" style={{ width: `${Math.round(progress * 100)}%` }} />}
     <div className="action-state"><strong>{state}</strong>{busy && <span>{detail} · {Math.round(progress * 100)}%</span>}</div>
     <SerialNumberControl />
     <ManualFlashButton />
-    <div className={`auto-flash${armed ? ' is-armed' : ''}`}><span><strong>Auto flash</strong>{armed && <small>Armed</small>}</span><button type="button" className="sound-toggle" aria-label={soundEnabled ? 'Disable auto-flash sounds' : 'Enable auto-flash sounds'} aria-pressed={soundEnabled} title={soundEnabled ? 'Sound on' : 'Sound off'} onClick={() => onSoundEnabledChange(!soundEnabled)}><span aria-hidden="true">{soundEnabled ? '🔊' : '🔇'}</span></button><Toggle path="/flash/auto_enabled" /></div>
+    <div className={`auto-flash${armed ? ' is-armed' : ''}`}><span><strong>Auto flash</strong>{armed && <small>Armed</small>}</span><button type="button" className="sound-toggle" aria-label={soundEnabled ? 'Disable auto-flash sounds' : 'Enable auto-flash sounds'} aria-pressed={soundEnabled} title={soundEnabled ? 'Sound on' : 'Sound off'} onClick={() => onSoundEnabledChange(!soundEnabled)}><span aria-hidden="true">{soundEnabled ? '🔊' : '🔇'}</span></button><button type="button" className={`force-toggle${forceWrite.value ? ' is-active' : ''}`} aria-label={forceWrite.value ? 'Disable forced firmware writes' : 'Force firmware writes even when the image matches'} aria-pressed={!!forceWrite.value} title="Bypass the matching-firmware skip" disabled={!forceWrite.decl || (!forceWrite.value && !autoFlash.decl) || flashBusy} onClick={toggleForceWrite}>Force</button><Toggle path="/flash/auto_enabled" /></div>
   </section>;
 }
 
@@ -311,6 +319,7 @@ interface ProcedureEntry {
   requires?: { firmware?: string | null; transport?: string | null };
   steps?: number;
   criteria?: number;
+  destructive?: boolean;
   error?: string;
 }
 
@@ -333,8 +342,10 @@ function ProcedureRunner() {
   const stepCount = useNumber('/run/step_count');
   const fraction = useNumber('/run/step_fraction');
   const elapsed = useNumber('/run/elapsed_s');
+  const fieldDetail = useText('/field_update/detail');
   const [plans, setPlans] = useState<ProcedureEntry[]>([]);
   const [directory, setDirectory] = useState('');
+  const [confirmPlan, setConfirmPlan] = useState('');
   useEffect(() => {
     let cancelled = false;
     void fetch('/api/bench/plans', { cache: 'no-store' })
@@ -361,13 +372,19 @@ function ProcedureRunner() {
     if (flashLocked) return 'flashing owns the fixture';
     return null;
   };
-  const start = (name: string) => {
-    selected.set(name);
+  const start = (plan: ProcedureEntry) => {
+    if (plan.destructive && confirmPlan !== plan.name) {
+      setConfirmPlan(plan.name);
+      window.setTimeout(() => setConfirmPlan((value) => value === plan.name ? '' : value), 5000);
+      return;
+    }
+    setConfirmPlan('');
+    selected.set(plan.name);
     window.setTimeout(() => run.set((run.value ?? 0) + 1), 0);
   };
   return <Panel title="Procedures" right={<Badge tone={busy ? 'active' : 'idle'}>{busy ? 'running' : `${plans.length} available`}</Badge>}>
     {busy && <div className="procedure-progress">
-      <div><strong>{runningPlan}</strong><span>{phase} - {step || 'starting'} - {elapsed}s</span></div>
+      <div><strong>{runningPlan}</strong><span>{phase} - {step || 'starting'} - {elapsed}s</span>{step === 'Bootloader upload check' && fieldDetail && <small>{fieldDetail}</small>}</div>
       <div className="procedure-progress-track"><i style={{ width: `${Math.round(fraction * 100)}%` }} /></div>
       <span>Step {Math.min(stepIndex + 1, stepCount || 1)} of {stepCount || 1}</span>
       <Action path="/actions/abort" variant="danger">Abort procedure</Action>
@@ -378,8 +395,8 @@ function ProcedureRunner() {
         const active = busy && runningPlan === plan.name;
         return <article key={plan.name} className={`procedure-row${active ? ' is-running' : ''}`} role="listitem">
           <div><strong>{plan.name}</strong><small>{plan.kind || 'invalid'} - {plan.steps ?? 0} steps - {plan.criteria ?? 0} criteria</small></div>
-          <span className="procedure-tags"><Badge tone="idle">{plan.requires?.transport || 'either route'}</Badge>{plan.requires?.firmware && <Badge tone="idle">{plan.requires.firmware}</Badge>}</span>
-          <span title={why ?? `Run ${plan.name}`}><Button variant={active ? 'quiet' : 'primary'} disabled={!!why} onClick={() => start(plan.name)}>{active ? 'Running' : 'Run'}</Button></span>
+          <span className="procedure-tags"><Badge tone="idle">{plan.requires?.transport || 'either route'}</Badge>{plan.requires?.firmware && <Badge tone="idle">{plan.requires.firmware}</Badge>}{plan.destructive && <Badge tone="warn">rewrites flash</Badge>}</span>
+          <span title={why ?? (plan.destructive ? 'Press twice within five seconds' : `Run ${plan.name}`)}><Button variant={confirmPlan === plan.name ? 'danger' : active ? 'quiet' : 'primary'} disabled={!!why} onClick={() => start(plan)}>{active ? 'Running' : confirmPlan === plan.name ? 'Confirm rewrite' : 'Run'}</Button></span>
           {plan.error && <small className="procedure-error">{plan.error}</small>}
         </article>;
       })}</div>}
@@ -621,7 +638,7 @@ function App() {
     setSoundEnabled(enabled);
     if (enabled) sounds.play('tick_small', `portal-test-bench:sound-enabled:${Date.now()}`);
   };
-  const [tab, setTab] = useState<'flash' | 'test'>('flash');
+  const [tab, setTab] = useState<'flash' | 'test' | 'inspect'>('flash');
   const serial = useBool('/serial/connected'), rs485 = useBool('/rs485/connected');
   const serialKind = useEnumName('/serial/observed');
   const rs485Target = useNumber('/rs485/target');
@@ -633,9 +650,9 @@ function App() {
       <div className="bench-shared">
         <HardwareBand />
         <FlashActionStrip soundEnabled={soundEnabled} onSoundEnabledChange={changeSoundEnabled} />
-        <Tabs value={tab} onChange={setTab} label="Portal test bench workspaces" items={[{ id: 'flash', label: 'Flash' }, { id: 'test', label: 'Test', count: faults || undefined }]} />
+        <Tabs value={tab} onChange={setTab} label="Portal test bench workspaces" items={[{ id: 'flash', label: 'Flash' }, { id: 'test', label: 'Test', count: faults || undefined }, { id: 'inspect', label: 'Inspect' }]} />
       </div>
-      <div className="tab-content"><div className="stack bench-stack">{tab === 'flash' ? <FlashTab /> : <TestTab />}</div></div>
+      <div className="tab-content"><div className="stack bench-stack">{tab === 'flash' ? <FlashTab /> : tab === 'test' ? <TestTab /> : <InspectTab />}</div></div>
     </div><SessionLog /></div>
     <StatusBar stream={null}><StatusItem label="serial" value={serial ? serialKind : 'down'} tone={serial ? 'ok' : 'warn'} /><StatusItem label="RS485" value={rs485 ? `target ${rs485Target}` : 'down'} tone={rs485 ? 'ok' : 'warn'} /><StatusItem label="probe" value={target ? 'MCU present' : probe ? 'ready' : 'down'} tone={target ? 'ok' : probe ? 'warn' : 'error'} /><StatusItem label="runs" value={`${passed} pass · ${failed} fail`} />{faults > 0 && <StatusItem label="faults" value={String(faults)} tone="error" />}</StatusBar>
   </div>;

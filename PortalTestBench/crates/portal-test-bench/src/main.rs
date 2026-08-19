@@ -65,10 +65,10 @@ impl OperatorApp for PortalTestBenchApp {
 
     fn tracing_filter() -> &'static str {
         // An empty Tag-Connect is the normal armed/waiting state. ST-Link logs a target-voltage
-        // INFO and JTAG-IDCODE WARN for every non-invasive presence poll; the hardware status
-        // already reports the meaningful ready/no-target state, so repeating those lines only
-        // floods the operator console. Returned errors and this app's own diagnostics remain on.
-        "info,av_gui_host=info,probe_rs::probe::stlink=error"
+        // INFO, WARN and ERROR diagnostics for routine presence polls. The worker turns real
+        // probe failures into operator-facing status and session-log entries, so suppress the
+        // library's repeated low-level diagnostics while retaining this app's own tracing.
+        "info,av_gui_host=info,probe_rs=off"
     }
 
     fn create(context: &RunContext) -> AppResult<Self> {

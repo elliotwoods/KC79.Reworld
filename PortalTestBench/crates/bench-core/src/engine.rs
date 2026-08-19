@@ -66,6 +66,11 @@ pub enum Progress {
     Done(Verdict),
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Effect {
+    BeginBootloaderUpload { timeout_s: u64 },
+}
+
 /// One run of one plan.
 pub struct Engine {
     plan: Plan,
@@ -85,6 +90,8 @@ pub struct Engine {
     /// True once the current step's op has been queued, so a tick that waits does not resend.
     dispatched: bool,
     transport_baseline: LinkDiagnostics,
+    effects: Vec<Effect>,
+    field_update_baseline: u64,
 }
 
 impl Engine {
@@ -111,6 +118,8 @@ impl Engine {
             cancelled: false,
             dispatched: false,
             transport_baseline,
+            effects: Vec::new(),
+            field_update_baseline: 0,
         }
     }
 
@@ -125,6 +134,10 @@ impl Engine {
     }
     pub fn measurements(&self) -> &[Measurement] {
         &self.measurements
+    }
+
+    pub fn take_effects(&mut self) -> Vec<Effect> {
+        std::mem::take(&mut self.effects)
     }
 
     /// Total cycles, when the plan is a soak with a fixed count.
@@ -190,7 +203,12 @@ impl Engine {
             });
         }
 
-        if self.cancelled && !matches!(self.phase, Phase::Teardown | Phase::Escaping | Phase::Done)
+        let field_update_active =
+            matches!(self.current_step(), Some(Step::BootloaderUpload { .. }))
+                && tick.state.field_update.running();
+        if self.cancelled
+            && !field_update_active
+            && !matches!(self.phase, Phase::Teardown | Phase::Escaping | Phase::Done)
         {
             self.pending.get_or_insert(Verdict::Aborted {
                 reason: "stopped by the operator".into(),
@@ -370,6 +388,106 @@ impl Engine {
                         .into(),
                 ),
             }),
+
+            Step::BootloaderUpload { timeout_s } => {
+                if !self.dispatched {
+                    self.field_update_baseline = tick.state.field_update.attempt;
+                    self.effects.push(Effect::BeginBootloaderUpload {
+                        timeout_s: *timeout_s,
+                    });
+                    self.dispatched = true;
+                    return StepResult::Waiting;
+                }
+
+                let update = &tick.state.field_update;
+                if update.attempt <= self.field_update_baseline {
+                    if tick.now_ms.saturating_sub(self.step_started_ms) > timeout_s * 1000 {
+                        return StepResult::Failed(Verdict::Error {
+                            detail: "bootloader upload did not start before its timeout".into(),
+                            advice: Some(
+                                "check the selected firmware, ST-Link, and RS485 link".into(),
+                            ),
+                        });
+                    }
+                    return StepResult::Waiting;
+                }
+
+                match update.phase {
+                    crate::state::FieldUpdatePhase::Passed => {
+                        self.measurements.extend([
+                            Measurement {
+                                name: "field_update.application_bytes".into(),
+                                value: MeasureValue::Number(update.application_bytes as f64),
+                                unit: Some("bytes".into()),
+                                at_ms: tick.now_ms.saturating_sub(self.started_ms),
+                                step_index: self.index,
+                            },
+                            Measurement {
+                                name: "field_update.expected_sha256".into(),
+                                value: MeasureValue::Text(update.expected_sha256.clone()),
+                                unit: None,
+                                at_ms: tick.now_ms.saturating_sub(self.started_ms),
+                                step_index: self.index,
+                            },
+                            Measurement {
+                                name: "field_update.readback_sha256".into(),
+                                value: MeasureValue::Text(update.readback_sha256.clone()),
+                                unit: None,
+                                at_ms: tick.now_ms.saturating_sub(self.started_ms),
+                                step_index: self.index,
+                            },
+                            Measurement {
+                                name: "field_update.bootloader_unchanged".into(),
+                                value: MeasureValue::Bool(update.bootloader_unchanged),
+                                unit: None,
+                                at_ms: tick.now_ms.saturating_sub(self.started_ms),
+                                step_index: self.index,
+                            },
+                            Measurement {
+                                name: "field_update.persistent_unchanged".into(),
+                                value: MeasureValue::Bool(update.persistent_unchanged),
+                                unit: None,
+                                at_ms: tick.now_ms.saturating_sub(self.started_ms),
+                                step_index: self.index,
+                            },
+                            Measurement {
+                                name: "field_update.application_booted".into(),
+                                value: MeasureValue::Bool(update.application_booted),
+                                unit: None,
+                                at_ms: tick.now_ms.saturating_sub(self.started_ms),
+                                step_index: self.index,
+                            },
+                            Measurement {
+                                name: "field_update.beyond_64k".into(),
+                                value: MeasureValue::Bool(update.beyond_64k),
+                                unit: None,
+                                at_ms: tick.now_ms.saturating_sub(self.started_ms),
+                                step_index: self.index,
+                            },
+                        ]);
+                        StepResult::Advance
+                    }
+                    crate::state::FieldUpdatePhase::Failed => {
+                        StepResult::Failed(Verdict::Error {
+                            detail: update.detail.clone(),
+                            advice: Some(
+                                "the application bank may be incomplete; recover it over SWD before using the board"
+                                    .into(),
+                            ),
+                        })
+                    }
+                    _ if tick.now_ms.saturating_sub(self.step_started_ms) > timeout_s * 1000 => {
+                        StepResult::Failed(Verdict::Error {
+                            detail: format!("bootloader upload exceeded {timeout_s} s"),
+                            advice: Some(
+                                "check the RS485 adapter and recover the application over SWD"
+                                    .into(),
+                            ),
+                        })
+                    }
+                    _ => StepResult::Waiting,
+                }
+            }
 
             _ => {
                 // Everything else is a single op. Queue it once, then advance: waiting for the
@@ -848,5 +966,58 @@ mod tests {
         assert!(
             matches!(&verdict, Verdict::Error { advice: Some(a), .. } if a.contains("connect"))
         );
+    }
+
+    #[test]
+    fn bootloader_upload_waits_for_host_evidence_and_records_it() {
+        let mut harness = Harness::connected();
+        let mut engine = Engine::new(
+            plan(vec![Step::BootloaderUpload { timeout_s: 90 }], vec![]),
+            0,
+            0,
+        );
+
+        let mut outbox = Vec::new();
+        let mut tick = Tick {
+            now_ms: 0,
+            state: &harness.state,
+            log: &harness.log,
+            outbox: &mut outbox,
+        };
+        assert_eq!(engine.tick(&mut tick), Progress::Running);
+        assert!(engine.take_effects().is_empty());
+        let mut outbox = Vec::new();
+        let mut tick = Tick {
+            now_ms: 10,
+            state: &harness.state,
+            log: &harness.log,
+            outbox: &mut outbox,
+        };
+        assert_eq!(engine.tick(&mut tick), Progress::Running);
+        assert_eq!(
+            engine.take_effects(),
+            vec![Effect::BeginBootloaderUpload { timeout_s: 90 }]
+        );
+
+        harness.state.field_update.attempt = 1;
+        harness.state.field_update.phase = crate::state::FieldUpdatePhase::Passed;
+        harness.state.field_update.application_bytes = 95_048;
+        harness.state.field_update.expected_sha256 = "expected".into();
+        harness.state.field_update.readback_sha256 = "expected".into();
+        harness.state.field_update.bootloader_unchanged = true;
+        harness.state.field_update.persistent_unchanged = true;
+        harness.state.field_update.application_booted = true;
+        harness.state.field_update.beyond_64k = true;
+
+        let verdict = harness.run(&mut engine, 10, 20);
+        assert_eq!(verdict, Verdict::Pass);
+        assert!(engine.measurements().iter().any(|measurement| {
+            measurement.name == "field_update.application_bytes"
+                && measurement.value == MeasureValue::Number(95_048.0)
+        }));
+        assert!(engine.measurements().iter().any(|measurement| {
+            measurement.name == "field_update.application_booted"
+                && measurement.value == MeasureValue::Bool(true)
+        }));
     }
 }

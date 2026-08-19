@@ -12,11 +12,13 @@
 use std::collections::VecDeque;
 
 use crate::dut::FirmwareKind;
-use crate::engine::{Engine, Phase, Progress, Tick};
+use crate::engine::{Effect, Engine, Phase, Progress, Tick};
 use crate::plan::{Plan, PlanError, ValidationContext};
 use crate::report::Report;
-use crate::state::{BenchState, ChannelState, LogRing, TelemetryRing};
-use crate::transport::{Channel, Link, LinkError, LinkEvent, LinkKind, Op, RawSignal};
+use crate::state::{BenchState, ChannelState, FieldUpdatePhase, LogRing, TelemetryRing};
+use crate::transport::{
+    Channel, FirmwareUploadProgress, Link, LinkError, LinkEvent, LinkKind, Op, RawSignal,
+};
 use crate::verdict::{Measurement, Verdict, summarise};
 
 /// How often the bench asks a connected module for a full status report.
@@ -101,6 +103,7 @@ pub struct Bench {
     pub passed: u32,
     pub failed: u32,
     pub aborted: u32,
+    effects: Vec<Effect>,
 }
 
 #[derive(Debug)]
@@ -135,6 +138,7 @@ impl Bench {
             passed: 0,
             failed: 0,
             aborted: 0,
+            effects: Vec::new(),
         }
     }
 
@@ -152,6 +156,10 @@ impl Bench {
     }
     pub fn is_busy(&self) -> bool {
         self.engine.is_some()
+    }
+
+    pub fn take_effects(&mut self) -> Vec<Effect> {
+        std::mem::take(&mut self.effects)
     }
 
     pub fn run_status(&self) -> Option<RunStatus> {
@@ -284,15 +292,29 @@ impl Bench {
 
     /// Queue one op for the module.
     pub fn submit(&mut self, op: Op) {
+        if self.state.field_update.running() {
+            return;
+        }
         self.queue
             .push_back((self.state.active_channel, Outbound::Op(op)));
     }
 
     pub fn submit_to(&mut self, channel: Channel, op: Op) {
+        if self.state.field_update.running() {
+            return;
+        }
         self.queue.push_back((channel, Outbound::Op(op)));
     }
 
     pub fn submit_raw(&mut self, channel: Channel, signal: RawSignal, now_ms: u64) {
+        if self.state.field_update.running() {
+            self.note(
+                now_ms,
+                crate::LOG_LEVEL_WARNING,
+                "raw signal refused while bootloader upload owns RS485",
+            );
+            return;
+        }
         let summary = match &signal {
             RawSignal::VcomText { text, ending } => {
                 format!("VCOM raw {:?}: {text:?}", ending)
@@ -388,6 +410,7 @@ impl Bench {
                 outbox: &mut outbox,
             };
             let progress = engine.tick(&mut tick);
+            self.effects.extend(engine.take_effects());
             for op in outbox {
                 self.queue
                     .push_back((self.state.active_channel, Outbound::Op(op)));
@@ -406,6 +429,9 @@ impl Bench {
     }
 
     fn schedule_polls(&mut self, now_ms: u64) {
+        if self.state.field_update.running() {
+            return;
+        }
         if !self.state.channels.rs485.link.connected {
             return;
         }
@@ -419,6 +445,108 @@ impl Bench {
                 .push_back((Channel::Rs485, Outbound::Op(Op::Poll)));
             self.next_full_poll_ms = now_ms + FULL_POLL_PERIOD_MS;
         }
+    }
+
+    pub fn begin_field_update_transport(
+        &mut self,
+        firmware: &[u8],
+        expected_sha256: String,
+        now_ms: u64,
+    ) -> Result<FirmwareUploadProgress, String> {
+        let link = self
+            .rs485_link
+            .as_mut()
+            .ok_or_else(|| "no RS485 link is open".to_string())?;
+        self.queue.clear();
+        let progress = link
+            .begin_firmware_upload(firmware)
+            .map_err(|error| error.to_string())?;
+        let attempt = self.state.field_update.attempt.saturating_add(1);
+        self.state.field_update = crate::state::FieldUpdateState {
+            attempt,
+            phase: FieldUpdatePhase::Uploading,
+            progress: 0.0,
+            detail: "firmware upload queued".into(),
+            application_bytes: firmware.len(),
+            total_packets: progress.total_packets,
+            sent_packets: progress.sent_packets,
+            expected_sha256,
+            beyond_64k: firmware.len() > 65_536,
+            ..Default::default()
+        };
+        self.note(
+            now_ms,
+            crate::LOG_LEVEL_STATUS,
+            format!(
+                "bootloader upload queued: {} bytes in {} packets",
+                firmware.len(),
+                progress.total_packets
+            ),
+        );
+        Ok(progress)
+    }
+
+    pub fn field_update_transport_progress(&self) -> Result<FirmwareUploadProgress, String> {
+        self.rs485_link
+            .as_ref()
+            .and_then(|link| link.firmware_upload_progress())
+            .ok_or_else(|| "RS485 upload progress is unavailable".into())
+    }
+
+    pub fn update_field_update_transport(&mut self, progress: &FirmwareUploadProgress) {
+        let state = &mut self.state.field_update;
+        state.total_packets = progress.total_packets;
+        state.sent_packets = progress.sent_packets;
+        if progress.total_packets > 0 {
+            state.progress = (progress.sent_packets as f64 / progress.total_packets as f64) * 0.86;
+        }
+        state.detail = format!(
+            "sent {} of {} packets",
+            progress.sent_packets, progress.total_packets
+        );
+    }
+
+    pub fn set_field_update_phase(
+        &mut self,
+        phase: FieldUpdatePhase,
+        progress: f64,
+        detail: impl Into<String>,
+    ) {
+        let state = &mut self.state.field_update;
+        state.phase = phase;
+        state.progress = state.progress.max(progress.clamp(0.0, 1.0));
+        state.detail = detail.into();
+    }
+
+    pub fn pass_field_update(
+        &mut self,
+        readback_sha256: String,
+        bootloader_unchanged: bool,
+        persistent_unchanged: bool,
+        application_booted: bool,
+        detail: String,
+        now_ms: u64,
+    ) {
+        let state = &mut self.state.field_update;
+        state.phase = FieldUpdatePhase::Passed;
+        state.progress = 1.0;
+        state.readback_sha256 = readback_sha256;
+        state.bootloader_unchanged = bootloader_unchanged;
+        state.persistent_unchanged = persistent_unchanged;
+        state.application_booted = application_booted;
+        state.detail = detail.clone();
+        self.note(now_ms, crate::LOG_LEVEL_STATUS, detail);
+    }
+
+    pub fn fail_field_update(&mut self, detail: impl Into<String>, now_ms: u64) {
+        let detail = detail.into();
+        let state = &mut self.state.field_update;
+        state.attempt = state
+            .attempt
+            .saturating_add((state.phase == FieldUpdatePhase::Idle) as u64);
+        state.phase = FieldUpdatePhase::Failed;
+        state.detail = detail.clone();
+        self.note(now_ms, crate::LOG_LEVEL_ERROR, detail);
     }
 
     fn drain_queue(&mut self, now_ms: u64) {
@@ -520,6 +648,65 @@ impl Bench {
 
     fn apply_from(&mut self, channel: Channel, event: LinkEvent, now_ms: u64) {
         match event {
+            LinkEvent::DirectMode { mode, detail } => {
+                self.state.direct.mode = mode;
+                self.state.direct.detail = detail.clone();
+                self.note(
+                    now_ms,
+                    crate::LOG_LEVEL_STATUS,
+                    format!("direct mode: {detail}"),
+                );
+            }
+            LinkEvent::SurveyBegin { config, expected } => {
+                self.state.survey.running = true;
+                self.state.survey.config = Some(config.clone());
+                self.state.survey.expected = expected;
+                self.state.survey.samples.clear();
+                self.state.survey.aborted = false;
+                self.state.survey.detail = "survey running".into();
+                self.report.token(
+                    'Q',
+                    &[
+                        "begin".into(),
+                        serde_json::to_string(&config).unwrap_or_default(),
+                        expected.to_string(),
+                    ],
+                );
+            }
+            LinkEvent::SurveySample(sample) => {
+                if self.state.survey.samples.len() < 4096 {
+                    self.report.token(
+                        'Q',
+                        &[
+                            "sample".into(),
+                            serde_json::to_string(&sample).unwrap_or_default(),
+                        ],
+                    );
+                    self.state.survey.samples.push(sample);
+                }
+            }
+            LinkEvent::SurveyEnd { aborted, detail } => {
+                self.state.survey.running = false;
+                self.state.survey.aborted = aborted;
+                self.state.survey.detail = detail.clone();
+                self.note(
+                    now_ms,
+                    if aborted {
+                        crate::LOG_LEVEL_WARNING
+                    } else {
+                        crate::LOG_LEVEL_STATUS
+                    },
+                    detail,
+                );
+                self.report.token(
+                    'Q',
+                    &[
+                        "end".into(),
+                        aborted.to_string(),
+                        self.state.survey.detail.clone(),
+                    ],
+                );
+            }
             LinkEvent::Identified {
                 firmware,
                 version,

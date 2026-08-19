@@ -17,6 +17,7 @@ use std::time::{Duration, Instant};
 use av_gui_bus::{Bus, ParamId, Value};
 use bench_core::bench::{Bench, Origin, Outcome, RunStatus};
 use bench_core::dut::{Axis, FirmwareKind, GearRatio};
+use bench_core::engine::Effect;
 use bench_core::engine::Phase;
 use bench_core::plan::Plan;
 use bench_core::provisioning::{
@@ -24,10 +25,11 @@ use bench_core::provisioning::{
     Reservation, SqliteRepository,
 };
 use bench_core::state::BenchState;
+use bench_core::state::FieldUpdatePhase;
 use bench_core::transport::{Channel, LineEnding, LinkKind, MotionProfile, Op, RawSignal};
 use portal_swd::Pass;
 
-use crate::flash::{FlashController, FlashSnapshot};
+use crate::flash::{FieldUpdateTarget, FlashController, FlashSnapshot};
 use crate::schema::{self, AxisParams, Params};
 
 /// Worker tick period.
@@ -177,6 +179,7 @@ pub struct Worker {
     last_provision_uid: String,
     simulated: bool,
     next_serial_seen: u32,
+    field_update_job: Option<FieldUpdateJob>,
 }
 
 /// How long a page may go quiet before it counts as gone.
@@ -201,7 +204,15 @@ struct PendingProvision {
     deadline_ms: Option<u64>,
 }
 
+struct FieldUpdateJob {
+    target: FieldUpdateTarget,
+    started_ms: u64,
+    timeout_ms: u64,
+    handoff_deadline_ms: Option<u64>,
+}
+
 impl Worker {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         bus: Arc<Bus>,
         params: Params,
@@ -274,6 +285,7 @@ impl Worker {
             last_provision_uid: String::new(),
             simulated,
             next_serial_seen,
+            field_update_job: None,
         }
     }
 
@@ -335,7 +347,9 @@ impl Worker {
                     "auto-flash refused while a test plan is running",
                 );
             }
-            if let Some(pass) = self.flash.tick(now, page_heartbeat, auto_enabled) {
+            if self.field_update_job.is_none()
+                && let Some(pass) = self.flash.tick(now, page_heartbeat, auto_enabled)
+            {
                 self.run_flash(now, pass, true);
             }
             self.sync_provision_device(now);
@@ -355,11 +369,134 @@ impl Worker {
                 self.publish_outcome(&outcome);
                 *self.shared.last.lock().unwrap() = Some(outcome);
             }
+            self.handle_engine_effects(post_io_now);
+            self.tick_field_update(post_io_now);
             self.finish_pending_provision(post_io_now);
 
             self.publish(post_io_now);
             std::thread::sleep(TICK);
         }
+    }
+
+    fn handle_engine_effects(&mut self, now: u64) {
+        for effect in self.bench.take_effects() {
+            match effect {
+                Effect::BeginBootloaderUpload { timeout_s } => {
+                    self.start_field_update(now, timeout_s)
+                }
+            }
+        }
+    }
+
+    fn start_field_update(&mut self, now: u64, timeout_s: u64) {
+        if self.field_update_job.is_some() {
+            self.bench
+                .fail_field_update("a bootloader upload is already active", now);
+            return;
+        }
+        let target = match self.flash.prepare_field_update() {
+            Ok(target) => target,
+            Err(error) => {
+                self.bench
+                    .fail_field_update(format!("bootloader upload preflight failed: {error}"), now);
+                self.cue("fail");
+                return;
+            }
+        };
+        if let Err(error) = self.bench.begin_field_update_transport(
+            &target.application,
+            target.expected_sha256.clone(),
+            now,
+        ) {
+            self.bench
+                .fail_field_update(format!("could not queue bootloader upload: {error}"), now);
+            self.cue("fail");
+            return;
+        }
+        self.field_update_job = Some(FieldUpdateJob {
+            target,
+            started_ms: now,
+            timeout_ms: timeout_s.saturating_mul(1_000),
+            handoff_deadline_ms: None,
+        });
+    }
+
+    fn tick_field_update(&mut self, now: u64) {
+        let Some(job) = self.field_update_job.as_mut() else {
+            return;
+        };
+        if now.saturating_sub(job.started_ms) > job.timeout_ms {
+            self.bench.fail_field_update(
+                format!(
+                    "bootloader upload exceeded its {} s timeout",
+                    job.timeout_ms / 1_000
+                ),
+                now,
+            );
+            self.field_update_job = None;
+            self.cue("fail");
+            return;
+        }
+
+        let progress = match self.bench.field_update_transport_progress() {
+            Ok(progress) => progress,
+            Err(error) => {
+                self.bench.fail_field_update(error, now);
+                self.field_update_job = None;
+                self.cue("fail");
+                return;
+            }
+        };
+        if !progress.connected {
+            self.bench
+                .fail_field_update("RS485 disconnected during bootloader upload", now);
+            self.field_update_job = None;
+            self.cue("fail");
+            return;
+        }
+        self.bench.update_field_update_transport(&progress);
+        if progress.remaining_packets != 0 || progress.sent_packets < progress.total_packets {
+            return;
+        }
+
+        let deadline = *job
+            .handoff_deadline_ms
+            .get_or_insert_with(|| now.saturating_add(5_000));
+        if now < deadline {
+            self.bench.set_field_update_phase(
+                FieldUpdatePhase::Handoff,
+                0.90,
+                "upload complete; waiting for the bootloader's application handoff",
+            );
+            return;
+        }
+
+        self.bench.set_field_update_phase(
+            FieldUpdatePhase::Verifying,
+            0.94,
+            "reading application, bootloader, and persistent pages back over SWD",
+        );
+        match self.flash.verify_field_update(&job.target) {
+            Ok(evidence) => {
+                self.bench.pass_field_update(
+                    evidence.readback_sha256,
+                    evidence.bootloader_unchanged,
+                    evidence.persistent_unchanged,
+                    evidence.application_booted,
+                    evidence.detail,
+                    now,
+                );
+                self.cue("pass");
+            }
+            Err(error) => {
+                self.bench.fail_field_update(
+                    format!("bootloader upload verification failed: {error}"),
+                    now,
+                );
+                self.cue("fail");
+            }
+        }
+        self.field_update_job = None;
     }
 
     /// Turn counter bumps from the page into work.
@@ -514,7 +651,9 @@ impl Worker {
             "write_settings" => self.write_flash_settings(now),
             "reset_mcu" => self.reset_mcu(now, true),
             "check_boot" => self.check_mcu_boot(now),
-            "read_device" => self.flash.read_device(),
+            "read_device" => {
+                let _ = self.flash.read_device();
+            }
             "rescan_firmware" => self.rescan_setup(now),
             "rescan" => {
                 self.rescan_setup(now);
@@ -904,6 +1043,11 @@ impl Worker {
     /// them afterwards so serial and RS485 readers can never race the probe over a reboot.
     fn sync_provision_device(&mut self, now: u64) {
         let Some(mcu) = self.flash.snapshot().mcu.clone() else {
+            if !self.last_provision_uid.is_empty() {
+                self.last_provision_uid.clear();
+                self.override_once = false;
+                self.refresh_provision_snapshot();
+            }
             return;
         };
         if mcu.uid == self.last_provision_uid {
@@ -1040,17 +1184,17 @@ impl Worker {
             return;
         }
         self.override_once = true;
-        if let Some(mcu) = self.flash.snapshot().mcu.as_ref() {
-            if let Some(repository) = self.provisioning.as_mut() {
-                let detail = format!("on-board {:?}; PCB {}", mcu.provision_serial, requested);
-                let _ = repository.record_action(
-                    Some(requested as u32),
-                    Some(&mcu.uid),
-                    "use-pcb-serial",
-                    "override-authorized",
-                    &detail,
-                );
-            }
+        if let Some(mcu) = self.flash.snapshot().mcu.as_ref()
+            && let Some(repository) = self.provisioning.as_mut()
+        {
+            let detail = format!("on-board {:?}; PCB {}", mcu.provision_serial, requested);
+            let _ = repository.record_action(
+                Some(requested as u32),
+                Some(&mcu.uid),
+                "use-pcb-serial",
+                "override-authorized",
+                &detail,
+            );
         }
         self.bench.note(
             now,
@@ -1080,16 +1224,16 @@ impl Worker {
         match self.flash.write_settings(settings, &mut progress) {
             Ok(detail) => {
                 self.bench.note(now, bench_core::LOG_LEVEL_STATUS, &detail);
-                if let Some(mcu) = self.flash.snapshot().mcu.as_ref() {
-                    if let Some(repository) = self.provisioning.as_mut() {
-                        let _ = repository.record_action(
-                            mcu.provision_serial,
-                            Some(&mcu.uid),
-                            "settings-write",
-                            "ok",
-                            &detail,
-                        );
-                    }
+                if let Some(mcu) = self.flash.snapshot().mcu.as_ref()
+                    && let Some(repository) = self.provisioning.as_mut()
+                {
+                    let _ = repository.record_action(
+                        mcu.provision_serial,
+                        Some(&mcu.uid),
+                        "settings-write",
+                        "ok",
+                        &detail,
+                    );
                 }
             }
             Err(error) => self.bench.note(now, bench_core::LOG_LEVEL_ERROR, error),
@@ -1105,6 +1249,7 @@ impl Worker {
                 Err(error) => {
                     self.bench.note(now, bench_core::LOG_LEVEL_ERROR, &error);
                     self.cue("fail");
+                    self.flash.reject_pass(now, pass, &error);
                     if automatic {
                         let _ = self
                             .bus
@@ -1147,53 +1292,67 @@ impl Worker {
         let bus = Arc::clone(&self.bus);
         let step_id = self.params.flash.step;
         let progress_id = self.params.flash.progress;
-        let mut progress = move |step: &str, fraction: f64| {
-            let _ = bus.set_text(step_id, step);
-            let _ = bus.set(progress_id, Value::F64(fraction.clamp(0.0, 1.0)));
-        };
-        let ok = if let Some(reservation) = reservation.as_ref() {
-            let mcu = self.flash.snapshot().mcu.as_ref();
-            let selected = self.flash.selected_application_sha256().unwrap_or_default();
-            let already_matches = mcu.is_some_and(|mcu| {
-                mcu.provision_serial == Some(reservation.serial)
-                    && !selected.is_empty()
-                    && mcu.application_sha256 == selected
-            });
-            if already_matches {
-                self.flash.verified_skip(
-                    now,
-                    automatic,
-                    format!(
-                        "serial {} already has selected firmware {}",
-                        reservation.serial,
-                        short_hash_text(&selected)
-                    ),
-                )
-            } else {
-                let settings = portal_swd::DeviceSettings {
-                    operating_current_ma: schema::get_i32(
-                        &self.bus,
-                        self.params.provision.current_ma,
+        let mut displayed_progress = 0.0_f64;
+        let ok = {
+            let mut progress = |step: &str, fraction: f64| {
+                displayed_progress = displayed_progress.max(overall_flash_progress(step, fraction));
+                let _ = bus.set_text(step_id, step);
+                let _ = bus.set(progress_id, Value::F64(displayed_progress));
+            };
+            if let Some(reservation) = reservation.as_ref() {
+                let mcu = self.flash.snapshot().mcu.as_ref();
+                let selected = self.flash.selected_application_sha256().unwrap_or_default();
+                let force_write = schema::get_bool(&self.bus, self.params.flash.force_write);
+                let already_matches = !force_write
+                    && mcu.is_some_and(|mcu| {
+                        mcu.provision_serial == Some(reservation.serial)
+                            && !selected.is_empty()
+                            && mcu.application_sha256 == selected
+                    });
+                if already_matches {
+                    self.flash.verified_skip(
+                        now,
+                        automatic,
+                        format!(
+                            "serial {} already has selected firmware {}",
+                            reservation.serial,
+                            short_hash_text(&selected)
+                        ),
                     )
-                    .clamp(50, 250) as u16,
-                    full_current_home_recovery: schema::get_bool(
-                        &self.bus,
-                        self.params.provision.recovery_enabled,
-                    ),
-                    ..portal_swd::DeviceSettings::default()
-                };
-                self.flash.provision(
-                    now,
-                    reservation.serial,
-                    settings,
-                    self.override_once,
-                    automatic,
-                    &mut progress,
-                )
+                } else {
+                    if force_write {
+                        self.bench.note(
+                            now,
+                            bench_core::LOG_LEVEL_STATUS,
+                            "force write enabled; programming even if firmware already matches",
+                        );
+                    }
+                    let settings = portal_swd::DeviceSettings {
+                        operating_current_ma: schema::get_i32(
+                            &self.bus,
+                            self.params.provision.current_ma,
+                        )
+                        .clamp(50, 250) as u16,
+                        full_current_home_recovery: schema::get_bool(
+                            &self.bus,
+                            self.params.provision.recovery_enabled,
+                        ),
+                        ..portal_swd::DeviceSettings::default()
+                    };
+                    self.flash.provision(
+                        now,
+                        reservation.serial,
+                        settings,
+                        self.override_once,
+                        automatic,
+                        &mut progress,
+                    )
+                }
+            } else {
+                self.flash.execute(now, pass, automatic, &mut progress)
             }
-        } else {
-            self.flash.execute(now, pass, automatic, &mut progress)
         };
+        self.flash.keep_progress_at_least(displayed_progress);
         let needs_replug = self.flash.snapshot().needs_replug;
         self.bench.note(
             now,
@@ -1435,12 +1594,14 @@ impl Worker {
     }
 
     fn refresh_provision_snapshot(&mut self) {
-        let mut snapshot = ProvisionSnapshot::default();
-        snapshot.database_error = self.database_error.clone();
-        snapshot.database_ok = self
-            .provisioning
-            .as_ref()
-            .is_some_and(|repo| repo.health().is_ok());
+        let mut snapshot = ProvisionSnapshot {
+            database_error: self.database_error.clone(),
+            database_ok: self
+                .provisioning
+                .as_ref()
+                .is_some_and(|repo| repo.health().is_ok()),
+            ..ProvisionSnapshot::default()
+        };
         if let Some(repository) = self.provisioning.as_ref() {
             snapshot.next_serial = repository.next_serial().unwrap_or(1);
             snapshot.history = repository.history(None, None, 250).unwrap_or_default();
@@ -1635,11 +1796,11 @@ impl Worker {
                     self.refresh_provision_snapshot();
                 }
                 Request::SetNextSerial(serial) => {
-                    if let Some(repository) = self.provisioning.as_mut() {
-                        if let Err(error) = repository.set_next_at_least(serial) {
-                            self.bench
-                                .note(now, bench_core::LOG_LEVEL_ERROR, error.to_string());
-                        }
+                    if let Some(repository) = self.provisioning.as_mut()
+                        && let Err(error) = repository.set_next_at_least(serial)
+                    {
+                        self.bench
+                            .note(now, bench_core::LOG_LEVEL_ERROR, error.to_string());
                     }
                     self.refresh_provision_snapshot();
                 }
@@ -1693,7 +1854,9 @@ impl Worker {
                 }
                 Request::ResetMcu => self.reset_mcu(now, false),
                 Request::CheckBoot => self.check_mcu_boot(now),
-                Request::ReadDevice => self.flash.read_device(),
+                Request::ReadDevice => {
+                    let _ = self.flash.read_device();
+                }
                 Request::SendRaw { channel, signal } => {
                     if self.flash.snapshot().armed
                         || self.flash.snapshot().busy
@@ -1857,6 +2020,24 @@ impl Worker {
         );
 
         let status = self.bench.run_status();
+        let field_update = &state.field_update;
+        set(
+            self.params.field_update_phase,
+            Value::Enum(field_update_phase_value(field_update.phase)),
+        );
+        set(
+            self.params.field_update_progress,
+            Value::F64(field_update.progress),
+        );
+        text(self.params.field_update_detail, &field_update.detail);
+        text(
+            self.params.field_update_expected_sha256,
+            &field_update.expected_sha256,
+        );
+        text(
+            self.params.field_update_readback_sha256,
+            &field_update.readback_sha256,
+        );
         set(self.params.run_busy, Value::Bool(status.is_some()));
         match &status {
             Some(status) => {
@@ -1880,9 +2061,13 @@ impl Worker {
                 );
                 set(
                     self.params.run_step_fraction,
-                    Value::F64(match status.step_count {
-                        0 => 0.0,
-                        count => status.step_index as f64 / count as f64,
+                    Value::F64(if status.step_name == "Bootloader upload check" {
+                        field_update.progress
+                    } else {
+                        match status.step_count {
+                            0 => 0.0,
+                            count => status.step_index as f64 / count as f64,
+                        }
                     }),
                 );
                 set(self.params.run_cycle, Value::I32(status.cycle as i32));
@@ -2202,12 +2387,46 @@ fn phase_value(phase: Phase) -> u32 {
     by_name(schema::RUN_PHASES, phase.name())
 }
 
+fn field_update_phase_value(phase: FieldUpdatePhase) -> u32 {
+    let name = match phase {
+        FieldUpdatePhase::Idle => "idle",
+        FieldUpdatePhase::Uploading => "uploading",
+        FieldUpdatePhase::Handoff => "handoff",
+        FieldUpdatePhase::Verifying => "verifying",
+        FieldUpdatePhase::Passed => "passed",
+        FieldUpdatePhase::Failed => "failed",
+    };
+    by_name(schema::FIELD_UPDATE_PHASES, name)
+}
+
 fn origin_value(origin: Origin) -> u32 {
     by_name(schema::RUN_ORIGINS, origin.name())
 }
 
 fn verdict_value(name: &str) -> u32 {
     by_name(schema::VERDICTS, name)
+}
+
+/// Convert each rig sub-step's local 0..1 fraction into one operation-wide timeline.
+///
+/// Some phases are optional, so entering a later phase may jump over an unused segment. The
+/// caller retains the maximum value, making retries and a later phase's initial zero monotonic.
+/// The last two percent are deliberately held back for the completed boot-stability verdict.
+fn overall_flash_progress(step: &str, fraction: f64) -> f64 {
+    let local = fraction.clamp(0.0, 1.0);
+    let (start, width) = match step {
+        "attach" => (0.00, 0.04),
+        "option-bytes" => (0.04, 0.04),
+        "erase" => (0.08, 0.14),
+        "program" => (0.22, 0.36),
+        "readback" => (0.58, 0.20),
+        "reset-run" => (0.78, 0.04),
+        "identity" => (0.82, 0.06),
+        "settings" => (0.88, 0.04),
+        "boot-check" => (0.92, 0.06),
+        _ => (0.0, 0.0),
+    };
+    start + width * local
 }
 
 #[cfg(test)]
@@ -2251,5 +2470,30 @@ mod tests {
         let count = sorted.len();
         sorted.dedup();
         assert_eq!(sorted.len(), count, "duplicate action names");
+    }
+
+    #[test]
+    fn flash_substeps_share_one_monotonic_progress_timeline() {
+        let reports = [
+            ("attach", 1.0),
+            ("erase", 0.0),
+            ("erase", 1.0),
+            ("program", 0.0),
+            ("program", 0.5),
+            ("readback", 0.0),
+            ("readback", 1.0),
+            ("identity", 0.0),
+            ("identity", 1.0),
+            ("settings", 0.0),
+            ("settings", 1.0),
+            ("boot-check", 1.0),
+        ];
+        let mut displayed = 0.0_f64;
+        for (step, local) in reports {
+            let next = displayed.max(overall_flash_progress(step, local));
+            assert!(next >= displayed, "{step} moved progress backward");
+            displayed = next;
+        }
+        assert_eq!(displayed, 0.98);
     }
 }

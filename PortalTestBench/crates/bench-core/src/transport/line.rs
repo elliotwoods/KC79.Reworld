@@ -18,10 +18,12 @@
 //! a serial monitor with a keyboard, which is exactly what it is during bring-up.
 
 use crate::dut::{Axis, FirmwareKind};
+use crate::transport::direct::{self, SampleClass, SessionMode, SurveyConfig, SurveySample};
 use crate::transport::{
     Link, LinkDiagnostics, LinkError, LinkEvent, LinkInfo, LinkKind, Op, RawSignal, ascii,
 };
 use router_link::rs485::SerialDevice;
+use router_proto::{FrameAccumulator, Value};
 
 /// Cap on the unterminated tail we will hold while waiting for a newline.
 ///
@@ -42,6 +44,12 @@ pub struct LineLink {
     device: Option<Box<dyn SerialDevice>>,
     /// Bytes received but not yet terminated by a newline.
     pending: String,
+    direct_mode: SessionMode,
+    direct_frames: FrameAccumulator,
+    direct_seq: u8,
+    direct_nonce: u32,
+    next_heartbeat_ms: u64,
+    pending_survey: Option<SurveyConfig>,
     banner: Option<String>,
     tx: u64,
     rx: u64,
@@ -66,6 +74,12 @@ impl LineLink {
             endpoint: endpoint.into(),
             device: None,
             pending: String::new(),
+            direct_mode: SessionMode::Menu,
+            direct_frames: FrameAccumulator::new(),
+            direct_seq: 0,
+            direct_nonce: 0,
+            next_heartbeat_ms: 0,
+            pending_survey: None,
             banner: None,
             tx: 0,
             rx: 0,
@@ -145,16 +159,29 @@ impl Link for LineLink {
         let device = (self.open_device)(&self.endpoint)?;
         self.device = Some(device);
         self.pending.clear();
+        self.direct_mode = SessionMode::Menu;
+        self.direct_frames.clear();
         self.banner = None;
         Ok(self.info())
     }
 
     fn close(&mut self) {
+        if self.direct_mode == SessionMode::Direct
+            && let Some(device) = self.device.as_mut()
+        {
+            let _ = device.transmit(&direct::encode(
+                self.direct_seq,
+                direct::kind::EXIT,
+                Value::Nil,
+            ));
+        }
         if let Some(device) = self.device.as_mut() {
             device.close();
         }
         self.device = None;
         self.pending.clear();
+        self.direct_mode = SessionMode::Menu;
+        self.direct_frames.clear();
     }
 
     fn is_open(&self) -> bool {
@@ -170,6 +197,45 @@ impl Link for LineLink {
     }
 
     fn send(&mut self, op: &Op) -> Result<(), LinkError> {
+        if self.kind == LinkKind::Vcp {
+            if matches!(op, Op::EnterDirect) {
+                if self.direct_mode != SessionMode::Menu {
+                    return Ok(());
+                }
+                self.direct_nonce = (self.tx as u32).wrapping_mul(2_654_435_761).wrapping_add(1);
+                let bytes = format!(":b {} {}\n", direct::VERSION, self.direct_nonce).into_bytes();
+                self.device
+                    .as_mut()
+                    .ok_or(LinkError::NotOpen)?
+                    .transmit(&bytes)
+                    .map_err(|e| LinkError::Io(e.to_string()))?;
+                self.direct_mode = SessionMode::Entering;
+                self.tx += 1;
+                return Ok(());
+            }
+            if matches!(self.direct_mode, SessionMode::Direct | SessionMode::Exiting) {
+                let (kind, body) = render_direct_op(op).ok_or_else(|| LinkError::Unsupported {
+                    kind: "vcp-direct",
+                    op: format!("{op:?}"),
+                })?;
+                if matches!(op, Op::ExitDirect) {
+                    self.direct_mode = SessionMode::Exiting;
+                }
+                if let Op::Survey { config } = op {
+                    config.sample_count().map_err(LinkError::Io)?;
+                    self.pending_survey = Some(config.clone());
+                }
+                let wire = direct::encode(self.direct_seq, kind, body);
+                self.direct_seq = self.direct_seq.wrapping_add(1);
+                self.device
+                    .as_mut()
+                    .ok_or(LinkError::NotOpen)?
+                    .transmit(&wire)
+                    .map_err(|e| LinkError::Io(e.to_string()))?;
+                self.tx += 1;
+                return Ok(());
+            }
+        }
         let rendered = match self.kind {
             LinkKind::BenchAscii => ascii::render_op(op),
             LinkKind::Vcp => render_vcp_op(op),
@@ -224,6 +290,12 @@ impl Link for LineLink {
                 op: "raw VCOM text".into(),
             });
         }
+        if self.direct_mode != SessionMode::Menu {
+            return Err(LinkError::Unsupported {
+                kind: "vcp-direct",
+                op: "raw text while Direct Mode is active".into(),
+            });
+        }
         if text.len() > 4096 {
             return Err(LinkError::Io("raw VCOM payload exceeds 4096 bytes".into()));
         }
@@ -237,7 +309,22 @@ impl Link for LineLink {
         Ok(())
     }
 
-    fn poll(&mut self, _now_ms: u64) -> Vec<LinkEvent> {
+    fn poll(&mut self, now_ms: u64) -> Vec<LinkEvent> {
+        if self.kind == LinkKind::Vcp
+            && self.direct_mode == SessionMode::Direct
+            && now_ms >= self.next_heartbeat_ms
+            && let Some(device) = self.device.as_mut()
+        {
+            let wire = direct::encode(self.direct_seq, direct::kind::HEARTBEAT, Value::Nil);
+            self.direct_seq = self.direct_seq.wrapping_add(1);
+            if let Err(error) = device.transmit(&wire) {
+                return vec![LinkEvent::Fault(format!(
+                    "direct heartbeat failed: {error}"
+                ))];
+            }
+            self.tx += 1;
+            self.next_heartbeat_ms = now_ms.saturating_add(500);
+        }
         let Some(device) = self.device.as_mut() else {
             return Vec::new();
         };
@@ -251,6 +338,29 @@ impl Link for LineLink {
         }
         if !bytes.is_empty() {
             self.rx += 1;
+        }
+
+        if self.kind == LinkKind::Vcp
+            && matches!(self.direct_mode, SessionMode::Direct | SessionMode::Exiting)
+        {
+            let frames = self.direct_frames.push(&bytes);
+            let mut events = Vec::new();
+            for result in frames {
+                match result {
+                    Ok(payload) => match direct::decode(&payload) {
+                        Ok(frame) => events.extend(parse_direct_frame(
+                            frame,
+                            &mut self.direct_mode,
+                            &mut self.pending_survey,
+                        )),
+                        Err(error) => events.push(LinkEvent::Fault(error)),
+                    },
+                    Err(error) => {
+                        events.push(LinkEvent::Fault(format!("direct COBS decode: {error}")))
+                    }
+                }
+            }
+            return events;
         }
 
         let lines = self.take_lines(&bytes);
@@ -278,6 +388,19 @@ impl Link for LineLink {
                     }
                 }
                 LinkKind::Vcp => {
+                    if self.direct_mode == SessionMode::Entering {
+                        let text = line.trim();
+                        if text == format!("DIRECT {} {}", direct::VERSION, self.direct_nonce) {
+                            self.direct_mode = SessionMode::Direct;
+                            self.direct_frames.clear();
+                            self.next_heartbeat_ms = now_ms;
+                            events.push(LinkEvent::DirectMode {
+                                mode: SessionMode::Direct,
+                                detail: format!("protocol v{} ready", direct::VERSION),
+                            });
+                            continue;
+                        }
+                    }
                     if let Some(event) = parse_vcp_line(&line, &mut self.banner) {
                         events.push(event);
                     }
@@ -341,9 +464,162 @@ fn render_vcp_op(op: &Op) -> Option<String> {
         | Op::SetMotionProfile { .. }
         | Op::SetCurrent { .. }
         | Op::ReadSettings
+        | Op::EnterDirect
+        | Op::ExitDirect
+        | Op::DirectHeartbeat
+        | Op::Jog { .. }
+        | Op::Survey { .. }
         | Op::WriteSettings { .. }
         | Op::SetMicrostep { .. } => return None,
     })
+}
+
+fn render_direct_op(op: &Op) -> Option<(u8, Value)> {
+    let axis = |axis| Value::from(axis_argument(axis));
+    Some(match op {
+        Op::ExitDirect => (direct::kind::EXIT, Value::Nil),
+        Op::DirectHeartbeat => (direct::kind::HEARTBEAT, Value::Nil),
+        Op::Poll | Op::PollPosition | Op::Identify => (direct::kind::STATUS, Value::Nil),
+        Op::Jog { axis: which, speed } => (
+            direct::kind::JOG,
+            Value::Array(vec![axis(*which), Value::from(*speed)]),
+        ),
+        Op::Survey { config } => (direct::kind::SURVEY_START, config.body()),
+        Op::Escape => (direct::kind::ABORT, Value::Nil),
+        Op::Home { axis: which } => (
+            direct::kind::OP,
+            Value::Array(vec![Value::from(1), axis(*which)]),
+        ),
+        Op::MoveTo {
+            axis: which,
+            usteps,
+            ..
+        } => (
+            direct::kind::OP,
+            Value::Array(vec![Value::from(2), axis(*which), Value::from(*usteps)]),
+        ),
+        Op::SetHomeThreshold { value } => (
+            direct::kind::OP,
+            Value::Array(vec![Value::from(3), Value::from((*value).clamp(0, 255))]),
+        ),
+        _ => return None,
+    })
+}
+
+fn parse_direct_frame(
+    frame: direct::Frame,
+    mode: &mut SessionMode,
+    pending_survey: &mut Option<SurveyConfig>,
+) -> Vec<LinkEvent> {
+    let values = frame.body.as_array();
+    match frame.kind {
+        direct::kind::ACK => {
+            if *mode == SessionMode::Exiting {
+                *mode = SessionMode::Menu;
+                vec![LinkEvent::DirectMode {
+                    mode: SessionMode::Menu,
+                    detail: "human menu restored".into(),
+                }]
+            } else {
+                vec![LinkEvent::Ack { source: None }]
+            }
+        }
+        direct::kind::ERROR => vec![LinkEvent::Fault(
+            values
+                .and_then(|v| v.get(1))
+                .and_then(Value::as_str)
+                .unwrap_or("firmware rejected Direct Mode command")
+                .to_string(),
+        )],
+        direct::kind::STATUS_EVENT => {
+            let Some(v) = values else {
+                return vec![LinkEvent::Fault("invalid direct status".into())];
+            };
+            if v.len() < 12 {
+                return vec![LinkEvent::Fault("short direct status".into())];
+            }
+            let mut out = Vec::new();
+            for (index, which) in [Axis::A, Axis::B].into_iter().enumerate() {
+                if let Some(position) = v[index].as_i64().and_then(|n| i32::try_from(n).ok()) {
+                    let target = v[index + 2].as_i64().and_then(|n| i32::try_from(n).ok());
+                    out.push(LinkEvent::Position {
+                        axis: which,
+                        position,
+                        target,
+                    });
+                    out.push(LinkEvent::HealthReport {
+                        axis: which,
+                        health: crate::dut::Health {
+                            measure_cycle_ok: v[4 + index * 4].as_bool().unwrap_or(false),
+                            switches_ok: v[5 + index * 4].as_bool().unwrap_or(false),
+                            backlash_ok: v[6 + index * 4].as_bool().unwrap_or(false),
+                            home_ok: v[7 + index * 4].as_bool().unwrap_or(false),
+                        },
+                    });
+                }
+            }
+            out
+        }
+        direct::kind::LOG_EVENT => {
+            let Some(v) = values else {
+                return vec![LinkEvent::Fault("invalid direct log".into())];
+            };
+            vec![LinkEvent::Log {
+                level: v.first().and_then(Value::as_u64).unwrap_or(0) as u8,
+                message: v.get(1).and_then(Value::as_str).unwrap_or("").to_string(),
+                firmware_ms: v.get(2).and_then(Value::as_u64),
+            }]
+        }
+        direct::kind::SURVEY_BEGIN => {
+            let expected = values
+                .and_then(|v| v.first())
+                .and_then(Value::as_u64)
+                .unwrap_or(0) as usize;
+            match pending_survey.clone() {
+                Some(config) => vec![LinkEvent::SurveyBegin { config, expected }],
+                None => vec![LinkEvent::Fault(
+                    "survey began without a pending configuration".into(),
+                )],
+            }
+        }
+        direct::kind::SURVEY_SAMPLE => {
+            let Some(v) = values else {
+                return vec![LinkEvent::Fault("invalid survey sample".into())];
+            };
+            if v.len() < 5 {
+                return vec![LinkEvent::Fault("short survey sample".into())];
+            }
+            let class = match v[4].as_u64().unwrap_or(3) {
+                0 => SampleClass::Measured,
+                1 => SampleClass::CensoredBright,
+                2 => SampleClass::CensoredDark,
+                _ => SampleClass::Failed,
+            };
+            vec![LinkEvent::SurveySample(SurveySample {
+                index: v[0].as_u64().unwrap_or(0) as u32,
+                position: v[1].as_i64().unwrap_or(0) as i32,
+                offset: v[2].as_i64().unwrap_or(0) as i32,
+                crossing: v[3].as_u64().and_then(|n| u8::try_from(n).ok()),
+                class,
+            })]
+        }
+        direct::kind::SURVEY_END => {
+            let aborted = values
+                .and_then(|v| v.first())
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            let detail = values
+                .and_then(|v| v.get(1))
+                .and_then(Value::as_str)
+                .unwrap_or("survey complete")
+                .to_string();
+            *pending_survey = None;
+            vec![LinkEvent::SurveyEnd { aborted, detail }]
+        }
+        other => vec![LinkEvent::Fault(format!(
+            "unknown direct event kind {other}"
+        ))],
+    }
 }
 
 /// The firmware's `:n` axis argument: 0 = A, 1 = B.
@@ -377,8 +653,11 @@ fn parse_vcp_line(line: &str, banner: &mut Option<String>) -> Option<LinkEvent> 
         });
     }
 
-    if let Some(value) = text.strip_prefix("Provision Serial:")
-        && let Ok(serial) = value.trim().parse::<u32>()
+    if let Some(index) = text.find("Provision Serial:")
+        && let Some(value) = text[index + "Provision Serial:".len()..]
+            .split_whitespace()
+            .next()
+        && let Ok(serial) = value.parse::<u32>()
         && serial != 0
     {
         return Some(LinkEvent::Provisioning { serial });
@@ -544,6 +823,63 @@ mod tests {
     }
 
     #[test]
+    fn direct_mode_requires_the_nonce_handshake_then_uses_binary_frames() {
+        let (mut link, written) = link_over(LinkKind::Vcp, vec!["DIRECT 1 1\n"]);
+        link.send(&Op::EnterDirect).unwrap();
+        assert_eq!(written.lock().unwrap().as_slice(), b":b 1 1\n");
+        let events = link.poll(0);
+        assert!(events.iter().any(|event| matches!(
+            event,
+            LinkEvent::DirectMode {
+                mode: SessionMode::Direct,
+                ..
+            }
+        )));
+
+        written.lock().unwrap().clear();
+        link.send(&Op::Jog {
+            axis: Axis::B,
+            speed: -14_080,
+        })
+        .unwrap();
+        let wire = written.lock().unwrap().clone();
+        let payload = router_proto::cobs_decode(&wire[..wire.len() - 1]).unwrap();
+        let frame = direct::decode(&payload).unwrap();
+        assert_eq!(frame.kind, direct::kind::JOG);
+        assert_eq!(
+            frame.body,
+            Value::Array(vec![Value::from(1), Value::from(-14_080)])
+        );
+    }
+
+    #[test]
+    fn direct_survey_samples_keep_censored_values_explicit() {
+        let event = parse_direct_frame(
+            direct::Frame {
+                seq: 4,
+                kind: direct::kind::SURVEY_SAMPLE,
+                body: Value::Array(vec![
+                    Value::from(7),
+                    Value::from(20),
+                    Value::from(-480),
+                    Value::Nil,
+                    Value::from(2),
+                ]),
+            },
+            &mut SessionMode::Direct,
+            &mut None,
+        );
+        assert!(matches!(
+            &event[0],
+            LinkEvent::SurveySample(SurveySample {
+                crossing: None,
+                class: SampleClass::CensoredDark,
+                ..
+            })
+        ));
+    }
+
+    #[test]
     fn raw_vcom_text_uses_the_explicit_line_ending_and_counts_tx() {
         let (mut link, written) = link_over(LinkKind::Vcp, vec![]);
         link.send_raw(&RawSignal::VcomText {
@@ -559,7 +895,10 @@ mod tests {
     #[test]
     fn the_vcp_menu_homes_only_the_requested_axis() {
         let (mut link, written) = link_over(LinkKind::Vcp, vec![]);
-        link.send(&Op::Home { axis: crate::dut::Axis::B }).unwrap();
+        link.send(&Op::Home {
+            axis: crate::dut::Axis::B,
+        })
+        .unwrap();
         assert_eq!(written.lock().unwrap().as_slice(), b":h 1 1\n");
     }
 
@@ -587,6 +926,13 @@ mod tests {
         let events = link.poll(0);
         assert!(events.contains(&LinkEvent::Provisioning { serial: 73_001 }));
         assert!(events.iter().any(|event| matches!(event, LinkEvent::Identified { version: Some(version), .. } if version.contains("2026-08-19"))));
+    }
+
+    #[test]
+    fn vcp_provision_serial_survives_a_motion_progress_prefix() {
+        let (mut link, _) = link_over(LinkKind::Vcp, vec!["-16006\tProvision Serial: 4\r\n"]);
+        let events = link.poll(0);
+        assert!(events.contains(&LinkEvent::Provisioning { serial: 4 }));
     }
 
     /// The real shape is `[E Routines.init] Fail` -- the level marker sits inside the bracket

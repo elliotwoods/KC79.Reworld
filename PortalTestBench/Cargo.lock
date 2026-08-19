@@ -423,6 +423,7 @@ name = "bench-core"
 version = "0.1.0"
 dependencies = [
  "portal-swd",
+ "rmpv",
  "router-link",
  "router-proto",
  "router-report",

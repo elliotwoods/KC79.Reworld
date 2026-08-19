@@ -36,7 +36,7 @@ pub use artefacts::{Artefact, Discovery, Origin, discover};
 pub use device::{DeviceImage, DeviceReport, Layout, OptionBytes, OptionWarning, VectorTable};
 
 pub use image::{BundleFault, ImageBundle, OptionBytePolicy, Region, RegionName, RunCheckSpec};
-pub use machine::{Action, Cue, Input, Machine, Millis, Pass, Phase, Timing};
+pub use machine::{Action, Cue, Input, Machine, Millis, Pass, Phase, Sequence, Timing};
 pub use persistent::{
     DeviceSettings, IdentityRecord, IdentityState, JournalWrite, OpticalCalibration,
     SettingsRecord, SettingsSource,

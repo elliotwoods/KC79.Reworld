@@ -69,6 +69,15 @@ pub const RUN_PHASES: &[(u32, &str)] = &[
 /// driving the hardware in front of them.
 pub const RUN_ORIGINS: &[(u32, &str)] = &[(0, "none"), (1, "gui"), (2, "agent"), (3, "cli")];
 
+pub const FIELD_UPDATE_PHASES: &[(u32, &str)] = &[
+    (0, "idle"),
+    (1, "uploading"),
+    (2, "handoff"),
+    (3, "verifying"),
+    (4, "passed"),
+    (5, "failed"),
+];
+
 pub const VERDICTS: &[(u32, &str)] = &[
     (0, "none"),
     (1, "pass"),
@@ -370,6 +379,13 @@ pub fn declare(builder: &mut SchemaBuilder, simulated: bool) -> Result<(), Strin
             .param("/flash/auto_enabled")
             .bool(false)
             .label("Auto-flash")
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/flash/force_write")
+            .bool(false)
+            .label("Force firmware write")
             .register(),
     )?;
     check(
@@ -898,6 +914,48 @@ pub fn declare(builder: &mut SchemaBuilder, simulated: bool) -> Result<(), Strin
             .register(),
     )?;
 
+    check(
+        builder
+            .param("/field_update/phase")
+            .enumeration(0, FIELD_UPDATE_PHASES)
+            .label("Field update phase")
+            .read_only()
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/field_update/progress")
+            .f64(0.0)
+            .range(0.0, 1.0)
+            .label("Field update progress")
+            .read_only()
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/field_update/detail")
+            .text("")
+            .label("Field update detail")
+            .read_only()
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/field_update/expected_sha256")
+            .text("")
+            .label("Expected application hash")
+            .read_only()
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/field_update/readback_sha256")
+            .text("")
+            .label("Readback application hash")
+            .read_only()
+            .register(),
+    )?;
+
     // --- the last answer -----------------------------------------------------------------------
     check(
         builder
@@ -1148,6 +1206,7 @@ pub struct TestParams {
 
 pub struct FlashParams {
     pub auto_enabled: ParamId,
+    pub force_write: ParamId,
     pub armed: ParamId,
     pub busy: ParamId,
     pub phase: ParamId,
@@ -1247,6 +1306,11 @@ pub struct Params {
     pub run_cycle_count: ParamId,
     pub run_elapsed_s: ParamId,
     pub run_eta_s: ParamId,
+    pub field_update_phase: ParamId,
+    pub field_update_progress: ParamId,
+    pub field_update_detail: ParamId,
+    pub field_update_expected_sha256: ParamId,
+    pub field_update_readback_sha256: ParamId,
 
     pub last_verdict: ParamId,
     pub last_plan: ParamId,
@@ -1348,6 +1412,7 @@ impl Params {
             },
             flash: FlashParams {
                 auto_enabled: id("/flash/auto_enabled")?,
+                force_write: id("/flash/force_write")?,
                 armed: id("/flash/armed")?,
                 busy: id("/flash/busy")?,
                 phase: id("/flash/phase")?,
@@ -1422,6 +1487,11 @@ impl Params {
             run_cycle_count: id("/run/cycle_count")?,
             run_elapsed_s: id("/run/elapsed_s")?,
             run_eta_s: id("/run/eta_s")?,
+            field_update_phase: id("/field_update/phase")?,
+            field_update_progress: id("/field_update/progress")?,
+            field_update_detail: id("/field_update/detail")?,
+            field_update_expected_sha256: id("/field_update/expected_sha256")?,
+            field_update_readback_sha256: id("/field_update/readback_sha256")?,
 
             last_verdict: id("/last/verdict")?,
             last_plan: id("/last/plan")?,

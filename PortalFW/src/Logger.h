@@ -13,6 +13,8 @@
 
 #define LOG_HISTORY_SIZE 32
 
+namespace Modules { class MotionControl; }
+
 // The USART1 console is a bare-keystroke menu: one byte in, one action, no terminator (append
 // a newline and the firmware dispatches the newline as a second command). That is fine for
 // "home now" but it cannot carry an argument, so nothing that needs a NUMBER -- set the
@@ -78,6 +80,8 @@ public:
 	void printRaw(const char *);
 
 	void reportStatus(msgpack::Serializer&);
+	bool directActive() const { return this->directMode; }
+	void sendDirectLog(const LogMessage&);
 
 	std::vector<ILogListener*> logListeners;
 private:
@@ -85,6 +89,16 @@ private:
 
 	// Run one ':' line command. See printHelp() for the vocabulary.
 	void runLineCommand(char * line);
+	void updateDirect();
+	bool processDirectPacket();
+	void sendDirectAck(uint8_t seq);
+	void sendDirectError(uint8_t seq, const char * detail);
+	void sendDirectStatus(uint8_t seq);
+#ifndef HOME_SWITCH_LEGACY
+	void runDirectSurvey(uint8_t seq, Modules::MotionControl * axis
+		, uint8_t mode, int32_t center, int32_t halfRange, int32_t step
+		, uint8_t dutyMin, uint8_t dutyMax);
+#endif
 
 	std::deque<LogMessage> messageOutbox;
 	std::map<char, MenuItem> menuItems;
@@ -92,4 +106,8 @@ private:
 	char lineBuffer[LOGGER_LINE_MAX];
 	uint8_t lineLength = 0;
 	bool lineMode = false;
+	bool directMode = false;
+	bool directProcessing = false;
+	uint32_t directHeartbeatMs = 0;
+	uint8_t directTxSeq = 0;
 };
