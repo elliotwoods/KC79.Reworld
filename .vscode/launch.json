@@ -9,53 +9,52 @@
   "version": "0.2.0",
   "configurations": [
     {
-      // The production flashing rig. Opens a window and serves the same page on loopback.
-      "name": "Portal Flasher (native)",
+      // The combined flashing and test bench. Opens a window and serves the same page on loopback.
+      "name": "Portal Test Bench (native)",
       "type": "lldb",
       "request": "launch",
-      "program": "${workspaceFolder}/PortalFlasher/target/debug/portal-flasher.exe",
+      "program": "${workspaceFolder}/PortalTestBench/target/debug/portal-test-bench.exe",
       "args": [],
-      "cwd": "${workspaceFolder}/PortalFlasher/target/debug",
+      "cwd": "${workspaceFolder}/PortalTestBench",
       "env": {
         "RUST_LOG": "info,av_gui_host=info,av_gui_shell=info"
       },
       "terminal": "integrated",
-      "preLaunchTask": "Flasher: build web + cargo",
+      "preLaunchTask": "Portal Test Bench: build",
       "sourceLanguages": ["rust"]
     },
     {
-      // No probe needed: a modelled STM32G070 with a fixture switch on the page, so the whole
-      // arm → flash → cycle → run-check → pass rhythm can be driven from a desk.
-      "name": "Portal Flasher (simulated target)",
+      // No probe or serial adapter needed: the Test Bench exposes a modelled STM32G070 and
+      // fixture controls so the combined flash/test workflow can be exercised from a desk.
+      "name": "Portal Test Bench (simulated target)",
       "type": "lldb",
       "request": "launch",
-      "program": "${workspaceFolder}/PortalFlasher/target/debug/portal-flasher.exe",
+      "program": "${workspaceFolder}/PortalTestBench/target/debug/portal-test-bench.exe",
       "args": ["--simulate"],
-      "cwd": "${workspaceFolder}/PortalFlasher/target/debug",
+      "cwd": "${workspaceFolder}/PortalTestBench",
       "env": {
         "RUST_LOG": "info,av_gui_host=info,av_gui_shell=info"
       },
       "terminal": "integrated",
-      "preLaunchTask": "Flasher: build web + cargo",
+      "preLaunchTask": "Portal Test Bench: build",
       "sourceLanguages": ["rust"]
     },
     {
-      // Serves the page without opening a window. Note this is a SILENT rig: the pass and fail
-      // tones are played by the browser, so headless is for development, not for flashing.
-      "name": "Portal Flasher (headless, opens browser)",
+      // Serves the same test-bench page without opening its native window.
+      "name": "Portal Test Bench (headless, opens browser)",
       "type": "lldb",
       "request": "launch",
-      "program": "${workspaceFolder}/PortalFlasher/target/debug/portal-flasher.exe",
+      "program": "${workspaceFolder}/PortalTestBench/target/debug/portal-test-bench.exe",
       "args": ["--headless", "--simulate"],
-      "cwd": "${workspaceFolder}/PortalFlasher/target/debug",
+      "cwd": "${workspaceFolder}/PortalTestBench",
       "env": {
         "RUST_LOG": "info,av_gui_host=info"
       },
       "terminal": "console",
-      "preLaunchTask": "Flasher: build web + cargo",
+      "preLaunchTask": "Portal Test Bench: build",
       "serverReadyAction": {
         "action": "openExternally",
-        "pattern": "portal-flasher: .* (http://\\S+)",
+        "pattern": "(http://127\\.0\\.0\\.1:8770)",
         "uriFormat": "%s"
       },
       "sourceLanguages": ["rust"]

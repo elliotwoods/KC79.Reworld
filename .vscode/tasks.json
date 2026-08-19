@@ -1,63 +1,45 @@
 {
   // Build tasks referenced by .vscode/launch.json.
   //
-  // Each Rust project here is its own Cargo workspace (RouterRS, PortalFlasher), so every task
-  // names its manifest explicitly rather than relying on the editor's working directory.
+  // Each Rust project here is its own Cargo workspace (RouterRS, PortalTestBench), so every task
+  // uses a project-specific manifest or build script and an explicit working directory.
   "version": "2.0.0",
   "tasks": [
     {
-      // The order matters and is not incidental: `web_assets!` records a path at compile time,
-      // but the files it points at are produced by the web build. Building only the Rust half
-      // gives a binary that starts and serves nothing.
-      "label": "Flasher: build web + cargo",
-      "dependsOrder": "sequence",
-      "dependsOn": ["Flasher: web build", "Flasher: cargo build"],
+      // This script deliberately builds the web bundle before Rust so web_assets! embeds the
+      // current UI rather than the previous bundle.
+      "label": "Portal Test Bench: build",
+      "type": "shell",
+      "command": "powershell",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "tools/build.ps1"
+      ],
+      "options": { "cwd": "${workspaceFolder}/PortalTestBench" },
       "group": { "kind": "build", "isDefault": true },
       "problemMatcher": []
     },
     {
-      "label": "Flasher: web build",
+      "label": "Portal Test Bench: test",
       "type": "shell",
-      "command": "npm run build",
-      "options": { "cwd": "${workspaceFolder}/PortalFlasher/web" },
-      "problemMatcher": ["$tsc"]
-    },
-    {
-      "label": "Flasher: cargo build",
-      "type": "process",
-      "command": "cargo",
+      "command": "powershell",
       "args": [
-        "build",
-        "--manifest-path",
-        "${workspaceFolder}/PortalFlasher/Cargo.toml",
-        "--workspace"
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "tools/test.ps1"
       ],
-      "problemMatcher": ["$rustc"]
-    },
-    {
-      "label": "Flasher: test (rust + web)",
-      "dependsOrder": "sequence",
-      "dependsOn": ["Flasher: cargo test", "Flasher: web test"],
+      "options": { "cwd": "${workspaceFolder}/PortalTestBench" },
       "group": { "kind": "test", "isDefault": true },
       "problemMatcher": []
     },
     {
-      "label": "Flasher: cargo test",
-      "type": "process",
-      "command": "cargo",
-      "args": ["test", "--manifest-path", "${workspaceFolder}/PortalFlasher/Cargo.toml"],
-      "problemMatcher": ["$rustc"]
-    },
-    {
-      "label": "Flasher: web test",
-      "type": "shell",
-      "command": "npx vitest run",
-      "options": { "cwd": "${workspaceFolder}/PortalFlasher/web" },
-      "problemMatcher": []
-    },
-    {
       // The framework's own structural conformance check for a downstream operator app.
-      "label": "Flasher: check-av-app",
+      "label": "Portal Test Bench: check-av-app",
       "type": "shell",
       "command": "powershell",
       "args": [
@@ -69,7 +51,7 @@
         "-AppPath",
         "."
       ],
-      "options": { "cwd": "${workspaceFolder}/PortalFlasher" },
+      "options": { "cwd": "${workspaceFolder}/PortalTestBench" },
       "problemMatcher": []
     },
     {
