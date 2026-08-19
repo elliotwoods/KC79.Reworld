@@ -17,10 +17,11 @@
 //! refused **by name here** and again **by reset vector** in [`ImageBundle::validate`]; one check
 //! is a policy and two are a guarantee.
 //!
-//! # Paths are resolved from the source tree, not the working directory
+//! # Paths are resolved from the package or source tree, not the working directory
 //!
-//! The same trick `av-operator-app`'s `web_assets!` uses: `CARGO_MANIFEST_DIR` is baked in at
-//! compile time, so moving `target/` is harmless and only moving the *source* breaks it. A
+//! A production package carries a `firmware/` tree beside the executable and that portable tree
+//! wins when present. Development builds fall back to the repository root baked in through
+//! `CARGO_MANIFEST_DIR`. A
 //! missing `.pio` is a first-class state with a build hint attached, not an error — the firmware
 //! has never been built on a fresh clone, and telling someone to run `pio run` is more use than
 //! an empty list.
@@ -147,7 +148,23 @@ pub fn repo_root() -> PathBuf {
 
 /// What is available to flash, right now.
 pub fn discover() -> Discovery {
-    discover_in(&repo_root())
+    let root = packaged_root().unwrap_or_else(repo_root);
+    discover_in(&root)
+}
+
+/// A self-contained release keeps the repository-shaped firmware payload under
+/// `<exe directory>/firmware`. Looking relative to the executable, never the process working
+/// directory, makes double-click, shortcuts and command-line launch agree.
+fn packaged_root() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    packaged_root_from(exe.parent()?)
+}
+
+fn packaged_root_from(exe_dir: &Path) -> Option<PathBuf> {
+    let root = exe_dir.join("firmware");
+    let has_application = root.join("PortalFW/.pio/build").is_dir();
+    let has_bootloader = root.join("PortalBootloader/.pio/build").is_dir();
+    (has_application || has_bootloader).then(|| root.canonicalize().unwrap_or(root))
 }
 
 /// The same, rooted anywhere — which is what makes it testable without a built firmware tree.
@@ -319,6 +336,24 @@ mod tests {
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(&path, vec![0xA5; bytes]).unwrap();
         path
+    }
+
+    #[test]
+    fn a_firmware_tree_beside_the_executable_is_a_portable_root() {
+        let exe_dir = scratch("portable");
+        write(
+            &exe_dir,
+            "firmware/PortalFW/.pio/build/application_bank_optical/firmware.bin",
+            60_000,
+        );
+
+        let root = packaged_root_from(&exe_dir).expect("portable firmware root");
+        assert_eq!(
+            root,
+            exe_dir.join("firmware").canonicalize().unwrap(),
+            "the package root is independent of the build machine's source path"
+        );
+        assert!(discover_in(&root).application().is_some());
     }
 
     #[test]

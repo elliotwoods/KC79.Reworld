@@ -797,11 +797,11 @@ impl Rig for SimRig {
         let uid = McuUid([0x5111_0000, 0x5111_0001, 0x5111_0002]);
         let identity = scan_identity_page(identity_page, uid);
         let existing = identity.serial();
-        if matches!(
+        if (matches!(
             identity,
             IdentityState::Corrupt | IdentityState::ForeignUid { .. }
-        ) && !allow_identity_override
-            || existing.is_some_and(|value| value != serial) && !allow_identity_override
+        ) || existing.is_some_and(|value| value != serial))
+            && !allow_identity_override
         {
             return Err(RigError::new(
                 RigErrorKind::IdentityConflict,
