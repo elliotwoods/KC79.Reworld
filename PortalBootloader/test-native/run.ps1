@@ -20,6 +20,7 @@ $testDir = $PSScriptRoot
 $repoRoot = (Resolve-Path (Join-Path $testDir "..\..")).Path
 $libSrc = Join-Path $repoRoot "PortalFW\lib\msgpack-arduino\src"
 $handoffSource = Join-Path $repoRoot "PortalBootloader\cube-import\Core\Src\RunApplication.c"
+$platformioConfig = Join-Path $repoRoot "PortalBootloader\platformio.ini"
 
 if (-not (Test-Path -LiteralPath (Join-Path $libSrc "msgpack.hpp"))) {
     throw "msgpack-arduino sources not found at $libSrc. Run: git submodule update --init --recursive"
@@ -29,13 +30,22 @@ if (-not (Test-Path -LiteralPath (Join-Path $libSrc "msgpack.hpp"))) {
 # reset handler expects the architectural reset state (PRIMASK clear), so omitting the matching
 # enable traps it in its first interrupt-driven delay until the watchdog resets the part.
 $handoff = Get-Content -LiteralPath $handoffSource -Raw
+$deinitAt = $handoff.IndexOf("HAL_RCC_DeInit()")
 $disableAt = $handoff.IndexOf("__disable_irq()")
 $enableAt = $handoff.IndexOf("__enable_irq()")
 $jumpAt = $handoff.LastIndexOf("app_reset_handler()")
-if ($disableAt -lt 0 -or $enableAt -le $disableAt -or $jumpAt -le $enableAt) {
-    throw "RunApplication.c must re-enable IRQs after masking them and before entering the application"
+if ($deinitAt -lt 0 -or $disableAt -le $deinitAt -or $enableAt -le $disableAt -or $jumpAt -le $enableAt) {
+    throw "RunApplication.c must leave IRQs enabled through HAL teardown, then restore them before the application"
 }
 Write-Host "Boot handoff restores the reset-time IRQ state." -ForegroundColor Green
+
+# GCC 7 LTO resolves the startup object's weak IRQ aliases instead of these strong handlers.
+$platformio = Get-Content -LiteralPath $platformioConfig -Raw
+if ($platformio -notmatch '(?m)^\s*-fno-lto\s*$' -or
+    $platformio -match '(?m)^\s*-flto\s*$') {
+    throw "The production bootloader must disable LTO so its real interrupt handlers are linked"
+}
+Write-Host "Bootloader interrupt handlers are protected from the GCC 7 LTO linker bug." -ForegroundColor Green
 
 # Locate MSVC. vswhere ships with any VS 2017+ installer.
 $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"

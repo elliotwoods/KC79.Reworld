@@ -5,7 +5,6 @@ sits above it at `0x08006000`.
 
 ```powershell
 pio run -e bootloader          # what goes on a board
-pio run -e bootloader_nolto    # the same code, comparable
 ```
 
 `PortalFlasher` finds `.pio/build/bootloader/firmware.bin` automatically and prefers it over the
@@ -53,29 +52,23 @@ Bit-for-bit was never available: that image was linked by GCC 10.3 under CubeIDE
 `ststm32@19.6` resolves GCC **7.2.1** for `framework-stm32cube` — older, not newer, which the plan
 had the wrong way round. So the gate is behavioural equivalence, structurally diffed.
 
-| | reference | `bootloader` | `bootloader_nolto` |
-|---|---|---|---|
-| text | 22,692 | 13,988 | 19,396 |
-| data | 16 | 128 | 12 |
-| bss | 2,884 | 2,884 | 2,880 |
-| defined symbols | 370 | 219 | 323 |
-| initial SP | `0x20009000` | `0x20009000` | `0x20009000` |
-| reset vector | `0x0800123D` | `0x08002A79` | `0x08003ECD` |
-| banner | `Bootloader v4` | `Bootloader v5` | `Bootloader v5` |
+| | reference | `bootloader` |
+|---|---|---|
+| text | 22,692 | 19,428 |
+| data | 16 | 12 |
+| bss | 2,884 | 2,880 |
+| defined symbols | 370 | 323 |
+| initial SP | `0x20009000` | `0x20009000` |
+| banner | `Bootloader v4` | `Bootloader v5` |
 
 (The `text`/reset-vector numbers above are after the fixes in the next section — the defined-symbol
 count is unchanged by them, since every fix edits an existing function rather than adding one.)
 
-Two effects account for the whole of the difference, and neither is missing functionality.
+The build deliberately uses `-fno-lto`, both so every function remains structurally comparable
+and because GCC 7 LTO mislinks the interrupt vectors as described below.
 
-**LTO.** The shipping build folds nearly everything into `main`, which ends up 3,216 bytes long.
-`HAL_DMA_Init`, `flash_erase`, `FWUpdateApp::processIncoming` and sixty-odd others are present as
-inlined code with no symbol left on them. That is why `bootloader_nolto` exists: under `-fno-lto`
-every function keeps its name, so a symbol absent from that list is genuinely absent from the
-firmware.
-
-**newlib.** Of the 56 symbols in the reference and not in `bootloader_nolto`, **every one** is
-newlib internals — `__sfp`, `__swsetup_r`, `_fflush_r`, `fiprintf`, `sbrk_aligned` and their
+**newlib.** The library-only symbols in the reference but not in `bootloader` are newlib internals
+— `__sfp`, `__swsetup_r`, `_fflush_r`, `fiprintf`, `sbrk_aligned` and their
 relatives, plus a handful of function-static counters. Not one is project code, HAL, or msgpack.
 The reference linked full newlib stdio; PlatformIO defaults to `nano.specs`, and the ~3.3 kB
 difference is that machinery. Nothing here formats a float, which is nano printf's one real
@@ -91,15 +84,11 @@ Found by reading the source while answering "can the bootloader be improved at a
 without breaking compatibility" — none change the wire protocol, so a mixed fleet of old
 and new bootloaders stays interoperable with the same Router.
 
-**Clock raised to match the application (`PLLN` 8 -> 16, 32 -> 64 MHz).** Both the
-bootloader and the application already run off the same 8 MHz HSE crystal through the
-PLL; the bootloader was just at half the application's multiplier. UART baud is
-recomputed from the live peripheral clock at `MX_USART{1,2}_UART_Init` time (which runs
-after `SystemClock_Config`), and `HAL_RCC_ClockConfig()` re-derives SysTick internally on
-every call, so this is a pure internal timing change. `FLASH_LATENCY_1` -> `_2`, required
-above 48 MHz at voltage scale 1. Motivation: today's RS485 uploads need to be slowed down
-and still see occasional failures — this is the most direct lever available without
-touching the protocol, and needs a bench pass to confirm the real electrical margin.
+**GCC 7 LTO must stay disabled for this build.** The startup object defines weak aliases for every
+IRQ, and the production LTO link discarded the strong handlers from `stm32g0xx_it.c` in favour of
+those aliases. `HAL_Init()` then enabled SysTick and the first tick entered `Default_Handler`,
+where IWDG later reset the MCU. The non-LTO build resolves the vector table correctly and remains
+comfortably inside the 24 kB bootloader bank.
 
 **`FWUpdateApp::processIncoming` sized a stack VLA from an unbounded wire value.**
 `packetBodyAndChecksumSize16` came straight off the wire as a `uint16_t` with no upper
@@ -123,21 +112,23 @@ value) instead.
 NVIC interrupt could fire against the new vector table while still on the old stack. The first
 attempt to fix that masked IRQs but did not restore PRIMASK before entering the application; on a
 real board that trapped the application in its first interrupt-driven delay until IWDG reset it.
-The handoff now masks during teardown, disables and clears inherited NVIC state, installs VTOR and
-MSP, and re-enables IRQs immediately before calling the application's reset handler.
+The handoff now leaves IRQs enabled through `HAL_RCC_DeInit()` (whose clock-transition waits use
+the interrupt-driven HAL tick), then masks only while it disables and clears inherited NVIC state,
+installs VTOR and MSP, and re-enables IRQs immediately before the application's reset handler.
 
 **`SerialStream::getSerialStream` could fall off the end of a non-void function.** Same
 category of bug as the `assert`/`lwrb_init` one above — undefined behaviour dressed up as
 "this can't happen." Now returns `nullptr` explicitly in that case.
 
-## Not yet done
+## Live-board verification
 
-**The corrected IRQ handoff has not yet been flashed onto a board.** The previous build was read
-back byte-for-byte from a live board and diagnosed in an IWDG reset loop; the replacement has been
-built and its `cpsid` / `cpsie` / application-branch order verified in the production disassembly.
-The remaining bench check is flashing it with `PortalFlasher`, proving the application VTOR stays
-selected, and then performing an actual RS485 field update through it — because receiving firmware
-over RS485 is the entire job, and the one thing no amount of static comparison can demonstrate.
+The corrected non-LTO bootloader and optical PortalFW application were flashed and verified on an
+STM32G070RBT6 through Portal Test Bench. The post-flash probe check observed the application vector
+table at `VTOR=0x08006000` and a stable running state; the former build instead trapped in the weak
+SysTick alias at `Default_Handler` and was reset by IWDG.
+The remaining bootloader-specific bench check is an actual RS485 field update through it — because
+receiving firmware over RS485 is its primary job, and the one thing the SWD flash path does not
+exercise.
 
 **`cube-import/Core/msgpack-arduino` is still the 2023 snapshot**, not the submodule at
 `PortalFW/lib/msgpack-arduino` that `test-native/` builds its 47 checks against. They have
