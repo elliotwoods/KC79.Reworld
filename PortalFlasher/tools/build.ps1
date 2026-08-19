@@ -48,7 +48,15 @@ if (-not $SkipWeb) {
 }
 
 Step "Application ($(if ($Release) { 'release' } else { 'debug' }))"
-$args = @('build', '--manifest-path', $manifest, '-p', 'portal-flasher')
+$args = @(
+    'build',
+    '--manifest-path', $manifest,
+    '-p', 'portal-flasher',
+    # The default composed-window shell refuses to start without its dedicated CEF renderer,
+    # GPU and utility-process helper beside the main executable. It is a workspace binary rather
+    # than a dependency target, so Cargo will not build it unless it is named explicitly here.
+    '-p', 'av-gui-subprocess'
+)
 if ($Release) { $args += '--release' }
 cargo @args
 if ($LASTEXITCODE -ne 0) { throw 'the cargo build failed' }
