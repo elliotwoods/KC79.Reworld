@@ -96,6 +96,10 @@ pub struct Worker {
     probe_selection_seen: String,
     flash_heartbeat_seen: i64,
     flash_was_armed: bool,
+    /// A successful SWD flash should hand straight over to the probe's VCOM. Windows can take a
+    /// moment to enumerate that interface after reset, so pairing is retried without blocking the
+    /// worker or ever falling back to an unrelated COM port.
+    auto_vcom: Option<AutoVcom>,
     sim_module_present: Option<ParamId>,
     /// Last heartbeat value seen from the page, and when we saw it change.
     heartbeat: (i64, u64),
@@ -106,6 +110,14 @@ pub struct Worker {
 /// The page beats once a second, so five seconds is several missed beats rather than one
 /// unlucky scheduling gap.
 const HEARTBEAT_STALE_MS: u64 = 5_000;
+const VCOM_ATTACH_TIMEOUT_MS: u64 = 5_000;
+const VCOM_ATTACH_RETRY_MS: u64 = 250;
+
+struct AutoVcom {
+    deadline_ms: u64,
+    next_attempt_ms: u64,
+    last_error: String,
+}
 
 impl Worker {
     pub fn new(
@@ -143,6 +155,7 @@ impl Worker {
             probe_selection_seen: flash.probe_selector().to_string(),
             flash_heartbeat_seen: 0,
             flash_was_armed: false,
+            auto_vcom: None,
             sim_module_present,
             flash,
             heartbeat: (0, 0),
@@ -219,12 +232,14 @@ impl Worker {
             }
             self.flash_was_armed = armed;
 
-            if let Some(outcome) = self.bench.tick(now) {
+            let post_io_now = self.now_ms();
+            self.tick_auto_vcom(post_io_now);
+            if let Some(outcome) = self.bench.tick(post_io_now) {
                 self.publish_outcome(&outcome);
                 *self.shared.last.lock().unwrap() = Some(outcome);
             }
 
-            self.publish(now);
+            self.publish(post_io_now);
             std::thread::sleep(TICK);
         }
     }
@@ -528,6 +543,77 @@ impl Worker {
         }
     }
 
+    fn schedule_auto_vcom(&mut self, now: u64) {
+        if self.flash.probe_selector() == "sim" {
+            return;
+        }
+        self.bench.note(
+            now,
+            bench_core::LOG_LEVEL_STATUS,
+            "flash complete; attaching the selected probe's VCOM",
+        );
+        self.auto_vcom = Some(AutoVcom {
+            deadline_ms: now.saturating_add(VCOM_ATTACH_TIMEOUT_MS),
+            next_attempt_ms: now,
+            last_error: "VCOM has not enumerated yet".into(),
+        });
+        self.tick_auto_vcom(now);
+    }
+
+    fn tick_auto_vcom(&mut self, now: u64) {
+        if self.bench.state().channels.serial.link.connected {
+            self.auto_vcom = None;
+            return;
+        }
+        let Some(pending) = self.auto_vcom.as_ref() else {
+            return;
+        };
+        if now < pending.next_attempt_ms {
+            return;
+        }
+
+        let survey = bench_core::survey();
+        match bench_core::survey::paired_vcom_port(&survey, self.flash.probe_selector()) {
+            Ok(endpoint) => {
+                self.auto_vcom = None;
+                let _ = self.bus.set(
+                    self.params.serial.desired,
+                    Value::Enum(serial_transport_value(Some(LinkKind::Vcp))),
+                );
+                let _ = self.bus.set_text(self.params.serial.endpoint, &endpoint);
+                if self.bench.connect(LinkKind::Vcp, &endpoint, now).is_ok() {
+                    self.bench.note(
+                        now,
+                        bench_core::LOG_LEVEL_STATUS,
+                        format!("VCOM auto-attached on {endpoint}; following firmware output"),
+                    );
+                    self.cue("connected");
+                } else {
+                    self.cue("lost");
+                }
+            }
+            Err(error) if now >= pending.deadline_ms => {
+                let detail = if error == pending.last_error {
+                    error
+                } else {
+                    format!("{error}; previous check: {}", pending.last_error)
+                };
+                self.auto_vcom = None;
+                self.bench.note(
+                    now,
+                    bench_core::LOG_LEVEL_WARNING,
+                    format!("flash passed, but VCOM could not be auto-attached: {detail}"),
+                );
+            }
+            Err(error) => {
+                if let Some(pending) = self.auto_vcom.as_mut() {
+                    pending.next_attempt_ms = now.saturating_add(VCOM_ATTACH_RETRY_MS);
+                    pending.last_error = error;
+                }
+            }
+        }
+    }
+
     fn push_motion(&mut self, now: u64) {
         if self.flash.snapshot().armed || self.flash.snapshot().busy || self.bench.is_busy() {
             self.bench.note(
@@ -745,6 +831,8 @@ impl Worker {
 
         if let Some((kind, endpoint)) = serial {
             let _ = self.bench.connect(kind, &endpoint, now);
+        } else if pass == Pass::Flash && ok && !needs_replug {
+            self.schedule_auto_vcom(self.now_ms());
         }
         if let Some((kind, endpoint)) = rs485 {
             let _ = self.bench.connect(kind, &endpoint, now);

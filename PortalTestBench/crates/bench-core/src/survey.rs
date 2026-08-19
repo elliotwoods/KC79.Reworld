@@ -45,6 +45,45 @@ pub struct Survey {
     pub swd_support: bool,
 }
 
+/// Find the VCOM port belonging to a selected debug probe.
+///
+/// ST-Link exposes SWD and VCOM as separate USB interfaces carrying the same serial number.
+/// Matching that OS-reported identity is safe; choosing the first COM port is not, because a
+/// bench commonly also has an RS485 adapter attached.
+pub fn paired_vcom_port(survey: &Survey, probe_identifier: &str) -> Result<String, String> {
+    let probe = survey
+        .probes
+        .iter()
+        .find(|probe| probe.identifier == probe_identifier)
+        .ok_or_else(|| format!("selected probe {probe_identifier:?} is not present"))?;
+    let serial = probe
+        .serial_number
+        .as_deref()
+        .filter(|serial| !serial.is_empty())
+        .ok_or_else(|| {
+            format!("selected probe {probe_identifier:?} reports no USB serial number")
+        })?;
+    let matches = survey
+        .ports
+        .iter()
+        .filter(|port| {
+            port.serial_number
+                .as_deref()
+                .is_some_and(|candidate| candidate.eq_ignore_ascii_case(serial))
+        })
+        .collect::<Vec<_>>();
+    match matches.as_slice() {
+        [port] => Ok(port.name.clone()),
+        [] => Err(format!(
+            "no COM port reports the selected probe serial {serial}"
+        )),
+        _ => Err(format!(
+            "{} COM ports report the selected probe serial {serial}; refusing to guess",
+            matches.len()
+        )),
+    }
+}
+
 /// Everything this machine offers a bench right now.
 pub fn survey() -> Survey {
     Survey {
@@ -228,5 +267,55 @@ mod tests {
     fn faults_carry_their_detail() {
         let json = event_json(&LinkEvent::Fault("short status record".into()));
         assert!(json.contains("short status record"));
+    }
+
+    fn pairing_survey(ports: Vec<PortEntry>) -> Survey {
+        Survey {
+            ports,
+            probes: vec![ProbeEntry {
+                identifier: "0483:374b:PROBE123".into(),
+                name: Some("ST-Link V2-1".into()),
+                serial_number: Some("PROBE123".into()),
+                kind: "ST-LINK".into(),
+            }],
+            swd_support: true,
+        }
+    }
+
+    #[test]
+    fn vcom_is_paired_by_probe_serial_not_port_order() {
+        let survey = pairing_survey(vec![
+            PortEntry {
+                name: "COM5".into(),
+                kind: "usb".into(),
+                product: Some("USB RS485 adapter".into()),
+                serial_number: Some("ADAPTER9".into()),
+            },
+            PortEntry {
+                name: "COM3".into(),
+                kind: "usb".into(),
+                product: Some("ST-Link Virtual COM Port".into()),
+                serial_number: Some("probe123".into()),
+            },
+        ]);
+        assert_eq!(
+            paired_vcom_port(&survey, "0483:374b:PROBE123"),
+            Ok("COM3".into())
+        );
+    }
+
+    #[test]
+    fn vcom_pairing_refuses_to_guess_from_a_product_name() {
+        let survey = pairing_survey(vec![PortEntry {
+            name: "COM9".into(),
+            kind: "usb".into(),
+            product: Some("ST-Link Virtual COM Port".into()),
+            serial_number: Some("SOMEONE_ELSE".into()),
+        }]);
+        assert!(
+            paired_vcom_port(&survey, "0483:374b:PROBE123")
+                .unwrap_err()
+                .contains("no COM port")
+        );
     }
 }

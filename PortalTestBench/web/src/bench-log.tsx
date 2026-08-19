@@ -3,9 +3,9 @@
  *
  * Everything the bench has heard, in one place: the module's own log lines (firmware prose over
  * the serial menu, or the drained log outbox over RS485), the bench's own notes, and faults.
- * They are interleaved in arrival order deliberately — "the link opened, then the module said
- * this" is the sequence that answers most questions, and splitting the two streams into
- * separate panes is how you lose it.
+ * Combined view interleaves them in arrival order deliberately — "the link opened, then the
+ * module said this" is the sequence that answers most questions. Split view is available when
+ * bring-up needs uninterrupted VCOM output beside the bench/RS485 record.
  *
  * # Why this is fetched, not a parameter
  *
@@ -27,9 +27,15 @@ export interface LogLine {
   message: string;
 }
 
+export function splitLogLines(lines: LogLine[]): { serial: LogLine[]; rest: LogLine[] } {
+  return {
+    serial: lines.filter((line) => line.source === 'serial'),
+    rest: lines.filter((line) => line.source !== 'serial'),
+  };
+}
+
 /** How many lines the page keeps. The NDJSON session file is the durable record. */
 const MAX_LINES = 2000;
-
 const POLL_MS = 400;
 
 /** Firmware log levels, from `PortalFW/src/Logger.h`. */
@@ -46,10 +52,7 @@ function timestamp(atMs: number): string {
   return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
 }
 
-export function SessionLog() {
-  const [lines, setLines] = useState<LogLine[]>([]);
-  const [dropped, setDropped] = useState(0);
-  const cursor = useRef(0);
+function LogPane({ lines, empty }: { lines: LogLine[]; empty: string }) {
   const scroller = useRef<HTMLDivElement>(null);
   /**
    * Whether to follow the tail.
@@ -59,6 +62,42 @@ export function SessionLog() {
    * do. Re-arms when they scroll back down.
    */
   const following = useRef(true);
+
+  // Before paint, so the tail does not visibly jump.
+  useLayoutEffect(() => {
+    const element = scroller.current;
+    if (element && following.current) element.scrollTop = element.scrollHeight;
+  }, [lines]);
+
+  const onScroll = () => {
+    const element = scroller.current;
+    if (!element) return;
+    const distance = element.scrollHeight - element.scrollTop - element.clientHeight;
+    following.current = distance < 24;
+  };
+
+  return (
+    <div className="session-log-lines" ref={scroller} onScroll={onScroll}>
+      {lines.length === 0 ? (
+        <p className="session-log-empty">{empty}</p>
+      ) : (
+        lines.map((line) => (
+          <div key={line.seq} className="session-log-line" data-tone={toneFor(line.level)}>
+            <span className="session-log-time">{timestamp(line.at_ms)}</span>
+            <span className="session-log-source">{line.source}</span>
+            <span className="session-log-message">{line.message}</span>
+          </div>
+        ))
+      )}
+    </div>
+  );
+}
+
+export function SessionLog() {
+  const [lines, setLines] = useState<LogLine[]>([]);
+  const [dropped, setDropped] = useState(0);
+  const [view, setView] = useState<'combined' | 'split'>('combined');
+  const cursor = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -78,7 +117,7 @@ export function SessionLog() {
           if (merged.length <= MAX_LINES) return merged;
           // Count what scrolled off rather than dropping it silently: a gap the reader does not
           // know about turns a partial record into a wrong one.
-          setDropped((d) => d + (merged.length - MAX_LINES));
+          setDropped((count) => count + (merged.length - MAX_LINES));
           return merged.slice(merged.length - MAX_LINES);
         });
       } catch {
@@ -95,44 +134,35 @@ export function SessionLog() {
     };
   }, []);
 
-  // Before paint, so the tail does not visibly jump.
-  useLayoutEffect(() => {
-    const element = scroller.current;
-    if (element && following.current) {
-      element.scrollTop = element.scrollHeight;
-    }
-  }, [lines]);
-
-  const onScroll = () => {
-    const element = scroller.current;
-    if (!element) return;
-    const distance = element.scrollHeight - element.scrollTop - element.clientHeight;
-    following.current = distance < 24;
-  };
-
+  const split = splitLogLines(lines);
   return (
     <section className="session-log" data-av-surface="session-log">
       <header className="session-log-head">
-        <span className="label-caps">Session log</span>
-        <span className="session-log-count">
-          {lines.length} line{lines.length === 1 ? '' : 's'}
-          {dropped > 0 && ` · ${dropped} scrolled off`}
-        </span>
+        <div className="session-log-title">
+          <span className="label-caps">Session log</span>
+          <span className="session-log-count">
+            {lines.length} line{lines.length === 1 ? '' : 's'}
+            {dropped > 0 && ` · ${dropped} scrolled off`}
+          </span>
+        </div>
+        <div className="segmented" role="group" aria-label="Session log layout">
+          <button className={`seg${view === 'combined' ? ' is-active' : ''}`} type="button" aria-pressed={view === 'combined'} onClick={() => setView('combined')}>Combined</button>
+          <button className={`seg${view === 'split' ? ' is-active' : ''}`} type="button" aria-pressed={view === 'split'} onClick={() => setView('split')}>Split</button>
+        </div>
       </header>
-      <div className="session-log-lines" ref={scroller} onScroll={onScroll}>
-        {lines.length === 0 ? (
-          <p className="session-log-empty">
-            Nothing yet. Connect a transport — the module&apos;s own output appears here.
-          </p>
-        ) : (
-          lines.map((line) => (
-            <div key={line.seq} className="session-log-line" data-tone={toneFor(line.level)}>
-              <span className="session-log-time">{timestamp(line.at_ms)}</span>
-              <span className="session-log-source">{line.source}</span>
-              <span className="session-log-message">{line.message}</span>
-            </div>
-          ))
-        )}
+      <div className="session-log-body" data-view={view}>
+        {view === 'combined' ? (
+          <LogPane lines={lines} empty="Nothing yet. Flash or connect a transport — the module's own output appears here." />
+        ) : <>
+          <section className="session-log-pane">
+            <header><span>VCOM / serial</span><small>{split.serial.length}</small></header>
+            <LogPane lines={split.serial} empty="Waiting for serial output." />
+          </section>
+          <section className="session-log-pane">
+            <header><span>Bench / RS485</span><small>{split.rest.length}</small></header>
+            <LogPane lines={split.rest} empty="No bench or RS485 messages yet." />
+          </section>
+        </>}
       </div>
     </section>
   );
