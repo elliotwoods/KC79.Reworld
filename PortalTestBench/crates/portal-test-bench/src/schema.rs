@@ -423,6 +423,30 @@ pub fn declare(builder: &mut SchemaBuilder, simulated: bool) -> Result<(), Strin
     )?;
     check(
         builder
+            .param("/flash/boot_state")
+            .text("unknown")
+            .label("Post-flash boot")
+            .read_only()
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/flash/boot_detail")
+            .text("")
+            .label("Post-flash boot detail")
+            .read_only()
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/flash/needs_replug")
+            .bool(false)
+            .label("Power cycle required")
+            .read_only()
+            .register(),
+    )?;
+    check(
+        builder
             .param("/flash/last_outcome")
             .text("")
             .label("Last flash result")
@@ -1040,6 +1064,9 @@ pub struct FlashParams {
     pub step: ParamId,
     pub progress: ParamId,
     pub detail: ParamId,
+    pub boot_state: ParamId,
+    pub boot_detail: ParamId,
+    pub needs_replug: ParamId,
     pub last_outcome: ParamId,
     pub boot_id: ParamId,
     pub app_id: ParamId,
@@ -1222,6 +1249,9 @@ impl Params {
                 step: id("/flash/step")?,
                 progress: id("/flash/progress")?,
                 detail: id("/flash/detail")?,
+                boot_state: id("/flash/boot_state")?,
+                boot_detail: id("/flash/boot_detail")?,
+                needs_replug: id("/flash/needs_replug")?,
                 last_outcome: id("/flash/last_outcome")?,
                 boot_id: id("/flash/boot_id")?,
                 app_id: id("/flash/app_id")?,
@@ -1337,6 +1367,8 @@ pub const ACTIONS: &[&str] = &[
     "send_raw",
     "flash",
     "flash_now",
+    "reset_mcu",
+    "check_boot",
     "read_device",
     "rescan_firmware",
     "motion_push",
@@ -1430,6 +1462,8 @@ fn action_label(name: &str) -> String {
         "send_raw" => "Send raw signal".into(),
         "flash" => "Flash firmware".into(),
         "flash_now" => "Flash now".into(),
+        "reset_mcu" => "Reset and run MCU".into(),
+        "check_boot" => "Check MCU boot state".into(),
         "read_device" => "Read device".into(),
         "rescan_firmware" => "Rescan probes and firmware".into(),
         "motion_push" => "Push motion target".into(),

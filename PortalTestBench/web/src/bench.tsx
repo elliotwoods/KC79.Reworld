@@ -169,6 +169,42 @@ function ManualFlashButton() {
   return <span className="hero-action" title={why ?? 'Press twice within five seconds'}><Button variant={confirmUntil > Date.now() ? 'danger' : 'primary'} disabled={!!why || !action.decl} onClick={click}>{confirmUntil > Date.now() ? 'Confirm flash now' : 'Flash manually'}</Button></span>;
 }
 
+function FlashDeviceActions() {
+  const bootState = useText('/flash/boot_state');
+  const bootDetail = useText('/flash/boot_detail');
+  const needsReplug = useBool('/flash/needs_replug');
+  const probe = useBool('/probe/connected');
+  const target = useBool('/probe/target_present');
+  const busy = useBool('/flash/busy');
+  const armed = useBool('/flash/armed');
+  const runBusy = useBool('/run/busy');
+  const route = useEnumName('/motion/route');
+  const serialConnected = useBool('/serial/connected');
+  const rs485Connected = useBool('/rs485/connected');
+  const routeConnected = route === 'rs485' ? rs485Connected : serialConnected;
+  const fixtureWhy = busy ? 'a flash pass is running' : runBusy ? 'a test plan is running' : armed ? 'disable auto-flash first' : !probe ? 'no ST-Link' : !target ? 'no MCU is answering' : null;
+  const firmwareWhy = busy || armed ? 'flashing owns the fixture' : runBusy ? 'a test plan is running' : !routeConnected ? `${route} is not connected` : null;
+  const message = needsReplug
+    ? 'Flash verified, but this virgin board needs power removed. Unplug and replug it, then press Check boot.'
+    : bootState === 'running'
+      ? bootDetail || 'The application is executing.'
+      : bootState === 'not-running'
+        ? bootDetail || 'The application did not enter startup.'
+        : bootState === 'checking'
+          ? 'Checking application execution…'
+          : bootDetail || 'Boot state has not been checked yet.';
+  const tone = needsReplug ? 'warn' : bootState === 'not-running' ? 'error' : 'info';
+  return <section className="flash-device-actions" aria-label="MCU recovery and device actions">
+    <header><div><strong>After-flash and recovery</strong><small>SWD controls work even when VCOM is not available.</small></div><Badge tone={needsReplug ? 'warn' : bootState === 'running' ? 'ok' : 'idle'}>{needsReplug ? 'replug required' : bootState || 'unknown'}</Badge></header>
+    <Banner tone={tone}>{message}</Banner>
+    <div className="flash-action-groups">
+      <div><strong>Hardware control</strong><small>Release the MCU from the debugger or inspect its boot state.</small><span className="button-row"><Action path="/actions/reset_mcu" variant="primary" why={fixtureWhy}>Reset &amp; start (SWD)</Action><Action path="/actions/check_boot" why={fixtureWhy}>Check boot</Action></span></div>
+      <div><strong>Firmware control</strong><small>Ask the running firmware to reboot over the Test tab&apos;s {route.toUpperCase()} route.</small><span className="button-row"><Action path="/actions/reboot" why={firmwareWhy}>Reboot over {route.toUpperCase()}</Action></span></div>
+      <div><strong>Inspection</strong><small>Refresh target identity or rescan fixture hardware and images.</small><span className="button-row"><Action path="/actions/read_device" why={busy ? 'a flash pass is running' : null}>Read device identity</Action><Action path="/actions/rescan_firmware" why={busy || armed || runBusy ? 'the fixture is busy' : null}>Rescan all</Action></span></div>
+    </div>
+  </section>;
+}
+
 function FlashTab() {
   const progress = useNumber('/flash/progress');
   const busy = useBool('/flash/busy');
@@ -184,9 +220,7 @@ function FlashTab() {
       <div className="flash-actions"><ManualFlashButton /><div className={`auto-card${armed ? ' is-armed' : ''}`}><div><strong>Automatic fixture flashing</strong><small>{armed ? 'Armed · remove the board after PASS' : 'Insert → flash → cycle → run-check'}</small></div><Toggle path="/flash/auto_enabled" /></div></div>
       {simPresent.decl && <div className="simulation-fixture"><span>Simulated board in fixture</span><Toggle path="/sim/module_present" /></div>}
       <div className="flash-progress"><div style={{ width: `${Math.round(progress * 100)}%` }} /><span>{busy ? `${step || phase} · ${Math.round(progress * 100)}%` : last || `${scope} selected`}</span></div>
-    </div>
-    <div className="secondary-operations">
-      <Action path="/actions/read_device">Read device identity</Action>
+      <FlashDeviceActions />
     </div>
   </Panel>;
 }

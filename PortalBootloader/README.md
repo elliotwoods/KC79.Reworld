@@ -118,11 +118,13 @@ past the buffer (the VLA above) for the last double-word and programmed whatever
 was there. Now pads the final partial double-word with `0xFF` (flash's erased-state
 value) instead.
 
-**No IRQ masking around the bootloader -> application jump.** `run_application()` swaps
-`SCB->VTOR` and reloads MSP with no `__disable_irq()` guarding the transition — a still-
-pending NVIC interrupt could in principle fire against the *new* vector table while still
-on the *old* stack pointer. `__disable_irq()` now runs immediately before
-`HAL_RCC_DeInit()`, matching normal jump-to-application practice.
+**Safe IRQ handoff around the bootloader -> application jump.** `run_application()` used to swap
+`SCB->VTOR` and reload MSP with no `__disable_irq()` guarding the transition, so a still-pending
+NVIC interrupt could fire against the new vector table while still on the old stack. The first
+attempt to fix that masked IRQs but did not restore PRIMASK before entering the application; on a
+real board that trapped the application in its first interrupt-driven delay until IWDG reset it.
+The handoff now masks during teardown, disables and clears inherited NVIC state, installs VTOR and
+MSP, and re-enables IRQs immediately before calling the application's reset handler.
 
 **`SerialStream::getSerialStream` could fall off the end of a non-void function.** Same
 category of bug as the `assert`/`lwrb_init` one above — undefined behaviour dressed up as
@@ -130,10 +132,12 @@ category of bug as the `assert`/`lwrb_init` one above — undefined behaviour dr
 
 ## Not yet done
 
-**It has not been run on a board.** Everything above is static comparison. The bench check is
-flashing it with `PortalFlasher`, confirming the banner reads back, and then performing an actual
-RS485 field update through it — because receiving firmware over RS485 is the entire job, and the
-one thing no amount of symbol diffing can demonstrate.
+**The corrected IRQ handoff has not yet been flashed onto a board.** The previous build was read
+back byte-for-byte from a live board and diagnosed in an IWDG reset loop; the replacement has been
+built and its `cpsid` / `cpsie` / application-branch order verified in the production disassembly.
+The remaining bench check is flashing it with `PortalFlasher`, proving the application VTOR stays
+selected, and then performing an actual RS485 field update through it — because receiving firmware
+over RS485 is the entire job, and the one thing no amount of static comparison can demonstrate.
 
 **`cube-import/Core/msgpack-arduino` is still the 2023 snapshot**, not the submodule at
 `PortalFW/lib/msgpack-arduino` that `test-native/` builds its 47 checks against. They have

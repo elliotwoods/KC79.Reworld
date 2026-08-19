@@ -27,9 +27,18 @@ void run_application()
     SysTick->LOAD = 0;
     SysTick->VAL  = 0;
 
+	// Do not carry bootloader interrupt enables or pending requests into the application. Keeping
+	// PRIMASK set protects the VTOR/MSP transition; clearing NVIC state makes it safe to restore
+	// the reset-time interrupt state immediately before entering the application's reset handler.
+	NVIC->ICER[0] = 0xFFFFFFFFU;
+	NVIC->ICPR[0] = 0xFFFFFFFFU;
+
 	SCB->VTOR = (uint32_t) app_vect_table;
+	__DSB();
+	__ISB();
 
 	__set_MSP(*app_vect_table);
+	__enable_irq();
 #endif
 
 	app_reset_handler();

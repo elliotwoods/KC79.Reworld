@@ -291,6 +291,8 @@ enum CommandBody {
         channel: Option<Channel>,
     },
     Flash,
+    ResetMcu,
+    CheckBoot,
     ReadDevice,
     RescanFirmware,
     /// Soft-reset the module. The startup routine then runs from a genuine power-on state,
@@ -376,6 +378,8 @@ async fn command(
         ),
         CommandBody::MoveAxes { a, b, channel } => routed(channel, Op::MoveAxes { a, b }),
         CommandBody::Flash => Request::FlashNow,
+        CommandBody::ResetMcu => Request::ResetMcu,
+        CommandBody::CheckBoot => Request::CheckBoot,
         CommandBody::ReadDevice => Request::ReadDevice,
         CommandBody::RescanFirmware => Request::RescanFirmware,
         CommandBody::Reboot { channel } => routed(channel, Op::Reboot),
@@ -503,5 +507,13 @@ mod tests {
                 ..
             }
         ));
+
+        let body: CommandBody =
+            serde_json::from_value(serde_json::json!({ "op": "reset_mcu" })).unwrap();
+        assert!(matches!(body, CommandBody::ResetMcu));
+
+        let body: CommandBody =
+            serde_json::from_value(serde_json::json!({ "op": "check_boot" })).unwrap();
+        assert!(matches!(body, CommandBody::CheckBoot));
     }
 }

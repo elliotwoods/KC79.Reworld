@@ -28,12 +28,13 @@ use probe_rs::architecture::arm::{
 };
 use probe_rs::flashing::{DownloadOptions, FlashProgress, ProgressEvent, ProgressOperation};
 use probe_rs::probe::{DebugProbeSelector, Probe, WireProtocol, list::Lister};
-use probe_rs::{MemoryInterface, Permissions, Session};
+use probe_rs::{CoreStatus, MemoryInterface, Permissions, Session};
 
 use crate::device::DeviceImage;
 use crate::image::{ImageBundle, RunCheckSpec};
 use crate::rig::{
-    FlashReport, Presence, ProbeInfo, Progress, Rig, RigError, RigErrorKind, RunCheckReport, Step,
+    BootReport, FlashReport, Presence, ProbeInfo, Progress, Rig, RigError, RigErrorKind,
+    RunCheckReport, Step,
 };
 use crate::{addr, bits, program};
 
@@ -276,6 +277,21 @@ impl ProbeRsRig {
                 RigError::new(kind, format!("could not attach under reset: {err}"))
             })
     }
+
+    /// Open a regular debug session when NRST is not routed through the fixture.
+    ///
+    /// This is only used by the explicit reset/recovery action. Programming still requires the
+    /// safer attach-under-reset path because it may encounter arbitrary target firmware.
+    fn attach_normally(&mut self) -> Result<Session, RigError> {
+        let probe = self.open_probe()?;
+        probe.attach(TARGET, Permissions::new()).map_err(|err| {
+            let kind = match &err {
+                probe_rs::Error::Probe(_) => RigErrorKind::ProbeGone,
+                _ => RigErrorKind::ContactLost,
+            };
+            RigError::new(kind, format!("could not attach normally: {err}"))
+        })
+    }
 }
 
 /// What is worth reading off a halted part before anything is written to it.
@@ -349,6 +365,43 @@ fn survey_after_reload(session: &mut Session) -> Result<Survey, RigError> {
             format!("the part did not come back after the option-byte reload: {err}"),
         )
     })
+}
+
+/// Reset a session that was attached under reset and make the release explicit.
+///
+/// `Core::reset` is documented to continue execution, but a debugger halt can survive target-
+/// specific reset sequences. Checking the observed state and issuing `run` only when the core is
+/// actually halted avoids both failure modes: leaving a flashed MCU stopped, and stepping a core
+/// that was already running.
+fn reset_session_and_run(session: &mut Session) -> Result<(), RigError> {
+    let mut core = session.core(0).map_err(session_error)?;
+    {
+        let mut port = MemPort(&mut core);
+        // The reset clears DBGMCU anyway. Do not turn a successful flash into a failure because
+        // this best-effort cleanup write was lost immediately before that reset.
+        let _ = program::freeze_watchdog(&mut port, false);
+    }
+    core.reset().map_err(|err| {
+        RigError::new(
+            RigErrorKind::Program,
+            format!("could not reset the programmed MCU: {err}"),
+        )
+    })?;
+    std::thread::sleep(Duration::from_millis(25));
+    match core.status().map_err(session_error)? {
+        status if status.is_halted() => core.run().map_err(|err| {
+            RigError::new(
+                RigErrorKind::Program,
+                format!("the MCU reset halted and could not be resumed: {err}"),
+            )
+        }),
+        CoreStatus::LockedUp => Err(RigError::new(
+            RigErrorKind::NotRunning,
+            "the MCU locked up immediately after reset",
+        )),
+        CoreStatus::Running | CoreStatus::Sleeping | CoreStatus::Unknown => Ok(()),
+        CoreStatus::Halted(_) => unreachable!("handled by is_halted"),
+    }
 }
 
 /// Adapts a probe-rs memory interface to the narrow port [`program`] is written against.
@@ -625,24 +678,13 @@ impl Rig for ProbeRsRig {
         progress(Step::Readback, total, total);
         let readback_sha256 = crate::device::sha256_hex(&actual);
 
-        // Let the watchdog run again before the application does, then let go.
+        // Let the watchdog run again before the application does, explicitly release any halt
+        // that survived the reset sequence, then let go.
         progress(Step::ResetRun, 0, 1);
-        {
-            let mut core = session.core(0).map_err(session_error)?;
-            let mut port = MemPort(&mut core);
-            // Best-effort: the freeze lives in DBGMCU, which the reset below clears anyway. A
-            // board that has just verified clean should not be reported as failed because the
-            // tidying-up write did not land.
-            let _ = program::freeze_watchdog(&mut port, false);
-            core.reset().map_err(|err| {
-                RigError::new(
-                    RigErrorKind::Program,
-                    format!("programmed and verified, but the reset-run failed: {err}"),
-                )
-            })?;
-        }
+        let reset = reset_session_and_run(&mut session);
         drop(session);
         self.link = Link::Closed;
+        reset?;
         progress(Step::ResetRun, 1, 1);
 
         Ok(FlashReport {
@@ -652,6 +694,58 @@ impl Rig for ProbeRsRig {
             option_bytes_programmed,
             rcc_csr: survey.rcc_csr,
             readback_sha256,
+        })
+    }
+
+    fn reset_and_run(&mut self) -> Result<(), RigError> {
+        self.close();
+        let mut session = match self.attach_under_reset() {
+            Ok(session) => session,
+            Err(under_reset) => {
+                self.close();
+                self.attach_normally().map_err(|normal| {
+                    RigError::new(
+                        normal.kind,
+                        format!(
+                            "MCU reset could not attach under reset ({under_reset}) or normally ({normal})"
+                        ),
+                    )
+                })?
+            }
+        };
+        let reset = reset_session_and_run(&mut session);
+        drop(session);
+        self.link = Link::Closed;
+        reset
+    }
+
+    fn boot_check(&mut self, _expected_vtor: u32) -> Result<BootReport, RigError> {
+        // Like run_check, this must not create a Session: observing boot must not perturb it.
+        let iface = self.observe()?;
+        iface
+            .select_debug_port(DpAddress::Default)
+            .map_err(|err| target_error("select the debug port", err))?;
+        let ap = FullyQualifiedApAddress::v1_with_default_dp(0);
+        let mut mem = iface
+            .memory_interface(&ap)
+            .map_err(|err| target_error("open the memory interface", err))?;
+        let read32 = |mem: &mut dyn MemoryInterface<ArmError>, at: u32| {
+            mem.read_word_32(u64::from(at))
+                .map_err(|err| target_error("read boot state", err))
+        };
+
+        let vtor = read32(&mut *mem, addr::SCB_VTOR)?;
+        // S_RESET_ST is sticky and cleared by the first read. If it is present in the second,
+        // the MCU reset again during this observation window.
+        let dhcsr_first = read32(&mut *mem, addr::DHCSR)?;
+        std::thread::sleep(Duration::from_millis(75));
+        let dhcsr_second = read32(&mut *mem, addr::DHCSR)?;
+        let rcc_csr = read32(&mut *mem, addr::RCC_CSR)?;
+        Ok(BootReport {
+            vtor,
+            dhcsr_first,
+            dhcsr_second,
+            rcc_csr,
         })
     }
 

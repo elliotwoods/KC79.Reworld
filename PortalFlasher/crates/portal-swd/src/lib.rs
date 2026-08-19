@@ -39,8 +39,8 @@ pub use machine::{Action, Cue, Input, Machine, Millis, Pass, Phase, Timing};
 #[cfg(feature = "probe")]
 pub use probe::{ProbeDescriptor, ProbeRsRig, list_probes};
 pub use rig::{
-    FlashReport, Presence, ProbeInfo, Rig, RigError, RigErrorKind, RunCheckFault, RunCheckReport,
-    SimRig, Step, Trigger,
+    BootFault, BootReport, FlashReport, Presence, ProbeInfo, Rig, RigError, RigErrorKind,
+    RunCheckFault, RunCheckReport, SimRig, Step, Trigger,
 };
 
 /// Fixed addresses on the STM32G070, verified against the CMSIS device header

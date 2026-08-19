@@ -217,6 +217,63 @@ pub struct FlashReport {
     pub readback_sha256: String,
 }
 
+/// Non-invasive evidence that reset reached the application and left the core executing.
+///
+/// This deliberately does not require the main-loop liveness counter to advance. PortalFW runs
+/// its long startup routine from `setup()`, before `loop()` increments that counter, so the full
+/// run-check would call a correctly booting module dead for the whole startup sequence.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BootReport {
+    pub vtor: u32,
+    pub dhcsr_first: u32,
+    pub dhcsr_second: u32,
+    pub rcc_csr: u32,
+}
+
+impl BootReport {
+    pub fn verdict(&self, expected_vtor: u32) -> Result<(), BootFault> {
+        if self.vtor != expected_vtor {
+            return Err(BootFault::WrongVectorTable { found: self.vtor });
+        }
+        for dhcsr in [self.dhcsr_first, self.dhcsr_second] {
+            if dhcsr & bits::DHCSR_S_LOCKUP != 0 {
+                return Err(BootFault::LockedUp);
+            }
+            if dhcsr & bits::DHCSR_S_HALT != 0 {
+                return Err(BootFault::Halted);
+            }
+        }
+        if self.dhcsr_second & bits::DHCSR_S_RESET_ST != 0 {
+            return Err(BootFault::ResetDuringWindow);
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BootFault {
+    WrongVectorTable { found: u32 },
+    Halted,
+    LockedUp,
+    ResetDuringWindow,
+}
+
+impl core::fmt::Display for BootFault {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            BootFault::WrongVectorTable { found } => write!(
+                f,
+                "VTOR is {found:#010X}; reset did not enter the application"
+            ),
+            BootFault::Halted => f.write_str("the core is halted after reset"),
+            BootFault::LockedUp => f.write_str("the core locked up after reset"),
+            BootFault::ResetDuringWindow => {
+                f.write_str("the target reset again during the boot check")
+            }
+        }
+    }
+}
+
 /// Evidence from a run-check.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RunCheckReport {
@@ -327,6 +384,12 @@ pub trait Rig: Send {
         bundle: &ImageBundle,
         progress: &mut Progress<'_>,
     ) -> Result<FlashReport, RigError>;
+
+    /// Assert reset, release the debugger's halt, and leave the MCU executing.
+    fn reset_and_run(&mut self) -> Result<(), RigError>;
+
+    /// Observe the application vector table and core state without halting or resetting it.
+    fn boot_check(&mut self, expected_vtor: u32) -> Result<BootReport, RigError>;
 
     /// Attach without halting or resetting and prove the application is executing.
     fn run_check(&mut self, spec: &RunCheckSpec) -> Result<RunCheckReport, RigError>;
@@ -656,6 +719,39 @@ impl Rig for SimRig {
         })
     }
 
+    fn reset_and_run(&mut self) -> Result<(), RigError> {
+        if !self.opened {
+            return Err(RigError::new(RigErrorKind::ProbeGone, "probe not open"));
+        }
+        if !self.is_present() {
+            return Err(RigError::new(
+                RigErrorKind::ContactLost,
+                "no target in the fixture",
+            ));
+        }
+        self.dhcsr = 0;
+        self.vtor = if self.programmed { addr::APP_BASE } else { 0 };
+        Ok(())
+    }
+
+    fn boot_check(&mut self, _expected_vtor: u32) -> Result<BootReport, RigError> {
+        if !self.opened {
+            return Err(RigError::new(RigErrorKind::ProbeGone, "probe not open"));
+        }
+        if !self.is_present() {
+            return Err(RigError::new(
+                RigErrorKind::ContactLost,
+                "no target in the fixture",
+            ));
+        }
+        Ok(BootReport {
+            vtor: self.vtor,
+            dhcsr_first: self.dhcsr,
+            dhcsr_second: self.dhcsr,
+            rcc_csr: 0,
+        })
+    }
+
     fn run_check(&mut self, spec: &RunCheckSpec) -> Result<RunCheckReport, RigError> {
         if !self.opened {
             return Err(RigError::new(RigErrorKind::ProbeGone, "probe not open"));
@@ -680,5 +776,48 @@ impl Rig for SimRig {
 
     fn close(&mut self) {
         self.opened = false;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{BootFault, BootReport};
+
+    const APP_VTOR: u32 = 0x0800_8000;
+    const DHCSR_HALT: u32 = 1 << 17;
+    const DHCSR_RESET_ST: u32 = 1 << 25;
+
+    #[test]
+    fn boot_report_accepts_running_application() {
+        let report = BootReport {
+            vtor: APP_VTOR,
+            dhcsr_first: 0,
+            dhcsr_second: 0,
+            rcc_csr: 0,
+        };
+
+        assert_eq!(report.verdict(APP_VTOR), Ok(()));
+    }
+
+    #[test]
+    fn boot_report_rejects_halt_and_reset_loop() {
+        let halted = BootReport {
+            vtor: APP_VTOR,
+            dhcsr_first: DHCSR_HALT,
+            dhcsr_second: DHCSR_HALT,
+            rcc_csr: 0,
+        };
+        assert!(matches!(halted.verdict(APP_VTOR), Err(BootFault::Halted)));
+
+        let resetting = BootReport {
+            vtor: APP_VTOR,
+            dhcsr_first: 0,
+            dhcsr_second: DHCSR_RESET_ST,
+            rcc_csr: 0,
+        };
+        assert!(matches!(
+            resetting.verdict(APP_VTOR),
+            Err(BootFault::ResetDuringWindow)
+        ));
     }
 }

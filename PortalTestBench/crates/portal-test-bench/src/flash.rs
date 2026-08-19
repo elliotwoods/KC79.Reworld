@@ -5,11 +5,19 @@
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{Duration, Instant};
 
 use portal_swd::artefacts::Selection;
 use portal_swd::{
-    Action, DeviceReport, Discovery, Input, Machine, Pass, Presence, Rig, Step, Timing,
+    Action, BootFault, DeviceReport, Discovery, Input, Machine, Pass, Presence, Rig, RigError,
+    RigErrorKind, Step, Timing,
 };
+
+/// The production bootloader deliberately listens for an RS485 update for three seconds before
+/// handing off. Boot verification must allow that interval, then prove the application remains
+/// selected long enough to reject a watchdog reset loop.
+const BOOT_HANDOFF_TIMEOUT: Duration = Duration::from_secs(5);
+const BOOT_STABILITY_WINDOW: Duration = Duration::from_millis(600);
 
 #[derive(Clone, Debug, Default, serde::Serialize)]
 pub struct McuSnapshot {
@@ -41,6 +49,9 @@ pub struct FlashSnapshot {
     pub boot_id: String,
     pub app_id: String,
     pub scope: String,
+    pub boot_state: String,
+    pub boot_detail: String,
+    pub needs_replug: bool,
     pub mcu: Option<McuSnapshot>,
 }
 
@@ -292,8 +303,16 @@ impl FlashController {
     }
 
     pub fn manual_ready(&self) -> Result<(), String> {
+        self.swd_ready()?;
+        self.discovery
+            .load(&self.selection)
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    }
+
+    pub fn swd_ready(&self) -> Result<(), String> {
         if self.snapshot.busy {
-            return Err("a flash pass is already running".into());
+            return Err("an SWD operation is already running".into());
         }
         if self.machine.armed() {
             return Err("auto-flash is armed".into());
@@ -304,10 +323,7 @@ impl FlashController {
         if !self.snapshot.target_present {
             return Err("no MCU is answering".into());
         }
-        self.discovery
-            .load(&self.selection)
-            .map(|_| ())
-            .map_err(|e| e.to_string())
+        Ok(())
     }
 
     pub fn execute(
@@ -319,6 +335,11 @@ impl FlashController {
     ) -> bool {
         self.snapshot.busy = true;
         self.snapshot.progress = 0.0;
+        if pass == Pass::Flash {
+            self.snapshot.needs_replug = false;
+            self.snapshot.boot_state = "checking".into();
+            self.snapshot.boot_detail.clear();
+        }
         self.snapshot.step = match pass {
             Pass::Flash => "attach".into(),
             Pass::RunCheck => "run-check".into(),
@@ -327,20 +348,7 @@ impl FlashController {
 
         let result = match pass {
             Pass::Flash => match self.discovery.load(&self.selection) {
-                Ok(bundle) => {
-                    let state = &mut self.snapshot;
-                    self.rig
-                        .flash(&bundle, &mut |step: Step, done, total| {
-                            state.step = step.to_string();
-                            state.progress = if total == 0 {
-                                0.0
-                            } else {
-                                done as f64 / total as f64
-                            };
-                            progress(&state.step, state.progress);
-                        })
-                        .map(|report| format!("verified {}", short_hash(&report.readback_sha256)))
-                }
+                Ok(bundle) => self.flash_and_boot(&bundle, progress),
                 Err(error) => Err(portal_swd::RigError::new(
                     portal_swd::RigErrorKind::BadBundle,
                     error.to_string(),
@@ -380,6 +388,10 @@ impl FlashController {
             Err(error) => {
                 self.snapshot.detail = error.to_string();
                 self.snapshot.last_outcome = format!("{} failed: {error}", pass);
+                if pass == Pass::Flash {
+                    self.snapshot.boot_state = "not-running".into();
+                    self.snapshot.boot_detail = error.to_string();
+                }
             }
         }
         if automatic {
@@ -393,12 +405,181 @@ impl FlashController {
         ok
     }
 
+    /// Reset through SWD and prove that execution reached the selected application.
+    pub fn reset_and_run(&mut self) -> Result<String, String> {
+        self.swd_ready()?;
+        let bundle = self
+            .discovery
+            .load(&self.selection)
+            .map_err(|e| e.to_string())?;
+        if bundle.run_check.vtor == 0 {
+            return Err("the selected firmware has no application to boot".into());
+        }
+        self.snapshot.busy = true;
+        self.snapshot.phase = "reset-run".into();
+        self.snapshot.step = "reset-run".into();
+        self.snapshot.boot_state = "checking".into();
+        self.snapshot.boot_detail.clear();
+        self.snapshot.needs_replug = false;
+
+        let result = self
+            .rig
+            .reset_and_run()
+            .and_then(|()| self.observe_boot(bundle.run_check.vtor));
+        self.finish_boot_action("reset & run", result)
+    }
+
+    /// Observe boot state without altering the MCU.
+    pub fn check_boot(&mut self) -> Result<String, String> {
+        self.swd_ready()?;
+        let bundle = self
+            .discovery
+            .load(&self.selection)
+            .map_err(|e| e.to_string())?;
+        if bundle.run_check.vtor == 0 {
+            return Err("the selected firmware has no application to check".into());
+        }
+        self.snapshot.busy = true;
+        self.snapshot.phase = "boot-check".into();
+        self.snapshot.step = "boot-check".into();
+        self.snapshot.boot_state = "checking".into();
+        self.snapshot.boot_detail.clear();
+        let result = self.observe_boot(bundle.run_check.vtor);
+        self.finish_boot_action("boot check", result)
+    }
+
     pub fn read_device(&mut self) {
         match self.rig.read_device() {
             Ok(image) => {
                 self.snapshot.mcu = Some(mcu_snapshot(image.analyse()));
             }
             Err(error) => self.snapshot.detail = error.to_string(),
+        }
+    }
+
+    fn flash_and_boot(
+        &mut self,
+        bundle: &portal_swd::ImageBundle,
+        progress: &mut dyn FnMut(&str, f64),
+    ) -> Result<String, portal_swd::RigError> {
+        let state = &mut self.snapshot;
+        let report = self.rig.flash(bundle, &mut |step: Step, done, total| {
+            state.step = step.to_string();
+            state.progress = if total == 0 {
+                0.0
+            } else {
+                done as f64 / total as f64
+            };
+            progress(&state.step, state.progress);
+        })?;
+        let verified = format!("verified {}", short_hash(&report.readback_sha256));
+
+        // Bootloader-only programming has nothing to enter or observe.
+        if bundle.run_check.vtor == 0 {
+            self.snapshot.boot_state = "not-applicable".into();
+            self.snapshot.boot_detail = "no application was selected".into();
+            return Ok(verified);
+        }
+
+        self.snapshot.step = "boot-check".into();
+        progress("boot-check", 1.0);
+        match self.observe_boot(bundle.run_check.vtor) {
+            Ok(detail) => Ok(format!("{verified}; {detail}")),
+            Err(first) => {
+                // A second explicit reset covers a debugger halt that survived the programming
+                // session. It is safe because readback is already complete.
+                self.snapshot.step = "reset-run".into();
+                progress("reset-run", 1.0);
+                if let Err(reset_error) = self.rig.reset_and_run() {
+                    if report.option_bytes_programmed {
+                        self.snapshot.boot_state = "replug-required".into();
+                        self.snapshot.needs_replug = true;
+                        self.snapshot.boot_detail = format!(
+                            "option bytes changed; unplug and replug this virgin board, then check boot ({reset_error})"
+                        );
+                        return Ok(format!("{verified}; replug required before startup"));
+                    }
+                    return Err(reset_error);
+                }
+                match self.observe_boot(bundle.run_check.vtor) {
+                    Ok(detail) => Ok(format!("{verified}; {detail} after reset retry")),
+                    Err(second) if report.option_bytes_programmed => {
+                        // The first option-byte reload on a factory-fresh part can require power
+                        // to be removed. The flash contents are verified; do not tell the operator
+                        // to reflash a good image, but do make the required replug impossible to
+                        // mistake for a completed boot.
+                        self.snapshot.boot_state = "replug-required".into();
+                        self.snapshot.needs_replug = true;
+                        self.snapshot.boot_detail = format!(
+                            "option bytes changed; unplug and replug this virgin board, then check boot ({second})"
+                        );
+                        Ok(format!("{verified}; replug required before startup"))
+                    }
+                    Err(second) => Err(portal_swd::RigError::new(
+                        portal_swd::RigErrorKind::NotRunning,
+                        format!(
+                            "boot check failed after reset retry: {second}; first check: {first}"
+                        ),
+                    )),
+                }
+            }
+        }
+    }
+
+    fn observe_boot(&mut self, expected_vtor: u32) -> Result<String, RigError> {
+        let started = Instant::now();
+        loop {
+            let report = self.rig.boot_check(expected_vtor)?;
+            match report.verdict(expected_vtor) {
+                Ok(()) => break,
+                Err(BootFault::WrongVectorTable { .. } | BootFault::ResetDuringWindow)
+                    if started.elapsed() < BOOT_HANDOFF_TIMEOUT =>
+                {
+                    std::thread::sleep(Duration::from_millis(100));
+                }
+                Err(fault) => return Err(boot_error(fault, report.rcc_csr)),
+            }
+        }
+
+        // A momentary visit to the application vector table is not enough. In particular, the
+        // IWDG remains active across the bootloader jump and exposes a broken startup as a reset
+        // loop. Re-observe after a stable window so that failure cannot earn a PASS.
+        std::thread::sleep(BOOT_STABILITY_WINDOW);
+        let stable = self.rig.boot_check(expected_vtor)?;
+        stable
+            .verdict(expected_vtor)
+            .map_err(|fault| boot_error(fault, stable.rcc_csr))?;
+        self.snapshot.boot_state = "running".into();
+        self.snapshot.boot_detail = format!(
+            "application stable at VTOR {:#010X} (RCC_CSR {:#010X})",
+            stable.vtor, stable.rcc_csr
+        );
+        self.snapshot.needs_replug = false;
+        Ok("application started and remained stable".into())
+    }
+
+    fn finish_boot_action(
+        &mut self,
+        label: &str,
+        result: Result<String, portal_swd::RigError>,
+    ) -> Result<String, String> {
+        self.snapshot.busy = false;
+        self.snapshot.progress = if result.is_ok() { 1.0 } else { 0.0 };
+        match result {
+            Ok(detail) => {
+                self.snapshot.detail = detail.clone();
+                self.snapshot.last_outcome = format!("{label} passed: {detail}");
+                self.snapshot.phase = "manual-complete".into();
+                Ok(detail)
+            }
+            Err(error) => {
+                self.snapshot.boot_state = "not-running".into();
+                self.snapshot.boot_detail = error.to_string();
+                self.snapshot.detail = error.to_string();
+                self.snapshot.last_outcome = format!("{label} failed: {error}");
+                self.snapshot.phase = "manual-complete".into();
+                Err(error.to_string())
+            }
         }
     }
 
@@ -463,6 +644,18 @@ impl FlashController {
 
 fn short_hash(hash: &str) -> &str {
     hash.get(..12).unwrap_or(hash)
+}
+
+fn boot_error(fault: BootFault, rcc_csr: u32) -> RigError {
+    let reset_cause = if rcc_csr & (1 << 29) != 0 {
+        "; RCC_CSR records an independent-watchdog reset"
+    } else {
+        ""
+    };
+    RigError::new(
+        RigErrorKind::NotRunning,
+        format!("{fault}; RCC_CSR={rcc_csr:#010X}{reset_cause}"),
+    )
 }
 
 fn mcu_snapshot(report: DeviceReport) -> McuSnapshot {

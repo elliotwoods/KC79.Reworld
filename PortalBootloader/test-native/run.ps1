@@ -19,10 +19,23 @@ $ErrorActionPreference = "Stop"
 $testDir = $PSScriptRoot
 $repoRoot = (Resolve-Path (Join-Path $testDir "..\..")).Path
 $libSrc = Join-Path $repoRoot "PortalFW\lib\msgpack-arduino\src"
+$handoffSource = Join-Path $repoRoot "PortalBootloader\cube-import\Core\Src\RunApplication.c"
 
 if (-not (Test-Path -LiteralPath (Join-Path $libSrc "msgpack.hpp"))) {
     throw "msgpack-arduino sources not found at $libSrc. Run: git submodule update --init --recursive"
 }
+
+# The bootloader deliberately masks interrupts while replacing VTOR and MSP. The application
+# reset handler expects the architectural reset state (PRIMASK clear), so omitting the matching
+# enable traps it in its first interrupt-driven delay until the watchdog resets the part.
+$handoff = Get-Content -LiteralPath $handoffSource -Raw
+$disableAt = $handoff.IndexOf("__disable_irq()")
+$enableAt = $handoff.IndexOf("__enable_irq()")
+$jumpAt = $handoff.LastIndexOf("app_reset_handler()")
+if ($disableAt -lt 0 -or $enableAt -le $disableAt -or $jumpAt -le $enableAt) {
+    throw "RunApplication.c must re-enable IRQs after masking them and before entering the application"
+}
+Write-Host "Boot handoff restores the reset-time IRQ state." -ForegroundColor Green
 
 # Locate MSVC. vswhere ships with any VS 2017+ installer.
 $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"

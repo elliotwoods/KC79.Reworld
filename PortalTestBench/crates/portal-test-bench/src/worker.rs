@@ -45,6 +45,8 @@ pub enum Request {
     SelectChannel(Channel),
     Run { plan: Box<Plan>, origin: Origin },
     FlashNow,
+    ResetMcu,
+    CheckBoot,
     ReadDevice,
     RescanFirmware,
     SendRaw { channel: Channel, signal: RawSignal },
@@ -373,6 +375,8 @@ impl Worker {
                     self.run_flash(now, Pass::Flash, false);
                 }
             }
+            "reset_mcu" => self.reset_mcu(now, true),
+            "check_boot" => self.check_mcu_boot(now),
             "read_device" => self.flash.read_device(),
             "rescan_firmware" => self.rescan_setup(now),
             "rescan" => {
@@ -726,9 +730,12 @@ impl Worker {
             let _ = bus.set(progress_id, Value::F64(fraction.clamp(0.0, 1.0)));
         };
         let ok = self.flash.execute(now, pass, automatic, &mut progress);
+        let needs_replug = self.flash.snapshot().needs_replug;
         self.bench.note(
             now,
-            if ok {
+            if needs_replug {
+                bench_core::LOG_LEVEL_WARNING
+            } else if ok {
                 bench_core::LOG_LEVEL_STATUS
             } else {
                 bench_core::LOG_LEVEL_ERROR
@@ -745,6 +752,95 @@ impl Worker {
                 let _ = self.bench.select_rs485_target(target);
             }
         }
+        *self.shared.flash.lock().unwrap() = self.flash.snapshot().clone();
+    }
+
+    fn reset_mcu(&mut self, now: u64, require_page_heartbeat: bool) {
+        if require_page_heartbeat && self.page_is_stale(now) {
+            self.bench.note(
+                now,
+                bench_core::LOG_LEVEL_WARNING,
+                "refused MCU reset: page heartbeat is stale",
+            );
+            return;
+        }
+        if self.bench.is_busy() {
+            self.bench.note(
+                now,
+                bench_core::LOG_LEVEL_WARNING,
+                "refused MCU reset: a test plan is running",
+            );
+            return;
+        }
+        if let Err(error) = self.flash.swd_ready() {
+            self.bench.note(now, bench_core::LOG_LEVEL_WARNING, error);
+            return;
+        }
+
+        // A reset invalidates both byte streams. Close them before SWD asserts reset, then restore
+        // the operator's two independent connections afterwards.
+        let before = self.bench.state().clone();
+        let serial = before
+            .channels
+            .serial
+            .link
+            .kind
+            .zip(before.channels.serial.link.endpoint.clone());
+        let rs485 = before
+            .channels
+            .rs485
+            .link
+            .kind
+            .zip(before.channels.rs485.link.endpoint.clone());
+        let target = before.channels.rs485.selected_target;
+        self.bench.disconnect(now);
+
+        let result = self.flash.reset_and_run();
+        self.bench.note(
+            now,
+            if result.is_ok() {
+                bench_core::LOG_LEVEL_STATUS
+            } else {
+                bench_core::LOG_LEVEL_ERROR
+            },
+            self.flash.snapshot().last_outcome.clone(),
+        );
+
+        if let Some((kind, endpoint)) = serial {
+            let _ = self.bench.connect(kind, &endpoint, now);
+        }
+        if let Some((kind, endpoint)) = rs485 {
+            let _ = self.bench.connect(kind, &endpoint, now);
+            if let Some(target) = target {
+                let _ = self.bench.select_rs485_target(target);
+            }
+        }
+        *self.shared.flash.lock().unwrap() = self.flash.snapshot().clone();
+    }
+
+    fn check_mcu_boot(&mut self, now: u64) {
+        if self.bench.is_busy() {
+            self.bench.note(
+                now,
+                bench_core::LOG_LEVEL_WARNING,
+                "refused boot check: a test plan is running",
+            );
+            return;
+        }
+        if let Err(error) = self.flash.swd_ready() {
+            self.bench.note(now, bench_core::LOG_LEVEL_WARNING, error);
+            return;
+        }
+        let result = self.flash.check_boot();
+        self.bench.note(
+            now,
+            if result.is_ok() {
+                bench_core::LOG_LEVEL_STATUS
+            } else {
+                bench_core::LOG_LEVEL_ERROR
+            },
+            self.flash.snapshot().last_outcome.clone(),
+        );
         *self.shared.flash.lock().unwrap() = self.flash.snapshot().clone();
     }
 
@@ -815,6 +911,8 @@ impl Worker {
                         self.run_flash(now, Pass::Flash, false);
                     }
                 }
+                Request::ResetMcu => self.reset_mcu(now, false),
+                Request::CheckBoot => self.check_mcu_boot(now),
                 Request::ReadDevice => self.flash.read_device(),
                 Request::SendRaw { channel, signal } => {
                     if self.flash.snapshot().armed
@@ -1046,6 +1144,13 @@ impl Worker {
             .bus
             .set(p.flash.progress, Value::F64(snapshot.progress));
         let _ = self.bus.set_text(p.flash.detail, &snapshot.detail);
+        let _ = self.bus.set_text(p.flash.boot_state, &snapshot.boot_state);
+        let _ = self
+            .bus
+            .set_text(p.flash.boot_detail, &snapshot.boot_detail);
+        let _ = self
+            .bus
+            .set(p.flash.needs_replug, Value::Bool(snapshot.needs_replug));
         let _ = self
             .bus
             .set_text(p.flash.last_outcome, &snapshot.last_outcome);
