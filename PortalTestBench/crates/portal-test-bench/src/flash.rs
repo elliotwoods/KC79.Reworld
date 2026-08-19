@@ -7,10 +7,10 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
-use portal_swd::artefacts::Selection;
+use portal_swd::artefacts::{Origin, Selection};
 use portal_swd::{
-    Action, BootFault, DeviceReport, Discovery, Input, Machine, Pass, Presence, Rig, RigError,
-    RigErrorKind, Step, Timing,
+    Action, BootFault, DeviceReport, DeviceSettings, Discovery, IdentityState, Input, Machine,
+    Pass, Presence, Rig, RigError, RigErrorKind, SettingsSource, Step, Timing,
 };
 
 /// The production bootloader deliberately listens for an RS485 update for three seconds before
@@ -29,6 +29,17 @@ pub struct McuSnapshot {
     pub layout: String,
     pub rdp: String,
     pub firmware: String,
+    pub bootloader_sha256: String,
+    pub application_sha256: String,
+    pub identity_state: String,
+    pub provision_serial: Option<u32>,
+    pub operating_current_ma: u16,
+    pub full_current_home_recovery: bool,
+    pub axis_a_calibration: Option<portal_swd::OpticalCalibration>,
+    pub axis_b_calibration: Option<portal_swd::OpticalCalibration>,
+    pub settings_corrupt_records: u32,
+    pub settings_source: String,
+    pub option_bytes: String,
 }
 
 #[derive(Clone, Debug, Default, serde::Serialize)]
@@ -405,6 +416,155 @@ impl FlashController {
         ok
     }
 
+    /// Program firmware and the durable board records as one provisioning operation. Firmware
+    /// programming is bounded below the persistent pages; the identity write remains append-only
+    /// unless the caller has recorded an explicit operator override.
+    pub fn provision(
+        &mut self,
+        now_ms: u64,
+        serial: u32,
+        settings: DeviceSettings,
+        allow_identity_override: bool,
+        automatic: bool,
+        progress: &mut dyn FnMut(&str, f64),
+    ) -> bool {
+        self.snapshot.busy = true;
+        self.snapshot.progress = 0.0;
+        self.snapshot.needs_replug = false;
+        self.snapshot.boot_state = "checking".into();
+        self.snapshot.boot_detail.clear();
+        self.snapshot.step = "attach".into();
+        self.snapshot.phase = Pass::Flash.to_string();
+
+        let result = match self.discovery.load(&self.selection) {
+            Ok(_bundle) if self.selection.bootloader.is_none() => Err(RigError::new(
+                RigErrorKind::BadBundle,
+                "provisioning requires the production bootloader image",
+            )),
+            Ok(_bundle)
+                if self
+                    .selection
+                    .bootloader
+                    .as_deref()
+                    .and_then(|id| self.discovery.by_id(id))
+                    .is_none_or(|artefact| artefact.origin != Origin::Built) =>
+            {
+                Err(RigError::new(
+                    RigErrorKind::BadBundle,
+                    "provisioning refuses the legacy reference bootloader; build PortalBootloader so the bounded updater is selected",
+                ))
+            }
+            Ok(bundle) => self.flash_provision_and_boot(
+                &bundle,
+                serial,
+                settings,
+                allow_identity_override,
+                progress,
+            ),
+            Err(error) => Err(RigError::new(RigErrorKind::BadBundle, error.to_string())),
+        };
+        self.finish_pass(now_ms, Pass::Flash, automatic, result)
+    }
+
+    pub fn selected_application_sha256(&self) -> Option<String> {
+        self.discovery
+            .load(&self.selection)
+            .ok()
+            .map(|bundle| bundle.application.sha256())
+    }
+
+    pub fn selected_bundle_evidence(&self) -> Option<(String, String)> {
+        self.discovery
+            .load(&self.selection)
+            .ok()
+            .map(|bundle| (bundle.sha256(), format!("{:?}", bundle.provenance)))
+    }
+
+    pub fn write_settings(
+        &mut self,
+        settings: DeviceSettings,
+        progress: &mut dyn FnMut(&str, f64),
+    ) -> Result<String, String> {
+        self.swd_ready()?;
+        let serial = self
+            .snapshot
+            .mcu
+            .as_ref()
+            .and_then(|mcu| mcu.provision_serial)
+            .ok_or_else(|| "the board has no valid provisioning identity".to_string())?;
+        let report = self
+            .rig
+            .write_persistent(serial, settings, false, &mut |step, done, total| {
+                progress(
+                    &step.to_string(),
+                    if total == 0 {
+                        0.0
+                    } else {
+                        done as f64 / total as f64
+                    },
+                );
+            })
+            .map_err(|error| error.to_string())?;
+        self.read_device();
+        Ok(format!(
+            "settings {} at {} mA; recovery {}",
+            if report.settings_written {
+                "written"
+            } else {
+                "unchanged"
+            },
+            report.settings.operating_current_ma,
+            if report.settings.full_current_home_recovery {
+                "enabled"
+            } else {
+                "disabled"
+            },
+        ))
+    }
+
+    pub fn verified_skip(&mut self, now_ms: u64, automatic: bool, detail: String) -> bool {
+        self.snapshot.boot_state = "checking".into();
+        let result = self
+            .discovery
+            .load(&self.selection)
+            .map_err(|error| RigError::new(RigErrorKind::BadBundle, error.to_string()))
+            .and_then(|bundle| self.observe_boot(bundle.run_check.vtor))
+            .map(|boot| format!("{detail}; {boot}"));
+        match result {
+            Ok(detail) => {
+                self.snapshot.last_outcome = format!("verified skip: {detail}");
+                self.snapshot.detail = detail;
+                self.snapshot.progress = 1.0;
+                if automatic {
+                    self.apply_machine(
+                        now_ms,
+                        Input::PassDone {
+                            pass: Pass::Flash,
+                            ok: true,
+                        },
+                    );
+                } else {
+                    self.snapshot.phase = "manual-complete".into();
+                }
+                true
+            }
+            Err(error) => {
+                self.snapshot.last_outcome = format!("verified skip failed: {error}");
+                self.snapshot.detail = error.to_string();
+                if automatic {
+                    self.apply_machine(
+                        now_ms,
+                        Input::PassDone {
+                            pass: Pass::Flash,
+                            ok: false,
+                        },
+                    );
+                }
+                false
+            }
+        }
+    }
+
     /// Reset through SWD and prove that execution reached the selected application.
     pub fn reset_and_run(&mut self) -> Result<String, String> {
         self.swd_ready()?;
@@ -524,6 +684,144 @@ impl FlashController {
                 }
             }
         }
+    }
+
+    fn flash_provision_and_boot(
+        &mut self,
+        bundle: &portal_swd::ImageBundle,
+        serial: u32,
+        settings: DeviceSettings,
+        allow_identity_override: bool,
+        progress: &mut dyn FnMut(&str, f64),
+    ) -> Result<String, RigError> {
+        let report = {
+            let state = &mut self.snapshot;
+            self.rig.flash(bundle, &mut |step: Step, done, total| {
+                state.step = step.to_string();
+                state.progress = if total == 0 {
+                    0.0
+                } else {
+                    done as f64 / total as f64
+                };
+                progress(&state.step, state.progress);
+            })?
+        };
+        self.snapshot.step = "identity".into();
+        progress("identity", 1.0);
+        let persistent = {
+            let state = &mut self.snapshot;
+            self.rig.write_persistent(
+                serial,
+                settings,
+                allow_identity_override,
+                &mut |step: Step, done, total| {
+                    state.step = step.to_string();
+                    progress(
+                        &state.step,
+                        if total == 0 {
+                            0.0
+                        } else {
+                            done as f64 / total as f64
+                        },
+                    );
+                },
+            )?
+        };
+        let verified = format!(
+            "verified firmware {}; identity {} serial {}; settings {} at {} mA",
+            short_hash(&report.readback_sha256),
+            if persistent.identity_written {
+                "written"
+            } else {
+                "preserved"
+            },
+            persistent.serial,
+            if persistent.settings_written {
+                "written"
+            } else {
+                "unchanged"
+            },
+            persistent.settings.operating_current_ma,
+        );
+
+        if bundle.run_check.vtor == 0 {
+            return Err(RigError::new(
+                RigErrorKind::BadBundle,
+                "provisioning requires an application image",
+            ));
+        }
+        self.snapshot.step = "boot-check".into();
+        progress("boot-check", 1.0);
+        match self.observe_boot(bundle.run_check.vtor) {
+            Ok(detail) => Ok(format!("{verified}; {detail}")),
+            Err(first) => {
+                if let Err(reset_error) = self.rig.reset_and_run() {
+                    if report.option_bytes_programmed {
+                        self.snapshot.boot_state = "replug-required".into();
+                        self.snapshot.needs_replug = true;
+                        self.snapshot.boot_detail = format!(
+                            "option bytes changed; unplug and replug this board ({reset_error})"
+                        );
+                        return Ok(format!("{verified}; replug required before startup"));
+                    }
+                    return Err(reset_error);
+                }
+                match self.observe_boot(bundle.run_check.vtor) {
+                    Ok(detail) => Ok(format!("{verified}; {detail} after reset retry")),
+                    Err(second) if report.option_bytes_programmed => {
+                        self.snapshot.boot_state = "replug-required".into();
+                        self.snapshot.needs_replug = true;
+                        self.snapshot.boot_detail = format!(
+                            "option bytes changed; unplug and replug this board ({second})"
+                        );
+                        Ok(format!("{verified}; replug required before startup"))
+                    }
+                    Err(second) => Err(RigError::new(
+                        RigErrorKind::NotRunning,
+                        format!(
+                            "boot check failed after reset retry: {second}; first check: {first}"
+                        ),
+                    )),
+                }
+            }
+        }
+    }
+
+    fn finish_pass(
+        &mut self,
+        now_ms: u64,
+        pass: Pass,
+        automatic: bool,
+        result: Result<String, RigError>,
+    ) -> bool {
+        self.snapshot.busy = false;
+        self.snapshot.progress = if result.is_ok() {
+            1.0
+        } else {
+            self.snapshot.progress
+        };
+        let ok = result.is_ok();
+        match result {
+            Ok(detail) => {
+                self.snapshot.detail = detail.clone();
+                self.snapshot.last_outcome = format!("{pass} passed: {detail}");
+            }
+            Err(error) => {
+                self.snapshot.detail = error.to_string();
+                self.snapshot.last_outcome = format!("{pass} failed: {error}");
+                self.snapshot.boot_state = "not-running".into();
+                self.snapshot.boot_detail = error.to_string();
+            }
+        }
+        if automatic {
+            self.apply_machine(now_ms, Input::PassDone { pass, ok });
+        } else {
+            self.snapshot.phase = "manual-complete".into();
+        }
+        if ok {
+            self.read_device();
+        }
+        ok
     }
 
     fn observe_boot(&mut self, expected_vtor: u32) -> Result<String, RigError> {
@@ -665,6 +963,16 @@ fn mcu_snapshot(report: DeviceReport) -> McuSnapshot {
         .clone()
         .or_else(|| report.bootloader.banner.clone())
         .unwrap_or_default();
+    let (identity_state, provision_serial) = match report.identity {
+        IdentityState::Blank => ("blank".to_string(), None),
+        IdentityState::Corrupt => ("corrupt".to_string(), None),
+        IdentityState::ForeignUid { record } => ("foreign-uid".to_string(), Some(record.serial)),
+        IdentityState::Valid { record } => ("existing-on-board".to_string(), Some(record.serial)),
+    };
+    let settings_source = match report.settings.source {
+        SettingsSource::Defaults => "defaults",
+        SettingsSource::FlashA | SettingsSource::FlashB => "flash",
+    };
     McuSnapshot {
         part: "STM32G070RBT6".into(),
         uid: report.uid,
@@ -680,6 +988,17 @@ fn mcu_snapshot(report: DeviceReport) -> McuSnapshot {
         layout: report.layout.as_str().into(),
         rdp: report.options.rdp_level().to_string(),
         firmware,
+        bootloader_sha256: report.bootloader.sha256,
+        application_sha256: report.application.sha256,
+        identity_state,
+        provision_serial,
+        operating_current_ma: report.settings.record.settings.operating_current_ma,
+        full_current_home_recovery: report.settings.record.settings.full_current_home_recovery,
+        axis_a_calibration: report.settings.record.settings.axis_a_calibration,
+        axis_b_calibration: report.settings.record.settings.axis_b_calibration,
+        settings_corrupt_records: report.settings.corrupt_records,
+        settings_source: settings_source.into(),
+        option_bytes: format!("0x{:08X}", report.options.raw),
     }
 }
 

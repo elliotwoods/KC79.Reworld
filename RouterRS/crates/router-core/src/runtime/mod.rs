@@ -83,7 +83,8 @@ impl Drop for RuntimeHandle {
 
 pub fn spawn(config: RuntimeConfig) -> RuntimeHandle {
     let (command_tx, command_rx) = channel::<Command>();
-    let snapshot: Arc<Mutex<Arc<UiSnapshot>>> = Arc::new(Mutex::new(Arc::new(UiSnapshot::default())));
+    let snapshot: Arc<Mutex<Arc<UiSnapshot>>> =
+        Arc::new(Mutex::new(Arc::new(UiSnapshot::default())));
     let shutdown_flag = Arc::new(AtomicBool::new(false));
     let osc_message_count = Arc::new(AtomicUsize::new(0));
 
@@ -114,13 +115,18 @@ pub fn spawn(config: RuntimeConfig) -> RuntimeHandle {
     let join = std::thread::Builder::new()
         .name("model".into())
         .spawn(move || {
-            model_thread(config, command_rx, model_snapshot, ServerInfo {
-                rest_running,
-                rest_port,
-                osc_running,
-                osc_port,
-                osc_message_count,
-            })
+            model_thread(
+                config,
+                command_rx,
+                model_snapshot,
+                ServerInfo {
+                    rest_running,
+                    rest_port,
+                    osc_running,
+                    osc_port,
+                    osc_message_count,
+                },
+            )
         })
         .expect("spawn model thread");
 
@@ -149,7 +155,8 @@ fn model_thread(
     servers: ServerInfo,
 ) {
     let reporter = config.reporter;
-    let mut installation = Installation::from_config(&config.app_config.installation, reporter.clone());
+    let mut installation =
+        Installation::from_config(&config.app_config.installation, reporter.clone());
     let mut renderer = Renderer::from_config(&config.app_config.renderer_sources);
     let mut app_config = config.app_config;
 
@@ -171,7 +178,14 @@ fn model_thread(
 
         // ---- commands ----
         while let Ok(command) = commands.try_recv() {
-            if !handle_command(command, &mut installation, &mut renderer, &mut app_config, &reporter, config.config_path.as_deref()) {
+            if !handle_command(
+                command,
+                &mut installation,
+                &mut renderer,
+                &mut app_config,
+                &reporter,
+                config.config_path.as_deref(),
+            ) {
                 running = false;
             }
         }
@@ -189,7 +203,13 @@ fn model_thread(
 
         // ---- snapshot ----
         generation += 1;
-        let ui = build_snapshot(&mut installation, &renderer, generation, &servers, &app_config);
+        let ui = build_snapshot(
+            &mut installation,
+            &renderer,
+            generation,
+            &servers,
+            &app_config,
+        );
         *snapshot_slot.lock().unwrap() = Arc::new(ui);
 
         // ---- pace ----
@@ -211,7 +231,11 @@ fn handle_command(
 ) -> bool {
     use Command::*;
     match command {
-        SetPilotPosition { col, portal, position } => {
+        SetPilotPosition {
+            col,
+            portal,
+            position,
+        } => {
             if let Some(p) = installation.portal(col, portal) {
                 p.pilot.set_position(position);
             }
@@ -226,7 +250,11 @@ fn handle_command(
                 p.pilot.set_axes(axes);
             }
         }
-        SetAxesCyclicByIndex { col, portal_index, axes } => {
+        SetAxesCyclicByIndex {
+            col,
+            portal_index,
+            axes,
+        } => {
             if let Some(column) = installation.column(col) {
                 if let Some(p) = column.portals.get_mut(portal_index) {
                     p.pilot.set_axes_cyclic(axes);
@@ -288,7 +316,10 @@ fn handle_command(
             }
         }
         HomeAndZeroLocal => installation.home_hardware_and_zero_positions(),
-        PushMotionProfileAll { max_velocity, acceleration } => {
+        PushMotionProfileAll {
+            max_velocity,
+            acceleration,
+        } => {
             for column in &mut installation.columns {
                 for portal in &mut column.portals {
                     for mc in &mut portal.motion_control {
@@ -319,9 +350,11 @@ fn handle_command(
                         };
                         let address = router_proto::commands::mc_address(mc.axis, "motionProfile");
                         let target = portal.target;
-                        column
-                            .rs485
-                            .transmit(crate::rs485::Packet::from_body(target as i8, &body, address));
+                        column.rs485.transmit(crate::rs485::Packet::from_body(
+                            target as i8,
+                            &body,
+                            address,
+                        ));
                     }
                 }
             }
@@ -350,12 +383,20 @@ fn handle_command(
                 column.rs485.clear_outbox();
             }
         }
-        SetPilotOffset { col, portal, offset } => {
+        SetPilotOffset {
+            col,
+            portal,
+            offset,
+        } => {
             if let Some(p) = installation.portal(col, portal) {
                 p.pilot.offset = offset;
             }
         }
-        SetPilotSendPeriodically { col, portal, enabled } => {
+        SetPilotSendPeriodically {
+            col,
+            portal,
+            enabled,
+        } => {
             if let Some(p) = installation.portal(col, portal) {
                 p.pilot.send_periodically = enabled;
             }
@@ -365,24 +406,36 @@ fn handle_command(
                 p.pilot.see_through();
             }
         }
-        SetPollRegularly { col, portal, enabled, interval_s } => {
+        SetPollRegularly {
+            col,
+            portal,
+            enabled,
+            interval_s,
+        } => {
             if let Some(p) = installation.portal(col, portal) {
                 p.poll_regularly = enabled;
                 p.poll_interval_s = interval_s;
             }
         }
-        Mc { col, portal, axis, kind } => {
+        Mc {
+            col,
+            portal,
+            axis,
+            kind,
+        } => {
             if let Some(column) = installation.column(col) {
                 if let Some(p) = column.portal_by_target(portal) {
                     let mc = &p.motion_control[axis.min(1)];
                     let ax = mc.axis;
                     let (body, cmd) = match kind {
-                        command::McCommand::ZeroCurrentPosition => {
-                            (router_proto::commands::mc_zero_current_position(ax), "zeroCurrentPosition")
-                        }
-                        command::McCommand::MeasureBacklash => {
-                            (router_proto::commands::mc_measure_backlash(ax, mc.measure), "measureBacklash")
-                        }
+                        command::McCommand::ZeroCurrentPosition => (
+                            router_proto::commands::mc_zero_current_position(ax),
+                            "zeroCurrentPosition",
+                        ),
+                        command::McCommand::MeasureBacklash => (
+                            router_proto::commands::mc_measure_backlash(ax, mc.measure),
+                            "measureBacklash",
+                        ),
                         command::McCommand::HomeRoutine => {
                             (router_proto::commands::mc_home(ax, mc.measure), "home")
                         }
@@ -410,7 +463,14 @@ fn handle_command(
                 }
             }
         }
-        SetMotionProfile { col, portal, axis, max_velocity, acceleration, min_velocity } => {
+        SetMotionProfile {
+            col,
+            portal,
+            axis,
+            max_velocity,
+            acceleration,
+            min_velocity,
+        } => {
             if let Some(p) = installation.portal(col, portal) {
                 let mc = &mut p.motion_control[axis.min(1)];
                 mc.max_velocity = max_velocity;
@@ -444,17 +504,29 @@ fn handle_command(
                 }
             }
         }
-        SetPortalMicrostep { col, portal, resolution } => {
+        SetPortalMicrostep {
+            col,
+            portal,
+            resolution,
+        } => {
             if let Some(column) = installation.column(col) {
                 if let Some(p) = column.portal_by_target(portal) {
                     p.motor_driver_settings.microstep_resolution = resolution;
                     p.motor_driver_settings.mark_microstep_sent();
                     let body = router_proto::commands::mds_set_microstep_resolution(resolution);
-                    column.send_to_portal(portal, &body, "motorDriverSettings/setMicrostepResolution");
+                    column.send_to_portal(
+                        portal,
+                        &body,
+                        "motorDriverSettings/setMicrostepResolution",
+                    );
                 }
             }
         }
-        SetScheduledPoll { col, enabled, period_s } => {
+        SetScheduledPoll {
+            col,
+            enabled,
+            period_s,
+        } => {
             if let Some(column) = installation.column(col) {
                 column.scheduled_poll_enabled = enabled;
                 column.scheduled_poll_period_s = period_s;
@@ -475,14 +547,23 @@ fn handle_command(
                 column.rs485.clear_counters();
             }
         }
-        SetArrangement { columns, rows, column_width, flipped } => {
+        SetArrangement {
+            columns,
+            rows,
+            column_width,
+            flipped,
+        } => {
             installation.columns_count = columns;
             installation.rows = rows;
             installation.column_width = column_width;
             installation.flipped = flipped;
             // like the C++, takes effect on "Rebuild columns"
         }
-        SetMessaging { period_s, keyframe_batch_size, keyframe_velocities } => {
+        SetMessaging {
+            period_s,
+            keyframe_batch_size,
+            keyframe_velocities,
+        } => {
             installation.period_s = period_s;
             installation.keyframe_batch_size = keyframe_batch_size;
             installation.keyframe_velocities = keyframe_velocities;
@@ -506,13 +587,15 @@ fn handle_command(
                 };
                 for col in targets {
                     if let Some(column) = installation.column(col) {
-                        let queued = crate::fw_update::upload(&column.rs485, &firmware, &params);
-                        reporter.emit(router_report::Event::Marker {
-                            label: format!(
-                                "FW upload queued: column {col}, {queued} packets, {} bytes",
-                                firmware.len()
-                            ),
-                        });
+                        match crate::fw_update::upload(&column.rs485, &firmware, &params) {
+                            Ok(queued) => reporter.emit(router_report::Event::Marker {
+                                label: format!(
+                                    "FW upload queued: column {col}, {queued} packets, {} bytes",
+                                    firmware.len()
+                                ),
+                            }),
+                            Err(error) => eprintln!("FW upload refused: {error}"),
+                        }
                     }
                 }
             }
@@ -602,7 +685,11 @@ fn for_columns(
     }
 }
 
-fn for_scope(installation: &mut Installation, scope: Scope, mut f: impl FnMut(&mut crate::model::portal::Portal)) {
+fn for_scope(
+    installation: &mut Installation,
+    scope: Scope,
+    mut f: impl FnMut(&mut crate::model::portal::Portal),
+) {
     match scope {
         Scope::All => {
             for column in &mut installation.columns {
@@ -629,7 +716,9 @@ fn for_scope(installation: &mut Installation, scope: Scope, mut f: impl FnMut(&m
 fn handle_query(query: Query, installation: &mut Installation) {
     match query {
         Query::GetPosition { col, portal, reply } => {
-            let value = installation.portal(col, portal).map(|p| p.pilot.live_position());
+            let value = installation
+                .portal(col, portal)
+                .map(|p| p.pilot.live_position());
             let _ = reply.send(value);
         }
         Query::GetTargetPosition { col, portal, reply } => {
@@ -678,7 +767,8 @@ fn build_snapshot(
                             .iter()
                             .all(|k| *k)
                             .then(|| pilot.live_target_position()),
-                        live_axes: live_axes_known.then(|| vec2(pilot.live_axis.x, pilot.live_axis.y)),
+                        live_axes: live_axes_known
+                            .then(|| vec2(pilot.live_axis.x, pilot.live_axis.y)),
                         in_target_position: pilot.is_in_target_position(),
                         last_rx_age_ms: portal.last_rx.map(|t| t.elapsed().as_millis() as u64),
                         last_tx_age_ms: portal.last_tx.map(|t| t.elapsed().as_millis() as u64),

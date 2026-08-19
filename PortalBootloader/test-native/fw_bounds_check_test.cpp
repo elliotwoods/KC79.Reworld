@@ -195,6 +195,20 @@ void testUnderflowRejected()
 	}
 }
 
+void testPersistentPagesAreOutsideTheWritablePartition()
+{
+	std::printf("frame offsets stop before provisioning identity and settings\n");
+	auto fits = [](uint32_t offset, size_t bodySize) {
+		return !(offset > APP_FLASH_SIZE || bodySize > APP_FLASH_SIZE - offset);
+	};
+	check(fits(0, FW_FRAME_SIZE), "first frame fits");
+	check(fits(APP_FLASH_SIZE - FW_FRAME_SIZE, FW_FRAME_SIZE), "last full frame fits");
+	check(fits(APP_FLASH_SIZE - 1, 1), "last application byte fits");
+	check(!fits(APP_FLASH_SIZE - 1, 2), "write crossing into identity is rejected");
+	check(!fits(APP_FLASH_SIZE, 1), "first identity byte is rejected");
+	check(!fits(APP_FLASH_SIZE + 1, 1), "offset inside persistent storage is rejected");
+}
+
 /// The long reboot magic word must not overflow the FIELDED bootloader's 3-byte buffer.
 ///
 /// The application's reboot word was lengthened from "FW" to "FW!KC79" so a corrupted frame
@@ -276,6 +290,7 @@ int main()
 	testValidSizesAccepted();
 	testOversizedRejected();
 	testUnderflowRejected();
+	testPersistentPagesAreOutsideTheWritablePartition();
 	testLongMagicWordDoesNotOverflowTheFieldedBootloadersBuffer();
 
 	std::printf("\n%d checks, %d failures\n", checks, failures);

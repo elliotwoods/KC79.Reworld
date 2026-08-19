@@ -522,9 +522,10 @@ impl Worker {
         let _ = self.bus.set_text(p.last_kind, err.kind.as_str());
         let _ = self.bus.set_text(p.last_advice, err.kind.advice());
         let _ = self.bus.set(p.last_step, Value::Enum(reached));
-        let _ = self
-            .bus
-            .set(p.last_may_have_written, Value::Bool(err.kind.may_have_written()));
+        let _ = self.bus.set(
+            p.last_may_have_written,
+            Value::Bool(err.kind.may_have_written()),
+        );
         self.bump_result_seq();
     }
 
@@ -532,7 +533,9 @@ impl Worker {
     /// other field is already in place.
     fn bump_result_seq(&mut self) {
         self.result_seq += 1;
-        let _ = self.bus.set(self.params.last_seq, Value::I64(self.result_seq));
+        let _ = self
+            .bus
+            .set(self.params.last_seq, Value::I64(self.result_seq));
     }
 
     /// Back to `idle`, whichever way the pass went.
@@ -617,7 +620,10 @@ impl Worker {
             self.set_detail("simulated failure");
             self.begin_pass();
             self.record_failure(
-                &RigError::new(RigErrorKind::Program, "simulated failure, injected from the page"),
+                &RigError::new(
+                    RigErrorKind::Program,
+                    "simulated failure, injected from the page",
+                ),
                 schema::STEPS
                     .iter()
                     .position(|(_, name)| *name == "program")
@@ -929,7 +935,9 @@ fn step_index(step: Step) -> u32 {
         Step::Erase => 3,
         Step::Program => 4,
         Step::Readback => 5,
-        Step::ResetRun => 6,
+        Step::Identity => 6,
+        Step::Settings => 7,
+        Step::ResetRun => 8,
     }
 }
 
@@ -1161,7 +1169,11 @@ mod tests {
         let _ = h.bus.set(h.params.act_flash_now, Value::I64(1));
         h.tick(100, true);
 
-        assert_eq!(schema::get_enum(&h.bus, h.params.last_outcome), 2, "should read `fail`");
+        assert_eq!(
+            schema::get_enum(&h.bus, h.params.last_outcome),
+            2,
+            "should read `fail`"
+        );
         let detail = schema::get_text(&h.bus, h.params.last_detail);
         assert!(!detail.is_empty(), "the failure left no message");
 
@@ -1198,7 +1210,10 @@ mod tests {
 
         let step = schema::get_enum(&h.bus, h.params.last_step);
         assert_eq!(
-            schema::STEPS.iter().find(|(v, _)| *v == step).map(|(_, n)| *n),
+            schema::STEPS
+                .iter()
+                .find(|(v, _)| *v == step)
+                .map(|(_, n)| *n),
             Some("program"),
         );
         assert!(
@@ -1232,7 +1247,11 @@ mod tests {
         h.tick(100, true);
         let _ = h.bus.set(h.params.act_flash_now, Value::I64(1));
         h.tick(100, true);
-        assert_eq!(schema::get_enum(&h.bus, h.params.last_outcome), 1, "should read `pass`");
+        assert_eq!(
+            schema::get_enum(&h.bus, h.params.last_outcome),
+            1,
+            "should read `pass`"
+        );
         let first = schema::get_i64(&h.bus, h.params.last_seq);
 
         let _ = h.bus.set(h.params.act_flash_now, Value::I64(2));
@@ -1257,10 +1276,10 @@ mod tests {
         // Read from `image::strategy`, the same constants `ProbeRsRig::flash` passes to probe-rs,
         // so the readout cannot describe a behaviour the rig does not have.
         assert!(
-            schema::get_text(&h.bus, h.params.setup_erase).contains("whole chip"),
+            schema::get_text(&h.bus, h.params.setup_erase).contains("firmware pages"),
             "the erase strategy should say what it does"
         );
-        assert!(schema::get_text(&h.bus, h.params.setup_verify).contains("readback"));
+        assert!(schema::get_text(&h.bus, h.params.setup_verify).contains("read back"));
 
         // From `machine.timing()`, not a fresh `Timing::default()` -- a rig built with custom
         // timing has to report the timing it is running.

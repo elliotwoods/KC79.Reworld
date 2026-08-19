@@ -51,6 +51,10 @@ pub struct DutState {
     pub b: AxisState,
     /// The optical threshold band measured this session, if any.
     pub threshold: Option<ThresholdState>,
+    pub provision_serial: Option<u32>,
+    pub operating_current_ma: Option<u16>,
+    pub full_current_home_recovery: Option<bool>,
+    pub settings_source: Option<String>,
 }
 
 impl DutState {

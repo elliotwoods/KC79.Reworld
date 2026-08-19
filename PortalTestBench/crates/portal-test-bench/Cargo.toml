@@ -12,6 +12,7 @@ portal-swd = { workspace = true }
 av-gui-bus = { workspace = true }
 av-gui-host = { workspace = true }
 av-operator-app = { workspace = true }
+av-app-registry = { workspace = true }
 axum = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

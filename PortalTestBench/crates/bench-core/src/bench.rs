@@ -580,6 +580,24 @@ impl Bench {
                 dut.present = true;
                 dut.uptime_s = Some(seconds);
             }
+            LinkEvent::Provisioning { serial } => {
+                let dut = &mut self.channel_state_mut(channel).dut;
+                dut.present = true;
+                dut.provision_serial = Some(serial);
+            }
+            LinkEvent::Settings {
+                current_ma,
+                full_current_home_recovery,
+                source,
+            } => {
+                let dut = &mut self.channel_state_mut(channel).dut;
+                dut.present = true;
+                dut.operating_current_ma = Some(current_ma);
+                dut.full_current_home_recovery = Some(full_current_home_recovery);
+                if source.is_some() {
+                    dut.settings_source = source;
+                }
+            }
             LinkEvent::Log {
                 level,
                 message,

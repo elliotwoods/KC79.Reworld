@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { type BenchView, enumName, thresholdTone, verdictTile, whyDisabled } from './bench-model';
+import { type BenchView, enumName, soundFor, thresholdTone, verdictTile, whyDisabled } from './bench-model';
 
 const ready: BenchView = {
   connected: true,
@@ -142,5 +142,20 @@ describe('enumName', () => {
 
   it('degrades to "unknown" rather than throwing when the schema has moved on', () => {
     expect(enumName(variants, 99)).toBe('unknown');
+  });
+});
+
+describe('soundFor', () => {
+  it('holds the busy sound for a run and uses distinct terminal sounds', () => {
+    expect(soundFor('run-start')).toEqual({ kind: 'loop' });
+    expect(soundFor('pass')).toEqual({ kind: 'play', name: 'success' });
+    expect(soundFor('fail')).toEqual({ kind: 'play', name: 'failure' });
+  });
+
+  it('makes connection informative and faults unmistakable', () => {
+    expect(soundFor('connected')).toEqual({ kind: 'play', name: 'tick_small' });
+    expect(soundFor('lost')).toEqual({ kind: 'play', name: 'failure' });
+    expect(soundFor('attention')).toEqual({ kind: 'play', name: 'failure' });
+    expect(soundFor('none')).toEqual({ kind: 'none' });
   });
 });

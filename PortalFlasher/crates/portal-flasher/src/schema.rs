@@ -73,7 +73,9 @@ pub const STEPS: &[(u32, &str)] = &[
     (3, "erase"),
     (4, "program"),
     (5, "readback"),
-    (6, "reset-run"),
+    (6, "identity"),
+    (7, "settings"),
+    (8, "reset-run"),
 ];
 
 /// The result of the last completed pass. `none` until one has run.
@@ -498,8 +500,8 @@ pub fn declare(builder: &mut SchemaBuilder, simulated: bool) -> Result<(), Strin
     // ---------------------------------------------------------------- the image
     //
     // The *scope* is not a separate control. It is which regions were chosen, so the two can
-    // never disagree: pick both and it is a full image, pick one and the other bank is left
-    // erased -- which is what a mass erase then genuinely does.
+    // never disagree: pick both and it is a full image, pick one and the other firmware bank is
+    // erased. The persistent pages are outside this scope and remain untouched.
     check(
         builder
             .param("/image/boot_id")

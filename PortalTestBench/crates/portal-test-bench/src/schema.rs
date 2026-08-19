@@ -476,6 +476,96 @@ pub fn declare(builder: &mut SchemaBuilder, simulated: bool) -> Result<(), Strin
             .register(),
     )?;
 
+    // Durable provisioning. These controls are intentionally separate from the runtime RS485
+    // address: the serial is a global positive u32 written to the protected identity page.
+    check(
+        builder
+            .param("/provision/database_ok")
+            .bool(false)
+            .label("Provisioning database")
+            .read_only()
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/provision/database_error")
+            .text("")
+            .label("Database error")
+            .read_only()
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/provision/next_serial")
+            .i64(1)
+            .range(1.0, u32::MAX as f64 - 1.0)
+            .label("Next available serial number")
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/provision/serial_to_provision")
+            .i64(1)
+            .range(1.0, u32::MAX as f64 - 1.0)
+            .label("Serial Number")
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/provision/on_board_serial")
+            .i64(0)
+            .label("On-board serial")
+            .read_only()
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/provision/identity_state")
+            .text("unknown")
+            .label("Identity state")
+            .read_only()
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/provision/reservation")
+            .text("")
+            .label("Reservation")
+            .read_only()
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/provision/pending_replug")
+            .bool(false)
+            .label("Pending replug")
+            .read_only()
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/provision/settings/current_ma")
+            .i32(150)
+            .range(50.0, 250.0)
+            .label("Operating current [mA]")
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/provision/settings/recovery_enabled")
+            .bool(true)
+            .label("Full-current home recovery")
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/provision/settings/source")
+            .text("defaults")
+            .label("Settings source")
+            .read_only()
+            .register(),
+    )?;
+
     check(
         builder
             .param("/probe/selected")
@@ -1073,6 +1163,20 @@ pub struct FlashParams {
     pub scope: ParamId,
 }
 
+pub struct ProvisionParams {
+    pub database_ok: ParamId,
+    pub database_error: ParamId,
+    pub next_serial: ParamId,
+    pub serial_to_provision: ParamId,
+    pub on_board_serial: ParamId,
+    pub identity_state: ParamId,
+    pub reservation: ParamId,
+    pub pending_replug: ParamId,
+    pub current_ma: ParamId,
+    pub recovery_enabled: ParamId,
+    pub settings_source: ParamId,
+}
+
 pub struct ProbeParams {
     pub selected: ParamId,
     pub connected: ParamId,
@@ -1112,6 +1216,7 @@ pub struct Params {
     pub motion: MotionParams,
     pub test: TestParams,
     pub flash: FlashParams,
+    pub provision: ProvisionParams,
     pub probe: ProbeParams,
     pub mcu: McuParams,
 
@@ -1257,6 +1362,19 @@ impl Params {
                 app_id: id("/flash/app_id")?,
                 scope: id("/flash/scope")?,
             },
+            provision: ProvisionParams {
+                database_ok: id("/provision/database_ok")?,
+                database_error: id("/provision/database_error")?,
+                next_serial: id("/provision/next_serial")?,
+                serial_to_provision: id("/provision/serial_to_provision")?,
+                on_board_serial: id("/provision/on_board_serial")?,
+                identity_state: id("/provision/identity_state")?,
+                reservation: id("/provision/reservation")?,
+                pending_replug: id("/provision/pending_replug")?,
+                current_ma: id("/provision/settings/current_ma")?,
+                recovery_enabled: id("/provision/settings/recovery_enabled")?,
+                settings_source: id("/provision/settings/source")?,
+            },
             probe: ProbeParams {
                 selected: id("/probe/selected")?,
                 connected: id("/probe/connected")?,
@@ -1367,6 +1485,10 @@ pub const ACTIONS: &[&str] = &[
     "send_raw",
     "flash",
     "flash_now",
+    "keep_onboard_serial",
+    "use_pcb_serial",
+    "read_settings",
+    "write_settings",
     "reset_mcu",
     "check_boot",
     "read_device",

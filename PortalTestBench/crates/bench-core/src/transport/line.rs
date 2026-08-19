@@ -318,6 +318,7 @@ fn render_vcp_op(op: &Op) -> Option<String> {
         Op::Escape => "\x1b".to_string(),
         Op::Reboot => "r".to_string(),
         Op::SetHomeThreshold { value } => format!(":t {}", (*value).clamp(0, 255)),
+        Op::Home { axis } => format!(":h {} 1", axis_argument(*axis)),
         Op::Census {
             axis,
             threshold,
@@ -333,13 +334,14 @@ fn render_vcp_op(op: &Op) -> Option<String> {
             )
         }
         // Both-axis only on this menu; see above.
-        Op::Home { .. }
-        | Op::Unjam { .. }
+        Op::Unjam { .. }
         | Op::MeasureBacklash { .. }
         | Op::MoveTo { .. }
         | Op::MoveAxes { .. }
         | Op::SetMotionProfile { .. }
         | Op::SetCurrent { .. }
+        | Op::ReadSettings
+        | Op::WriteSettings { .. }
         | Op::SetMicrostep { .. } => return None,
     })
 }
@@ -373,6 +375,13 @@ fn parse_vcp_line(line: &str, banner: &mut Option<String>) -> Option<LinkEvent> 
             usteps_per_rev: None,
             banner: text.to_string(),
         });
+    }
+
+    if let Some(value) = text.strip_prefix("Provision Serial:")
+        && let Ok(serial) = value.trim().parse::<u32>()
+        && serial != 0
+    {
+        return Some(LinkEvent::Provisioning { serial });
     }
 
     // The firmware writes `[` then `W ` or `E ` then the module name then `] `, so the level
@@ -546,17 +555,12 @@ mod tests {
         assert_eq!(link.diagnostics().tx, 1);
     }
 
-    /// The production menu has no single-axis home. Doing both axes because the operator asked
-    /// for one would move a prism nobody asked to move.
+    /// The production line menu homes only the explicitly requested axis.
     #[test]
-    fn the_vcp_menu_refuses_a_single_axis_op_rather_than_doing_both() {
-        let (mut link, _) = link_over(LinkKind::Vcp, vec![]);
-        let error = link
-            .send(&Op::Home {
-                axis: crate::dut::Axis::A,
-            })
-            .unwrap_err();
-        assert!(matches!(error, LinkError::Unsupported { kind: "vcp", .. }));
+    fn the_vcp_menu_homes_only_the_requested_axis() {
+        let (mut link, written) = link_over(LinkKind::Vcp, vec![]);
+        link.send(&Op::Home { axis: crate::dut::Axis::B }).unwrap();
+        assert_eq!(written.lock().unwrap().as_slice(), b":h 1 1\n");
     }
 
     #[test]
@@ -572,6 +576,17 @@ mod tests {
             }
             other => panic!("expected Identified, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn vcp_startup_reports_the_durable_provisioning_serial() {
+        let (mut link, _) = link_over(
+            LinkKind::Vcp,
+            vec!["Provision Serial: 73001\nFirmware Version: Portal v2026-08-19_12.02 614d242+\n"],
+        );
+        let events = link.poll(0);
+        assert!(events.contains(&LinkEvent::Provisioning { serial: 73_001 }));
+        assert!(events.iter().any(|event| matches!(event, LinkEvent::Identified { version: Some(version), .. } if version.contains("2026-08-19"))));
     }
 
     /// The real shape is `[E Routines.init] Fail` -- the level marker sits inside the bracket

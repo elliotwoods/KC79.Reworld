@@ -9,6 +9,33 @@
 
 export type Tone = 'ok' | 'warn' | 'error' | 'busy' | 'idle';
 
+export type Cue = 'none' | 'connected' | 'lost' | 'run-start' | 'pass' | 'fail' | 'abort' | 'attention';
+
+export type SoundAction =
+  | { kind: 'none' }
+  | { kind: 'loop' }
+  | { kind: 'play'; name: 'success' | 'failure' | 'tick_big' | 'tick_small' };
+
+/** Map the worker's one-shot cue stream onto the framework's shipped system sounds. */
+export function soundFor(cue: Cue): SoundAction {
+  switch (cue) {
+    case 'run-start':
+      return { kind: 'loop' };
+    case 'pass':
+      return { kind: 'play', name: 'success' };
+    case 'fail':
+    case 'lost':
+    case 'attention':
+      return { kind: 'play', name: 'failure' };
+    case 'abort':
+      return { kind: 'play', name: 'tick_big' };
+    case 'connected':
+      return { kind: 'play', name: 'tick_small' };
+    case 'none':
+      return { kind: 'none' };
+  }
+}
+
 /** What the verdict band shows. Never blank, never ambiguous. */
 export interface Tile {
   /** The single word (or short phrase) that is the current answer. */

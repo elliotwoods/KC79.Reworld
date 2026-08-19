@@ -63,6 +63,14 @@ impl OperatorApp for PortalTestBenchApp {
         "Portal Test Bench"
     }
 
+    fn tracing_filter() -> &'static str {
+        // An empty Tag-Connect is the normal armed/waiting state. ST-Link logs a target-voltage
+        // INFO and JTAG-IDCODE WARN for every non-invasive presence poll; the hardware status
+        // already reports the meaningful ready/no-target state, so repeating those lines only
+        // floods the operator console. Returned errors and this app's own diagnostics remain on.
+        "info,av_gui_host=info,probe_rs::probe::stlink=error"
+    }
+
     fn create(context: &RunContext) -> AppResult<Self> {
         Ok(Self {
             simulate: context.flag("--simulate"),
@@ -126,6 +134,22 @@ impl OperatorApp for PortalTestBenchApp {
         let shared = Arc::new(worker::Shared::default());
         app.routes(bench_api::routes(Arc::clone(&shared)));
 
+        let database = av_app_registry::state_dir("apps")
+            .map_err(|error| error.to_string())
+            .and_then(|dir| {
+                bench_core::provisioning::SqliteRepository::open(
+                    &dir.join("portal-test-bench").join("provisioning.sqlite3"),
+                )
+                .map_err(|error| error.to_string())
+            });
+        let (repository, database_error) = match database {
+            Ok(repository) => (Some(repository), String::new()),
+            Err(error) => {
+                eprintln!("  provisioning disabled: {error}");
+                (None, error)
+            }
+        };
+
         let worker = worker::Worker::new(
             bus,
             params,
@@ -133,6 +157,8 @@ impl OperatorApp for PortalTestBenchApp {
             shared,
             plans_dir(),
             self.simulate,
+            repository,
+            database_error,
         );
         std::thread::Builder::new()
             .name("portal-test-bench-worker".into())

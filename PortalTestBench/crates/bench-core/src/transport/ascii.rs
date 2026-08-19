@@ -204,6 +204,8 @@ pub fn render_op(op: &crate::transport::Op) -> Option<String> {
         | Op::Calibrate { .. }
         | Op::MeasureBacklash { .. }
         | Op::SetCurrent { .. }
+        | Op::ReadSettings
+        | Op::WriteSettings { .. }
         | Op::Reboot => return None,
     })
 }

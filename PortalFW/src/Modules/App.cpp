@@ -36,6 +36,8 @@ namespace Modules
 	App::setup()
 	{
 		Logger::X().setup();
+		this->persistentIdentity = PersistentStorage::readIdentity();
+		this->persistentSettings = PersistentStorage::readSettings();
 
 #ifndef GUI_DISABLED
 		this->gui = new GUI();
@@ -51,8 +53,33 @@ namespace Modules
 		this->leds = new LEDs();
 		this->leds->setup();
 
-		this->motorDriverSettings = new MotorDriverSettings(MotorDriverSettings::Config());
+		MotorDriverSettings::Config motorSettingsConfig;
+		motorSettingsConfig.initialCurrent = (float) this->persistentSettings.operatingCurrentMa / 1000.0f;
+		this->motorDriverSettings = new MotorDriverSettings(motorSettingsConfig);
 		this->motorDriverSettings->setup();
+
+		{
+			char line[96];
+			sprintf(line, "Provision Serial: %lu\r\n", (unsigned long) this->getProvisionSerial());
+			Logger::X().printRaw(line);
+			sprintf(line, "Firmware Version: %s\r\n", PORTAL_VERSION_STRING);
+			Logger::X().printRaw(line);
+			sprintf(line, "Operating Current: %u mA (%s)\r\n"
+				, (unsigned int) this->persistentSettings.operatingCurrentMa
+				, PersistentStorage::sourceName(this->persistentSettings.source));
+			Logger::X().printRaw(line);
+			sprintf(line, "Full-current Home Recovery: %s\r\n"
+				, this->persistentSettings.fullCurrentHomeRecovery ? "enabled" : "disabled");
+			Logger::X().printRaw(line);
+			sprintf(line, "Optical Calibration: A=%s T%u/W%ld; B=%s T%u/W%ld\r\n"
+				, this->persistentSettings.axisACalibrationValid ? "flash" : "default"
+				, (unsigned int) this->persistentSettings.axisAThreshold
+				, (long) this->persistentSettings.axisAWidth
+				, this->persistentSettings.axisBCalibrationValid ? "flash" : "default"
+				, (unsigned int) this->persistentSettings.axisBThreshold
+				, (long) this->persistentSettings.axisBWidth);
+			Logger::X().printRaw(line);
+		}
 
 		this->motorDriverA = new MotorDriver(MotorDriver::Config::MotorA());
 		this->motorDriverA->setup();
@@ -68,9 +95,21 @@ namespace Modules
 
 		this->motionControlA = new MotionControl(*this->motorDriverSettings, *this->motorDriverA, *this->homeSwitchA);
 		this->motionControlA->setup();
+#ifndef HOME_SWITCH_LEGACY
+		if(this->persistentSettings.axisACalibrationValid) {
+			this->motionControlA->restoreOpticalCalibration(
+				this->persistentSettings.axisAThreshold, this->persistentSettings.axisAWidth);
+		}
+#endif
 
 		this->motionControlB = new MotionControl(*this->motorDriverSettings, *this->motorDriverB, *this->homeSwitchB);
 		this->motionControlB->setup();
+#ifndef HOME_SWITCH_LEGACY
+		if(this->persistentSettings.axisBCalibrationValid) {
+			this->motionControlB->restoreOpticalCalibration(
+				this->persistentSettings.axisBThreshold, this->persistentSettings.axisBWidth);
+		}
+#endif
 
 		this->routines = new Routines(this);
 
@@ -191,18 +230,101 @@ namespace Modules
 		}
 	}
 
+	uint32_t App::getProvisionSerial() const {
+		return this->persistentIdentity.valid ? this->persistentIdentity.serial : 0;
+	}
+
+	uint16_t App::getOperatingCurrentMa() const {
+		return this->persistentSettings.operatingCurrentMa;
+	}
+
+	bool App::getFullCurrentHomeRecovery() const {
+		return this->persistentSettings.fullCurrentHomeRecovery;
+	}
+
+	bool App::persistOperatingSettings(uint16_t currentMa, bool recovery) {
+		if(!PersistentStorage::writeSettings(currentMa, recovery)) return false;
+		this->persistentSettings = PersistentStorage::readSettings();
+		this->motorDriverSettings->setCurrent((float) currentMa / 1000.0f);
+		return true;
+	}
+
+	bool App::persistOpticalCalibration(MotionControl * axis) {
+#ifdef HOME_SWITCH_LEGACY
+		(void) axis;
+		return true;
+#else
+		if(!axis || axis->getOpticalThreshold() <= 0 || axis->getOpticalWidth() <= 0) return false;
+		PersistentStorage::Settings desired = this->persistentSettings;
+		desired.opticalCalibrationVersion = 1;
+		if(axis == this->motionControlA) {
+			if(desired.opticalCalibrationVersion == this->persistentSettings.opticalCalibrationVersion
+				&& this->persistentSettings.axisACalibrationValid
+				&& abs((int) this->persistentSettings.axisAThreshold - axis->getOpticalThreshold()) < 2
+				&& abs(this->persistentSettings.axisAWidth - axis->getOpticalWidth()) * 10
+					<= this->persistentSettings.axisAWidth) return true;
+			desired.axisACalibrationValid = true;
+			desired.axisAThreshold = (uint8_t) axis->getOpticalThreshold();
+			desired.axisAWidth = axis->getOpticalWidth();
+		} else if(axis == this->motionControlB) {
+			if(desired.opticalCalibrationVersion == this->persistentSettings.opticalCalibrationVersion
+				&& this->persistentSettings.axisBCalibrationValid
+				&& abs((int) this->persistentSettings.axisBThreshold - axis->getOpticalThreshold()) < 2
+				&& abs(this->persistentSettings.axisBWidth - axis->getOpticalWidth()) * 10
+					<= this->persistentSettings.axisBWidth) return true;
+			desired.axisBCalibrationValid = true;
+			desired.axisBThreshold = (uint8_t) axis->getOpticalThreshold();
+			desired.axisBWidth = axis->getOpticalWidth();
+		} else {
+			return false;
+		}
+		{
+			char message[120];
+			sprintf(message, "optical settings write: axis=%c T=%u W=%ld beforeGen=%lu beforeMask=%u"
+				, axis == this->motionControlA ? 'A' : 'B'
+				, (unsigned int) (axis == this->motionControlA
+					? desired.axisAThreshold : desired.axisBThreshold)
+				, (long) (axis == this->motionControlA ? desired.axisAWidth : desired.axisBWidth)
+				, (unsigned long) this->persistentSettings.generation
+				, (unsigned int) ((this->persistentSettings.axisACalibrationValid ? 1 : 0)
+					| (this->persistentSettings.axisBCalibrationValid ? 2 : 0)));
+			log(LogLevel::Status, "PersistentStorage", message);
+		}
+		if(!PersistentStorage::writeSettings(desired)) return false;
+		this->persistentSettings = PersistentStorage::readSettings();
+		{
+			char message[110];
+			sprintf(message, "optical settings committed: gen=%lu mask=%u source=%s"
+				, (unsigned long) this->persistentSettings.generation
+				, (unsigned int) ((this->persistentSettings.axisACalibrationValid ? 1 : 0)
+					| (this->persistentSettings.axisBCalibrationValid ? 2 : 0))
+				, PersistentStorage::sourceName(this->persistentSettings.source));
+			log(LogLevel::Status, "PersistentStorage", message);
+		}
+		return this->persistentSettings.valid
+			&& (axis == this->motionControlA
+				? this->persistentSettings.axisACalibrationValid
+				: this->persistentSettings.axisBCalibrationValid);
+#endif
+	}
+
 	//----------
 	void
 	App::reportStatus(msgpack::Serializer &serializer)
 	{
-		serializer.beginMap(4);
+		serializer.beginMap(5);
 		{
 			serializer << "app";
 			{
-				serializer.beginMap(2);
+				serializer.beginMap(7);
 				{
 					serializer << "upTime" << millis();
 					serializer << "version" << PORTAL_VERSION_STRING;
+					serializer << "provisionSerial" << this->getProvisionSerial();
+					serializer << "settingsVersion" << (uint32_t) 2;
+					serializer << "operatingCurrentMa" << this->getOperatingCurrentMa();
+					serializer << "fullCurrentHomeRecovery" << this->getFullCurrentHomeRecovery();
+					serializer << "settingsSource" << PersistentStorage::sourceName(this->persistentSettings.source);
 				}
 			}
 
@@ -214,6 +336,20 @@ namespace Modules
 
 			serializer << "logger";
 			Logger::X().reportStatus(serializer);
+
+			serializer << "settings";
+			serializer.beginMap(9);
+			{
+				serializer << "version" << (uint32_t) 2;
+				serializer << "operatingCurrentMa" << this->getOperatingCurrentMa();
+				serializer << "fullCurrentHomeRecovery" << this->getFullCurrentHomeRecovery();
+				serializer << "source" << PersistentStorage::sourceName(this->persistentSettings.source);
+				serializer << "opticalCalibrationVersion" << this->persistentSettings.opticalCalibrationVersion;
+				serializer << "axisAThreshold" << this->persistentSettings.axisAThreshold;
+				serializer << "axisAWidth" << this->persistentSettings.axisAWidth;
+				serializer << "axisBThreshold" << this->persistentSettings.axisBThreshold;
+				serializer << "axisBWidth" << this->persistentSettings.axisBWidth;
+			}
 		}
 	}
 
@@ -298,6 +434,26 @@ namespace Modules
 		else if (strcmp(key, "motorDriverSettings") == 0)
 		{
 			return this->motorDriverSettings->processIncoming(stream);
+		}
+
+		else if(strcmp(key, "settingsRead") == 0) {
+			if(!msgpack::readNil(stream)) return false;
+			if(RS485::replyAllowed()) rs485->sendStatusReport();
+			return true;
+		}
+
+		else if(strcmp(key, "settingsWrite") == 0) {
+			size_t count;
+			if(!msgpack::readArraySize(stream, count) || count < 3) return false;
+			uint32_t version;
+			uint16_t currentMa;
+			bool recovery;
+			if(!msgpack::readInt<uint32_t>(stream, version)
+				|| !msgpack::readInt<uint16_t>(stream, currentMa)
+				|| !msgpack::readBool(stream, recovery)) return false;
+			if(version != 1 || currentMa < 50 || currentMa > 250) return false;
+			if(!RS485::checkChecksum()) return false;
+			return this->persistOperatingSettings(currentMa, recovery);
 		}
 
 		else if (strcmp(key, "motorDriverA") == 0)

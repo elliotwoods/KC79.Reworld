@@ -356,6 +356,37 @@ Logger::runLineCommand(char * line)
 		break;
 	}
 
+	case 'h':
+	{
+		const long axis = (argCount >= 1) ? args[0] : 0;
+		long count = (argCount >= 2) ? args[1] : 1;
+		if(axis < 0 || axis > 1 || count < 1 || count > 200) {
+			this->printRaw("usage: :h <axis 0=A 1=B> [count 1..200]\r\n");
+			break;
+		}
+		auto * motionControl = axis == 1
+			? Modules::App::X().motionControlB
+			: Modules::App::X().motionControlA;
+		Modules::MotionControl::MeasureRoutineSettings settings;
+		for(long run = 1; run <= count; run++) {
+			char marker[80];
+			sprintf(marker, "home campaign: axis=%c run=%ld/%ld\r\n"
+				, axis == 1 ? 'B' : 'A', run, count);
+			this->printRaw(marker);
+			auto exception = motionControl->fastHomeRoutine(settings);
+			if(exception) {
+				::log(exception);
+				break;
+			}
+			if(!Modules::App::X().persistOpticalCalibration(motionControl)) {
+				::log(LogLevel::Error, motionControl->getName()
+					, "home campaign stopped: calibration persistence failed");
+				break;
+			}
+		}
+		break;
+	}
+
 	case 'd':
 		this->printHomeSwitchInfo();
 		break;
@@ -366,7 +397,7 @@ Logger::runLineCommand(char * line)
 		break;
 
 	default:
-		this->printRaw("line commands: :t [duty]  :n <duty> [speed] [axis]  :d  :v\r\n");
+		this->printRaw("line commands: :t [duty]  :n <duty> [speed] [axis]  :h <axis> [count]  :d  :v\r\n");
 		break;
 	}
 }

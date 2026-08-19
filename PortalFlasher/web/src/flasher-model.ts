@@ -131,6 +131,8 @@ export type Step =
   | 'erase'
   | 'program'
   | 'readback'
+  | 'identity'
+  | 'settings'
   | 'reset-run';
 
 /**
@@ -147,12 +149,14 @@ export function stepSummary(
   const percent = Math.round(state.stepFraction * 100);
   // Attach and the option-byte write both precede the erase; everything from the erase onward has
   // already changed the part, and stopping there is the state the whole removal gate exists for.
-  const committed = state.step === 'erase' || state.step === 'program';
+  const committed = state.step === 'erase' || state.step === 'program'
+    || state.step === 'identity' || state.step === 'settings';
   // Erase, program and readback each move through the whole part and report as they go. Attach,
   // the option-byte write and reset-run are single events: a bar sitting at 0% during one of them
   // reads as stuck, which is exactly the wrong thing to say about the seconds before an erase.
   const determinate =
-    state.step === 'erase' || state.step === 'program' || state.step === 'readback';
+    state.step === 'erase' || state.step === 'program' || state.step === 'readback'
+    || state.step === 'identity' || state.step === 'settings';
   return {
     label: determinate ? `${state.step} ${percent}%` : state.step,
     committed,

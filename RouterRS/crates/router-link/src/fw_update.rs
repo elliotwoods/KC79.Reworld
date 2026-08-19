@@ -15,6 +15,32 @@ use router_proto::fw::{fw_frame_envelope, magic_word_envelope, FwMagic};
 
 use crate::rs485::{Packet, Payload, Rs485};
 
+/// Application bytes below the final three persistent flash pages.
+pub const APP_BANK_BYTES: usize = 0x0801_E800 - 0x0800_6000;
+
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum FwUpdateError {
+    #[error(
+        "firmware image is {bytes} bytes; the persistent-safe application limit is {limit} bytes"
+    )]
+    TooLarge { bytes: usize, limit: usize },
+    #[error("firmware frame size must be non-zero")]
+    ZeroFrameSize,
+}
+
+fn validate(firmware: &[u8], params: &FwUpdateParams) -> Result<(), FwUpdateError> {
+    if firmware.len() > APP_BANK_BYTES {
+        return Err(FwUpdateError::TooLarge {
+            bytes: firmware.len(),
+            limit: APP_BANK_BYTES,
+        });
+    }
+    if params.frame_size == 0 {
+        return Err(FwUpdateError::ZeroFrameSize);
+    }
+    Ok(())
+}
+
 #[derive(Debug, Clone)]
 pub struct FwUpdateParams {
     pub announce_period_ms: u32,
@@ -60,7 +86,12 @@ fn magic_packet(magic: FwMagic, wait_ms: u32) -> Packet {
 }
 
 /// Enqueue the full upload sequence. Returns the number of packets queued.
-pub fn upload(rs485: &Rs485, firmware: &[u8], params: &FwUpdateParams) -> usize {
+pub fn upload(
+    rs485: &Rs485,
+    firmware: &[u8],
+    params: &FwUpdateParams,
+) -> Result<usize, FwUpdateError> {
+    validate(firmware, params)?;
     let mut data = firmware.to_vec();
     if params.truncate {
         while data.last() == Some(&0xFF) {
@@ -74,7 +105,10 @@ pub fn upload(rs485: &Rs485, firmware: &[u8], params: &FwUpdateParams) -> usize 
     // announce x50 with the long word (reboot every running application to its
     // bootloader) -- see FwMagic::AnnounceLong.
     for _ in 0..50 {
-        rs485.transmit(magic_packet(FwMagic::AnnounceLong, params.announce_period_ms));
+        rs485.transmit(magic_packet(
+            FwMagic::AnnounceLong,
+            params.announce_period_ms,
+        ));
         count += 1;
     }
     // erase, then announce x50 again with the short word: by now every application has
@@ -106,7 +140,22 @@ pub fn upload(rs485: &Rs485, firmware: &[u8], params: &FwUpdateParams) -> usize 
         }
         offset = end;
     }
-    count
+    Ok(count)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn persistent_pages_are_outside_every_accepted_upload() {
+        let params = FwUpdateParams::default();
+        assert!(validate(&vec![0xFF; APP_BANK_BYTES], &params).is_ok());
+        assert!(matches!(
+            validate(&vec![0; APP_BANK_BYTES + 1], &params),
+            Err(FwUpdateError::TooLarge { .. })
+        ));
+    }
 }
 
 /// Broadcast the "erase" magic word once.

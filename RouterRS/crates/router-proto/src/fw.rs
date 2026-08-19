@@ -97,7 +97,11 @@ mod tests {
     use super::*;
 
     fn hex(bytes: &[u8]) -> String {
-        bytes.iter().map(|b| format!("{b:02X}")).collect::<Vec<_>>().join(" ")
+        bytes
+            .iter()
+            .map(|b| format!("{b:02X}"))
+            .collect::<Vec<_>>()
+            .join(" ")
     }
 
     #[test]
@@ -117,13 +121,22 @@ mod tests {
 
     #[test]
     fn magic_word_bytes() {
-        assert_eq!(hex(&magic_word_envelope(FwMagic::Announce)), "93 D0 FF D0 00 A2 46 57");
+        assert_eq!(
+            hex(&magic_word_envelope(FwMagic::Announce)),
+            "93 D0 FF D0 00 A2 46 57"
+        );
         assert_eq!(
             hex(&magic_word_envelope(FwMagic::AnnounceLong)),
             "93 D0 FF D0 00 A7 46 57 21 4B 43 37 39"
         );
-        assert_eq!(hex(&magic_word_envelope(FwMagic::Erase)), "93 D0 FF D0 00 A2 45 52");
-        assert_eq!(hex(&magic_word_envelope(FwMagic::Run)), "93 D0 FF D0 00 A2 52 55");
+        assert_eq!(
+            hex(&magic_word_envelope(FwMagic::Erase)),
+            "93 D0 FF D0 00 A2 45 52"
+        );
+        assert_eq!(
+            hex(&magic_word_envelope(FwMagic::Run)),
+            "93 D0 FF D0 00 A2 52 55"
+        );
     }
 
     #[test]
@@ -151,15 +164,15 @@ mod tests {
 
     /// The last 32-byte frame of a completely full application bank.
     ///
-    /// The bank is 0x08006000..0x08020000 = 106,496 bytes, so the final frame starts at
-    /// 106,464 — well past the 16-bit boundary. This pins the whole >64 kB path: the key is
+    /// The bank is 0x08006000..0x0801E800 = 100,352 bytes, so the final frame starts at
+    /// 100,320 — well past the 16-bit boundary. This pins the whole >64 kB path: the key is
     /// a full uint32 with the exact big-endian bytes the bootloader's `readIntU32` reverses
     /// back out, and the frame that follows it is unremarkable. If anything ever narrows the
     /// offset to 16 bits, this is the test that fails.
     #[test]
     fn fw_frame_offset_spans_full_application_bank() {
-        const APP_BANK_BYTES: u32 = 0x0002_0000 - 0x0000_6000; // 106,496
-        const LAST_FRAME_OFFSET: u32 = APP_BANK_BYTES - 32; // 106,464
+        const APP_BANK_BYTES: u32 = 0x0001_E800 - 0x0000_6000; // 100,352
+        const LAST_FRAME_OFFSET: u32 = APP_BANK_BYTES - 32; // 100,320
 
         let data = [0xA5u8; 32];
         let env = fw_frame_envelope(LAST_FRAME_OFFSET, &data);
@@ -168,7 +181,7 @@ mod tests {
         assert_eq!(env[5], 0x81, "fixmap(1)");
         assert_eq!(env[6], 0xCE, "uint32 key, not uint16");
         assert_eq!(&env[7..11], &LAST_FRAME_OFFSET.to_be_bytes());
-        assert_eq!(&env[7..11], &[0x00, 0x01, 0x9F, 0xE0]);
+        assert_eq!(&env[7..11], &[0x00, 0x01, 0x87, 0xE0]);
         assert_eq!(env[11], 0xC4, "bin8");
         assert_eq!(env[12], 34, "2 checksum bytes + 32 data");
         assert_eq!(&env[15..], &data[..]);
@@ -182,14 +195,14 @@ mod tests {
     #[test]
     fn fw_frame_offset_encoding_at_every_width_boundary() {
         for (offset, want_marker) in [
-            (0u32, 0x00u8),        // positive fixint
-            (127, 0x7F),           // last fixint
-            (128, 0xCC),           // uint8
-            (255, 0xCC),           // last uint8
-            (256, 0xCD),           // uint16
-            (65_535, 0xCD),        // last uint16
-            (65_536, 0xCE),        // uint32 - the boundary the folklore is about
-            (106_464, 0xCE),       // last frame of a full bank
+            (0u32, 0x00u8),  // positive fixint
+            (127, 0x7F),     // last fixint
+            (128, 0xCC),     // uint8
+            (255, 0xCC),     // last uint8
+            (256, 0xCD),     // uint16
+            (65_535, 0xCD),  // last uint16
+            (65_536, 0xCE),  // uint32 - the boundary the folklore is about
+            (100_320, 0xCE), // last frame of the persistent-safe bank
         ] {
             let env = fw_frame_envelope(offset, &[0u8; 4]);
             assert_eq!(

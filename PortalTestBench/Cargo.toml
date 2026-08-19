@@ -19,6 +19,7 @@ av-gui-bus      = { path = "third_party/av-frameworks/crates/av-gui-bus" }
 av-operator-app = { path = "third_party/av-frameworks/crates/av-operator-app" }
 av-app-support  = { path = "third_party/av-frameworks/crates/av-app-support" }
 av-app-icon     = { path = "third_party/av-frameworks/crates/av-app-icon" }
+av-app-registry = { path = "third_party/av-frameworks/crates/av-app-registry" }
 av-gui-host     = { path = "third_party/av-frameworks/crates/av-gui-host" }
 
 # --- siblings in this repository -------------------------------------------------------
@@ -40,6 +41,7 @@ serde      = { version = "1", features = ["derive"] }
 serde_json = "1"
 serialport = "4"
 thiserror  = "2"
+rusqlite   = { version = "0.37", features = ["bundled"] }
 toml = "0.9"
 tracing    = "0.1"
 ureq       = { version = "3", features = ["json"] }

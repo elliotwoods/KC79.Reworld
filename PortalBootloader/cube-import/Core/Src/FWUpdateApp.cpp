@@ -119,6 +119,9 @@ FWUpdateApp::processIncoming(msgpack::Stream& stream)
 
 			size_t packetBodyAndChecksumSize = packetBodyAndChecksumSize16;
 			size_t packetBodySize = packetBodyAndChecksumSize - checksumSize;
+			if(frameOffset > APP_FLASH_SIZE || packetBodySize > APP_FLASH_SIZE - frameOffset) {
+				return Exception("FW : Outside app partition");
+			}
 
 			uint8_t dataWithChecksum[packetBodyAndChecksumSize];
 			uint8_t * dataBody = dataWithChecksum + checksumSize;
@@ -150,9 +153,12 @@ FWUpdateApp::processIncoming(msgpack::Stream& stream)
 			}
 
 			// Perform the write
-			flash_write(dataBody
+			auto writeException = flash_write(dataBody
 				, (uint32_t)APP_FLASH_ADDRESS + (uint32_t)frameOffset
 				, packetBodySize);
+			if(writeException) {
+				return writeException;
+			}
 
 			// Flash the indicator
 			HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_3);

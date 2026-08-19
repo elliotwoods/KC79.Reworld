@@ -658,17 +658,10 @@ mod tests {
         ));
     }
 
-    /// The VCP menu has no per-axis home, so a plan using one must be refused at validation
-    /// rather than discovered mid-run when the link returns Unsupported.
+    /// Operations without a production VCOM form are refused before a run begins.
     #[test]
     fn a_step_the_transport_cannot_express_is_refused_up_front() {
-        let plan = plan_with(vec![
-            Step::CalibrateThreshold {
-                axis: Axis::A,
-                passes: 1,
-            },
-            Step::Home { axis: Axis::A },
-        ]);
+		let plan = plan_with(vec![Step::MeasureBacklash { axis: Axis::A }]);
         let context = ValidationContext {
             transport: LinkKind::Vcp,
             ..context()

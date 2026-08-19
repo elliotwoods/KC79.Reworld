@@ -33,6 +33,19 @@ pub struct AppStatus {
     pub up_time_ms: Option<u64>,
     pub version: Option<String>,
     pub calibrated: Option<bool>,
+    pub provision_serial: Option<u32>,
+    pub settings_version: Option<u32>,
+    pub operating_current_ma: Option<u16>,
+    pub full_current_home_recovery: Option<bool>,
+    pub settings_source: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct SettingsStatus {
+    pub version: Option<u32>,
+    pub operating_current_ma: Option<u16>,
+    pub full_current_home_recovery: Option<bool>,
+    pub source: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -89,6 +102,7 @@ pub struct PortalReport {
     pub mcb: Option<MotionControlStatus>,
     pub logs: Vec<LogMessage>,
     pub positions: Option<Positions>,
+    pub settings: Option<SettingsStatus>,
 }
 
 impl PortalReport {
@@ -98,6 +112,7 @@ impl PortalReport {
             && self.mcb.is_none()
             && self.logs.is_empty()
             && self.positions.is_none()
+            && self.settings.is_none()
     }
 }
 
@@ -130,6 +145,7 @@ pub fn parse_report(body: &Value) -> PortalReport {
             Some("mcb") => report.mcb = Some(parse_motion_control(v)),
             Some("logger") => report.logs = parse_logs(v),
             Some("p") => report.positions = parse_positions(v),
+            Some("settings") => report.settings = Some(parse_settings(v)),
             _ => {}
         }
     }
@@ -137,7 +153,9 @@ pub fn parse_report(body: &Value) -> PortalReport {
 }
 
 fn map_get<'a>(map: &'a Value, key: &str) -> Option<&'a Value> {
-    let Value::Map(entries) = map else { return None };
+    let Value::Map(entries) = map else {
+        return None;
+    };
     entries
         .iter()
         .find(|(k, _)| k.as_str() == Some(key))
@@ -145,11 +163,25 @@ fn map_get<'a>(map: &'a Value, key: &str) -> Option<&'a Value> {
 }
 
 fn get_i32(map: &Value, key: &str) -> Option<i32> {
-    map_get(map, key)?.as_i64().and_then(|v| i32::try_from(v).ok())
+    map_get(map, key)?
+        .as_i64()
+        .and_then(|v| i32::try_from(v).ok())
 }
 
 fn get_bool(map: &Value, key: &str) -> Option<bool> {
     map_get(map, key)?.as_bool()
+}
+
+fn get_u32(map: &Value, key: &str) -> Option<u32> {
+    map_get(map, key)?
+        .as_u64()
+        .and_then(|v| u32::try_from(v).ok())
+}
+
+fn get_u16(map: &Value, key: &str) -> Option<u16> {
+    map_get(map, key)?
+        .as_u64()
+        .and_then(|v| u16::try_from(v).ok())
 }
 
 fn parse_app(v: &Value) -> AppStatus {
@@ -159,6 +191,24 @@ fn parse_app(v: &Value) -> AppStatus {
             .and_then(|v| v.as_str())
             .map(str::to_owned),
         calibrated: get_bool(v, "calibrated"),
+        provision_serial: get_u32(v, "provisionSerial"),
+        settings_version: get_u32(v, "settingsVersion"),
+        operating_current_ma: get_u16(v, "operatingCurrentMa"),
+        full_current_home_recovery: get_bool(v, "fullCurrentHomeRecovery"),
+        settings_source: map_get(v, "settingsSource")
+            .and_then(Value::as_str)
+            .map(str::to_owned),
+    }
+}
+
+fn parse_settings(v: &Value) -> SettingsStatus {
+    SettingsStatus {
+        version: get_u32(v, "version"),
+        operating_current_ma: get_u16(v, "operatingCurrentMa"),
+        full_current_home_recovery: get_bool(v, "fullCurrentHomeRecovery"),
+        source: map_get(v, "source")
+            .and_then(Value::as_str)
+            .map(str::to_owned),
     }
 }
 
@@ -183,7 +233,9 @@ fn parse_motion_control(v: &Value) -> MotionControlStatus {
 }
 
 fn parse_logs(v: &Value) -> Vec<LogMessage> {
-    let Value::Array(items) = v else { return Vec::new() };
+    let Value::Array(items) = v else {
+        return Vec::new();
+    };
     items
         .iter()
         .filter_map(|item| {
@@ -240,7 +292,9 @@ mod tests {
                 Value::from(0),
             ]),
         )]);
-        let Reply::Report(report) = classify_reply(&body) else { panic!() };
+        let Reply::Report(report) = classify_reply(&body) else {
+            panic!()
+        };
         assert_eq!(
             report.positions,
             Some(Positions {
@@ -286,7 +340,9 @@ mod tests {
                 ])]),
             ),
         ]);
-        let Reply::Report(report) = classify_reply(&body) else { panic!() };
+        let Reply::Report(report) = classify_reply(&body) else {
+            panic!()
+        };
         let app = report.app.unwrap();
         assert_eq!(app.up_time_ms, Some(123_456));
         assert_eq!(app.version.as_deref(), Some("1.4.0"));

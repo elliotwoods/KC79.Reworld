@@ -26,6 +26,8 @@ namespace Modules {
 		bool stepUpCurrent();
 	protected:
 		App * app;
+		Exception homeAxisWithRecovery(MotionControl * motionControl
+			, const MotionControl::MeasureRoutineSettings & settings);
 
 #ifndef HOME_SWITCH_LEGACY
 		// One axis's share of calibrate() for the optical switch -- see the definition for the

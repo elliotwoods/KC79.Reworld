@@ -295,15 +295,15 @@ fn the_bundle_hash_covers_the_bytes_and_the_metadata() {
 }
 
 #[test]
-fn the_expected_flash_image_is_the_whole_device() {
+fn the_expected_flash_image_stops_before_durable_pages() {
     let bundle = good_bundle();
     let image = bundle.expected_flash_image();
 
-    assert_eq!(image.len(), 128 * 1024);
+    assert_eq!(image.len(), addr::FIRMWARE_BYTES as usize);
     assert_eq!(&image[..8], &bundle.bootloader.bytes[..8]);
 
     // The gap between the end of the bootloader and the application bank is erased flash, not
-    // stale bytes -- the pass mass-erases, so a readback must expect 0xFF there.
+    // stale bytes -- the bounded pass erases every firmware page, so readback expects 0xFF there.
     let gap = bundle.bootloader.bytes.len()..(addr::BOOTLOADER_BYTES as usize);
     assert!(image[gap].iter().all(|&b| b == 0xFF));
 

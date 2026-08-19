@@ -19,6 +19,10 @@ use bench_core::bench::{Bench, Origin, Outcome, RunStatus};
 use bench_core::dut::{Axis, FirmwareKind, GearRatio};
 use bench_core::engine::Phase;
 use bench_core::plan::Plan;
+use bench_core::provisioning::{
+    Action as ProvisionAction, AttemptEvidence, DeviceEvidence, ProvisioningRepository,
+    Reservation, SqliteRepository,
+};
 use bench_core::state::BenchState;
 use bench_core::transport::{Channel, LineEnding, LinkKind, MotionProfile, Op, RawSignal};
 use portal_swd::Pass;
@@ -35,21 +39,46 @@ const TICK: Duration = Duration::from_millis(20);
 /// Something an agent asked for over HTTP.
 #[derive(Debug, Clone)]
 pub enum Request {
-    Connect { kind: LinkKind, endpoint: String },
+    Connect {
+        kind: LinkKind,
+        endpoint: String,
+    },
     Disconnect,
     DisconnectChannel(Channel),
     Submit(Op),
-    SubmitTo { channel: Channel, op: Op },
+    SubmitTo {
+        channel: Channel,
+        op: Op,
+    },
     SelectRs485Target(i8),
     DiscoverRs485,
     SelectChannel(Channel),
-    Run { plan: Box<Plan>, origin: Origin },
+    Run {
+        plan: Box<Plan>,
+        origin: Origin,
+    },
     FlashNow,
+    SetProvisionSerial(u32),
+    SetNextSerial(u32),
+    ReserveSerial {
+        serial: Option<u32>,
+        allow_reassignment: bool,
+    },
+    KeepOnboardSerial,
+    UsePcbSerial(u32),
+    ReadSettings,
+    WriteSettings {
+        current_ma: u16,
+        recovery: bool,
+    },
     ResetMcu,
     CheckBoot,
     ReadDevice,
     RescanFirmware,
-    SendRaw { channel: Channel, signal: RawSignal },
+    SendRaw {
+        channel: Channel,
+        signal: RawSignal,
+    },
     Abort,
 }
 
@@ -66,10 +95,48 @@ pub struct Shared {
     /// SWD/probe state and the production artefact catalogue.
     pub flash: Mutex<FlashSnapshot>,
     pub artefacts: Mutex<serde_json::Value>,
+    pub provision: Mutex<ProvisionSnapshot>,
     /// Requests waiting to be drained by the worker.
     pub requests: Mutex<Vec<Request>>,
     /// Filled in by the worker when a `Run` request could not start.
     pub last_start_error: Mutex<Option<String>>,
+}
+
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct ProvisionSnapshot {
+    pub database_ok: bool,
+    pub database_error: String,
+    pub next_serial: u32,
+    pub serial_to_provision: u32,
+    pub on_board_serial: Option<u32>,
+    pub identity_state: String,
+    pub reservation: String,
+    pub pending_replug: bool,
+    pub operating_current_ma: u16,
+    pub full_current_home_recovery: bool,
+    pub settings_source: String,
+    pub override_authorized: bool,
+    pub history: Vec<ProvisionAction>,
+}
+
+impl Default for ProvisionSnapshot {
+    fn default() -> Self {
+        Self {
+            database_ok: false,
+            database_error: String::new(),
+            next_serial: 1,
+            serial_to_provision: 1,
+            on_board_serial: None,
+            identity_state: "unknown".into(),
+            reservation: String::new(),
+            pending_replug: false,
+            operating_current_ma: 150,
+            full_current_home_recovery: true,
+            settings_source: "defaults".into(),
+            override_authorized: false,
+            history: Vec::new(),
+        }
+    }
 }
 
 impl Shared {
@@ -103,6 +170,13 @@ pub struct Worker {
     sim_module_present: Option<ParamId>,
     /// Last heartbeat value seen from the page, and when we saw it change.
     heartbeat: (i64, u64),
+    provisioning: Option<SqliteRepository>,
+    database_error: String,
+    pending_provision: Option<PendingProvision>,
+    override_once: bool,
+    last_provision_uid: String,
+    simulated: bool,
+    next_serial_seen: u32,
 }
 
 /// How long a page may go quiet before it counts as gone.
@@ -119,6 +193,14 @@ struct AutoVcom {
     last_error: String,
 }
 
+struct PendingProvision {
+    serial: u32,
+    uid: String,
+    expected_version: String,
+    application_sha256: String,
+    deadline_ms: Option<u64>,
+}
+
 impl Worker {
     pub fn new(
         bus: Arc<Bus>,
@@ -127,6 +209,8 @@ impl Worker {
         shared: Arc<Shared>,
         plans_dir: std::path::PathBuf,
         simulated: bool,
+        mut provisioning: Option<SqliteRepository>,
+        database_error: String,
     ) -> Self {
         let action_count = params.actions.len();
         let sim_module_present = bus.id_of("/sim/module_present");
@@ -137,6 +221,30 @@ impl Worker {
         let _ = bus.set_text(params.probe.selected, flash.probe_selector());
         *shared.flash.lock().unwrap() = initial.clone();
         *shared.artefacts.lock().unwrap() = flash.artefacts_json();
+        let mut provision_snapshot = ProvisionSnapshot::default();
+        if let Some(repository) = provisioning.as_mut() {
+            match repository.health().and_then(|()| repository.next_serial()) {
+                Ok(next) => {
+                    provision_snapshot.database_ok = true;
+                    provision_snapshot.next_serial = next;
+                    provision_snapshot.serial_to_provision = next;
+                }
+                Err(error) => provision_snapshot.database_error = error.to_string(),
+            }
+        } else {
+            provision_snapshot.database_error = database_error.clone();
+        }
+        let next_serial_seen = provision_snapshot.next_serial;
+        *shared.provision.lock().unwrap() = provision_snapshot;
+        let initial_provision = shared.provision.lock().unwrap().clone();
+        let _ = bus.set(
+            params.provision.next_serial,
+            Value::I64(i64::from(initial_provision.next_serial)),
+        );
+        let _ = bus.set(
+            params.provision.serial_to_provision,
+            Value::I64(i64::from(initial_provision.serial_to_provision)),
+        );
         Self {
             bus,
             params,
@@ -159,6 +267,13 @@ impl Worker {
             sim_module_present,
             flash,
             heartbeat: (0, 0),
+            provisioning,
+            database_error,
+            pending_provision: None,
+            override_once: false,
+            last_provision_uid: String::new(),
+            simulated,
+            next_serial_seen,
         }
     }
 
@@ -194,6 +309,7 @@ impl Worker {
             let now = self.now_ms();
             self.handle_actions(now);
             self.handle_requests(now);
+            self.sync_next_serial(now);
 
             self.sync_flash_selection(now);
             self.sync_probe_selection(now);
@@ -222,6 +338,7 @@ impl Worker {
             if let Some(pass) = self.flash.tick(now, page_heartbeat, auto_enabled) {
                 self.run_flash(now, pass, true);
             }
+            self.sync_provision_device(now);
             let armed = self.flash.snapshot().armed;
             if self.flash_was_armed && !armed && auto_enabled {
                 // A safety/failure transition owns the observed truth. Retract the desired
@@ -238,6 +355,7 @@ impl Worker {
                 self.publish_outcome(&outcome);
                 *self.shared.last.lock().unwrap() = Some(outcome);
             }
+            self.finish_pending_provision(post_io_now);
 
             self.publish(post_io_now);
             std::thread::sleep(TICK);
@@ -390,6 +508,10 @@ impl Worker {
                     self.run_flash(now, Pass::Flash, false);
                 }
             }
+            "keep_onboard_serial" => self.keep_onboard_serial(now),
+            "use_pcb_serial" => self.authorize_pcb_serial(now),
+            "read_settings" => self.read_flash_settings(now),
+            "write_settings" => self.write_flash_settings(now),
             "reset_mcu" => self.reset_mcu(now, true),
             "check_boot" => self.check_mcu_boot(now),
             "read_device" => self.flash.read_device(),
@@ -780,7 +902,221 @@ impl Worker {
 
     /// SWD owns reset while a pass runs. Save both communication lanes, close them, and restore
     /// them afterwards so serial and RS485 readers can never race the probe over a reboot.
+    fn sync_provision_device(&mut self, now: u64) {
+        let Some(mcu) = self.flash.snapshot().mcu.clone() else {
+            return;
+        };
+        if mcu.uid == self.last_provision_uid {
+            return;
+        }
+        self.last_provision_uid = mcu.uid.clone();
+        self.override_once = false;
+        let next = self
+            .provisioning
+            .as_ref()
+            .and_then(|repo| repo.next_serial().ok())
+            .unwrap_or(1);
+        let serial = mcu.provision_serial.unwrap_or(next);
+        let _ = self.bus.set(
+            self.params.provision.serial_to_provision,
+            Value::I64(i64::from(serial)),
+        );
+        let _ = self.bus.set(
+            self.params.provision.current_ma,
+            Value::I32(i32::from(mcu.operating_current_ma)),
+        );
+        let _ = self.bus.set(
+            self.params.provision.recovery_enabled,
+            Value::Bool(mcu.full_current_home_recovery),
+        );
+        if let Some(repository) = self.provisioning.as_mut() {
+            let evidence = DeviceEvidence {
+                uid: mcu.uid.clone(),
+                idcode: mcu.idcode.clone(),
+                dev_id: mcu.dev_id.clone(),
+                flash_kb: mcu.flash_kb,
+                option_bytes: mcu.option_bytes.clone(),
+                probe_name: self.flash.snapshot().probe_name.clone(),
+                probe_serial: self.flash.snapshot().probe_serial.clone(),
+                probe_firmware: self.flash.snapshot().probe_firmware.clone(),
+            };
+            let _ = repository.record_device(&evidence);
+            let _ = repository.record_action(
+                mcu.provision_serial,
+                Some(&mcu.uid),
+                "device-read",
+                "ok",
+                &mcu.identity_state,
+            );
+        }
+        self.refresh_provision_snapshot();
+        self.bench.note(
+            now,
+            bench_core::LOG_LEVEL_STATUS,
+            format!(
+                "device {}: provisioning identity {}{}",
+                short_uid(&mcu.uid),
+                mcu.identity_state,
+                mcu.provision_serial
+                    .map(|serial| format!(" serial {serial}"))
+                    .unwrap_or_default()
+            ),
+        );
+    }
+
+    fn sync_next_serial(&mut self, now: u64) {
+        let requested = schema::get_i64(&self.bus, self.params.provision.next_serial);
+        if requested <= 0
+            || requested >= i64::from(u32::MAX)
+            || requested as u32 == self.next_serial_seen
+        {
+            return;
+        }
+        let Some(repository) = self.provisioning.as_mut() else {
+            return;
+        };
+        match repository.set_next_at_least(requested as u32) {
+            Ok(actual) => {
+                let detail = format!("requested {}; active {}", requested, actual);
+                let _ = repository.record_action(
+                    None,
+                    None,
+                    "next-serial-changed",
+                    "operator",
+                    &detail,
+                );
+                self.next_serial_seen = actual;
+                let _ = self.bus.set(
+                    self.params.provision.next_serial,
+                    Value::I64(i64::from(actual)),
+                );
+                self.refresh_provision_snapshot();
+            }
+            Err(error) => self
+                .bench
+                .note(now, bench_core::LOG_LEVEL_ERROR, error.to_string()),
+        }
+    }
+
+    fn keep_onboard_serial(&mut self, now: u64) {
+        let Some(mcu) = self.flash.snapshot().mcu.clone() else {
+            self.bench
+                .note(now, bench_core::LOG_LEVEL_WARNING, "read a device first");
+            return;
+        };
+        let Some(serial) = mcu.provision_serial else {
+            self.bench.note(
+                now,
+                bench_core::LOG_LEVEL_WARNING,
+                "the board has no valid serial to keep",
+            );
+            return;
+        };
+        let _ = self.bus.set(
+            self.params.provision.serial_to_provision,
+            Value::I64(i64::from(serial)),
+        );
+        self.override_once = false;
+        if let Some(repository) = self.provisioning.as_mut() {
+            let _ = repository.record_action(
+                Some(serial),
+                Some(&mcu.uid),
+                "keep-on-board-serial",
+                "operator",
+                "",
+            );
+        }
+        self.refresh_provision_snapshot();
+    }
+
+    fn authorize_pcb_serial(&mut self, now: u64) {
+        let requested = schema::get_i64(&self.bus, self.params.provision.serial_to_provision);
+        if requested <= 0 || requested >= i64::from(u32::MAX) {
+            self.bench.note(
+                now,
+                bench_core::LOG_LEVEL_ERROR,
+                "PCB serial must be a positive u32",
+            );
+            return;
+        }
+        self.override_once = true;
+        if let Some(mcu) = self.flash.snapshot().mcu.as_ref() {
+            if let Some(repository) = self.provisioning.as_mut() {
+                let detail = format!("on-board {:?}; PCB {}", mcu.provision_serial, requested);
+                let _ = repository.record_action(
+                    Some(requested as u32),
+                    Some(&mcu.uid),
+                    "use-pcb-serial",
+                    "override-authorized",
+                    &detail,
+                );
+            }
+        }
+        self.bench.note(
+            now,
+            bench_core::LOG_LEVEL_WARNING,
+            "PCB serial override authorized for the next provisioning attempt",
+        );
+        self.refresh_provision_snapshot();
+    }
+
+    fn read_flash_settings(&mut self, now: u64) {
+        self.flash.read_device();
+        self.last_provision_uid.clear();
+        self.sync_provision_device(now);
+    }
+
+    fn write_flash_settings(&mut self, now: u64) {
+        let settings = portal_swd::DeviceSettings {
+            operating_current_ma: schema::get_i32(&self.bus, self.params.provision.current_ma)
+                .clamp(50, 250) as u16,
+            full_current_home_recovery: schema::get_bool(
+                &self.bus,
+                self.params.provision.recovery_enabled,
+            ),
+            ..portal_swd::DeviceSettings::default()
+        };
+        let mut progress = |_: &str, _: f64| {};
+        match self.flash.write_settings(settings, &mut progress) {
+            Ok(detail) => {
+                self.bench.note(now, bench_core::LOG_LEVEL_STATUS, &detail);
+                if let Some(mcu) = self.flash.snapshot().mcu.as_ref() {
+                    if let Some(repository) = self.provisioning.as_mut() {
+                        let _ = repository.record_action(
+                            mcu.provision_serial,
+                            Some(&mcu.uid),
+                            "settings-write",
+                            "ok",
+                            &detail,
+                        );
+                    }
+                }
+            }
+            Err(error) => self.bench.note(now, bench_core::LOG_LEVEL_ERROR, error),
+        }
+        self.last_provision_uid.clear();
+        self.sync_provision_device(now);
+    }
+
     fn run_flash(&mut self, now: u64, pass: Pass, automatic: bool) {
+        let reservation = if pass == Pass::Flash {
+            match self.prepare_provision(now, automatic) {
+                Ok(reservation) => Some(reservation),
+                Err(error) => {
+                    self.bench.note(now, bench_core::LOG_LEVEL_ERROR, &error);
+                    self.cue("fail");
+                    if automatic {
+                        let _ = self
+                            .bus
+                            .set(self.params.flash.auto_enabled, Value::Bool(false));
+                    }
+                    return;
+                }
+            }
+        } else {
+            None
+        };
+        self.cue("run-start");
         let before = self.bench.state().clone();
         let serial = before
             .channels
@@ -815,7 +1151,49 @@ impl Worker {
             let _ = bus.set_text(step_id, step);
             let _ = bus.set(progress_id, Value::F64(fraction.clamp(0.0, 1.0)));
         };
-        let ok = self.flash.execute(now, pass, automatic, &mut progress);
+        let ok = if let Some(reservation) = reservation.as_ref() {
+            let mcu = self.flash.snapshot().mcu.as_ref();
+            let selected = self.flash.selected_application_sha256().unwrap_or_default();
+            let already_matches = mcu.is_some_and(|mcu| {
+                mcu.provision_serial == Some(reservation.serial)
+                    && !selected.is_empty()
+                    && mcu.application_sha256 == selected
+            });
+            if already_matches {
+                self.flash.verified_skip(
+                    now,
+                    automatic,
+                    format!(
+                        "serial {} already has selected firmware {}",
+                        reservation.serial,
+                        short_hash_text(&selected)
+                    ),
+                )
+            } else {
+                let settings = portal_swd::DeviceSettings {
+                    operating_current_ma: schema::get_i32(
+                        &self.bus,
+                        self.params.provision.current_ma,
+                    )
+                    .clamp(50, 250) as u16,
+                    full_current_home_recovery: schema::get_bool(
+                        &self.bus,
+                        self.params.provision.recovery_enabled,
+                    ),
+                    ..portal_swd::DeviceSettings::default()
+                };
+                self.flash.provision(
+                    now,
+                    reservation.serial,
+                    settings,
+                    self.override_once,
+                    automatic,
+                    &mut progress,
+                )
+            }
+        } else {
+            self.flash.execute(now, pass, automatic, &mut progress)
+        };
         let needs_replug = self.flash.snapshot().needs_replug;
         self.bench.note(
             now,
@@ -828,10 +1206,33 @@ impl Worker {
             },
             self.flash.snapshot().last_outcome.clone(),
         );
+        self.cue(if ok { "pass" } else { "fail" });
+
+        if let Some(reservation) = reservation {
+            self.record_flash_result(&reservation, ok, needs_replug);
+            if ok {
+                let mcu = self.flash.snapshot().mcu.clone().unwrap_or_default();
+                self.pending_provision = Some(PendingProvision {
+                    serial: reservation.serial,
+                    uid: reservation.uid.clone(),
+                    expected_version: mcu.firmware.clone(),
+                    application_sha256: mcu.application_sha256.clone(),
+                    deadline_ms: (!needs_replug).then_some(self.now_ms() + 12_000),
+                });
+            } else if let Some(repository) = self.provisioning.as_mut() {
+                let _ = repository.mark_failed(
+                    reservation.serial,
+                    &reservation.uid,
+                    &self.flash.snapshot().last_outcome,
+                );
+            }
+            self.override_once = false;
+            self.refresh_provision_snapshot();
+        }
 
         if let Some((kind, endpoint)) = serial {
             let _ = self.bench.connect(kind, &endpoint, now);
-        } else if pass == Pass::Flash && ok && !needs_replug {
+        } else if ok && !needs_replug && (pass == Pass::Flash || self.pending_provision.is_some()) {
             self.schedule_auto_vcom(self.now_ms());
         }
         if let Some((kind, endpoint)) = rs485 {
@@ -841,6 +1242,233 @@ impl Worker {
             }
         }
         *self.shared.flash.lock().unwrap() = self.flash.snapshot().clone();
+    }
+
+    fn prepare_provision(&mut self, _now: u64, automatic: bool) -> Result<Reservation, String> {
+        let mcu = self
+            .flash
+            .snapshot()
+            .mcu
+            .clone()
+            .ok_or_else(|| "read the MCU before provisioning".to_string())?;
+        if mcu.uid.is_empty() {
+            return Err("the MCU UID could not be read".into());
+        }
+        if automatic && !matches!(mcu.identity_state.as_str(), "blank" | "existing-on-board") {
+            return Err(format!(
+                "auto-flash paused: identity is {}",
+                mcu.identity_state
+            ));
+        }
+        let requested_i64 = schema::get_i64(&self.bus, self.params.provision.serial_to_provision);
+        if requested_i64 <= 0 || requested_i64 >= i64::from(u32::MAX) {
+            return Err("serial to provision must be a positive u32".into());
+        }
+        let requested = requested_i64 as u32;
+        if let Some(existing) = mcu.provision_serial {
+            if existing != requested && !self.override_once {
+                return Err(format!(
+                    "board serial {existing} differs from PCB serial {requested}; choose Keep on-board serial or explicitly Use PCB serial"
+                ));
+            }
+        } else if mcu.identity_state != "blank" && !self.override_once {
+            return Err(format!(
+                "identity is {}; an explicit PCB serial override is required",
+                mcu.identity_state
+            ));
+        }
+        let repository = self
+            .provisioning
+            .as_mut()
+            .ok_or_else(|| format!("provisioning database unavailable: {}", self.database_error))?;
+        let edited_next = schema::get_i64(&self.bus, self.params.provision.next_serial);
+        if edited_next > 0 && edited_next < i64::from(u32::MAX) {
+            repository
+                .set_next_at_least(edited_next as u32)
+                .map_err(|error| error.to_string())?;
+        }
+        let reservation = repository
+            .reserve(&mcu.uid, Some(requested), self.override_once)
+            .map_err(|error| error.to_string())?;
+        let detail = format!(
+            "{}{}",
+            reservation.status,
+            if reservation.resumed { "; resumed" } else { "" }
+        );
+        repository
+            .record_action(
+                Some(reservation.serial),
+                Some(&mcu.uid),
+                "provision-start",
+                "pending",
+                &detail,
+            )
+            .map_err(|error| error.to_string())?;
+        Ok(reservation)
+    }
+
+    fn record_flash_result(&mut self, reservation: &Reservation, ok: bool, needs_replug: bool) {
+        let Some(repository) = self.provisioning.as_mut() else {
+            return;
+        };
+        let mcu = self.flash.snapshot().mcu.clone().unwrap_or_default();
+        let (bundle_sha256, build_provenance) =
+            self.flash.selected_bundle_evidence().unwrap_or_default();
+        let outcome = if !ok {
+            "failed"
+        } else if needs_replug {
+            "pending-replug"
+        } else {
+            "pending-application"
+        };
+        let attempt = AttemptEvidence {
+            serial: reservation.serial,
+            uid: reservation.uid.clone(),
+            firmware_version: mcu.firmware.clone(),
+            bootloader_sha256: mcu.bootloader_sha256.clone(),
+            application_sha256: mcu.application_sha256.clone(),
+            bundle_sha256,
+            provenance: format!(
+                "{}; boot={}; app={}; probe={}",
+                build_provenance,
+                self.flash.snapshot().boot_id,
+                self.flash.snapshot().app_id,
+                self.flash.snapshot().probe_serial
+            ),
+            outcome: outcome.into(),
+            detail: self.flash.snapshot().last_outcome.clone(),
+        };
+        let _ = repository.record_attempt(&attempt);
+        let action = if needs_replug {
+            "replug-required"
+        } else if ok {
+            "boot-check"
+        } else {
+            "flash-failed"
+        };
+        let _ = repository.record_action(
+            Some(reservation.serial),
+            Some(&reservation.uid),
+            action,
+            outcome,
+            &attempt.detail,
+        );
+    }
+
+    fn finish_pending_provision(&mut self, now: u64) {
+        let should_attach = self.pending_provision.as_ref().is_some_and(|pending| {
+            pending.deadline_ms.is_none()
+                && self.flash.snapshot().target_present
+                && self.flash.snapshot().boot_state == "running"
+        });
+        if should_attach {
+            self.pending_provision.as_mut().unwrap().deadline_ms = Some(now + 12_000);
+            self.schedule_auto_vcom(now);
+        }
+        let Some(pending) = self.pending_provision.as_ref() else {
+            return;
+        };
+        let state = self.bench.state();
+        let running = [&state.channels.serial.dut, &state.channels.rs485.dut]
+            .into_iter()
+            .find(|dut| dut.provision_serial == Some(pending.serial));
+        let image_matches = self.flash.snapshot().mcu.as_ref().is_some_and(|mcu| {
+            mcu.uid == pending.uid
+                && mcu.provision_serial == Some(pending.serial)
+                && (pending.application_sha256.is_empty()
+                    || mcu.application_sha256 == pending.application_sha256)
+        });
+        let reported_version = running.and_then(|dut| dut.version.clone()).or_else(|| {
+            (self.simulated && self.flash.snapshot().boot_state == "running")
+                .then(|| pending.expected_version.clone())
+        });
+        if let Some(version) = reported_version {
+            let version_matches = pending.expected_version.is_empty()
+                || versions_match(&version, &pending.expected_version);
+            if image_matches && version_matches {
+                let pending = self.pending_provision.take().unwrap();
+                let detail = format!(
+                    "application confirmed serial {} version {}{}",
+                    pending.serial,
+                    version,
+                    if self.simulated {
+                        " (simulated channel)"
+                    } else {
+                        ""
+                    }
+                );
+                if let Some(repository) = self.provisioning.as_mut() {
+                    let _ = repository.mark_provisioned(pending.serial, &pending.uid, &detail);
+                    let _ = repository.record_action(
+                        Some(pending.serial),
+                        Some(&pending.uid),
+                        "application-channel-check",
+                        "ok",
+                        &detail,
+                    );
+                }
+                self.bench.note(
+                    now,
+                    bench_core::LOG_LEVEL_STATUS,
+                    format!("PROVISIONED: {detail}"),
+                );
+                self.refresh_provision_snapshot();
+                return;
+            }
+        }
+        if pending.deadline_ms.is_some_and(|deadline| now >= deadline) {
+            let pending = self.pending_provision.take().unwrap();
+            let detail = "application channel did not confirm the expected serial and firmware";
+            if let Some(repository) = self.provisioning.as_mut() {
+                let _ = repository.mark_failed(pending.serial, &pending.uid, detail);
+                let _ = repository.record_action(
+                    Some(pending.serial),
+                    Some(&pending.uid),
+                    "application-channel-timeout",
+                    "failed",
+                    detail,
+                );
+            }
+            self.bench.note(now, bench_core::LOG_LEVEL_ERROR, detail);
+            self.refresh_provision_snapshot();
+        }
+    }
+
+    fn refresh_provision_snapshot(&mut self) {
+        let mut snapshot = ProvisionSnapshot::default();
+        snapshot.database_error = self.database_error.clone();
+        snapshot.database_ok = self
+            .provisioning
+            .as_ref()
+            .is_some_and(|repo| repo.health().is_ok());
+        if let Some(repository) = self.provisioning.as_ref() {
+            snapshot.next_serial = repository.next_serial().unwrap_or(1);
+            snapshot.history = repository.history(None, None, 250).unwrap_or_default();
+        }
+        self.next_serial_seen = snapshot.next_serial;
+        let _ = self.bus.set(
+            self.params.provision.next_serial,
+            Value::I64(i64::from(snapshot.next_serial)),
+        );
+        snapshot.serial_to_provision =
+            schema::get_i64(&self.bus, self.params.provision.serial_to_provision)
+                .clamp(1, i64::from(u32::MAX) - 1) as u32;
+        if let Some(mcu) = self.flash.snapshot().mcu.as_ref() {
+            snapshot.on_board_serial = mcu.provision_serial;
+            snapshot.identity_state = mcu.identity_state.clone();
+            snapshot.operating_current_ma = mcu.operating_current_ma;
+            snapshot.full_current_home_recovery = mcu.full_current_home_recovery;
+            snapshot.settings_source = mcu.settings_source.clone();
+        }
+        snapshot.pending_replug =
+            self.pending_provision.is_some() && self.flash.snapshot().needs_replug;
+        snapshot.override_authorized = self.override_once;
+        snapshot.reservation = self
+            .pending_provision
+            .as_ref()
+            .map(|job| format!("serial {} · {}", job.serial, short_uid(&job.uid)))
+            .unwrap_or_default();
+        *self.shared.provision.lock().unwrap() = snapshot;
     }
 
     fn reset_mcu(&mut self, now: u64, require_page_heartbeat: bool) {
@@ -998,6 +1626,70 @@ impl Worker {
                     } else {
                         self.run_flash(now, Pass::Flash, false);
                     }
+                }
+                Request::SetProvisionSerial(serial) => {
+                    let _ = self.bus.set(
+                        self.params.provision.serial_to_provision,
+                        Value::I64(i64::from(serial)),
+                    );
+                    self.refresh_provision_snapshot();
+                }
+                Request::SetNextSerial(serial) => {
+                    if let Some(repository) = self.provisioning.as_mut() {
+                        if let Err(error) = repository.set_next_at_least(serial) {
+                            self.bench
+                                .note(now, bench_core::LOG_LEVEL_ERROR, error.to_string());
+                        }
+                    }
+                    self.refresh_provision_snapshot();
+                }
+                Request::ReserveSerial {
+                    serial,
+                    allow_reassignment,
+                } => {
+                    if let Some(serial) = serial {
+                        let _ = self.bus.set(
+                            self.params.provision.serial_to_provision,
+                            Value::I64(i64::from(serial)),
+                        );
+                    }
+                    self.override_once = allow_reassignment;
+                    match self.prepare_provision(now, false) {
+                        Ok(reservation) => self.bench.note(
+                            now,
+                            bench_core::LOG_LEVEL_STATUS,
+                            format!(
+                                "reserved serial {} for {}",
+                                reservation.serial,
+                                short_uid(&reservation.uid)
+                            ),
+                        ),
+                        Err(error) => self.bench.note(now, bench_core::LOG_LEVEL_ERROR, error),
+                    }
+                    self.refresh_provision_snapshot();
+                }
+                Request::KeepOnboardSerial => self.keep_onboard_serial(now),
+                Request::UsePcbSerial(serial) => {
+                    let _ = self.bus.set(
+                        self.params.provision.serial_to_provision,
+                        Value::I64(i64::from(serial)),
+                    );
+                    self.authorize_pcb_serial(now);
+                }
+                Request::ReadSettings => self.read_flash_settings(now),
+                Request::WriteSettings {
+                    current_ma,
+                    recovery,
+                } => {
+                    let _ = self.bus.set(
+                        self.params.provision.current_ma,
+                        Value::I32(i32::from(current_ma)),
+                    );
+                    let _ = self.bus.set(
+                        self.params.provision.recovery_enabled,
+                        Value::Bool(recovery),
+                    );
+                    self.write_flash_settings(now);
                 }
                 Request::ResetMcu => self.reset_mcu(now, false),
                 Request::CheckBoot => self.check_mcu_boot(now),
@@ -1271,6 +1963,30 @@ impl Worker {
                 .bus
                 .set(p.mcu.flash_kb, Value::I32(i32::from(mcu.flash_kb)));
         }
+        let provision = self.shared.provision.lock().unwrap().clone();
+        let _ = self
+            .bus
+            .set(p.provision.database_ok, Value::Bool(provision.database_ok));
+        let _ = self
+            .bus
+            .set_text(p.provision.database_error, &provision.database_error);
+        let _ = self.bus.set(
+            p.provision.on_board_serial,
+            Value::I64(i64::from(provision.on_board_serial.unwrap_or(0))),
+        );
+        let _ = self
+            .bus
+            .set_text(p.provision.identity_state, &provision.identity_state);
+        let _ = self
+            .bus
+            .set_text(p.provision.reservation, &provision.reservation);
+        let _ = self.bus.set(
+            p.provision.pending_replug,
+            Value::Bool(provision.pending_replug),
+        );
+        let _ = self
+            .bus
+            .set_text(p.provision.settings_source, &provision.settings_source);
         *self.shared.flash.lock().unwrap() = snapshot.clone();
     }
 
@@ -1363,6 +2079,24 @@ impl Worker {
             _ => "abort",
         });
     }
+}
+
+fn short_uid(uid: &str) -> &str {
+    uid.get(uid.len().saturating_sub(8)..).unwrap_or(uid)
+}
+
+fn short_hash_text(hash: &str) -> &str {
+    hash.get(..12).unwrap_or(hash)
+}
+
+fn versions_match(reported: &str, expected: &str) -> bool {
+    fn normalize(value: &str) -> &str {
+        let value = value.trim();
+        value.strip_prefix("Portal v").unwrap_or(value)
+    }
+    normalize(reported) == normalize(expected)
+        || normalize(expected).contains(normalize(reported))
+        || normalize(reported).contains(normalize(expected))
 }
 
 fn publish_link(

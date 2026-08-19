@@ -192,6 +192,17 @@ pub fn event_json(event: &LinkEvent) -> String {
         LinkEvent::Uptime { seconds } => {
             serde_json::json!({ "event": "uptime", "seconds": seconds })
         }
+        LinkEvent::Provisioning { serial } => {
+            serde_json::json!({ "event": "provisioning", "serial": serial })
+        }
+        LinkEvent::Settings {
+            current_ma,
+            full_current_home_recovery,
+            source,
+        } => serde_json::json!({
+            "event": "settings", "current_ma": current_ma,
+            "full_current_home_recovery": full_current_home_recovery, "source": source,
+        }),
         LinkEvent::Log {
             level,
             message,

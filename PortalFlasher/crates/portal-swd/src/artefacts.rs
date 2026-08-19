@@ -380,9 +380,14 @@ mod tests {
 
         let found = discover_in(&root);
         let apps: Vec<_> = found.applications().collect();
-        assert_eq!(apps.len(), 2, "both variants should be offered side by side");
+        assert_eq!(
+            apps.len(),
+            2,
+            "both variants should be offered side by side"
+        );
         assert!(
-            apps.iter().any(|a| a.id == "portalfw:application_bank_optical"),
+            apps.iter()
+                .any(|a| a.id == "portalfw:application_bank_optical"),
             "optical should be discoverable by a stable id"
         );
         assert!(
@@ -851,11 +856,7 @@ mod load_tests {
     fn tree_with_elf(name: &str, symbols: &[(&str, u64, u64)]) -> PathBuf {
         let dir = tree(name);
         let app = dir.join("PortalFW/.pio/build/application_bank_optical");
-        std::fs::write(
-            app.join("firmware.elf"),
-            crate::symbols::elf_with(symbols),
-        )
-        .unwrap();
+        std::fs::write(app.join("firmware.elf"), crate::symbols::elf_with(symbols)).unwrap();
         dir
     }
 

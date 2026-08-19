@@ -148,10 +148,27 @@ namespace Modules {
 		Exception homeRoutine(const MeasureRoutineSettings&);
 		Exception measureCycleRoutine(const MeasureRoutineSettings&);
 #ifndef HOME_SWITCH_LEGACY
+		enum class FastHomeFailure : uint8_t {
+			None = 0,
+			Aborted,
+			Timeout,
+			Motion,
+			FeatureMissing,
+			FeatureTooWide,
+			SpeedDependentEdge,
+			SensorUnstable,
+			OpticalContrast,
+			Backlash
+		};
+
 		// Self-calibrating optical home: replaces measureBacklashRoutine + homeRoutine for
 		// the optical switch in one pass. See HomeSwitchTest/portalfw_port/PORTING.md and
 		// HomeSwitchTest/reports/newring/HOME_ROUTINE_DESIGN.md for the bench provenance.
 		Exception fastHomeRoutine(const MeasureRoutineSettings&);
+		FastHomeFailure getLastFastHomeFailure() const { return this->lastFastHomeFailure; }
+		int16_t getOpticalThreshold() const { return this->opticalThresholdCached; }
+		Steps getOpticalWidth() const { return this->opticalWidthCached; }
+		void restoreOpticalCalibration(uint8_t threshold, Steps width);
 
 		// ---- optical front-end diagnostics -------------------------------------------------
 		// Neither of these moves the motor, so both are safe to call outside a routine. They
@@ -320,6 +337,11 @@ namespace Modules {
 		// the full self-calibration instead of seeding, so a module whose flag does not match
 		// the fleet default does not pay for the failed fast attempt on every retry.
 		bool opticalDefaultRejected = false;
+
+		// Machine-readable cause for the most recent fast-home attempt. Routines uses this to
+		// decide whether extra motor current can plausibly help; optical disagreement must not
+		// be disguised as a current-recovery success or persisted at 250 mA.
+		FastHomeFailure lastFastHomeFailure = FastHomeFailure::None;
 #endif
 	};
 }

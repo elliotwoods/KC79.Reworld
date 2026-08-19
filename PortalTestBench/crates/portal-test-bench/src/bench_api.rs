@@ -28,6 +28,8 @@ pub fn routes(shared: Arc<Shared>) -> Router {
         .route("/api/bench/log", get(log))
         .route("/api/bench/telemetry", get(telemetry))
         .route("/api/bench/firmware", get(firmware))
+        .route("/api/bench/provision", get(provision))
+        .route("/api/bench/provision/history", get(provision_history))
         .route("/api/bench/run", post(run))
         .route("/api/bench/abort", post(abort))
         .route("/api/bench/command", post(command))
@@ -44,6 +46,7 @@ async fn state(State(shared): State<Arc<Shared>>) -> impl IntoResponse {
     let run = shared.run.lock().unwrap().clone();
     let last = shared.last.lock().unwrap().clone();
     let flash = shared.flash.lock().unwrap().clone();
+    let provision = shared.provision.lock().unwrap().clone();
 
     Json(serde_json::json!({
         "link": state.link,
@@ -51,6 +54,7 @@ async fn state(State(shared): State<Arc<Shared>>) -> impl IntoResponse {
         "channels": state.channels,
         "active_channel": state.active_channel,
         "flash": flash,
+        "provision": provision,
         "faults": state.faults,
         "running": run.map(|status| serde_json::json!({
             "run_id": status.run_id,
@@ -83,6 +87,46 @@ async fn ports() -> impl IntoResponse {
 
 async fn firmware(State(shared): State<Arc<Shared>>) -> impl IntoResponse {
     Json(shared.artefacts.lock().unwrap().clone())
+}
+
+async fn provision(State(shared): State<Arc<Shared>>) -> impl IntoResponse {
+    Json(shared.provision.lock().unwrap().clone())
+}
+
+#[derive(serde::Deserialize)]
+struct ProvisionHistoryQuery {
+    #[serde(default)]
+    serial: Option<u32>,
+    #[serde(default)]
+    q: Option<String>,
+}
+
+async fn provision_history(
+    State(shared): State<Arc<Shared>>,
+    Query(query): Query<ProvisionHistoryQuery>,
+) -> impl IntoResponse {
+    let provision = shared.provision.lock().unwrap();
+    let needle = query.q.as_deref().unwrap_or("").to_ascii_lowercase();
+    let actions = provision
+        .history
+        .iter()
+        .filter(|action| {
+            query
+                .serial
+                .is_none_or(|serial| action.serial == Some(serial))
+                && (needle.is_empty()
+                    || action.action.to_ascii_lowercase().contains(&needle)
+                    || action.detail.to_ascii_lowercase().contains(&needle)
+                    || action
+                        .uid
+                        .as_deref()
+                        .unwrap_or("")
+                        .to_ascii_lowercase()
+                        .contains(&needle))
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    Json(serde_json::json!({ "actions": actions }))
 }
 
 #[derive(serde::Deserialize)]
@@ -291,6 +335,27 @@ enum CommandBody {
         channel: Option<Channel>,
     },
     Flash,
+    SetProvisionSerial {
+        serial: u32,
+    },
+    SetNextSerial {
+        serial: u32,
+    },
+    ReserveSerial {
+        #[serde(default)]
+        serial: Option<u32>,
+        #[serde(default)]
+        allow_reassignment: bool,
+    },
+    KeepOnboardSerial,
+    UsePcbSerial {
+        serial: u32,
+    },
+    ReadSettings,
+    WriteSettings {
+        current_ma: u16,
+        recovery: bool,
+    },
     ResetMcu,
     CheckBoot,
     ReadDevice,
@@ -378,6 +443,34 @@ async fn command(
         ),
         CommandBody::MoveAxes { a, b, channel } => routed(channel, Op::MoveAxes { a, b }),
         CommandBody::Flash => Request::FlashNow,
+        CommandBody::SetProvisionSerial { serial } => Request::SetProvisionSerial(serial),
+        CommandBody::SetNextSerial { serial } => Request::SetNextSerial(serial),
+        CommandBody::ReserveSerial {
+            serial,
+            allow_reassignment,
+        } => Request::ReserveSerial {
+            serial,
+            allow_reassignment,
+        },
+        CommandBody::KeepOnboardSerial => Request::KeepOnboardSerial,
+        CommandBody::UsePcbSerial { serial } => Request::UsePcbSerial(serial),
+        CommandBody::ReadSettings => Request::ReadSettings,
+        CommandBody::WriteSettings {
+            current_ma,
+            recovery,
+        } => {
+            if !(50..=250).contains(&current_ma) {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(serde_json::json!({"error":"current_ma must be between 50 and 250"})),
+                )
+                    .into_response();
+            }
+            Request::WriteSettings {
+                current_ma,
+                recovery,
+            }
+        }
         CommandBody::ResetMcu => Request::ResetMcu,
         CommandBody::CheckBoot => Request::CheckBoot,
         CommandBody::ReadDevice => Request::ReadDevice,
@@ -515,5 +608,29 @@ mod tests {
         let body: CommandBody =
             serde_json::from_value(serde_json::json!({ "op": "check_boot" })).unwrap();
         assert!(matches!(body, CommandBody::CheckBoot));
+
+        let body: CommandBody = serde_json::from_value(serde_json::json!({
+            "op": "reserve_serial", "serial": 73001, "allow_reassignment": true
+        }))
+        .unwrap();
+        assert!(matches!(
+            body,
+            CommandBody::ReserveSerial {
+                serial: Some(73_001),
+                allow_reassignment: true
+            }
+        ));
+
+        let body: CommandBody = serde_json::from_value(serde_json::json!({
+            "op": "write_settings", "current_ma": 250, "recovery": false
+        }))
+        .unwrap();
+        assert!(matches!(
+            body,
+            CommandBody::WriteSettings {
+                current_ma: 250,
+                recovery: false
+            }
+        ));
     }
 }
