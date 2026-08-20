@@ -263,6 +263,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "av-gui-subprocess"
+version = "0.1.0"
+dependencies = [
+ "av-gui-cef-sys",
+]
+
+[[package]]
 name = "av-gui-surface"
 version = "0.1.0"
 dependencies = [

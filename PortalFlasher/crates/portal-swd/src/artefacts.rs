@@ -20,9 +20,15 @@
 //! # Paths are resolved from the package or source tree, not the working directory
 //!
 //! A production package carries a `firmware/` tree beside the executable and that portable tree
-//! wins when present. Development builds fall back to the repository root baked in through
-//! `CARGO_MANIFEST_DIR`. A
-//! missing `.pio` is a first-class state with a build hint attached, not an error — the firmware
+//! wins when present; `PORTAL_FIRMWARE_DIR` overrides both, for a bench flashing a one-off image.
+//! Development builds fall back to the repository root baked in through `CARGO_MANIFEST_DIR`, so
+//! moving `target/` stays harmless and only moving the *source* breaks it.
+//!
+//! The packaged tree deliberately *mirrors* the repository's shape
+//! (`PortalFW/.pio/build/<env>/firmware.bin`), so `discover_in` is one implementation serving both
+//! and there is no second discovery path to keep in agreement.
+//!
+//! A missing `.pio` is a first-class state with a build hint attached, not an error — the firmware
 //! has never been built on a fresh clone, and telling someone to run `pio run` is more use than
 //! an empty list.
 
@@ -146,25 +152,97 @@ pub fn repo_root() -> PathBuf {
     root.canonicalize().unwrap_or(root)
 }
 
-/// What is available to flash, right now.
-pub fn discover() -> Discovery {
-    let root = packaged_root().unwrap_or_else(repo_root);
-    discover_in(&root)
+/// The environment variable that overrides where firmware is looked for.
+///
+/// First in [`artefact_root`]'s order, because it is the only arm an operator can reach without
+/// rebuilding or repackaging: a bench that must flash a one-off image points at a directory and
+/// gets the same discovery, the same validation and the same log line as every other run.
+pub const FIRMWARE_DIR_ENV: &str = "PORTAL_FIRMWARE_DIR";
+
+/// Where a packaged copy of this application keeps the files it was shipped with, or `None` when
+/// it is running out of a source tree.
+///
+/// # Why this exists at all
+///
+/// Everything else in this module resolves against [`repo_root`], which is `CARGO_MANIFEST_DIR`
+/// baked in at compile time. That is exactly right for a developer -- moving `target/` is
+/// harmless -- and exactly wrong for a distributable, where the binary is the only thing that
+/// travels and the repository it was built from does not exist on the far machine. Without this
+/// the packaged bench comes up, enumerates its probe, and offers nothing to flash.
+///
+/// Resolved from the executable, never the process working directory, so double-click, a
+/// shortcut and a command line all agree.
+pub fn resources_dir() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    resource_roots(exe.parent()?)
+        .into_iter()
+        .find(|root| firmware_tree(&root.join("firmware")).is_some())
+}
+
+/// The two package layouts, in the order they are tried.
+///
+/// - `<exe dir>` -- the unzipped-directory layout, which is what Windows ships.
+/// - `<exe dir>/../Resources` -- macOS, where the executable lives in `Contents/MacOS`. Gated on
+///   the parent actually being named `MacOS`, so a `Resources` directory that happens to sit
+///   beside a development build is not mistaken for a bundle.
+///
+/// Neither is gated on the host OS. A `.app` is a directory and a zip is a directory, and a
+/// developer who unpacks one on the other platform to look inside should get the same answer the
+/// operator gets rather than a silently different one.
+fn resource_roots(exe_dir: &Path) -> Vec<PathBuf> {
+    let mut roots = vec![exe_dir.to_path_buf()];
+    if exe_dir.file_name().is_some_and(|name| name == "MacOS")
+        && let Some(contents) = exe_dir.parent()
+    {
+        roots.push(contents.join("Resources"));
+    }
+    roots
+}
+
+/// A directory that actually holds a repository-shaped firmware tree, canonicalised.
+///
+/// Checked by the `.pio/build` directories rather than by the `firmware/` directory merely
+/// existing: an empty or half-copied payload should fall through to the next candidate rather
+/// than win and then find nothing.
+fn firmware_tree(root: &Path) -> Option<PathBuf> {
+    let has_application = root.join("PortalFW/.pio/build").is_dir();
+    let has_bootloader = root.join("PortalBootloader/.pio/build").is_dir();
+    (has_application || has_bootloader)
+        .then(|| root.canonicalize().unwrap_or_else(|_| root.to_path_buf()))
 }
 
 /// A self-contained release keeps the repository-shaped firmware payload under
-/// `<exe directory>/firmware`. Looking relative to the executable, never the process working
-/// directory, makes double-click, shortcuts and command-line launch agree.
+/// `<exe directory>/firmware`, or `Contents/Resources/firmware` inside a macOS bundle.
 fn packaged_root() -> Option<PathBuf> {
     let exe = std::env::current_exe().ok()?;
     packaged_root_from(exe.parent()?)
 }
 
 fn packaged_root_from(exe_dir: &Path) -> Option<PathBuf> {
-    let root = exe_dir.join("firmware");
-    let has_application = root.join("PortalFW/.pio/build").is_dir();
-    let has_bootloader = root.join("PortalBootloader/.pio/build").is_dir();
-    (has_application || has_bootloader).then(|| root.canonicalize().unwrap_or(root))
+    resource_roots(exe_dir)
+        .into_iter()
+        .find_map(|root| firmware_tree(&root.join("firmware")))
+}
+
+/// The directory [`discover`] resolves every artefact path against.
+///
+/// Three arms in falling order of specificity, and the order is the whole design: an explicit
+/// request beats what was shipped, and what was shipped beats what was compiled in. The last arm
+/// is the historical behaviour, unchanged, so a developer's tree behaves exactly as it did.
+///
+/// The chosen root travels into [`Discovery::root`], which the page and the session log both
+/// print -- so "it found nothing" is always answerable without a debugger.
+pub fn artefact_root() -> PathBuf {
+    std::env::var_os(FIRMWARE_DIR_ENV)
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .or_else(packaged_root)
+        .unwrap_or_else(repo_root)
+}
+
+/// What is available to flash, right now.
+pub fn discover() -> Discovery {
+    discover_in(&artefact_root())
 }
 
 /// The same, rooted anywhere — which is what makes it testable without a built firmware tree.
@@ -562,6 +640,101 @@ mod tests {
             Some(Origin::Built),
             "a built bootloader should win over the committed reference"
         );
+    }
+
+    // ------------------------------------------------------------- packaged layouts
+
+    /// The macOS layout: `Contents/MacOS/<exe>` and `Contents/Resources/firmware`.
+    ///
+    /// The companion to `a_firmware_tree_beside_the_executable_is_a_portable_root` above: a
+    /// bundle cannot put the payload beside the executable, because `Contents/MacOS` is for
+    /// executables and Finder, `codesign` and every convention expect data in `Resources`.
+    #[test]
+    fn a_macos_bundle_resolves_contents_resources() {
+        let root = scratch("bundle");
+        let macos = root.join("PortalTestBench.app/Contents/MacOS");
+        std::fs::create_dir_all(&macos).unwrap();
+        let resources = root.join("PortalTestBench.app/Contents/Resources");
+        write(
+            &resources,
+            "firmware/PortalFW/.pio/build/application_bank_optical/firmware.bin",
+            60_000,
+        );
+
+        let found = packaged_root_from(&macos).expect("bundled firmware root");
+        assert_eq!(found, resources.join("firmware").canonicalize().unwrap());
+        assert!(discover_in(&found).application().is_some());
+    }
+
+    /// A `Resources` directory one level up is only a bundle when the executable is in `MacOS`.
+    /// Otherwise a development tree that happens to have one beside it would be read as packaged,
+    /// and the artefacts an operator was shown would come from somewhere nobody chose.
+    #[test]
+    fn a_resources_directory_is_not_a_bundle_unless_the_exe_is_in_macos() {
+        let root = scratch("not-a-bundle");
+        write(
+            &root.join("Resources"),
+            "firmware/PortalFW/.pio/build/application_bank_optical/firmware.bin",
+            60_000,
+        );
+        std::fs::create_dir_all(root.join("debug")).unwrap();
+        assert_eq!(packaged_root_from(&root.join("debug")), None);
+    }
+
+    /// An empty or half-copied payload falls through rather than winning and then finding
+    /// nothing. This is why the check is for the `.pio/build` directories and not for `firmware/`
+    /// merely existing.
+    #[test]
+    fn an_empty_firmware_directory_is_not_a_package() {
+        let root = scratch("empty-payload");
+        std::fs::create_dir_all(root.join("firmware")).unwrap();
+        assert_eq!(packaged_root_from(&root), None);
+    }
+
+    #[test]
+    fn a_source_tree_is_not_a_package() {
+        let root = scratch("source");
+        std::fs::create_dir_all(root.join("target/release")).unwrap();
+        assert_eq!(packaged_root_from(&root.join("target/release")), None);
+    }
+
+    /// The one arm an operator can reach without rebuilding or repackaging.
+    ///
+    /// Asserted through the env var rather than a pure helper, and serialised against the other
+    /// tests that read it, because `set_var` is `unsafe` under edition 2024 precisely because it
+    /// races -- so the lock is the honest way to test the real function rather than a stand-in.
+    #[test]
+    fn an_explicit_firmware_directory_beats_everything_else() {
+        use std::sync::Mutex;
+        static ENV: Mutex<()> = Mutex::new(());
+        let _guard = ENV.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+
+        let root = scratch("explicit");
+        write(
+            &root,
+            "PortalFW/.pio/build/application_bank_optical/firmware.bin",
+            60_000,
+        );
+
+        // SAFETY: serialised by ENV against every other test that touches this variable, and
+        // restored before the guard is dropped.
+        unsafe { std::env::set_var(FIRMWARE_DIR_ENV, &root) };
+        let chosen = artefact_root();
+        unsafe { std::env::remove_var(FIRMWARE_DIR_ENV) };
+
+        assert_eq!(chosen, root);
+        assert!(discover_in(&chosen).application().is_some());
+    }
+
+    #[test]
+    fn a_developer_tree_still_resolves_against_the_repository() {
+        // The historical behaviour, unchanged. Everything above is additive.
+        use std::sync::Mutex;
+        static ENV: Mutex<()> = Mutex::new(());
+        let _guard = ENV.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        unsafe { std::env::remove_var(FIRMWARE_DIR_ENV) };
+
+        assert_eq!(artefact_root(), repo_root());
     }
 
     #[test]

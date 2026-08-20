@@ -1,67 +1,22 @@
 <#
 .SYNOPSIS
-  Build PortalTestBench: web bundle first, then cargo.
+  build PortalTestBench. A wrapper; the implementation is build.mjs.
 
 .DESCRIPTION
-  The order is load-bearing, not a preference. `av_operator_app::web_assets!` resolves
-  `web/dist` at COMPILE time, so a cargo build that runs first embeds whatever the last web
-  build left behind. The symptom is a binary that starts cleanly and serves a stale page --
-  which reads as a host bug, not a missing build step. Never run the two in parallel.
+  This script used to be the implementation. It is now three lines, and that is the point: the
+  same build has to run on Windows and macOS, and two implementations of one build is the shape
+  this tree has been bitten by before -- the one that works is the one you check, and the other
+  rots.
 
-  Every cargo invocation passes an absolute --manifest-path. There is a second complete Cargo
-  workspace behind `third_party/av-frameworks` (a junction into PortalFlasher's submodule), and
-  a shell that has wandered in there builds the framework instead, successfully, with nothing
-  saying so.
+  Everything that was in here, including the reasons, moved to build.mjs unchanged.
+  Node is already a prerequisite: the web bundle is built with it.
 
-.NOTES
-  PowerShell 5.1. Do not redirect native stderr with 2>&1.
+  Kept as an entry point because AGENTS.md names these three scripts, and because
+  `powershell -File tools\build.ps1` is in people's shell history.
 #>
 [CmdletBinding()]
-param(
-    [switch] $Release,
-    # Skip the web bundle when only Rust changed AND web/dist already exists.
-    [switch] $SkipWeb
-)
+param([Parameter(ValueFromRemainingArguments = $true)] [string[]] $Rest)
 
 $ErrorActionPreference = 'Stop'
-$app      = Split-Path -Parent $PSScriptRoot
-$manifest = Join-Path $app 'Cargo.toml'
-$web      = Join-Path $app 'web'
-$dist     = Join-Path $web 'dist'
-
-function Write-Step { param([string] $Message) Write-Host "==> $Message" -ForegroundColor Cyan }
-
-if (-not (Test-Path (Join-Path $app 'third_party\av-frameworks\crates\av-operator-app\Cargo.toml'))) {
-    throw 'third_party/av-frameworks is missing. Run: powershell -File tools\bootstrap.ps1'
-}
-
-# --- 1. web ------------------------------------------------------------------------------
-if ($SkipWeb) {
-    if (-not (Test-Path (Join-Path $dist 'index.html'))) {
-        throw '-SkipWeb was given but web/dist/index.html does not exist. Build the web package once first.'
-    }
-    Write-Step 'Skipping the web bundle (web/dist reused)'
-} else {
-    Write-Step 'Building the web bundle'
-    Push-Location $web
-    try {
-        npm run build
-        if ($LASTEXITCODE -ne 0) { throw "web build failed with exit code $LASTEXITCODE" }
-    } finally { Pop-Location }
-}
-
-# --- 2. cargo ----------------------------------------------------------------------------
-$profileArgs = @()
-if ($Release) { $profileArgs = @('--release') }
-
-Write-Step "Building the Rust workspace$(if ($Release) { ' (release)' })"
-cargo build --manifest-path $manifest -p portal-test-bench -p ptb @profileArgs
-if ($LASTEXITCODE -ne 0) { throw "cargo build failed with exit code $LASTEXITCODE" }
-
-$target = Join-Path $app "target\$(if ($Release) { 'release' } else { 'debug' })"
-Write-Host ''
-Write-Step 'Build complete.'
-Write-Host "  $target\portal-test-bench.exe             # native window + http://127.0.0.1:8770"
-Write-Host "  $target\portal-test-bench.exe --headless  # the same page, no window"
-Write-Host "  $target\portal-test-bench.exe --simulate  # a modelled module, no hardware"
-Write-Host "  $target\ptb.exe state                     # the agent's view of the same bench"
+node (Join-Path $PSScriptRoot 'build.mjs') @Rest
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

@@ -4,7 +4,7 @@
 # exclusion also keeps `cargo fmt`/`clippy` from reaching through and dirtying *that* checkout.
 [workspace]
 resolver = "3"
-members = ["crates/bench-core", "crates/portal-test-bench", "crates/ptb"]
+members = ["crates/bench-core", "crates/portal-test-bench", "crates/ptb", "crates/av-gui-subprocess"]
 exclude = ["third_party/av-frameworks"]
 
 [workspace.package]
@@ -18,6 +18,10 @@ publish = false
 av-gui-bus      = { path = "third_party/av-frameworks/crates/av-gui-bus" }
 av-operator-app = { path = "third_party/av-frameworks/crates/av-operator-app" }
 av-app-support  = { path = "third_party/av-frameworks/crates/av-app-support" }
+# The one place that knows where per-user state belongs on each platform. A packaged bench
+# writes its session evidence there rather than beside an executable it cannot write to --
+# see `reports_dir` in portal-test-bench.
+av-app-registry  = { path = "third_party/av-frameworks/crates/av-app-registry" }
 av-app-icon     = { path = "third_party/av-frameworks/crates/av-app-icon" }
 av-app-registry = { path = "third_party/av-frameworks/crates/av-app-registry" }
 av-gui-host     = { path = "third_party/av-frameworks/crates/av-gui-host" }

@@ -59,3 +59,8 @@ node_modules/
 # dirtied the tree, which then made the next build stamp itself dirty -- permanently, for a
 # reason with nothing to do with the source.
 PortalFW/src/Version.h
+
+# Built packages. `tools/package.mjs` writes here; a 150 MB zip carrying a CEF framework is a
+# build output, and the thing that makes it reproducible is the pinned platform versions and the
+# commit recorded in its own MANIFEST.md, not the archive being in git.
+/dist/

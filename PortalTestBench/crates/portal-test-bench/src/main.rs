@@ -28,17 +28,61 @@ mod flash;
 mod schema;
 mod worker;
 
-/// Where plans live: `<repo>/PortalTestBench/plans`.
+/// Where plans live.
 ///
-/// Resolved from the compiled-in manifest directory rather than the working directory, so the
-/// binary finds its plans whether it was started from a shell, the launcher, or a debugger.
+/// Three answers in falling order of specificity, mirroring `portal_swd::artefacts::artefact_root`
+/// exactly so the two never disagree about whether this copy is packaged:
+///
+/// 1. `PORTAL_TEST_BENCH_PLANS`, for a bench driving a plan set that is not the shipped one.
+/// 2. `<resources>/plans` -- what a distributable was built with. `resources_dir` knows the two
+///    layouts (`resources/` beside the executable, `Contents/Resources` inside a `.app`).
+/// 3. `<repo>/PortalTestBench/plans`, from the compiled-in manifest directory. Unchanged, and
+///    still resolved from the manifest rather than the working directory so a developer finds
+///    their plans whether they started from a shell, the launcher, or a debugger.
 pub fn plans_dir() -> std::path::PathBuf {
+    if let Some(explicit) = env_dir("PORTAL_TEST_BENCH_PLANS") {
+        return explicit;
+    }
+    if let Some(packaged) = portal_swd::artefacts::resources_dir().map(|dir| dir.join("plans"))
+        && packaged.is_dir()
+    {
+        return packaged;
+    }
     std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plans")
 }
 
 /// Where session files are written.
+///
+/// The same shape as [`plans_dir`] with one deliberate difference: a packaged copy does **not**
+/// write beside itself. An `.app` in `/Applications` and a zip unpacked into `Program Files` are
+/// both read-only to the operator running them, and the session `.ndjson` is this product's
+/// evidence -- the one file that must not be the thing that fails. So a packaged run writes to
+/// the platform's per-user state directory, which is where the framework already keeps its own
+/// (`av_app_registry::state_dir`: `%LOCALAPPDATA%\AuroraVision` / `~/Library/Application Support/
+/// AuroraVision`).
+///
+/// A development run is unchanged: `<repo>/PortalTestBench/reports`, gitignored, beside the tree
+/// that produced it.
 pub fn reports_dir() -> std::path::PathBuf {
+    if let Some(explicit) = env_dir("PORTAL_TEST_BENCH_REPORTS") {
+        return explicit;
+    }
+    if portal_swd::artefacts::resources_dir().is_some() {
+        // A failure here is not a reason to refuse to start -- `start` already treats an
+        // unopenable report as a warning -- so fall through to the compiled-in path and let that
+        // one report the problem in the one place that already knows how to.
+        if let Ok(state) = av_app_registry::state_dir("portal-test-bench") {
+            return state;
+        }
+    }
     std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../reports")
+}
+
+/// A directory named by an environment variable, or `None` when it is unset or empty.
+fn env_dir(key: &str) -> Option<std::path::PathBuf> {
+    std::env::var_os(key)
+        .filter(|value| !value.is_empty())
+        .map(std::path::PathBuf::from)
 }
 
 /// Preferred loopback port. Chosen to sit clear of the framework's own defaults (8730 host,
@@ -53,11 +97,28 @@ struct PortalTestBenchApp {
 impl OperatorApp for PortalTestBenchApp {
     const NAME: &'static str = "portal-test-bench";
 
-    /// Nothing is drawn *underneath* this page. The live plots are canvas in the DOM, and there
-    /// is no camera, no 3D and no video -- so the compositor, the CEF payload and the helper
-    /// subprocess would all be cost with nothing bought. Measured idle difference on this
-    /// framework: roughly 8% of one core and 396 MB against 19-30% and 524 MB.
-    const UI: UiKind = UiKind::ControlWindow;
+    /// The lightest window kind that carries this product, per platform.
+    ///
+    /// On Windows, `ControlWindow`. Nothing is drawn *underneath* this page -- the live plots are
+    /// canvas in the DOM, and there is no camera, no 3D and no video -- so the compositor, the
+    /// CEF payload and the helper subprocess would all be cost with nothing bought. Measured idle
+    /// difference on this framework: roughly 8% of one core and 396 MB against 19-30% and 524 MB.
+    ///
+    /// Everywhere else, `ComposedWindow`, and not because it is better here. **The control window
+    /// has exactly one backend and it is Windows'**: `av-gui-webview` declares `tao`/`wry` under
+    /// `cfg(windows)` alone, and `av-operator-app` answers `NativeUnavailable` for the kind
+    /// elsewhere *before* it binds. So off Windows the choice is a composed window or no window,
+    /// and a bench an operator cannot open is not a bench. The cost is real and is paid in the
+    /// package rather than in the code: CEF's framework and four helper bundles.
+    ///
+    /// The one macOS caveat, recorded so nobody reads it as a defect: `av-gui-shell`'s macOS
+    /// backend passes an empty content slice to the compositor, so an application's 3D scene is
+    /// not drawn behind the page. This bench has no scene to lose.
+    const UI: UiKind = if cfg!(windows) {
+        UiKind::ControlWindow
+    } else {
+        UiKind::ComposedWindow
+    };
 
     fn display_name() -> &'static str {
         "Portal Test Bench"

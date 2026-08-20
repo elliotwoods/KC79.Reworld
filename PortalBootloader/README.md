@@ -7,6 +7,20 @@ sits above it at `0x08006000`.
 pio run -e bootloader          # what goes on a board
 ```
 
+or, from the repository root and on either platform — it finds `pio` wherever the installer put it,
+and checks the image against the 24 kB bank and its reset vector before reporting success:
+
+```sh
+node tools/build-firmware.mjs --env bootloader
+```
+
+The platform is pinned (`platform = ststm32@19.6.0`) and has to be. Unpinned, PlatformIO resolves
+whatever release a machine already carries: on one with 17.6.0 installed that is
+`framework-stm32cubeg0@1.5.0`, whose `HAL_UART_Transmit` takes a **non-`const`** `uint8_t *pData`,
+so `Logger.cpp` and `SerialStream.cpp` fail to compile against sources that pass a `const uint8_t *`.
+The build succeeded on the machine that happened to have 19.x and nowhere else. See the repository
+[`README.md`](../README.md) for the build and packaging workflows this project feeds.
+
 `PortalFlasher` finds `.pio/build/bootloader/firmware.bin` automatically and prefers it over the
 committed reference image from that point on.
 

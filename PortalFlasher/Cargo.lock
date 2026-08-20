@@ -166,6 +166,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "av-control-surface-electra-mini-fw"
+version = "0.1.0"
+dependencies = [
+ "av-control-surface",
+ "av-plugin",
+]
+
+[[package]]
 name = "av-control-surface-electra-one"
 version = "0.1.0"
 dependencies = [
@@ -300,6 +308,7 @@ dependencies = [
  "av-app-registry",
  "av-app-support",
  "av-control-surface",
+ "av-control-surface-electra-mini-fw",
  "av-control-surface-electra-one",
  "av-control-surface-remote",
  "av-gui-bus",
