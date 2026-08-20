@@ -23,7 +23,6 @@ av-app-support  = { path = "third_party/av-frameworks/crates/av-app-support" }
 # see `reports_dir` in portal-test-bench.
 av-app-registry  = { path = "third_party/av-frameworks/crates/av-app-registry" }
 av-app-icon     = { path = "third_party/av-frameworks/crates/av-app-icon" }
-av-app-registry = { path = "third_party/av-frameworks/crates/av-app-registry" }
 av-gui-host     = { path = "third_party/av-frameworks/crates/av-gui-host" }
 
 # --- siblings in this repository -------------------------------------------------------
