@@ -4,7 +4,7 @@
 # exclusion also keeps `cargo fmt`/`clippy` from reaching through and dirtying *that* checkout.
 [workspace]
 resolver = "3"
-members = ["crates/bench-core", "crates/portal-test-bench", "crates/ptb", "crates/av-gui-subprocess"]
+members = ["crates/bench-core", "crates/portal-test-bench", "crates/ptb"]
 exclude = ["third_party/av-frameworks"]
 
 [workspace.package]

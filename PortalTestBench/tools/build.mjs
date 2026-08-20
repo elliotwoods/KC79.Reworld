@@ -23,10 +23,10 @@
 //     and a shell that has wandered in there builds the framework instead, successfully, with
 //     nothing saying so.
 //
-// One thing this build has that the PowerShell one did not: `av-gui-subprocess`. It is the CEF
-// helper, it is a member of this workspace rather than of a dependency, and Cargo does not build
-// binary targets belonging to a dependency -- so it has to be named here or `av_gui_shell::run`
-// answers `SubprocessMissing` at startup off Windows.
+// There is deliberately no `av-gui-subprocess` here. That crate is the CEF helper, which a
+// `composed-window` application must carry as a workspace member because Cargo will not build a
+// binary target belonging to a dependency. This application declares `control-window` on both
+// platforms and never launches a CEF process, so it needs none.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -39,7 +39,7 @@ const web = path.join(app, 'web');
 const dist = path.join(web, 'dist');
 
 /** Every binary this workspace ships. Order is cosmetic; membership is not. */
-const PACKAGES = ['portal-test-bench', 'ptb', 'av-gui-subprocess'];
+const PACKAGES = ['portal-test-bench', 'ptb'];
 
 function parseArgs(argv) {
   const options = { release: false, skipWeb: false };

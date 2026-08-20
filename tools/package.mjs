@@ -50,8 +50,8 @@ import { ENVIRONMENTS, artefactPaths, verifyBuilt } from './firmware.mjs';
 const root = repoRoot();
 const bench = path.join(root, 'PortalTestBench');
 
-/** Shipped beside the bench. `av-gui-subprocess` is added on the platforms that launch it. */
-const BINARIES = ['portal-test-bench', 'ptb', 'av-gui-subprocess'];
+/** Shipped beside the bench: the window, and the CLI an agent drives the same bench with. */
+const BINARIES = ['portal-test-bench', 'ptb'];
 
 function parseArgs(argv) {
   const options = {
@@ -329,9 +329,14 @@ main(() => {
   } else {
     fs.writeFileSync(path.join(staging, 'README.txt'), readme(meta, rows, platform));
     // Everything beside the executable, which is the layout `resources_dir()` looks for first.
-    // The CEF payload is already there: `av-gui-cef-sys`'s build script hard-links it into
-    // `target/<profile>` because `libcef.dll` is resolved through the import table before `main`
-    // runs, so it cannot be staged later by the program itself.
+    //
+    // **The CEF payload travels on Windows and not on macOS, and that asymmetry is real.** This
+    // application opens a control window and never calls into CEF on either platform -- but
+    // `av-gui-cef-sys` links `libcef` as an import library on Windows, so `libcef.dll` is
+    // resolved through the executable's import table *before `main` runs* whether anything uses
+    // it or not. The macOS shim `dlopen`s the framework lazily instead, so a control-window run
+    // there never loads it: measured, `vmmap` reports zero CEF images in a live process. Dropping
+    // it from the Windows package would produce an executable that cannot start.
     step('Staging binaries and the CEF payload');
     for (const entry of fs.readdirSync(targetDir, { withFileTypes: true })) {
       if (entry.isDirectory() && entry.name !== 'locales') continue;

@@ -51,27 +51,24 @@ Both platforms need **Rust 1.96** (pinned in `PortalTestBench/rust-toolchain.tom
 node PortalTestBench/tools/bootstrap.mjs   # links the framework, npm ci, and fetches CEF
 ```
 
-Two things that catch people, both one-time and both handled or reported by that script:
+**CEF is a build prerequisite here, and only that.** `av-operator-app` depends on `av-gui-shell`
+unconditionally, so `av-gui-cef-sys` compiles on every target and its build script panics without
+`vendor/cef`. About 124 MB downloaded, ~574 MB unpacked, once, into a cache shared by every
+checkout on the machine. **Nothing loads it at run time**: this application opens a control window
+on WKWebView, and `vmmap` on a live process reports zero CEF images. No Vulkan SDK is needed at
+all, for building or for running.
 
-- **CEF is a build prerequisite here, not a runtime payload.** Off Windows the bench opens a
-  *composed* window, so `av-gui-shell` compiles `av-gui-cef-sys`, whose build script panics without
-  `vendor/cef`. About 124 MB downloaded, ~574 MB unpacked, into a cache shared by every checkout on
-  the machine.
-- **The window composites through MoltenVK**, and `ash` `dlopen`s `libvulkan.dylib` by *bare name*
-  from the LunarG SDK under your home directory. Install the SDK, then:
-
-  ```sh
-  . PortalFlasher/third_party/av-frameworks/tools/setup-env-macos.sh
-  ```
-
-  Without it the window reports `NoAdapter`, which reads as "this machine has no GPU". `--headless`
-  needs none of it, and neither does anything to do with firmware.
+That is the opposite way round on Windows, and the asymmetry matters before you trim a package:
+there `av-gui-cef-sys` links `libcef` as an import library, so `libcef.dll` is resolved through the
+executable's import table *before `main` runs* whether anything calls it or not.
 
 ### Windows, additionally
 
-MSVC, and the **WebView2 Runtime** at run time (Windows 11 ships it). The bench declares a *control*
-window there — lighter, and measurably so: roughly 8% of one core and 396 MB against 19–30% and
-524 MB. See `crates/portal-test-bench/src/main.rs` for why the two platforms differ.
+MSVC, and the **WebView2 Runtime** at run time (Windows 11 ships it; a Windows 10 image may not).
+The bench declares a control window on both platforms — WebView2 here, WKWebView on macOS — which
+is the lightest kind that carries it: no compositor, no CEF payload, no helper process. Measured
+idle difference against a composed window on this framework: roughly 8% of one core and 396 MB
+against 19–30% and 524 MB.
 
 `powershell -File PortalTestBench\tools\bootstrap.ps1` still works and always will; it is three
 lines that call the same `.mjs`.
@@ -152,15 +149,14 @@ portal-test-bench --simulate   a modelled module: no probe, no port, no board
 ptb state                      the same bench, for an agent or a script
 ```
 
-On macOS a **native** run needs a bundle — CEF resolves its framework relative to the main bundle
-and finds nothing beside a bare binary:
+On macOS the bare binary opens its window perfectly well — this shell loads no CEF framework and
+launches no helper processes, so there is nothing for a bundle to resolve. Bundle it when you want
+the application's own Dock icon, menu-bar name and signature rather than the terminal's:
 
 ```sh
 node PortalTestBench/tools/bundle-macos.mjs --profile debug
 open PortalTestBench/target/debug/bundle/PortalTestBench.app
 ```
-
-`--headless` needs none of that, on either platform.
 
 ---
 
@@ -180,16 +176,13 @@ no Rust, no Node and no PlatformIO on the far machine.**
 macOS                                     Windows
   PortalTestBench.app/Contents/             portal-test-bench.exe
     MacOS/  portal-test-bench               ptb.exe
-            ptb                             av-gui-subprocess.exe
-            av-gui-subprocess               libcef.dll + payload, locales/
-    Frameworks/                             resources/
-      Chromium Embedded Framework             plans/*.toml
-      PortalTestBench Helper{,(Renderer),     firmware/...
-                             (GPU),(Alerts)}.app
-      libvulkan / libMoltenVK / ICD
-    Resources/  plans/  firmware/
+            ptb                             libcef.dll + payload, locales/
+    Resources/  plans/  firmware/           resources/  plans/  firmware/
   README.txt                                README.txt
 ```
+
+The macOS side is about 20 MB and the Windows side is not, for the import-table reason above:
+`libcef.dll` has to travel there even though nothing ever calls it.
 
 The payload sits beside the executable on Windows and in `Contents/Resources` inside a bundle,
 because `Contents/MacOS` is for executables and every macOS convention expects data in
@@ -232,23 +225,9 @@ after one right-click → Open, and not enough to open on a double-click. `--sig
 real Developer ID; notarisation is a further step this script does not do. `README.txt` in the
 package tells the recipient which of those they are holding.
 
-Signing is inside-out — the CEF framework, then each helper, then the app — because a nested bundle
-signed after its container invalidates the container. The bundler then runs
-`codesign --verify --deep --strict` and fails if it does not hold, because `codesign` succeeding
-says the signature was *written*, not that it is valid, and an invalid one costs a renderer process
-rather than an error message.
-
-### Two numbers worth expecting
-
-The bundler prints `helpers 4/4`. All four exist for a reason recorded in the framework's own
-bundler: Chromium rewrites the helper's base name for a renderer, so a bundle carrying only the base
-helper launches its GPU and utility processes perfectly and **can never launch a renderer** — with
-no crash, no log, and a window that serves the page and draws nothing.
-
-It also says whether MoltenVK was staged. If it was not, the `.app` runs `--headless` anywhere and
-fails to open its window on any machine without the SDK. That is the one thing about this package
-that is not self-contained by construction, so it is reported on every run rather than discovered by
-whoever you gave it to.
+There are no nested bundles to sign — no CEF framework, no helper apps — so signing is one call
+followed by `codesign --verify --deep --strict`, which is a hard gate: `codesign` succeeding says
+the signature was *written*, not that it is valid.
 
 ---
 
@@ -260,12 +239,7 @@ that cannot:
 1. Unpack it on a machine with **no repository, no Rust, no Node, no PlatformIO**, and open it.
 2. `curl http://127.0.0.1:8770/api/bench/firmware` — `missing` must be empty, `root` must be inside
    the package, and all four artefacts must read `fits: true`.
-3. On macOS, confirm a renderer actually launched:
-   ```sh
-   ps -ax -o command | grep "PortalTestBench Helper" | grep -o -- "--type=[a-z.-]*" | sort | uniq -c
-   ```
-   A `--type=renderer` must be in that list. Zero validation errors is not evidence about the
-   picture; look at the window.
+3. Look at the window. It is the one check nothing automated here replaces.
 4. **Flash a board with it** — bootloader plus the v6 application, chip-erase, full 128 kB readback
    verify, and the boot check reaching the running application. That is the only test that covers
    every path the package touched.

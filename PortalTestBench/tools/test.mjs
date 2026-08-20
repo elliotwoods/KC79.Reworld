@@ -127,7 +127,6 @@ main(() => {
     '-p', 'bench-core',
     '-p', 'portal-test-bench',
     '-p', 'ptb',
-    '-p', 'av-gui-subprocess',
     '--all-targets',
     '--all-features',
     '--',

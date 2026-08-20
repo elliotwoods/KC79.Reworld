@@ -97,28 +97,18 @@ struct PortalTestBenchApp {
 impl OperatorApp for PortalTestBenchApp {
     const NAME: &'static str = "portal-test-bench";
 
-    /// The lightest window kind that carries this product, per platform.
+    /// The lightest window kind that carries this product.
     ///
-    /// On Windows, `ControlWindow`. Nothing is drawn *underneath* this page -- the live plots are
-    /// canvas in the DOM, and there is no camera, no 3D and no video -- so the compositor, the
-    /// CEF payload and the helper subprocess would all be cost with nothing bought. Measured idle
-    /// difference on this framework: roughly 8% of one core and 396 MB against 19-30% and 524 MB.
+    /// Nothing is drawn *underneath* this page. The live plots are canvas in the DOM, and there
+    /// is no camera, no 3D and no video -- so the compositor, the CEF payload and the helper
+    /// subprocess would all be cost with nothing bought. Measured idle difference on this
+    /// framework: roughly 8% of one core and 396 MB against 19-30% and 524 MB.
     ///
-    /// Everywhere else, `ComposedWindow`, and not because it is better here. **The control window
-    /// has exactly one backend and it is Windows'**: `av-gui-webview` declares `tao`/`wry` under
-    /// `cfg(windows)` alone, and `av-operator-app` answers `NativeUnavailable` for the kind
-    /// elsewhere *before* it binds. So off Windows the choice is a composed window or no window,
-    /// and a bench an operator cannot open is not a bench. The cost is real and is paid in the
-    /// package rather than in the code: CEF's framework and four helper bundles.
-    ///
-    /// The one macOS caveat, recorded so nobody reads it as a defect: `av-gui-shell`'s macOS
-    /// backend passes an empty content slice to the compositor, so an application's 3D scene is
-    /// not drawn behind the page. This bench has no scene to lose.
-    const UI: UiKind = if cfg!(windows) {
-        UiKind::ControlWindow
-    } else {
-        UiKind::ComposedWindow
-    };
+    /// One kind on both platforms, which it briefly was not. `av-gui-webview` was Windows-only,
+    /// so a macOS window meant declaring `composed-window` and dragging in CEF and Vulkan to draw
+    /// a page that wanted neither. The crate covers WKWebView now, and this went back to being a
+    /// single line.
+    const UI: UiKind = UiKind::ControlWindow;
 
     fn display_name() -> &'static str {
         "Portal Test Bench"

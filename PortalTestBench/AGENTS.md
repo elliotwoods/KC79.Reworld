@@ -39,25 +39,35 @@ worked example; copy its idioms rather than inventing new ones.
    compile time. A Rust-first build embeds the previous bundle and serves a stale page, which
    reads as a host bug rather than a missing build step. `tools/build.mjs` enforces the order.
 
-4. **The window kind is per-platform, and the manifest cannot say so.** `av-app.toml` declares
-   `ui = "composed-window"` — the widest kind this app opens — while `OperatorApp::UI` narrows to
-   `control-window` on Windows, where nothing is drawn underneath the page and the compositor, the
-   CEF payload and the helper subprocess would all be cost with nothing bought (measured: ~8% of
-   one core and 396 MB against 19–30% and 524 MB). Off Windows there is no choice to make:
-   `av-gui-webview` declares `tao`/`wry` under `cfg(windows)` alone and `av-operator-app` answers
-   `NativeUnavailable` for `control-window` elsewhere *before* it binds.
+4. **This app is `ui = "control-window"` and must NOT have an `av-gui-subprocess` crate.**
+   Nothing is drawn underneath the page — the plots are canvas in the DOM. The CEF helper is a
+   `composed-window` requirement; `check-av-app.ps1` warns (AVAPP115) if a control-window app
+   ships one. PortalFlasher has one only because its manifest omits `ui`.
 
-   Consequences: this workspace **does** carry `crates/av-gui-subprocess` (AVAPP111–114 require it
-   for a composed-window app), and the Windows build ships a helper it never launches. Do not
-   "simplify" the manifest back to `control-window` without also reverting the const — the pair is
-   what makes `check-av-app.ps1` pass on both platforms.
+   This was briefly `composed-window`, and the reason is worth carrying because it looked like a
+   platform fact and was not. `av-gui-webview` declared `tao`/`wry` under `cfg(windows)` alone, so
+   `av-operator-app` answered `NativeUnavailable` for `control-window` off Windows and a macOS
+   window meant declaring the heavier kind — a CEF payload, four helper bundles and a Vulkan
+   compositor, to draw a page that needed none of them. tao and wry cover WKWebView; the crate had
+   simply never been built there. Porting it was five `cfg` gates. **Before accepting a platform
+   limit, check whether it is a limit or an untried path.**
 
-5. **Building on macOS needs CEF vendored and a Vulkan SDK sourced.** `av-gui-cef-sys`'s build
-   script *panics* without `vendor/cef` there, headless or not; `tools/bootstrap.mjs` fetches it.
+5. **CEF is a build prerequisite on macOS and a run-time one on Windows.** `av-operator-app`
+   depends on `av-gui-shell` unconditionally, so `av-gui-cef-sys` compiles everywhere and its build
+   script panics without `vendor/cef`; `tools/bootstrap.mjs` fetches it. Nothing loads it at run
+   time here — `vmmap` on a live macOS process reports zero CEF images — but on Windows `libcef`
+   is an *import library*, so `libcef.dll` is resolved through the import table before `main` runs
+   whether anything calls it or not. That is why the Windows package carries the payload and the
+   macOS bundle does not.
+
    `PortalTestBench/.cargo/config.toml` carries the `-Wl,-U,_cef_*` allowances, regenerated with
-   `nm -u` over the shim objects rather than copied — cargo config does not inherit across
-   workspaces, and the framework's own list has been out of step before. The Vulkan SDK is only
-   needed for a *native* run; `--headless` needs none of it.
+   `nm -u` over the shim objects rather than copied: cargo config does not inherit across
+   workspaces, and the framework's own list has been out of step before. They are still needed —
+   the shim's objects reach the link line even though nothing calls into them.
+
+   And the trap that cost a release build: **cargo reads `.cargo/config.toml` from the working
+   directory upwards, not from `--manifest-path`.** Set both, always. A build invoked from the
+   repository root silently drops every flag in that file and fails at link.
 
 ## Where behaviour lives
 
@@ -113,10 +123,11 @@ The framework's acceptance gates apply (`application-contract.md` §6) and are n
   (`check-av-app.ps1`) is PowerShell and part of the pinned submodule, so it **skips on macOS and
   says so**: run it on Windows before a release. `tools/{bootstrap,build,test}.ps1` still exist and
   are three-line wrappers around the same `.mjs`
-- **Screenshots**: the flagless native window (on Windows a `control-window`, including the page's
-  own caption strip actually dragging and all three window buttons working; on macOS a
-  `composed-window`, out of a bundle — CEF resolves its framework relative to the main bundle and
-  finds nothing beside a bare binary), the same UI in a browser, and `--headless` opening no window
+- **Screenshots**: the flagless native window on both shells — on Windows a frameless WebView2
+  window, including the page's own caption strip actually dragging and all three window buttons
+  working; on macOS a decorated WKWebView window, where AppKit draws the traffic lights and the
+  page draws no caption strip at all — plus the same UI in a browser, and `--headless` opening no
+  window
 - **For a package**: the checks in the repository [`README.md`](../README.md) under "Verifying a
   package" — unpacked on a machine with no repository, `missing` empty in
   `/api/bench/firmware`, a `--type=renderer` in the process tree, and a real board flashed

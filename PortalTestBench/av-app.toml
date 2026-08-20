@@ -1,21 +1,21 @@
 contract_version = 1
 class = "operator-app"
 
-# The widest window kind this application can open, which is what the contract asks us to
-# declare (application-contract.md, 1a) and what `check-av-app.ps1` reads.
+# Nothing is drawn *underneath* this page: the live plots are canvas in the DOM, and there is no
+# camera, no 3D and no video. `control-window` is therefore the lightest kind that carries the
+# product, which the contract asks us to declare (application-contract.md, 1a).
 #
-# It is not the whole truth on every platform, and the manifest has no platform axis to say so.
-# `OperatorApp::UI` in crates/portal-test-bench narrows to `control-window` on Windows, where
-# nothing is drawn underneath this page -- the live plots are canvas in the DOM, and there is no
-# camera, no 3D and no video -- and the composed window's compositor, CEF payload and helper
-# subprocess would all be cost with nothing bought.
+# It is one declaration for both platforms, which it briefly was not: the control window used to
+# have a single backend and it was Windows', so this app was declared `composed-window` and paid
+# for a CEF payload, four helper bundles and a Vulkan compositor on macOS to open a window over a
+# page that needed none of it. `av-gui-webview` covers WKWebView now, so the honest declaration
+# and the cheap one are the same again.
 #
-# Off Windows there is no such choice to make. `av-gui-webview` declares `tao`/`wry` under
-# `cfg(windows)` alone, and `av-operator-app` answers `NativeUnavailable` for `control-window`
-# elsewhere before it binds. So the kind declared here is `composed-window`, this workspace
-# carries `crates/av-gui-subprocess` (AVAPP111-114), and the Windows build simply never launches
-# the helper it ships.
-ui = "composed-window"
+# It also means this app must NOT carry an `av-gui-subprocess` crate -- the CEF helper is a
+# `composed-window` requirement, and check-av-app.ps1 warns (AVAPP115) if a control-window app
+# ships one. PortalFlasher carries one only because its manifest omits `ui` and defaults to
+# composed-window.
+ui = "control-window"
 
 native_default = true
 headless_supported = true
