@@ -4,8 +4,9 @@
 //! - RX has priority; no TX within `gap_after_last_rx_ms` (5) of the last RX.
 //! - A `needs_ack` packet waits up to `response_window_ms` (300) for any
 //!   frame whose *source* equals the packet's target.
-//! - Broadcasts (no ACK) sleep `gap_between_broadcast_sends_ms` (100), or the
-//!   packet's `custom_wait_time_ms` when set (0 = no wait).
+//! - Broadcasts (no ACK) sleep `gap_between_broadcast_sends_ms` (100 for
+//!   V1/V2 compatibility; Reworld V3 configures 5), or the packet's
+//!   `custom_wait_time_ms` when set (0 = no wait).
 //! - Outbox collation happens just before draining.
 
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
@@ -35,6 +36,47 @@ impl Default for Rs485Params {
             gap_after_last_rx_ms: 5,
             collate_packets: true,
         }
+    }
+}
+
+impl Rs485Params {
+    /// Apply optional transport timing from the same per-column `rs485` JSON
+    /// object used by the legacy Router. Missing values intentionally retain
+    /// the V1/V2-compatible 100 ms default; Reworld V3 configs opt into 5 ms.
+    pub fn apply_settings(&mut self, settings: &serde_json::Value) {
+        if let Some(value) = settings
+            .get("Gap between broadcast sends [ms]")
+            .and_then(|value| value.as_u64())
+            .filter(|value| *value <= u32::MAX as u64)
+        {
+            self.gap_between_broadcast_sends_ms = value as u32;
+        }
+    }
+}
+
+#[cfg(test)]
+mod params_tests {
+    use super::Rs485Params;
+    use serde_json::json;
+
+    #[test]
+    fn legacy_default_is_unchanged() {
+        assert_eq!(Rs485Params::default().gap_between_broadcast_sends_ms, 100);
+    }
+
+    #[test]
+    fn reworld_v3_gap_is_read_from_rs485_settings() {
+        let mut params = Rs485Params::default();
+        params.apply_settings(&json!({"Gap between broadcast sends [ms]": 5}));
+        assert_eq!(params.gap_between_broadcast_sends_ms, 5);
+    }
+
+    #[test]
+    fn absent_or_invalid_gap_retains_compatible_default() {
+        let mut params = Rs485Params::default();
+        params.apply_settings(&json!({"Gap between broadcast sends [ms]": -1}));
+        params.apply_settings(&json!({"Gap between broadcast sends [ms]": "5"}));
+        assert_eq!(params.gap_between_broadcast_sends_ms, 100);
     }
 }
 

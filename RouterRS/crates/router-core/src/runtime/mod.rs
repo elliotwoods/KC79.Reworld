@@ -56,6 +56,12 @@ impl RuntimeHandle {
         self.snapshot.lock().unwrap().clone()
     }
 
+    /// The shared snapshot slot, for a consumer thread that outlives this handle's borrow
+    /// (e.g. a GUI bridge). Reading it is one mutex-guarded `Arc` clone, same as `snapshot`.
+    pub fn snapshot_slot(&self) -> Arc<Mutex<Arc<UiSnapshot>>> {
+        self.snapshot.clone()
+    }
+
     pub fn shutdown(mut self) {
         self.shutdown_impl();
     }
@@ -270,6 +276,42 @@ fn handle_command(
         TakeCurrentPosition { col, portal } => {
             if let Some(p) = installation.portal(col, portal) {
                 p.pilot.take_current_position();
+            }
+        }
+        PilotAll { col, position } => {
+            // Clamp to the unit circle (the C++ pad clamps at input; re-clamp for API callers).
+            let position = if position.length() > 1.0 {
+                position.normalize()
+            } else {
+                position
+            };
+            let first_pilot = |installation: &Installation, col: usize| {
+                installation
+                    .columns
+                    .get(col)
+                    .and_then(|c| c.portals.first())
+                    .map(|p| {
+                        let polar = crate::model::kinematics::position_to_polar(position);
+                        let axes = p.pilot.polar_to_axes(polar);
+                        (
+                            p.pilot.axis_to_steps(axes.x, 0),
+                            p.pilot.axis_to_steps(axes.y, 1),
+                        )
+                    })
+            };
+            match col {
+                None => {
+                    if let Some((a, b)) = first_pilot(installation, 0) {
+                        installation.broadcast(&router_proto::commands::move_steps(a, b), true);
+                    }
+                }
+                Some(col_index) => {
+                    if let Some((a, b)) = first_pilot(installation, col_index) {
+                        if let Some(column) = installation.column(col_index) {
+                            column.broadcast(&router_proto::commands::move_steps(a, b), true);
+                        }
+                    }
+                }
             }
         }
         PerformAction { scope, action } => match scope {
@@ -622,6 +664,11 @@ fn handle_command(
         SourceSetParams { index, params } => {
             if let Some(source) = renderer.sources.get_mut(index) {
                 source.deserialise(&params);
+            }
+        }
+        ClearPortalLog { col, portal } => {
+            if let Some(p) = installation.portal(col, portal) {
+                p.logger.messages.clear();
             }
         }
         Marker(label) => reporter.emit(router_report::Event::Marker { label }),

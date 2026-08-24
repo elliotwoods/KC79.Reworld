@@ -87,13 +87,20 @@ fn set_position_flows_to_simulated_hardware() {
     });
 
     // hardware should reach the target (simulator integrates motion; we poll
-    // the position like the C++ app does — live state only updates on rx)
+    // the position like the C++ app does — live state only updates on rx).
+    // The wait also requires the reported position to be near the commanded
+    // one: at startup firmware live == firmware target == local target (all
+    // defaults), so `in_target_position` alone is trivially true before the
+    // move has even been transmitted.
     assert!(
         wait_until(Duration::from_secs(10), || {
             handle.send(Command::PollPosition { col: 0, portal: 2 });
             let snap = handle.snapshot();
             let portal = &snap.columns[0].portals[1];
-            portal.in_target_position && portal.live_position.is_some()
+            portal.in_target_position
+                && portal
+                    .live_position
+                    .is_some_and(|live| (live - glam::vec2(0.5, 0.0)).length() < 0.01)
         }),
         "portal reaches target position"
     );

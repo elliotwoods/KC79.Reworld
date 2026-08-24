@@ -7,20 +7,45 @@ reports are viewed with the companion Node.js app in `../RouterReports`.
 
 ## Running
 
+The GUI is an **av-frameworks operator app**: a native control window (WKWebView on
+macOS, WebView2 on Windows) showing a web control page served by the app itself on
+`http://127.0.0.1:8780`, alongside the legacy REST (:8080) and OSC (:4000) servers.
+
 ```
-# GUI (loads ./config.json like the C++ app; same schema)
-cargo run -p router-app
+# Build the web page first (its bundle is served by the binary), then the app
+cd web && npm install && npm run build && cd ..
+cargo build -p router-operator
 
-# GUI against the in-process firmware simulator (no hardware)
-cargo run -p router-app -- --simulate --sim-dead 2,7 --sim-noisy 5
+# Native window + http://127.0.0.1:8780 (loads ../../config.json — cwd-independent)
+./target/debug/router
 
-# Headless runtime (REST + OSC + reporting; for soak tests / CI / bench)
+# Same page, no window (open it in any browser)
+./target/debug/router --headless
+
+# Against the in-process firmware simulator (no hardware)
+./target/debug/router --simulate --sim-dead 2,7 --sim-noisy 5
+
+# Headless runtime (REST + OSC + reporting only; for soak tests / CI / bench)
 cargo run -p router-headless -- --config config.json --simulate --poll 3 --duration 60
 ```
 
-Common flags: `--config <path>`, `--report-dir <dir>`, `--verbose` (raw
-packet logging), `--simulate` with `--sim-dead <ids>`, `--sim-noisy <ids>`,
-`--sim-drop <0..1>`, `--sim-corrupt <0..1>`.
+Common flags: `--config <path>` (also `ROUTER_CONFIG`), `--report-dir <dir>` (also
+`ROUTER_REPORTS`), `--verbose` (raw packet logging), `--port <n>` (insist on the HTTP
+port), `--simulate` with `--sim-dead <ids>`, `--sim-noisy <ids>`, `--sim-drop <0..1>`,
+`--sim-corrupt <0..1>`.
+
+Agents drive the same installation over `/api/router/*` on the app's HTTP port:
+`state`, `diagnostics`, `logs`, `ports`, `firmware` (list/upload/flash/erase/run),
+`files`, and a typed `POST /api/router/command` — everything converges on the same
+command queue as the page and the legacy servers.
+
+**Build prerequisites**: Node ≥ 22.13, Rust 1.96 (pinned by `rust-toolchain.toml`),
+and the CEF headers the framework's shim compiles against
+(`node third_party/av-frameworks/tools/fetch-cef.mjs`, cached per machine — needed to
+*build*, not to run; the control window itself uses the system webview). The framework
+is reached through the `third_party/av-frameworks` symlink into PortalFlasher's
+submodule and pinned by `framework.lock`. Build the web bundle before cargo, and run
+cargo from this directory (`.cargo/config.toml` carries macOS link flags).
 
 ## Feature parity with the C++ Router
 
@@ -66,8 +91,9 @@ feature; without it the source loads but renders black with a status note.
   percentiles), per-portal health scoring (ACK rate, latency, firmware
   error-log rate, silence-while-polled, calibration flags) with an
   ok/degraded/faulty/silent state machine and hysteresis.
-- A Diagnostics panel in the GUI: connection table, worst-units list, live
-  fault feed, verbose toggle, operator markers, on-demand summary.
+- A Diagnostics panel in the GUI: KPI tiles, an installation health heatmap,
+  connection table, worst-units list, live fault feed, verbose toggle,
+  operator markers, on-demand summary.
 - NDJSON session logs + JSON summaries in `reports/` (schema:
   `docs/report-schema.md`), consumed by `../RouterReports`.
 - An in-process firmware simulator (`--simulate`) with fault injection
@@ -82,8 +108,28 @@ feature; without it the source loads but renders black with a status note.
 | `router-core` | model, kinematics, RS485 workers, simulator, config, image pipeline, OSC/REST servers, runtime |
 | `router-report` | NDJSON reporter, aggregation, health scoring, summary builder |
 | `router-headless` | CLI runtime |
-| `router-app` | iced GUI |
+| `router-operator` | the `router` binary: av-frameworks operator app (schema, bridge, `/api/router/*`) |
+
+The control page lives in `web/` (React 19 + Vite, `@auroravision/av-gui`); its
+tests run with `npm test`. The schema/bridge design follows PortalTestBench's
+idioms: action counters, desired/observed splits, one bridge thread between the
+bus and the runtime actor, documents over HTTP. Dynamic structure (rebuild
+columns, add/remove sources) re-seals the schema at runtime.
 
 `cargo test --workspace` runs protocol goldens, kinematics goldens, config
 round-trips, collation property tests, and full-stack integration tests
 against the simulator.
+
+## Deliberate deltas from the C++ GUI
+
+- RS485 debug print toggles (Print Tx/Rx/broken msgpack/ACK time) are superseded
+  by the NDJSON reporter's verbose mode.
+- OSC/REST enable + port are config-file settings (`config.json` "Receiver" /
+  "Server"), shown as observed facts in the GUI.
+- MotionControl measure settings and MotorDriver testTimer count/period ride the
+  firmware defaults (as in the iced GUI); the routines themselves are exposed.
+- Per-source preview thumbnails are replaced by the live composited preview.
+- File selection happens through server-side listings plus browser upload
+  (a webview file picker yields content, not paths): firmware `.bin`s from
+  `firmware/`/`ROUTER_FIRMWARE`/the per-user upload store, videos from
+  `media/`/`ROUTER_MEDIA`.

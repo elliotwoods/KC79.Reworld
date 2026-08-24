@@ -1,0 +1,804 @@
+/* Router page layout and product-specific chrome. Colours, type and control skins come from
+   the framework's styles.css tokens; this file arranges the product's own structure and adds
+   the canvas palette extras. */
+
+.router {
+  --router-grid-line: rgba(255, 255, 255, 0.13);
+  --router-live: #4c8cff;
+  --router-target: #f2f2f2;
+  --router-ok: #3fcf6e;
+  --router-surface-tint: rgba(255, 255, 255, 0.03);
+
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+/* ---------------------------------------------------------------- top bar */
+
+.router-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 4px 12px 0;
+  flex-wrap: wrap;
+}
+
+.topbar-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.topbar-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--text-xs, 11px);
+  color: var(--text-muted);
+}
+
+/* ---------------------------------------------------------------- layout */
+
+.router-main {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  padding: 8px 12px;
+  gap: 12px;
+}
+
+.router-center {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+}
+
+.inspector {
+  width: 360px;
+  flex-shrink: 0;
+  overflow: auto;
+  border-left: 1px solid var(--border);
+  padding-left: 12px;
+}
+
+@media (max-width: 1280px) {
+  .inspector {
+    width: 320px;
+  }
+}
+
+@media (max-width: 1000px) {
+  /* Stacked layout: ONE scroll container with children at natural height. The desktop rules
+     (`.router-center { flex: 1; overflow: auto }`) are poison here — in a column, `flex: 1`
+     means flex-basis 0 and overflow:auto grants a zero min-size, so the centre panel
+     collapsed to nothing while the inspector's content overflowed into the framework's
+     `#root { overflow: clip }`, which refuses to scroll at all. */
+  .router-main {
+    flex-direction: column;
+    overflow-y: auto;
+  }
+  .router-center {
+    flex: none;
+    overflow: visible;
+  }
+  .inspector {
+    flex: none;
+    width: auto;
+    overflow: visible;
+    border-left: none;
+    border-top: 1px solid var(--border);
+    padding-left: 0;
+    padding-top: 8px;
+  }
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.row.wrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.placeholder {
+  color: var(--text-faint);
+}
+
+/* ---------------------------------------------------------------- facts & chips */
+
+.fact {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: var(--text-sm, 12px);
+  padding: 2px 0;
+}
+
+.fact-label {
+  color: var(--text-muted);
+}
+
+.fact-value {
+  font-family: var(--font-mono);
+}
+
+.fact.is-warn .fact-value {
+  color: var(--warn);
+}
+
+.fact.is-error .fact-value {
+  color: var(--danger);
+}
+
+.fact-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  column-gap: 16px;
+}
+
+.chip {
+  font-size: var(--text-xs, 11px);
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 1px 8px;
+  white-space: nowrap;
+}
+
+.chip.is-warn {
+  color: var(--warn);
+  border-color: var(--warn-soft-border, var(--warn));
+}
+
+/* ---------------------------------------------------------------- broadcast actions */
+
+.broadcast-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.action-group {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.action-group[data-group='danger'] {
+  border-color: var(--danger-soft-border, var(--danger));
+}
+
+/* ---------------------------------------------------------------- installation */
+
+/* The broadcast actions, without panel chrome: the buttons are self-describing. */
+.installation-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+/* The wall: one continuous grid of portal lenses, headers spanning their columns. */
+.wall {
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.wall-and-pad {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+}
+
+.wall-columns {
+  flex-shrink: 0;
+}
+
+.wall-headers {
+  display: flex;
+  margin-bottom: 4px;
+}
+
+.wall-header-slot {
+  box-sizing: border-box;
+  min-width: 0;
+}
+
+.wall-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 2px 2px 4px;
+  font: inherit;
+  font-size: var(--text-sm, 12px);
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.wall-header:hover {
+  color: var(--text);
+}
+
+.wall-header.is-selected {
+  border-bottom-color: var(--accent);
+  color: var(--text);
+}
+
+.wall-header-name {
+  font-weight: var(--weight-semibold, 600);
+  font-family: var(--font-mono);
+}
+
+.link-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.link-dot.is-ok {
+  background: var(--router-ok);
+}
+
+.link-dot.is-down {
+  background: var(--danger);
+}
+
+.pilot-all {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-start;
+  flex-shrink: 0;
+}
+
+.pilot-all-label {
+  font-size: var(--text-xs, 11px);
+  letter-spacing: var(--tracking-label, 0.08em);
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.quiet-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 2px 10px;
+  font: inherit;
+  font-size: var(--text-xs, 11px);
+}
+
+.quiet-button:hover {
+  color: var(--text);
+  border-color: var(--border-strong, var(--border));
+}
+
+/* ---------------------------------------------------------------- inspector */
+
+.breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  color: var(--text-faint);
+  font-size: var(--text-sm, 12px);
+}
+
+.breadcrumb button {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 0;
+  font: inherit;
+}
+
+.breadcrumb button:hover {
+  color: var(--text);
+}
+
+.crumb-current {
+  color: var(--text);
+  font-weight: var(--weight-semibold, 600);
+}
+
+.portal-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.portal-id {
+  font-size: var(--text-lg, 16px);
+  font-weight: var(--weight-bold, 700);
+  font-family: var(--font-mono);
+}
+
+.last-log {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs, 11px);
+  padding: 4px 8px;
+  border-left: 2px solid var(--border);
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.last-log.is-warn {
+  border-color: var(--warn);
+  color: var(--warn);
+}
+
+.last-log.is-error {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+/* pilot sub-panel */
+
+.pilot-disk-row {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.pilot-numbers {
+  flex: 1;
+  min-width: 160px;
+}
+
+.dial-row {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.dial-block {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: center;
+}
+
+.dial-quick {
+  display: flex;
+  gap: 2px;
+}
+
+.axis-dial-wrap {
+  position: relative;
+  display: inline-block;
+}
+
+.dial-edit {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.dial-edit input {
+  width: 90px;
+  text-align: center;
+  font-family: var(--font-mono);
+  background: var(--surface, #16181d);
+  color: var(--text);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  padding: 3px 6px;
+}
+
+/* device picker */
+
+.device-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.choice-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  cursor: pointer;
+  padding: 6px 10px;
+  text-align: left;
+  font: inherit;
+}
+
+.choice-row[data-selected='true'] {
+  border-color: var(--accent);
+}
+
+.choice-mark {
+  width: 14px;
+  color: var(--accent);
+}
+
+.choice-copy {
+  display: flex;
+  flex-direction: column;
+}
+
+.choice-copy small {
+  color: var(--text-faint);
+}
+
+.custom-device {
+  flex: 1;
+  min-width: 140px;
+  background: var(--surface, #16181d);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 8px;
+  font: inherit;
+}
+
+/* log viewer */
+
+.log-viewer {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs, 11px);
+  max-height: 400px;
+  overflow: auto;
+}
+
+.log-line {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 2px 4px;
+}
+
+.log-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  align-self: center;
+  border: 1px solid var(--text-faint);
+}
+
+.log-line.is-warn .log-dot {
+  border-color: var(--warn);
+}
+
+.log-line.is-error .log-dot {
+  background: var(--danger);
+  border-color: var(--danger);
+}
+
+.log-text {
+  overflow-wrap: anywhere;
+}
+
+.log-count {
+  margin-left: auto;
+  color: var(--text-faint);
+}
+
+/* ---------------------------------------------------------------- renderer */
+
+.source-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.source-card {
+  width: 260px;
+  border: 1px solid var(--border);
+  border-left-width: 3px;
+  border-radius: 10px;
+  padding: 8px;
+}
+
+.source-card.is-gradient {
+  border-left-color: var(--chart-1, var(--accent));
+}
+
+.source-card.is-text {
+  border-left-color: var(--chart-2, var(--accent));
+}
+
+.source-card.is-fileplayer {
+  border-left-color: var(--chart-3, var(--accent));
+}
+
+.source-card.is-spout {
+  border-left-color: var(--chart-4, var(--accent));
+}
+
+.source-card-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.source-type {
+  font-weight: var(--weight-semibold, 600);
+  flex: 1;
+}
+
+.icon-toggle {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  padding: 1px 6px;
+  opacity: 0.35;
+}
+
+.icon-toggle[data-on='true'] {
+  opacity: 1;
+  border-color: var(--accent);
+}
+
+.source-error {
+  color: var(--danger);
+  font-size: var(--text-xs, 11px);
+}
+
+.source-add {
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.source-add-label {
+  color: var(--text-faint);
+  font-size: var(--text-sm, 12px);
+}
+
+/* ---------------------------------------------------------------- servers & diagnostics */
+
+.wire-reference {
+  font-size: var(--text-xs, 11px);
+  color: var(--text-muted);
+  overflow-x: auto;
+}
+
+.hint-copy {
+  color: var(--text-muted);
+  font-size: var(--text-sm, 12px);
+}
+
+.kpi-row-local {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.stat-tile-local {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 8px 14px;
+  min-width: 110px;
+}
+
+.stat-tile-local-label {
+  font-size: var(--text-xs, 11px);
+  color: var(--text-muted);
+}
+
+.stat-tile-local-value {
+  font-size: var(--text-xl, 20px);
+  font-family: var(--font-mono);
+}
+
+.stat-tile-local.is-error .stat-tile-local-value {
+  color: var(--danger);
+}
+
+.table-scroll {
+  overflow-x: auto;
+}
+
+.diag-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm, 12px);
+  font-family: var(--font-mono);
+}
+
+.diag-table th {
+  text-align: left;
+  color: var(--text-faint);
+  font-weight: var(--weight-regular, 400);
+  padding: 2px 8px;
+}
+
+.diag-table td {
+  padding: 3px 8px;
+  border-top: 1px solid var(--border);
+}
+
+.diag-table tbody tr {
+  cursor: pointer;
+}
+
+.diag-table tbody tr:hover td {
+  background: var(--router-surface-tint);
+}
+
+.worst-row {
+  display: grid;
+  grid-template-columns: 110px 90px 1fr 70px 60px;
+  gap: 8px;
+  align-items: center;
+  width: 100%;
+  background: none;
+  border: none;
+  border-top: 1px solid var(--border);
+  color: var(--text);
+  cursor: pointer;
+  padding: 4px 0;
+  font: inherit;
+  font-size: var(--text-sm, 12px);
+  text-align: left;
+}
+
+.score-bar {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--router-surface-tint);
+  overflow: hidden;
+}
+
+.score-fill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+
+.fault-feed {
+  display: flex;
+  flex-direction: column;
+  font-size: var(--text-xs, 11px);
+  font-family: var(--font-mono);
+  max-height: 260px;
+  overflow: auto;
+}
+
+.fault-line {
+  display: flex;
+  gap: 10px;
+  padding: 2px 0;
+  border-top: 1px solid var(--border);
+  align-items: baseline;
+}
+
+.fault-kind {
+  color: var(--warn);
+  min-width: 90px;
+}
+
+.fault-detail {
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+  flex: 1;
+}
+
+/* ------------------------------------------------------------------------------- icons
+ *
+ * Every icon in `icons.tsx` is an inline SVG sized `1em`, so it inherits the font-size of
+ * whatever holds it and needs no per-site sizing. What it does need is for that holder to be
+ * a flex row: an SVG is replaced content and sits on the text baseline by default, which
+ * hangs it slightly low beside a cap-height label.
+ *
+ * `.btn` and `.tab` already do this in the framework's own stylesheet (`display: flex;
+ * align-items: center; gap`), so buttons and tabs are absent from this block deliberately —
+ * not overlooked. These are the containers that were text-only until icons arrived.
+ */
+
+.panel-head .label-caps,
+.status-item-label,
+.stat-tile-local-label,
+.source-type,
+.source-error,
+.fault-kind,
+.fact-value {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* The label-caps faces are mono with wide tracking, and the trailing letter-space would
+   otherwise read as an extra gap after the glyph. */
+.panel-head .label-caps,
+.status-item-label {
+  gap: 5px;
+}
+
+/* The one place `1em` is the wrong size. These two labels are `--text-xs`/`--text-2xs` — 11px
+   and smaller — and a 24-unit glyph drawn at 11px puts its strokes under a device pixel: the
+   `antenna` mark measured as an unreadable smudge, which is the same "several thin strokes
+   fuse into one blob" that `brand/marks.json` records for the application marks at 16-24px.
+   Sizing these off the label would mean choosing glyphs for the smallest container in the app.
+   14px with a heavier stroke is what reads, and it still sits inside the head's line box. */
+.panel-head .label-caps > svg,
+.status-item-label > svg {
+  width: 14px;
+  height: 14px;
+  stroke-width: 2.25;
+  flex: none;
+}
+
+/* A fault row aligns on the baseline so its columns line up; the glyph is the one child that
+   must centre on the text instead, or it sits a pixel low against the kind name. */
+.fault-line {
+  align-items: center;
+}
+
+/* The breadcrumb separator was a `▸` text child and is now an SVG, which no longer inherits
+   the muted colour through `.breadcrumb`'s `color` alone at this size. */
+.breadcrumb > svg {
+  color: var(--text-faint);
+  opacity: 0.7;
+  flex: none;
+}
+
+/* `.choice-mark` is a fixed 14px lead slot that was already reserved for a glyph — it held a
+   `✓`. The SVG is centred in it so a selected and an unselected row keep identical metrics. */
+.choice-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+}
+
+/* The source-card toggles are icon-only, so the box wants to be square rather than the
+   text-shaped pill `padding: 1px 6px` gave it. */
+.icon-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px;
+  line-height: 0;
+}
+
+/* The outbox chip's quiet form is a glyph and a bare number. */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}

@@ -1,0 +1,28 @@
+contract_version = 1
+class = "operator-app"
+
+# Nothing is drawn *underneath* this page: the installation grid, pilot disk, dials, heatmap
+# and image preview are all canvas in the DOM. `control-window` is therefore the lightest kind
+# that carries the product (application-contract.md, 1a) -- no CEF payload, no Vulkan
+# compositor, and this app must NOT carry an `av-gui-subprocess` crate (AVAPP115).
+ui = "control-window"
+
+native_default = true
+headless_supported = true
+rust_binary = "router"
+web_manifest = "web/package.json"
+web_entry = "web/src/main.tsx"
+
+# This product's acceptance inventory. The installation map is the product: an operator who
+# cannot see every portal's target and live position at once is flying blind. `faults` is the
+# health/diagnostics surface RouterRS added over the C++ Router.
+required_surfaces = [
+  "installation-map",
+  "column-link",
+  "portal-pilot",
+  "renderer",
+  "servers",
+  "diagnostics",
+  "firmware",
+  "status",
+]

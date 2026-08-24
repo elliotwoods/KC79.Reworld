@@ -1,0 +1,30 @@
+[package]
+name = "router-operator"
+description = "The Router as an av-frameworks operator app: native window + web control page."
+version.workspace = true
+# The framework's crates are edition-2024; this crate matches them. The shared crates
+# (router-proto/link/report/core) deliberately stay on the workspace's edition 2021 so
+# PortalTestBench's path-dependencies on them are untouched.
+edition = "2024"
+license.workspace = true
+
+[[bin]]
+name = "router"
+path = "src/main.rs"
+
+[dependencies]
+router-core = { path = "../router-core" }
+router-proto = { path = "../router-proto" }
+router-report = { path = "../router-report" }
+av-gui-bus = { workspace = true }
+av-operator-app = { workspace = true }
+av-gui-host = { workspace = true }
+av-app-registry = { workspace = true }
+axum = { version = "0.8", default-features = false, features = ["http1", "json", "query", "tokio"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+glam = "0.29"
+tracing = "0.1"
+
+[build-dependencies]
+av-app-icon = { workspace = true }

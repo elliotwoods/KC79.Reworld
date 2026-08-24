@@ -1,13 +1,18 @@
+# The pinned framework is a checkout, not a workspace member. Cargo would otherwise auto-enrol
+# it and resolve features over a subgraph that is not the one either tree was tested against.
+# `third_party/av-frameworks` here is a symlink to PortalFlasher's submodule, so the exclusion
+# also keeps `cargo fmt`/`clippy` from reaching through and dirtying *that* checkout.
 [workspace]
-resolver = "2"
+resolver = "3"
 members = [
     "crates/router-proto",
     "crates/router-link",
     "crates/router-core",
     "crates/router-report",
     "crates/router-headless",
-    "crates/router-app",
+    "crates/router-operator",
 ]
+exclude = ["third_party/av-frameworks"]
 
 [workspace.package]
 version = "0.1.0"
@@ -20,6 +25,16 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
 
+# --- the framework, through the symlink -------------------------------------------------
+av-gui-bus      = { path = "third_party/av-frameworks/crates/av-gui-bus" }
+av-operator-app = { path = "third_party/av-frameworks/crates/av-operator-app" }
+av-app-registry = { path = "third_party/av-frameworks/crates/av-app-registry" }
+av-app-icon     = { path = "third_party/av-frameworks/crates/av-app-icon" }
+av-gui-host     = { path = "third_party/av-frameworks/crates/av-gui-host" }
+
 [profile.release]
 opt-level = 3
 lto = "thin"
+
+[profile.dev.package."*"]
+debug = "line-tables-only"
