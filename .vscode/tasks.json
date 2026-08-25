@@ -141,17 +141,57 @@
       "problemMatcher": []
     },
     {
+      // cwd matters, not just the manifest path: cargo reads RouterRS/.cargo/config.toml from
+      // the working directory upwards, and on macOS that file carries the -Wl,-U,_cef_* link
+      // allowances router-operator needs. Run from the repo root and the link fails.
       "label": "RouterRS: cargo build",
       "type": "process",
       "command": "cargo",
-      "args": ["build", "--manifest-path", "${workspaceFolder}/RouterRS/Cargo.toml", "--workspace"],
+      "args": ["build", "--workspace"],
+      "options": { "cwd": "${workspaceFolder}/RouterRS" },
+      "problemMatcher": ["$rustc"]
+    },
+    {
+      // The Router binary serves web/dist; build the bundle first so web_assets! points at the
+      // current page rather than the previous one.
+      "label": "RouterRS: web build",
+      "type": "shell",
+      "command": "npm",
+      "args": ["run", "build"],
+      "options": { "cwd": "${workspaceFolder}/RouterRS/web" },
+      "problemMatcher": []
+    },
+    {
+      // Web first, then cargo -- `dependsOrder: sequence` is load-bearing, same as the
+      // Test Bench's build script.
+      "label": "RouterRS: build (web + cargo)",
+      "dependsOrder": "sequence",
+      "dependsOn": ["RouterRS: web build", "RouterRS: cargo build"],
+      "problemMatcher": []
+    },
+    {
+      // PortalFlasher's own build tooling is PowerShell (tools/build.ps1: web bundle, then
+      // cargo); on macOS the same two steps run directly. Both keep the web-before-cargo order.
+      "label": "Portal Flasher: build",
+      "type": "shell",
+      "command": "sh",
+      "args": [
+        "-c",
+        "npm --prefix web run build && cargo build -p portal-flasher"
+      ],
+      "options": { "cwd": "${workspaceFolder}/PortalFlasher" },
+      "windows": {
+        "command": "powershell",
+        "args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "tools/build.ps1"]
+      },
       "problemMatcher": ["$rustc"]
     },
     {
       "label": "RouterRS: cargo test",
       "type": "process",
       "command": "cargo",
-      "args": ["test", "--manifest-path", "${workspaceFolder}/RouterRS/Cargo.toml", "--workspace"],
+      "args": ["test", "--workspace"],
+      "options": { "cwd": "${workspaceFolder}/RouterRS" },
       "problemMatcher": ["$rustc"]
     }
   ]

@@ -102,31 +102,60 @@
       }
     },
     {
-      "name": "RouterRS: app",
+      // The Router as an av-frameworks operator app (crates/router-operator, binary `router`):
+      // native control window + the same page on http://127.0.0.1:8780, plus the legacy REST
+      // (:8080) and OSC (:4000) servers. A ControlWindow app runs on the system webview
+      // (WKWebView / WebView2) -- no CEF payload, no Vulkan, no bundle -- so unlike the Test
+      // Bench it launches straight out of target/ on both platforms.
+      "name": "RouterRS: Router (native)",
       "type": "lldb",
       "request": "launch",
-      "program": "${workspaceFolder}/RouterRS/target/debug/router-app",
+      "program": "${workspaceFolder}/RouterRS/target/debug/router",
       "args": [],
-      // config.json is read relative to the working directory.
+      // config.json and the reports/ default resolve from the manifest dir, but the cwd still
+      // matters on macOS: RouterRS/.cargo/config.toml carries the link allowances cargo reads
+      // from the working directory, and keeping every RouterRS run rooted here keeps relative
+      // --config/--report-dir arguments predictable.
       "cwd": "${workspaceFolder}/RouterRS",
-      "env": { "RUST_LOG": "info" },
+      "env": { "RUST_LOG": "info,av_gui_host=info" },
       "terminal": "integrated",
-      "preLaunchTask": "RouterRS: cargo build",
+      "preLaunchTask": "RouterRS: build (web + cargo)",
       "sourceLanguages": ["rust"],
-      "windows": { "program": "${workspaceFolder}/RouterRS/target/debug/router-app.exe" }
+      "windows": { "program": "${workspaceFolder}/RouterRS/target/debug/router.exe" }
     },
     {
-      "name": "RouterRS: app (simulated bus)",
+      // In-process firmware simulator: four columns of modelled portals, two of them dead and
+      // one with a noisy logger, so every health state shows up on the page.
+      "name": "RouterRS: Router (simulated bus)",
       "type": "lldb",
       "request": "launch",
-      "program": "${workspaceFolder}/RouterRS/target/debug/router-app",
+      "program": "${workspaceFolder}/RouterRS/target/debug/router",
       "args": ["--simulate", "--sim-dead", "2,7", "--sim-noisy", "5"],
       "cwd": "${workspaceFolder}/RouterRS",
-      "env": { "RUST_LOG": "info" },
+      "env": { "RUST_LOG": "info,av_gui_host=info" },
       "terminal": "integrated",
-      "preLaunchTask": "RouterRS: cargo build",
+      "preLaunchTask": "RouterRS: build (web + cargo)",
       "sourceLanguages": ["rust"],
-      "windows": { "program": "${workspaceFolder}/RouterRS/target/debug/router-app.exe" }
+      "windows": { "program": "${workspaceFolder}/RouterRS/target/debug/router.exe" }
+    },
+    {
+      // Serves the same control page with no window.
+      "name": "RouterRS: Router (headless, opens browser)",
+      "type": "lldb",
+      "request": "launch",
+      "program": "${workspaceFolder}/RouterRS/target/debug/router",
+      "args": ["--headless", "--simulate"],
+      "cwd": "${workspaceFolder}/RouterRS",
+      "env": { "RUST_LOG": "info,av_gui_host=info" },
+      "terminal": "console",
+      "preLaunchTask": "RouterRS: build (web + cargo)",
+      "serverReadyAction": {
+        "action": "openExternally",
+        "pattern": "(http://127\\.0\\.0\\.1:\\d+)",
+        "uriFormat": "%s"
+      },
+      "sourceLanguages": ["rust"],
+      "windows": { "program": "${workspaceFolder}/RouterRS/target/debug/router.exe" }
     },
     {
       "name": "RouterRS: headless (60 s simulated session)",
@@ -140,6 +169,73 @@
       "preLaunchTask": "RouterRS: cargo build",
       "sourceLanguages": ["rust"],
       "windows": { "program": "${workspaceFolder}/RouterRS/target/debug/router-headless.exe" }
+    },
+    {
+      // PortalFlasher declares no `ui`, so it is a composed-window app: on Windows it runs from
+      // target/ (CEF import-library beside it); on macOS a bare binary cannot resolve the CEF
+      // framework, so use the headless configuration below there.
+      "name": "Portal Flasher (native)",
+      "type": "lldb",
+      "request": "launch",
+      "program": "${workspaceFolder}/PortalFlasher/target/debug/portal-flasher",
+      "args": [],
+      "cwd": "${workspaceFolder}/PortalFlasher",
+      "env": { "RUST_LOG": "info,av_gui_host=info,av_gui_shell=info" },
+      "terminal": "integrated",
+      "preLaunchTask": "Portal Flasher: build",
+      "sourceLanguages": ["rust"],
+      "windows": { "program": "${workspaceFolder}/PortalFlasher/target/debug/portal-flasher.exe" }
+    },
+    {
+      // A modelled STM32G070 with a fixture switch on the page: the whole arm -> flash -> cycle
+      // -> run-check -> pass rhythm, with no probe and no board.
+      "name": "Portal Flasher (simulated target)",
+      "type": "lldb",
+      "request": "launch",
+      "program": "${workspaceFolder}/PortalFlasher/target/debug/portal-flasher",
+      "args": ["--simulate"],
+      "cwd": "${workspaceFolder}/PortalFlasher",
+      "env": { "RUST_LOG": "info,av_gui_host=info,av_gui_shell=info" },
+      "terminal": "integrated",
+      "preLaunchTask": "Portal Flasher: build",
+      "sourceLanguages": ["rust"],
+      "windows": { "program": "${workspaceFolder}/PortalFlasher/target/debug/portal-flasher.exe" }
+    },
+    {
+      // Serves the page with no window -- the configuration that works on both platforms, and
+      // a SILENT rig (the tones are played by the browser), so a development mode, not one to
+      // flash boards in.
+      "name": "Portal Flasher (headless, opens browser)",
+      "type": "lldb",
+      "request": "launch",
+      "program": "${workspaceFolder}/PortalFlasher/target/debug/portal-flasher",
+      "args": ["--headless", "--simulate"],
+      "cwd": "${workspaceFolder}/PortalFlasher",
+      "env": { "RUST_LOG": "info,av_gui_host=info" },
+      "terminal": "console",
+      "preLaunchTask": "Portal Flasher: build",
+      "serverReadyAction": {
+        "action": "openExternally",
+        "pattern": "(http://127\\.0\\.0\\.1:\\d+)",
+        "uriFormat": "%s"
+      },
+      "sourceLanguages": ["rust"],
+      "windows": { "program": "${workspaceFolder}/PortalFlasher/target/debug/portal-flasher.exe" }
+    },
+    {
+      // The bench's command-line front door. Talks to a *running* Portal Test Bench (start one
+      // of the configurations above first); `state` is the harmless default -- edit `args` for
+      // `run <plan> --wait`, `do home --axis a`, `watch`, `abort`.
+      "name": "PTB CLI: ptb state",
+      "type": "lldb",
+      "request": "launch",
+      "program": "${workspaceFolder}/PortalTestBench/target/debug/ptb",
+      "args": ["state"],
+      "cwd": "${workspaceFolder}/PortalTestBench",
+      "terminal": "console",
+      "preLaunchTask": "Portal Test Bench: build",
+      "sourceLanguages": ["rust"],
+      "windows": { "program": "${workspaceFolder}/PortalTestBench/target/debug/ptb.exe" }
     },
     {
       // Reads the NDJSON session reports RouterRS writes into ../RouterRS/reports.
