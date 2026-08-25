@@ -1573,7 +1573,11 @@ namespace Modules {
 	void
 	MotionControl::reportStatus(msgpack::Serializer& serializer)
 	{
+#ifndef HOME_SWITCH_LEGACY
+		serializer.beginMap(9);
+#else
 		serializer.beginMap(6);
+#endif
 		{
 			serializer << "position" << this->position;
 			serializer << "targetPosition" << this->targetPosition;
@@ -1590,6 +1594,11 @@ namespace Modules {
 			serializer << "maximumSpeed" << this->motionProfile.maximumSpeed;
 			serializer << "acceleration" << this->motionProfile.acceleration;
 			serializer << "minimumSpeed" << this->motionProfile.minimumSpeed;
+#ifndef HOME_SWITCH_LEGACY
+			serializer << "opticalThreshold" << this->opticalThresholdCached;
+			serializer << "opticalWidth" << this->opticalWidthCached;
+			serializer << "fastHomeFailure" << (uint8_t) this->lastFastHomeFailure;
+#endif
 		}
 	}
 
@@ -2014,7 +2023,21 @@ namespace Modules {
 	#define FASTHOME_DEBOUNCE_MIN      8
 	#define FASTHOME_DEBOUNCE_MAX      32
 	#define FASTHOME_PASSES            2      // bench-measured sweet spot; more passes let
+	#define FASTHOME_REPEAT_WIDTH_PCT  25     // seeded passes must agree within 25% of larger
+	#define FASTHOME_REPEAT_MID_MAX    16     // and their datum midpoints within 16 microsteps
+	#define FASTHOME_BACKLASH_NEG_TOL  512    // directional optical hysteresis; clamp to zero
 	                                          // thermal drift outpace averaging
+
+	void MotionControl::restoreOpticalCalibration(uint8_t threshold, Steps width) {
+		// Flash values are only a starting point: fastHomeRoutine still verifies them with two
+		// complete lead/trail passes. Reject implausible but CRC-valid values here so settings
+		// corruption can never weaken the runtime gates.
+		if(threshold >= 16 && width >= FASTHOME_DEBOUNCE_MIN
+			&& width <= FASTHOME_32.coarseWidthMax) {
+			this->opticalThresholdCached = threshold;
+			this->opticalWidthCached = width;
+		}
+	}
 
 	// ---- helper: set the shared threshold DAC and wait for it to actually be there -----------
 	// The DAC is a software PWM through a 100k/1uF filter, tau ~100 ms. A reading taken before
@@ -2258,6 +2281,7 @@ namespace Modules {
 	MotionControl::fastHomeRoutine(const MeasureRoutineSettings& settings)
 	{
 		const char * moduleName = this->getName();
+		this->lastFastHomeFailure = FastHomeFailure::None;
 		this->stop();
 		if(!this->timer.hardwareTimer) {
 			return Exception(moduleName, "No hardware timer");
@@ -2269,22 +2293,13 @@ namespace Modules {
 		const uint32_t timeoutTime = millis() + (uint32_t) settings.timeout_s * 1000U;
 		const MotionProfile normalProfile = this->getMotionProfile();
 
-		// Home at full current, whatever the axis is running at otherwise.
-		//
-		// Homing is where a stiff axis costs the most: a few lost microsteps during the seek do
-		// not just slow it down, they make the flag arrive somewhere other than where the
-		// position counter says it did, and a stiff axis that slips a whole flag past the sensor
-		// reports "no flag in a revolution" -- indistinguishable, from the firmware's side, from
-		// a sensor that cannot see. unjamRoutine already takes exactly this precaution.
-		// Restored on every exit path via endRoutine().
-		const auto currentBefore = this->motorDriverSettings.getCurrent();
-		this->motorDriverSettings.setCurrent(MOTORDRIVERSETTINGS_MAX_CURRENT);
-
-		auto endRoutine = [this, currentBefore]() {
+		// Normal homing uses the persisted module current. Routines owns the one explicit
+		// full-current recovery retry, because both axes share this setting and a successful
+		// promotion must be persisted module-wide rather than hidden inside one axis routine.
+		auto endRoutine = [this]() {
 			this->stop();
 			this->switchesArmed = false;
 			this->inInterrupt.invertSwitches = false;
-			this->motorDriverSettings.setCurrent(currentBefore);
 		};
 		// Every failure exit goes through here: clears the calibration cache (so the next
 		// attempt recalibrates cold), marks the axis unhealthy, restores the default threshold
@@ -2312,7 +2327,29 @@ namespace Modules {
 		// So `fail()` implicates the threshold by default -- the conservative choice -- and
 		// `failKeepingDefault()` is used where the cause is demonstrably something else. Both
 		// still clear the cache and the health flags, so the retry re-measures either way.
-		auto failCommon = [&](const char * msg, bool implicatesThreshold) -> Exception {
+		auto failureName = [](FastHomeFailure failure) -> const char * {
+			switch(failure) {
+				case FastHomeFailure::Aborted: return "aborted";
+				case FastHomeFailure::Timeout: return "timeout";
+				case FastHomeFailure::Motion: return "motion";
+				case FastHomeFailure::FeatureMissing: return "feature-missing";
+				case FastHomeFailure::FeatureTooWide: return "feature-too-wide";
+				case FastHomeFailure::SpeedDependentEdge: return "speed-dependent-edge";
+				case FastHomeFailure::SensorUnstable: return "sensor-unstable";
+				case FastHomeFailure::OpticalContrast: return "optical-contrast";
+				case FastHomeFailure::Backlash: return "backlash";
+				default: return "none";
+			}
+		};
+		auto failCommon = [&](const char * msg, bool implicatesThreshold
+			, FastHomeFailure failure) -> Exception {
+			this->lastFastHomeFailure = failure;
+			{
+				char diagnostic[120];
+				sprintf(diagnostic, "fastHome result: status=fail class=%s reason=%s"
+					, failureName(failure), msg);
+				log(LogLevel::Error, moduleName, diagnostic);
+			}
 			// A run that started from the fleet default and could not finish has just produced
 			// the one piece of evidence that matters about this axis: the default does not work
 			// on it. Record that, so Routines' retry loop spends its next attempt measuring
@@ -2324,8 +2361,10 @@ namespace Modules {
 					, FASTHOME_T_DEFAULT, msg);
 				log(LogLevel::Warning, moduleName, note);
 			}
-			this->opticalThresholdCached = 0;
-			this->opticalWidthCached = 0;
+			if(implicatesThreshold) {
+				this->opticalThresholdCached = 0;
+				this->opticalWidthCached = 0;
+			}
 			this->healthStatus.homeOK = false;
 			this->healthStatus.backlashOK = false;
 			this->healthStatus.switchesOK = false;
@@ -2334,9 +2373,23 @@ namespace Modules {
 			endRoutine();
 			return Exception(moduleName, msg);
 		};
-		auto fail = [&](const char * msg) -> Exception { return failCommon(msg, true); };
+		auto fail = [&](const char * msg) -> Exception {
+			return failCommon(msg, true, FastHomeFailure::FeatureMissing);
+		};
+		auto failSpeed = [&](const char * msg) -> Exception {
+			return failCommon(msg, true, FastHomeFailure::SpeedDependentEdge);
+		};
+		auto failUnstable = [&](const char * msg) -> Exception {
+			return failCommon(msg, true, FastHomeFailure::SensorUnstable);
+		};
+		auto failContrast = [&](const char * msg) -> Exception {
+			return failCommon(msg, true, FastHomeFailure::OpticalContrast);
+		};
+		auto failMotion = [&](const char * msg) -> Exception {
+			return failCommon(msg, false, FastHomeFailure::Motion);
+		};
 		auto failKeepingDefault = [&](const char * msg) -> Exception {
-			return failCommon(msg, false);
+			return failCommon(msg, false, FastHomeFailure::Backlash);
 		};
 
 		MotionProfile seekProfile;
@@ -2662,9 +2715,54 @@ namespace Modules {
 			// edgeSpeed, because nothing here feeds a datum -- the numbers are only used to
 			// space crossing probes across the flag. About 0.5 s instead of 2.5 s.
 			Steps capLead = 0, capTrail = 0;
-			const Steps spanAtCap = localWidthProbe(coarseLead, p->takeup, FASTHOME_CAL_SCAN_SPEED
+			Steps spanAtCap = localWidthProbe(coarseLead, p->takeup, FASTHOME_CAL_SCAN_SPEED
 				, &capLead, &capTrail);
-			if(spanAtCap <= 0) return fail("calibration: flag not resolved at T_cap");
+			if(spanAtCap <= 0) {
+				// A high-speed latch can be genuine yet displaced far enough that a small local
+				// scan around its coordinate misses the feature. Repeating that same operation
+				// (or adding motor current) contributes no evidence. Survey a bounded lap at 8k,
+				// then require a complete 2k lead/trail confirmation at the recovered location.
+				log(LogLevel::Warning, moduleName
+					, "survey recovery: 24k acquisition disagreed with local scan; reacquiring at 8k");
+				MotionProfile surveyProfile = seekProfile;
+				surveyProfile.maximumSpeed = FASTHOME_CAL_SCAN_SPEED;
+				this->setMotionProfile(surveyProfile);
+
+				if(this->homeSwitch.getForwardsActive()) {
+					this->inInterrupt.invertSwitches = true;
+					this->updateStepsAndSwitches();
+					auto exit = this->routineMoveToUntilSeeSwitch(
+						this->getPosition() + p->ustepsPerRev / 4
+						, SwitchesMask{ true, false }, timeoutTime);
+					this->inInterrupt.invertSwitches = false;
+					if(exit.exception || !exit.frameSwitchEvents.forwards.seen) {
+						this->setMotionProfile(seekProfile);
+						return failCommon("survey recovery: feature remains active too long", true
+							, FastHomeFailure::FeatureTooWide);
+					}
+				}
+				auto clear = this->routineMoveTo(this->getPosition() + p->takeup, timeoutTime);
+				if(clear.exception) {
+					this->setMotionProfile(seekProfile);
+					return failMotion(clear.exception.getMessage().c_str());
+				}
+				auto survey = this->routineMoveToUntilSeeSwitch(
+					this->getPosition() + lapBudget, SwitchesMask{ true, false }, timeoutTime);
+				this->setMotionProfile(seekProfile);
+				if(survey.exception || !survey.frameSwitchEvents.forwards.seen) {
+					return failSpeed("survey recovery: feature absent at 8k");
+				}
+				coarseLead = survey.frameSwitchEvents.forwards.positionSeen;
+				spanAtCap = localWidthProbe(coarseLead, p->clearance, p->edgeSpeed
+					, &capLead, &capTrail);
+				if(spanAtCap <= 0) {
+					return failSpeed("survey recovery: 8k edge absent at 2k");
+				}
+				char recovered[110];
+				sprintf(recovered, "survey recovery OK: T=%d lead=%d trail=%d width=%d"
+					, T_cap, (int) capLead, (int) capTrail, (int) spanAtCap);
+				log(LogLevel::Status, moduleName, recovered);
+			}
 
 			// Probe across the span and keep the BRIGHTEST (lowest) crossing.
 			//
@@ -2754,7 +2852,7 @@ namespace Modules {
 			if(C_flag > 255) {
 				log(LogLevel::Error, moduleName
 					, "no measurable crossing anywhere across the flag span");
-				return fail("flag crossing not measurable");
+				return failContrast("flag crossing not measurable");
 			}
 
 			const int usable = T_cap - C_flag;
@@ -2765,7 +2863,7 @@ namespace Modules {
 					, T_cap, usable, FASTHOME_MARGIN_MIN);
 				log(LogLevel::Status, moduleName, message);
 			}
-			if(usable < FASTHOME_MARGIN_MIN) return fail("insufficient optical contrast");
+			if(usable < FASTHOME_MARGIN_MIN) return failContrast("insufficient optical contrast");
 
 			int T_op = C_flag + (int) round(FASTHOME_T_OP_FRACTION * (float) usable);
 			if(T_op <= C_flag) T_op = C_flag + 1;
@@ -2777,7 +2875,7 @@ namespace Modules {
 			// edgeSpeed creep from a full clearance behind, the same measurement the precise
 			// passes will make.
 			Steps W_atOp = localWidthProbe(coarseLead, p->clearance, p->edgeSpeed, nullptr, nullptr);
-			if(W_atOp < 0) return fail("operating point: flag not found");
+			if(W_atOp < 0) return failSpeed("operating point: flag not repeatable at edge speed");
 
 			T = T_op;
 			W_cal = W_atOp;
@@ -2869,6 +2967,7 @@ namespace Modules {
 		}
 
 		Steps lead = 0, trail = 0;
+		Steps firstWidth = 0, firstMid = 0;
 		Steps midSum = 0, widthSum = 0;
 		for(int pass = 0; pass < FASTHOME_PASSES; pass++) {
 			if(pass > 0) {
@@ -2911,7 +3010,9 @@ namespace Modules {
 				Logger::X().printRaw(message);
 			}
 
-			if(trail - lead < widthMin || trail - lead > widthMax) {
+			const Steps passWidth = trail - lead;
+			const Steps passMid = (lead + trail) / 2;
+			if(!seeded && (passWidth < widthMin || passWidth > widthMax)) {
 				// On a warm run this is exactly the >25% width-drift-from-W_cal recalibration
 				// trigger in HOME_ROUTINE_DESIGN.md -- fail() clears the cache, so the next
 				// attempt (the tryCount retry Routines::calibrate wraps this in) runs cold.
@@ -2919,7 +3020,35 @@ namespace Modules {
 				sprintf(message, "width gate: w=%d outside [%d..%d]"
 					, (int) (trail - lead), (int) widthMin, (int) widthMax);
 				log(LogLevel::Error, moduleName, message);
-				return fail("width gate");
+				return failUnstable("width drift from calibration");
+			}
+			if(seeded && (passWidth < FASTHOME_DEBOUNCE_MIN
+				|| passWidth > p->coarseWidthMax)) {
+				char message[90];
+				sprintf(message, "seed width gate: w=%d outside [%d..%d]"
+					, (int) passWidth, FASTHOME_DEBOUNCE_MIN, (int) p->coarseWidthMax);
+				log(LogLevel::Error, moduleName, message);
+				return failCommon("seed feature width implausible", true
+					, FastHomeFailure::FeatureTooWide);
+			}
+			if(pass == 0) {
+				firstWidth = passWidth;
+				firstMid = passMid;
+			} else if(seeded) {
+				const Steps largerWidth = firstWidth > passWidth ? firstWidth : passWidth;
+				const Steps widthDelta = firstWidth > passWidth
+					? firstWidth - passWidth : passWidth - firstWidth;
+				const Steps midDelta = firstMid > passMid
+					? firstMid - passMid : passMid - firstMid;
+				if((int64_t) widthDelta * 100 > (int64_t) largerWidth * FASTHOME_REPEAT_WIDTH_PCT
+					|| midDelta > FASTHOME_REPEAT_MID_MAX) {
+					char message[120];
+					sprintf(message, "seed repeatability: dw=%d/%d (%d%% max), dmid=%d (%d max)"
+						, (int) widthDelta, (int) largerWidth, FASTHOME_REPEAT_WIDTH_PCT
+						, (int) midDelta, FASTHOME_REPEAT_MID_MAX);
+					log(LogLevel::Error, moduleName, message);
+					return failUnstable("seed feature not repeatable");
+				}
 			}
 			midSum += (lead + trail) / 2;
 			widthSum += trail - lead;
@@ -2963,7 +3092,7 @@ namespace Modules {
 				, (int) trail, (int) reenter, (int) backlash);
 			Logger::X().printRaw(message);
 		}
-		if(backlash < -32 || backlash > p->backlashMax) {
+		if(backlash < -FASTHOME_BACKLASH_NEG_TOL || backlash > p->backlashMax) {
 			char message[80];
 			sprintf(message, "backlash out of range: %d (max %d)"
 				, (int) backlash, (int) p->backlashMax);
@@ -2972,7 +3101,13 @@ namespace Modules {
 			// precise passes to get this far. Retry at the same operating point.
 			return failKeepingDefault("backlash out of range");
 		}
-		if(backlash < 0) backlash = 0;
+		if(backlash < 0) {
+			char message[100];
+			sprintf(message, "backlash hysteresis: measured %d, clamped to zero (limit -%d)"
+				, (int) backlash, FASTHOME_BACKLASH_NEG_TOL);
+			log(LogLevel::Warning, moduleName, message);
+			backlash = 0;
+		}
 
 		phaseStamp("backlash done");
 		// ---- Phase 6: apply --------------------------------------------------------------------
@@ -2999,6 +3134,7 @@ namespace Modules {
 		this->healthStatus.homeOK = true;
 		this->healthStatus.backlashOK = true;
 		this->healthStatus.switchesOK = true;
+		this->lastFastHomeFailure = FastHomeFailure::None;
 
 		// The success line. `home` is the datum in the pre-shift frame, which is what a
 		// repeatability campaign differences run-to-run -- after the shift above the datum

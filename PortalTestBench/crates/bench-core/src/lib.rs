@@ -11,6 +11,7 @@ pub mod bench;
 pub mod dut;
 pub mod engine;
 pub mod plan;
+pub mod provisioning;
 pub mod report;
 pub mod state;
 pub mod survey;

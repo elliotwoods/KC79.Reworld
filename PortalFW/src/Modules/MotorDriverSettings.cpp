@@ -37,6 +37,7 @@ namespace Modules {
 	MotorDriverSettings::MotorDriverSettings(const Config& config)
 	: config(config)
 	{
+		this->state.current = config.initialCurrent;
 		pinMode(config.pinVREF, OUTPUT);
 		pinMode(config.pinSleep, OUTPUT);
 

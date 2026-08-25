@@ -21,6 +21,8 @@ serialport = { workspace = true }
 serde_json = { workspace = true }
 toml = { workspace = true }
 thiserror = { workspace = true }
+rusqlite = { workspace = true }
+rmpv = "1"
 
 [dependencies.portal-swd]
 workspace = true

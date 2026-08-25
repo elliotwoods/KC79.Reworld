@@ -1,11 +1,18 @@
 contract_version = 1
 class = "operator-app"
 
-# Nothing is drawn *underneath* this page: the live plots are canvas in the DOM, and there is
-# no camera, no 3D and no video. `control-window` is therefore the lightest kind that carries
-# the product, which the contract asks us to declare (application-contract.md, 1a). It also
-# means this app must NOT carry an `av-gui-subprocess` crate -- the CEF helper is a
-# composed-window requirement, and check-av-app.ps1 warns (AVAPP115) if a control-window app
+# Nothing is drawn *underneath* this page: the live plots are canvas in the DOM, and there is no
+# camera, no 3D and no video. `control-window` is therefore the lightest kind that carries the
+# product, which the contract asks us to declare (application-contract.md, 1a).
+#
+# It is one declaration for both platforms, which it briefly was not: the control window used to
+# have a single backend and it was Windows', so this app was declared `composed-window` and paid
+# for a CEF payload, four helper bundles and a Vulkan compositor on macOS to open a window over a
+# page that needed none of it. `av-gui-webview` covers WKWebView now, so the honest declaration
+# and the cheap one are the same again.
+#
+# It also means this app must NOT carry an `av-gui-subprocess` crate -- the CEF helper is a
+# `composed-window` requirement, and check-av-app.ps1 warns (AVAPP115) if a control-window app
 # ships one. PortalFlasher carries one only because its manifest omits `ui` and defaults to
 # composed-window.
 ui = "control-window"

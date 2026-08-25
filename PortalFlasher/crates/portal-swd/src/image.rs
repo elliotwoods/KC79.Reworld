@@ -44,12 +44,8 @@ use crate::bits;
 /// They are constants and not parameters. Each one is load-bearing for a promise made elsewhere,
 /// and making them settable would let an operator produce a board whose firmware map is a lie.
 pub mod strategy {
-    /// Erase the whole chip, not only the sectors being written.
-    ///
-    /// "Flash one region and the other bank is left erased" is what the sector map draws. Sector
-    /// erasing would leave a stale bootloader under a new application, and the map would show two
-    /// regions that were never flashed together.
-    pub const CHIP_ERASE: bool = true;
+    /// Whole-chip erase is forbidden: the final three pages are durable device state.
+    pub const CHIP_ERASE: bool = false;
 
     /// Do not read-modify-write the sectors that are not being programmed.
     pub const KEEP_UNWRITTEN: bool = false;
@@ -57,17 +53,17 @@ pub mod strategy {
     /// Leave probe-rs's own verify off.
     ///
     /// Not because verification is skipped — the opposite. probe-rs's verify is a second pass
-    /// through the flash algorithm; the pass instead reads all 128 kB back as plain memory and
-    /// compares byte for byte, which is both stricter and *evidence*, because it produces the
+    /// through the flash algorithm; the pass instead reads firmware and durable pages back as
+    /// plain memory and compares them independently, which is both stricter and *evidence*, because it produces the
     /// bytes that get hashed into `FlashReport::readback_sha256`.
     pub const PROBE_RS_VERIFY: bool = false;
 
     /// The one-line description each of these earns, for the settings readout.
     pub fn erase() -> &'static str {
         if CHIP_ERASE {
-            "whole chip, every pass"
+            "whole chip (invalid for provisioned boards)"
         } else {
-            "only the sectors being written"
+            "firmware pages only; identity and settings preserved"
         }
     }
 
@@ -75,7 +71,7 @@ pub mod strategy {
         if PROBE_RS_VERIFY {
             "the flash algorithm's own verify pass"
         } else {
-            "full 128 kB readback, compared byte for byte"
+            "firmware and persistent records read back independently"
         }
     }
 }
@@ -431,7 +427,7 @@ impl ImageBundle {
         }
 
         // An empty region is a legitimate choice — flashing only the application leaves the
-        // bootloader bank erased, which is exactly what a mass erase then does. Only a bundle
+        // bootloader bank erased, which is exactly what bounded firmware-page erasure does. Only a bundle
         // with *nothing* in it is invalid, and reporting per-region emptiness as a fault meant
         // every caller had to know to filter it back out.
         if self.bootloader.bytes.is_empty() && self.application.bytes.is_empty() {
@@ -465,7 +461,7 @@ impl ImageBundle {
             ]);
             let target = reset & !1;
             let thumb = reset & 1 == 1;
-            if !thumb || !(addr::APP_BASE..addr::FLASH_END).contains(&target) {
+            if !thumb || !(addr::APP_BASE..addr::PERSIST_BASE).contains(&target) {
                 faults.push(BundleFault::BadResetVector { found: reset });
             }
         }
@@ -528,10 +524,10 @@ impl ImageBundle {
         hex(&hasher.finalize())
     }
 
-    /// The bytes a full-device readback should produce, with erased flash where nothing is
-    /// programmed. Readback verification compares against exactly this.
-    pub fn expected_flash_image(&self) -> Vec<u8> {
-        let span = (addr::FLASH_END - addr::FLASH_BASE) as usize;
+    /// The firmware bytes a readback should produce. Durable pages are intentionally absent:
+    /// they are validated as records, not compared with an erased-image fiction.
+    pub fn expected_firmware_image(&self) -> Vec<u8> {
+        let span = addr::FIRMWARE_BYTES as usize;
         let mut image = vec![0xFF_u8; span];
         for region in [&self.bootloader, &self.application] {
             let offset = (region.load_address - addr::FLASH_BASE) as usize;
@@ -541,6 +537,11 @@ impl ImageBundle {
             }
         }
         image
+    }
+
+    /// Compatibility name retained for callers. This now means the firmware partition only.
+    pub fn expected_flash_image(&self) -> Vec<u8> {
+        self.expected_firmware_image()
     }
 }
 

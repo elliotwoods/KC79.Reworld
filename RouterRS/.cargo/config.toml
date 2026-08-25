@@ -1,0 +1,62 @@
+
+# ---------------------------------------------------------------------------------------------
+# CEF's undefined symbols, on macOS.
+#
+# `av-gui-cef-sys` `dlopen`s the CEF framework at run time, so these `cef_*` symbols are
+# undefined when this workspace's `router` executable is linked. Without them the link fails on
+# macOS with "symbol(s) not found for architecture arm64". The list must live in *this*
+# workspace's `.cargo/config.toml` -- cargo reads the file from the invoked workspace's
+# directory upwards, so the framework's own copy (below `third_party/`) is never seen.
+#
+# **Not hand-written.** Regenerate after moving `framework.lock`, per
+# `third_party/av-frameworks/crates/av-gui-cef-sys/shim/cef-undefined-symbols.txt`:
+#
+#     nm -u $(find target/debug/build -name '*.o' -path '*av-gui-cef-sys*') \
+#         | grep '^_cef_' | sed 's/^_//' | sort -u
+#
+# The crate's build.rs runs the same `nm` itself and fails the build when the two disagree, so
+# drift announces itself. Copied from PortalTestBench at framework revision 613b880 (16 symbols,
+# identical to the framework's own list).
+#
+# **Not `-undefined dynamic_lookup`** -- one `-U` per symbol keeps full link checking for
+# everything else. Nothing here applies to a Windows build, which reads none of it.
+
+[target.aarch64-apple-darwin]
+rustflags = [
+    "-Clink-arg=-Wl,-U,_cef_api_hash",
+    "-Clink-arg=-Wl,-U,_cef_browser_host_create_browser",
+    "-Clink-arg=-Wl,-U,_cef_do_message_loop_work",
+    "-Clink-arg=-Wl,-U,_cef_execute_process",
+    "-Clink-arg=-Wl,-U,_cef_get_exit_code",
+    "-Clink-arg=-Wl,-U,_cef_initialize",
+    "-Clink-arg=-Wl,-U,_cef_quit_message_loop",
+    "-Clink-arg=-Wl,-U,_cef_run_message_loop",
+    "-Clink-arg=-Wl,-U,_cef_shutdown",
+    "-Clink-arg=-Wl,-U,_cef_string_userfree_utf16_free",
+    "-Clink-arg=-Wl,-U,_cef_string_utf16_clear",
+    "-Clink-arg=-Wl,-U,_cef_string_utf16_to_utf8",
+    "-Clink-arg=-Wl,-U,_cef_string_utf8_clear",
+    "-Clink-arg=-Wl,-U,_cef_string_utf8_to_utf16",
+    "-Clink-arg=-Wl,-U,_cef_v8_value_create_bool",
+    "-Clink-arg=-Wl,-U,_cef_v8_value_create_double",
+]
+
+[target.x86_64-apple-darwin]
+rustflags = [
+    "-Clink-arg=-Wl,-U,_cef_api_hash",
+    "-Clink-arg=-Wl,-U,_cef_browser_host_create_browser",
+    "-Clink-arg=-Wl,-U,_cef_do_message_loop_work",
+    "-Clink-arg=-Wl,-U,_cef_execute_process",
+    "-Clink-arg=-Wl,-U,_cef_get_exit_code",
+    "-Clink-arg=-Wl,-U,_cef_initialize",
+    "-Clink-arg=-Wl,-U,_cef_quit_message_loop",
+    "-Clink-arg=-Wl,-U,_cef_run_message_loop",
+    "-Clink-arg=-Wl,-U,_cef_shutdown",
+    "-Clink-arg=-Wl,-U,_cef_string_userfree_utf16_free",
+    "-Clink-arg=-Wl,-U,_cef_string_utf16_clear",
+    "-Clink-arg=-Wl,-U,_cef_string_utf16_to_utf8",
+    "-Clink-arg=-Wl,-U,_cef_string_utf8_clear",
+    "-Clink-arg=-Wl,-U,_cef_string_utf8_to_utf16",
+    "-Clink-arg=-Wl,-U,_cef_v8_value_create_bool",
+    "-Clink-arg=-Wl,-U,_cef_v8_value_create_double",
+]

@@ -33,7 +33,7 @@ its comment for which ones are real (`msgpack::delay`, mirrored from the bootloa
 Answers a specific long-standing worry: *does something in the firmware-update path narrow the
 frame offset to 16 bits, capping the uploadable image at 64 kB?*
 
-The application bank is `0x08006000..0x08020000` = 106,496 bytes, so the last frame of a full
+The application bank is `0x08006000..0x0801E800` = 100,352 bytes, so the last frame of a full
 image starts at offset 106,464 — well past 65,535. The test replays
 `FWUpdateApp::processIncoming`'s exact parse sequence (`nextDataTypeIs(Map)` → `readMapSize` →
 `readInt<uint32_t>` → `readBinarySize` → `readRaw`) over a real `COBSRWStream`, for:

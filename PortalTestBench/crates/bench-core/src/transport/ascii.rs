@@ -204,6 +204,13 @@ pub fn render_op(op: &crate::transport::Op) -> Option<String> {
         | Op::Calibrate { .. }
         | Op::MeasureBacklash { .. }
         | Op::SetCurrent { .. }
+        | Op::ReadSettings
+        | Op::EnterDirect
+        | Op::ExitDirect
+        | Op::DirectHeartbeat
+        | Op::Jog { .. }
+        | Op::Survey { .. }
+        | Op::WriteSettings { .. }
         | Op::Reboot => return None,
     })
 }

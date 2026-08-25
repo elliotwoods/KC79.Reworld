@@ -3,6 +3,10 @@ reports/
 *.ndjson
 *.summary.json
 
+# web control page: dependencies and the built bundle the binary serves
+web/node_modules/
+web/dist/
+
 # MSVC oracle build outputs — commit pilot_oracle.cpp and pilot-vectors.csv,
 # not the compiled binary (rebuild: vcvars64 && cl /O2 /EHsc /std:c++17)
 *.exe

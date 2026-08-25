@@ -14,6 +14,7 @@
 #include "MotionControl.h"
 #include "Routines.h"
 #include "KeyframeMotionControl.h"
+#include "../PersistentStorage.h"
 
 #include <memory>
 #include <vector>
@@ -45,6 +46,11 @@ namespace Modules {
 		static bool getShouldEscapeFromRoutine();
 
 		MotionControl * getMotionControl(uint8_t);
+		uint32_t getProvisionSerial() const;
+		uint16_t getOperatingCurrentMa() const;
+		bool getFullCurrentHomeRecovery() const;
+		bool persistOperatingSettings(uint16_t currentMa, bool recovery);
+		bool persistOpticalCalibration(MotionControl * axis);
 
 #ifndef GUI_DISABLED
 		GUI * gui;
@@ -72,5 +78,7 @@ namespace Modules {
 		bool processIncomingByKey(const char * key, Stream &) override;
 		bool isInsideRoutine = true;
 		bool shouldEscapeFromRoutine = false;
+		PersistentStorage::Identity persistentIdentity;
+		PersistentStorage::Settings persistentSettings;
 	};
 }

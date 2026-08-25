@@ -383,7 +383,7 @@ const CONFIRM_WINDOW_MS = 5_000;
  * button belongs inside the thing that says which it is.
  *
  * Everything that changes while a pass runs is here too — the progress bar, the confirm, the
- * arming note. An operator watching a chip erase should not have to look anywhere else.
+ * arming note. An operator watching a production flash should not have to look anywhere else.
  */
 function RigConsole({ rig }: { rig: RigState }) {
   const tile = tileFor(rig);
@@ -401,8 +401,8 @@ function RigConsole({ rig }: { rig: RigState }) {
   };
   const result = lastPassSummary(last);
 
-  // A flash pass is a chip erase. The button is the only thing standing between a misclick and an
-  // unrecoverable board, and it sits next to Read device, which is harmless -- so it asks twice.
+  // A flash pass rewrites the firmware pages while preserving durable board records. It is still
+  // destructive to the installed firmware and sits next to harmless Read device, so it asks twice.
   //
   // Only here, in manual mode. Auto-flash is the rapid path and it is already gated by arming
   // (which additionally requires an empty fixture), so putting a confirm in front of every board

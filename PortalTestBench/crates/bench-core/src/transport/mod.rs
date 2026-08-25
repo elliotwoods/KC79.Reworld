@@ -21,6 +21,7 @@
 //! rather than halfway through a sequence that has already moved the motor.
 
 pub mod ascii;
+pub mod direct;
 pub mod line;
 pub mod rs485;
 
@@ -154,6 +155,26 @@ pub enum Op {
     SetCurrent {
         amps: f32,
     },
+    ReadSettings,
+    /// Switch the production VCP from its human menu to the framed binary session.
+    EnterDirect,
+    /// Return a production VCP Direct Mode session to the human menu.
+    ExitDirect,
+    /// Keep the firmware's Direct Mode dead-man alive.
+    DirectHeartbeat,
+    /// Velocity jog. Zero is an immediate stop.
+    Jog {
+        axis: Axis,
+        speed: i32,
+    },
+    /// Run a bounded optical flag survey on exactly one axis.
+    Survey {
+        config: direct::SurveyConfig,
+    },
+    WriteSettings {
+        current_ma: u16,
+        full_current_home_recovery: bool,
+    },
     SetMicrostep {
         resolution: u32,
     },
@@ -247,13 +268,35 @@ impl Op {
     /// Used by the dead-man and by the plan validator. Reads are always allowed; anything that
     /// can move a prism is gated.
     pub fn is_destructive(&self) -> bool {
-        !matches!(self, Op::Identify | Op::Poll | Op::PollPosition)
+        !matches!(
+            self,
+            Op::Identify
+                | Op::Poll
+                | Op::PollPosition
+                | Op::ReadSettings
+                | Op::EnterDirect
+                | Op::ExitDirect
+                | Op::DirectHeartbeat
+        )
     }
 }
 
 /// Everything a module can tell us, normalised across the dialects.
 #[derive(Debug, Clone, PartialEq)]
 pub enum LinkEvent {
+    DirectMode {
+        mode: direct::SessionMode,
+        detail: String,
+    },
+    SurveyBegin {
+        config: direct::SurveyConfig,
+        expected: usize,
+    },
+    SurveySample(direct::SurveySample),
+    SurveyEnd {
+        aborted: bool,
+        detail: String,
+    },
     /// The module identified itself.
     Identified {
         firmware: FirmwareKind,
@@ -269,9 +312,22 @@ pub enum LinkEvent {
         target: Option<i32>,
     },
     /// A health report for one axis.
-    HealthReport { axis: Axis, health: Health },
+    HealthReport {
+        axis: Axis,
+        health: Health,
+    },
     /// Firmware uptime, from a full status report.
-    Uptime { seconds: i32 },
+    Uptime {
+        seconds: i32,
+    },
+    Provisioning {
+        serial: u32,
+    },
+    Settings {
+        current_ma: u16,
+        full_current_home_recovery: bool,
+        source: Option<String>,
+    },
     /// A log line the firmware produced.
     Log {
         level: u8,
@@ -279,15 +335,25 @@ pub enum LinkEvent {
         firmware_ms: Option<u64>,
     },
     /// The optical comparator's current state, for the bench firmware's live stream.
-    Sensor { active: bool, threshold: i32 },
+    Sensor {
+        active: bool,
+        threshold: i32,
+    },
     /// A routine reported progress or completion in the bench dialect, e.g. `O,done`.
-    Token { kind: char, fields: Vec<String> },
+    Token {
+        kind: char,
+        fields: Vec<String>,
+    },
     /// The module acknowledged a command.
     /// An RS485 source address answered. Discovery consumes this even when the reply body is not
     /// selected as the active module.
-    PeerSeen { source: i8 },
+    PeerSeen {
+        source: i8,
+    },
     /// A command acknowledgement. Line protocols do not carry an address.
-    Ack { source: Option<i8> },
+    Ack {
+        source: Option<i8>,
+    },
     /// Something went wrong that is worth recording but is not fatal to the link.
     Fault(String),
 }
@@ -347,6 +413,21 @@ pub trait Link: Send {
         })
     }
 
+    /// Queue a complete field update. Only an RS485 link implements this capability.
+    fn begin_firmware_upload(
+        &mut self,
+        _firmware: &[u8],
+    ) -> Result<FirmwareUploadProgress, LinkError> {
+        Err(LinkError::Unsupported {
+            kind: self.info().kind.name(),
+            op: "bootloader firmware upload".into(),
+        })
+    }
+
+    fn firmware_upload_progress(&self) -> Option<FirmwareUploadProgress> {
+        None
+    }
+
     /// Drain whatever the module has said since the last call.
     ///
     /// **The only reader.** Called from one place in the worker tick; see the module docs.
@@ -365,6 +446,15 @@ pub struct LinkDiagnostics {
     pub outbox: usize,
     pub last_rx_age_ms: Option<u64>,
     pub last_tx_age_ms: Option<u64>,
+}
+
+/// Progress for a firmware upload already queued on a transport.
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize)]
+pub struct FirmwareUploadProgress {
+    pub total_packets: usize,
+    pub remaining_packets: usize,
+    pub sent_packets: usize,
+    pub connected: bool,
 }
 
 #[cfg(test)]

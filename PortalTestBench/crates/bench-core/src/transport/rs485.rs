@@ -22,7 +22,8 @@
 
 use crate::dut::{Axis, FirmwareKind, GearRatio, Health};
 use crate::transport::{
-    Link, LinkDiagnostics, LinkError, LinkEvent, LinkInfo, LinkKind, Op, RawSignal,
+    FirmwareUploadProgress, Link, LinkDiagnostics, LinkError, LinkEvent, LinkInfo, LinkKind, Op,
+    RawSignal,
 };
 use router_link::rs485::{Packet, Rs485};
 use router_proto::commands;
@@ -42,6 +43,7 @@ pub struct Rs485Link {
     banner: Option<String>,
     opened: bool,
     acks: u64,
+    firmware_upload: Option<(usize, u64)>,
 }
 
 impl Rs485Link {
@@ -58,6 +60,7 @@ impl Rs485Link {
             banner: None,
             opened: false,
             acks: 0,
+            firmware_upload: None,
         }
     }
 
@@ -150,6 +153,29 @@ fn render(op: &Op, target: i8) -> Result<(i8, router_proto::Value, String), Link
             commands::mds_set_current(*amps),
             "motorDriverSettings/setCurrent".into(),
         ),
+        Op::ReadSettings => (
+            target,
+            router_proto::Value::Map(vec![(
+                router_proto::Value::from("settingsRead"),
+                router_proto::Value::Nil,
+            )]),
+            "settingsRead".into(),
+        ),
+        Op::WriteSettings {
+            current_ma,
+            full_current_home_recovery,
+        } => (
+            target,
+            router_proto::Value::Map(vec![(
+                router_proto::Value::from("settingsWrite"),
+                router_proto::Value::Array(vec![
+                    router_proto::Value::from(1u32),
+                    router_proto::Value::from(*current_ma),
+                    router_proto::Value::Boolean(*full_current_home_recovery),
+                ]),
+            )]),
+            "settingsWrite".into(),
+        ),
         Op::SetMicrostep { resolution } => (
             target,
             commands::mds_set_microstep_resolution(*resolution),
@@ -228,6 +254,31 @@ fn events_from_report(report: &PortalReport) -> Vec<LinkEvent> {
                 banner: version.clone(),
             });
         }
+        if let Some(serial) = app.provision_serial.filter(|serial| *serial != 0) {
+            events.push(LinkEvent::Provisioning { serial });
+        }
+        if let (Some(current_ma), Some(full_current_home_recovery)) =
+            (app.operating_current_ma, app.full_current_home_recovery)
+        {
+            events.push(LinkEvent::Settings {
+                current_ma,
+                full_current_home_recovery,
+                source: app.settings_source.clone(),
+            });
+        }
+    }
+
+    if let Some(settings) = &report.settings
+        && let (Some(current_ma), Some(full_current_home_recovery)) = (
+            settings.operating_current_ma,
+            settings.full_current_home_recovery,
+        )
+    {
+        events.push(LinkEvent::Settings {
+            current_ma,
+            full_current_home_recovery,
+            source: settings.source.clone(),
+        });
     }
 
     for (axis, status) in [(Axis::A, &report.mca), (Axis::B, &report.mcb)] {
@@ -374,6 +425,48 @@ impl Link for Rs485Link {
         self.bus
             .transmit(Packet::from_body(self.target, &body, "raw"));
         Ok(())
+    }
+
+    fn begin_firmware_upload(
+        &mut self,
+        firmware: &[u8],
+    ) -> Result<FirmwareUploadProgress, LinkError> {
+        if !self.is_open() {
+            return Err(LinkError::NotOpen);
+        }
+        let start_tx = self.bus.stats().tx_count;
+        // A sustained 5 ms stream can fill the Windows serial driver's output queue and turn
+        // its 1 ms device timeout into a mid-image disconnect. The Router's mass-update pacing
+        // is proven on the same transport; keep its 10 ms frame gap. Firmware frames are
+        // broadcast and unacknowledged, so send each one twice even on a single-module fixture.
+        let params = router_link::fw_update::FwUpdateParams {
+            wait_between_frames_ms: 10,
+            frame_repetitions: 2,
+            ..router_link::fw_update::FwUpdateParams::default()
+        };
+        let mut total = router_link::fw_update::upload(&self.bus, firmware, &params)
+            .map_err(|error| LinkError::Io(error.to_string()))?;
+        // Upload only queues announce/erase/data. RU is deliberately a separate Router action.
+        // A test of the complete bootloader contract must request the application handoff too.
+        router_link::fw_update::run_application(&self.bus, &params);
+        total += 1;
+        self.firmware_upload = Some((total, start_tx));
+        Ok(self.firmware_upload_progress().unwrap_or_default())
+    }
+
+    fn firmware_upload_progress(&self) -> Option<FirmwareUploadProgress> {
+        let (total_packets, start_tx) = self.firmware_upload?;
+        let stats = self.bus.stats();
+        let sent_packets = stats
+            .tx_count
+            .saturating_sub(start_tx)
+            .min(total_packets as u64) as usize;
+        Some(FirmwareUploadProgress {
+            total_packets,
+            remaining_packets: stats.outbox_size,
+            sent_packets,
+            connected: self.is_open(),
+        })
     }
 
     fn poll(&mut self, _now_ms: u64) -> Vec<LinkEvent> {
@@ -525,6 +618,24 @@ mod tests {
         }
     }
 
+    #[test]
+    fn versioned_settings_commands_keep_read_and_write_distinct() {
+        let (_, read, read_address) = render(&Op::ReadSettings, DEFAULT_TARGET).unwrap();
+        let (_, write, write_address) = render(
+            &Op::WriteSettings {
+                current_ma: 250,
+                full_current_home_recovery: false,
+            },
+            DEFAULT_TARGET,
+        )
+        .unwrap();
+        assert_ne!(read_address, write_address);
+        assert!(format!("{read:?}").contains("settingsRead"));
+        let rendered = format!("{write:?}");
+        assert!(rendered.contains("settingsWrite"));
+        assert!(rendered.contains("250"));
+    }
+
     /// A report that omits a health flag must not be read as a failure. The firmware sends
     /// nothing for an axis it has not measured, and drawing that as "not ok" sends someone
     /// looking for a fault that was never reported.
@@ -583,6 +694,11 @@ mod tests {
                 up_time_ms: Some(125_000),
                 version: Some("Portal v2026-08-18 a94ae48".into()),
                 calibrated: None,
+                provision_serial: Some(73_001),
+                operating_current_ma: Some(250),
+                full_current_home_recovery: Some(true),
+                settings_source: Some("flash-b".into()),
+                ..Default::default()
             }),
             mca: None,
             mcb: None,
@@ -597,10 +713,17 @@ mod tests {
                 target_a: 11,
                 target_b: 21,
             }),
+            ..Default::default()
         };
 
         let events = events_from_report(&report);
         assert!(events.contains(&LinkEvent::Uptime { seconds: 125 }));
+        assert!(events.contains(&LinkEvent::Provisioning { serial: 73_001 }));
+        assert!(events.contains(&LinkEvent::Settings {
+            current_ma: 250,
+            full_current_home_recovery: true,
+            source: Some("flash-b".into()),
+        }));
         assert!(events.iter().any(|e| matches!(
             e,
             LinkEvent::Identified {

@@ -23,12 +23,15 @@
 use std::time::Duration;
 
 use probe_rs::architecture::arm::{
-    ArmDebugInterface, ArmError, FullyQualifiedApAddress, dp::DpAddress,
+    ArmDebugInterface, ArmError, FullyQualifiedApAddress,
+    dp::{DPIDR, DpAccess, DpAddress},
     sequences::DefaultArmSequence,
 };
 use probe_rs::flashing::{DownloadOptions, FlashProgress, ProgressEvent, ProgressOperation};
-use probe_rs::probe::{DebugProbeSelector, Probe, WireProtocol, list::Lister};
-use probe_rs::{CoreStatus, MemoryInterface, Permissions, Session};
+use probe_rs::probe::{
+    DebugProbeError, DebugProbeSelector, Probe, WireProtocol, list::Lister, stlink::StlinkError,
+};
+use probe_rs::{CoreStatus, Error as ProbeRsError, MemoryInterface, Permissions, Session};
 
 use crate::device::DeviceImage;
 use crate::image::{ImageBundle, RunCheckSpec};
@@ -150,7 +153,11 @@ impl ProbeRsRig {
                 Link::Idle(mut probe) => {
                     // Required, and invisible in the signature of the call below.
                     if let Err(err) = probe.attach_to_unspecified() {
-                        return Err(probe_gone("attach", err));
+                        // TargetNotFound means the Tag-Connect is not on a board. The ST-Link is
+                        // still open and must remain so: dropping it here makes an empty fixture
+                        // look like a missing probe and causes a noisy reopen loop.
+                        self.link = Link::Idle(probe);
+                        return Err(probe_rs_error("attach", err));
                     }
                     match probe.try_into_arm_debug_interface(DefaultArmSequence::create()) {
                         Ok(iface) => self.link = Link::Observing(iface),
@@ -261,8 +268,8 @@ impl ProbeRsRig {
     /// boards; holding reset while the debug port comes up does not depend on the application
     /// cooperating at all.
     ///
-    /// Erase-all permission is granted here because a pass is a chip erase by design. It is
-    /// scoped to this session and nothing else in the crate constructs one.
+    /// Erase-all permission exists only for explicit RDP recovery. Normal programming requests
+    /// bounded page erasure, and nothing outside this probe session receives the permission.
     fn attach_under_reset(&mut self) -> Result<Session, RigError> {
         let probe = self.open_probe()?;
         probe
@@ -292,6 +299,29 @@ impl ProbeRsRig {
             RigError::new(kind, format!("could not attach normally: {err}"))
         })
     }
+
+    /// Attach for a write pass, preferring the fixture's reset line but tolerating probes whose
+    /// connect-under-reset sequence is incompatible with this board. The fallback is reached
+    /// before option bytes, erase, or programming, and every caller immediately runs `survey`,
+    /// which halts the core, freezes the watchdog, and validates the STM32 device ID before the
+    /// first write.
+    fn attach_for_programming(&mut self) -> Result<Session, RigError> {
+        match self.attach_under_reset() {
+            Ok(session) => Ok(session),
+            Err(under_reset) if may_retry_attach_normally(under_reset.kind) => {
+                self.close();
+                self.attach_normally().map_err(|normal| {
+                    RigError::new(
+                        normal.kind,
+                        format!(
+                            "programming could not attach under reset ({under_reset}) or normally ({normal})"
+                        ),
+                    )
+                })
+            }
+            Err(error) => Err(error),
+        }
+    }
 }
 
 /// What is worth reading off a halted part before anything is written to it.
@@ -304,16 +334,15 @@ struct Survey {
 
 /// Halt, freeze the watchdog, and read the identity registers.
 ///
-/// `attach_under_reset` leaves the core halted, so the halt here is a belt-and-braces check
-/// rather than the mechanism: if the core is *running* at this point then reset did not take, and
-/// erasing a running target with a live watchdog is precisely the thing to refuse.
+/// Connect-under-reset normally leaves the core halted. A bounded normal-attach fallback is also
+/// supported, so this halt is the mechanism that makes both paths converge before any write.
 fn survey(session: &mut Session) -> Result<Survey, RigError> {
     let mut core = session.core(0).map_err(session_error)?;
     if !core.core_halted().map_err(session_error)? {
         core.halt(HALT_TIMEOUT).map_err(|err| {
             RigError::new(
                 RigErrorKind::ResetIneffective,
-                format!("the core did not halt after connect-under-reset: {err}"),
+                format!("the core did not halt before programming: {err}"),
             )
         })?;
     }
@@ -471,11 +500,46 @@ fn flash_progress<'a>(sink: &'a mut Progress<'_>, total: u64) -> FlashProgress<'
 }
 
 fn session_error(err: probe_rs::Error) -> RigError {
-    let kind = match &err {
-        probe_rs::Error::Probe(_) => RigErrorKind::ProbeGone,
-        _ => RigErrorKind::ContactLost,
-    };
+    let kind = probe_rs_error_kind(&err);
     RigError::new(kind, err.to_string())
+}
+
+fn probe_rs_error_kind(err: &ProbeRsError) -> RigErrorKind {
+    match err {
+        ProbeRsError::Probe(error) => debug_probe_error_kind(error),
+        _ => RigErrorKind::ContactLost,
+    }
+}
+
+fn debug_probe_error_kind(error: &DebugProbeError) -> RigErrorKind {
+    match error {
+        // This variant describes the SWD target, despite living under Error::Probe.
+        DebugProbeError::TargetNotFound => RigErrorKind::ContactLost,
+        // ST-Link V2 reports an empty SWD connector as CommandFailed(JtagGetIdcodeError)
+        // instead of TargetNotFound. During attach, a command failure means the target did not
+        // answer; USB transport failures use distinct Usb variants and still fall through to
+        // ProbeGone below.
+        DebugProbeError::ProbeSpecific(error)
+            if matches!(
+                error.downcast_ref::<StlinkError>(),
+                Some(StlinkError::CommandFailed(_))
+            ) =>
+        {
+            RigErrorKind::ContactLost
+        }
+        _ => RigErrorKind::ProbeGone,
+    }
+}
+
+fn probe_rs_error(what: &str, err: ProbeRsError) -> RigError {
+    RigError::new(
+        probe_rs_error_kind(&err),
+        format!("could not {what}: {err}"),
+    )
+}
+
+fn may_retry_attach_normally(kind: RigErrorKind) -> bool {
+    kind == RigErrorKind::ContactLost
 }
 
 fn option_error(fault: program::FlashFault) -> RigError {
@@ -520,10 +584,18 @@ impl Rig for ProbeRsRig {
     }
 
     fn poll(&mut self) -> Result<Presence, RigError> {
-        let iface = self.observe()?;
-        // A line reset plus DPIDR: ~1 ms measured, and it touches no target memory at all.
-        match iface.select_debug_port(DpAddress::Default) {
-            Ok(()) => Ok(Presence::Present),
+        let iface = match self.observe() {
+            Ok(iface) => iface,
+            // observe has already restored the idle probe. An absent target is the ordinary
+            // waiting state, not an equipment fault.
+            Err(error) if !error.is_probe_loss() => return Ok(Presence::Absent),
+            Err(error) => return Err(error),
+        };
+        // Read DPIDR on every poll. `select_debug_port` is cached once a DP has been selected,
+        // so it can keep succeeding after the Tag-Connect is lifted. This raw wire transaction
+        // touches no target memory and fails immediately when the SWD target is absent.
+        match iface.read_dp_register::<DPIDR>(DpAddress::Default) {
+            Ok(_) => Ok(Presence::Present),
             Err(err) => {
                 // An empty fixture and a lost contact look identical here, which is exactly what
                 // the debounce and the removal gate exist for. Only a probe-layer failure means
@@ -565,7 +637,7 @@ impl Rig for ProbeRsRig {
         self.close();
 
         progress(Step::Attach, 0, 1);
-        let mut session = self.attach_under_reset()?;
+        let mut session = self.attach_for_programming()?;
         let mut survey = survey(&mut session)?;
         progress(Step::Attach, 1, 1);
 
@@ -605,7 +677,7 @@ impl Rig for ProbeRsRig {
                 program::launch_option_bytes(&mut port);
             }
             drop(session);
-            session = self.attach_under_reset()?;
+            session = self.attach_for_programming()?;
             survey = survey_after_reload(&mut session)?;
             if survey.optr != wanted {
                 return Err(option_error(program::FlashFault::NotTaken {
@@ -617,24 +689,32 @@ impl Rig for ProbeRsRig {
             progress(Step::OptionBytes, 1, 1);
         }
 
-        // Erase and program. Only the regions that have bytes are staged -- writing 0xFF over the
-        // rest would be 128 kB on the wire to reach a state the chip erase already produced.
-        let mut loader = session.target().flash_loader();
-        for region in [&bundle.bootloader, &bundle.application] {
-            if region.bytes.is_empty() {
-                continue;
-            }
-            loader
-                .add_data(u64::from(region.load_address), &region.bytes)
+        // Snapshot durable state before programming. It is checked again after readback, so a
+        // flash algorithm that crosses the partition boundary cannot quietly erase identity.
+        let mut persistent_before = vec![0u8; addr::PERSIST_BYTES as usize];
+        {
+            let mut core = session.core(0).map_err(session_error)?;
+            core.read(u64::from(addr::PERSIST_BASE), &mut persistent_before)
                 .map_err(|err| {
                     RigError::new(
-                        RigErrorKind::Program,
-                        format!("could not stage the {} region: {err}", region.name.as_str()),
+                        RigErrorKind::Verify,
+                        format!("could not read persistent pages before programming: {err}"),
                     )
                 })?;
         }
 
-        let expected = bundle.expected_flash_image();
+        // Stage the complete firmware partition, including erased tails. Page erase is bounded
+        // by this range; whole-chip erase is forbidden because the next page is identity.
+        let mut loader = session.target().flash_loader();
+        let expected = bundle.expected_firmware_image();
+        loader
+            .add_data(u64::from(addr::FLASH_BASE), &expected)
+            .map_err(|err| {
+                RigError::new(
+                    RigErrorKind::Program,
+                    format!("could not stage the firmware partition: {err}"),
+                )
+            })?;
         let total = expected.len() as u64;
         {
             // From `image::strategy`, not from literals here. The settings page publishes those
@@ -678,6 +758,35 @@ impl Rig for ProbeRsRig {
         progress(Step::Readback, total, total);
         let readback_sha256 = crate::device::sha256_hex(&actual);
 
+        let mut persistent_after = vec![0u8; persistent_before.len()];
+        {
+            let mut core = session.core(0).map_err(session_error)?;
+            core.read(u64::from(addr::PERSIST_BASE), &mut persistent_after)
+                .map_err(|err| {
+                    RigError::new(
+                        RigErrorKind::Verify,
+                        format!("could not read persistent pages back: {err}"),
+                    )
+                })?;
+        }
+        if persistent_after != persistent_before {
+            let at = persistent_after
+                .iter()
+                .zip(&persistent_before)
+                .position(|(after, before)| after != before)
+                .unwrap_or(0);
+            return Err(RigError::new(
+                RigErrorKind::Verify,
+                format!(
+                    "persistent readback changed at {:#010X}",
+                    addr::PERSIST_BASE as usize + at
+                ),
+            ));
+        }
+        let page = addr::FLASH_PAGE_BYTES as usize;
+        let identity_sha256 = crate::device::sha256_hex(&persistent_after[..page]);
+        let settings_sha256 = crate::device::sha256_hex(&persistent_after[page..]);
+
         // Let the watchdog run again before the application does, explicitly release any halt
         // that survived the reset sequence, then let go.
         progress(Step::ResetRun, 0, 1);
@@ -694,6 +803,171 @@ impl Rig for ProbeRsRig {
             option_bytes_programmed,
             rcc_csr: survey.rcc_csr,
             readback_sha256,
+            identity_sha256,
+            settings_sha256,
+        })
+    }
+
+    fn write_persistent(
+        &mut self,
+        serial: u32,
+        mut settings: crate::persistent::DeviceSettings,
+        allow_identity_override: bool,
+        progress: &mut Progress<'_>,
+    ) -> Result<crate::rig::PersistentWriteReport, RigError> {
+        use crate::persistent::{
+            IdentityRecord, IdentityState, JournalWrite, McuUid, SettingsRecord, SettingsSource,
+            SettingsState, encode_identity, encode_settings, identity_write, scan_identity_page,
+            settings_write,
+        };
+        if serial == 0 || serial == u32::MAX || !settings.validate() {
+            return Err(RigError::new(
+                RigErrorKind::BadBundle,
+                "invalid serial or settings",
+            ));
+        }
+        self.close();
+        let mut session = self.attach_for_programming()?;
+        let survey = survey(&mut session)?;
+        if survey.dev_id != 0 && survey.dev_id != bits::DEV_ID_STM32G07X {
+            return Err(RigError::new(
+                RigErrorKind::WrongTarget,
+                format!("DEV_ID {:#05X}", survey.dev_id),
+            ));
+        }
+
+        let mut uid_words = [0u32; 3];
+        let mut persistent = vec![0u8; addr::PERSIST_BYTES as usize];
+        {
+            let mut core = session.core(0).map_err(session_error)?;
+            core.read_32(u64::from(addr::UID_BASE), &mut uid_words)
+                .map_err(|err| {
+                    RigError::new(
+                        RigErrorKind::ContactLost,
+                        format!("could not read MCU UID: {err}"),
+                    )
+                })?;
+            core.read(u64::from(addr::PERSIST_BASE), &mut persistent)
+                .map_err(|err| {
+                    RigError::new(
+                        RigErrorKind::ContactLost,
+                        format!("could not read persistent pages: {err}"),
+                    )
+                })?;
+        }
+        let uid = McuUid(uid_words);
+        let page = addr::FLASH_PAGE_BYTES as usize;
+        let identity_page = &persistent[..page];
+        let settings_a = &persistent[page..page * 2];
+        let settings_b = &persistent[page * 2..page * 3];
+        let identity = scan_identity_page(identity_page, uid);
+        let existing = identity.serial();
+        let conflict = matches!(
+            identity,
+            IdentityState::Corrupt | IdentityState::ForeignUid { .. }
+        ) || existing.is_some_and(|value| value != serial);
+        if conflict && !allow_identity_override {
+            return Err(RigError::new(
+                RigErrorKind::IdentityConflict,
+                format!(
+                    "requested serial {serial}, on-board identity is {}",
+                    identity.name()
+                ),
+            ));
+        }
+
+        let mut identity_written = false;
+        if existing != Some(serial) {
+            progress(Step::Identity, 0, 1);
+            let generation = match identity {
+                IdentityState::Valid { record } | IdentityState::ForeignUid { record } => {
+                    record.generation.saturating_add(1)
+                }
+                _ => 1,
+            };
+            let Some(JournalWrite::Append { address }) = identity_write(identity_page) else {
+                return Err(RigError::new(
+                    RigErrorKind::IdentityConflict,
+                    "identity journal is full and is never erased automatically",
+                ));
+            };
+            let record = encode_identity(IdentityRecord {
+                generation,
+                uid,
+                serial,
+            });
+            commit_persistent_bytes(&mut session, address, &record, true)?;
+            identity_written = true;
+            progress(Step::Identity, 1, 1);
+        }
+
+        let state = SettingsState::load(settings_a, settings_b, uid);
+        if settings.axis_a_calibration.is_none() {
+            settings.axis_a_calibration = state.record.settings.axis_a_calibration;
+        }
+        if settings.axis_b_calibration.is_none() {
+            settings.axis_b_calibration = state.record.settings.axis_b_calibration;
+        }
+        let mut settings_written = false;
+        if state.source == SettingsSource::Defaults || state.record.settings != settings {
+            progress(Step::Settings, 0, 1);
+            let record = encode_settings(SettingsRecord {
+                generation: state.record.generation.saturating_add(1),
+                uid,
+                settings,
+            });
+            match settings_write(settings_a, settings_b, state.source) {
+                JournalWrite::Append { address } => {
+                    commit_persistent_bytes(&mut session, address, &record, true)?;
+                }
+                JournalWrite::Compact { page_address } => {
+                    let mut fresh_page = vec![0xFF; page];
+                    fresh_page[..record.len()].copy_from_slice(&record);
+                    // The old page stays valid until this complete page is programmed and read
+                    // back, which is the alternating journal's power-loss boundary.
+                    commit_persistent_bytes(&mut session, page_address, &fresh_page, false)?;
+                }
+            }
+            settings_written = true;
+            progress(Step::Settings, 1, 1);
+        }
+
+        let mut verify = vec![0u8; persistent.len()];
+        {
+            let mut core = session.core(0).map_err(session_error)?;
+            core.read(u64::from(addr::PERSIST_BASE), &mut verify)
+                .map_err(|err| {
+                    RigError::new(
+                        RigErrorKind::Verify,
+                        format!("could not read persistent records back: {err}"),
+                    )
+                })?;
+        }
+        let verified_identity = scan_identity_page(&verify[..page], uid);
+        if verified_identity.serial() != Some(serial) {
+            return Err(RigError::new(
+                RigErrorKind::Verify,
+                format!("identity readback is {}", verified_identity.name()),
+            ));
+        }
+        let verified_settings =
+            SettingsState::load(&verify[page..page * 2], &verify[page * 2..], uid);
+        if verified_settings.record.settings != settings {
+            return Err(RigError::new(
+                RigErrorKind::Verify,
+                "settings readback differs",
+            ));
+        }
+
+        let reset = reset_session_and_run(&mut session);
+        drop(session);
+        self.link = Link::Closed;
+        reset?;
+        Ok(crate::rig::PersistentWriteReport {
+            serial,
+            settings,
+            identity_written,
+            settings_written,
         })
     }
 
@@ -811,6 +1085,38 @@ impl Rig for ProbeRsRig {
     }
 }
 
+fn commit_persistent_bytes(
+    session: &mut Session,
+    address: u32,
+    bytes: &[u8],
+    keep_unwritten: bool,
+) -> Result<(), RigError> {
+    let end = u64::from(address) + bytes.len() as u64;
+    if address < addr::PERSIST_BASE || end > u64::from(addr::FLASH_END) {
+        return Err(RigError::new(
+            RigErrorKind::BadBundle,
+            format!("persistent write {address:#010X}..{end:#010X} is out of bounds"),
+        ));
+    }
+    let mut loader = session.target().flash_loader();
+    loader.add_data(u64::from(address), bytes).map_err(|err| {
+        RigError::new(
+            RigErrorKind::Program,
+            format!("could not stage persistent record: {err}"),
+        )
+    })?;
+    let mut options = DownloadOptions::default();
+    options.keep_unwritten_bytes = keep_unwritten;
+    options.do_chip_erase = false;
+    options.verify = false;
+    loader.commit(session, options).map_err(|err| {
+        RigError::new(
+            RigErrorKind::Program,
+            format!("persistent programming failed: {err}"),
+        )
+    })
+}
+
 impl Drop for ProbeRsRig {
     fn drop(&mut self) {
         self.close();
@@ -823,7 +1129,10 @@ impl Drop for ProbeRsRig {
 /// the removal gate handles, while a lost probe stops the rig. `ArmError::Probe` is the layer
 /// boundary — anything below it is USB or the probe firmware, anything above it is the wire.
 fn is_probe_failure(err: &ArmError) -> bool {
-    matches!(err, ArmError::Probe(_))
+    match err {
+        ArmError::Probe(error) => debug_probe_error_kind(error) == RigErrorKind::ProbeGone,
+        _ => false,
+    }
 }
 
 fn probe_gone(what: &str, err: impl std::fmt::Display) -> RigError {
@@ -842,3 +1151,30 @@ fn target_error(what: &str, err: ArmError) -> RigError {
 /// How long a caller should wait before deciding a halt failed. Not used until the write path
 /// exists; named here so the constant has one home.
 pub const HALT_TIMEOUT: Duration = Duration::from_millis(500);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn empty_target_is_not_reported_as_a_missing_probe() {
+        let error = ProbeRsError::Probe(DebugProbeError::TargetNotFound);
+        assert_eq!(probe_rs_error_kind(&error), RigErrorKind::ContactLost);
+    }
+
+    #[test]
+    fn usb_failure_is_still_reported_as_a_missing_probe() {
+        let error = ProbeRsError::Probe(DebugProbeError::Usb(std::io::Error::new(
+            std::io::ErrorKind::NotConnected,
+            "gone",
+        )));
+        assert_eq!(probe_rs_error_kind(&error), RigErrorKind::ProbeGone);
+    }
+
+    #[test]
+    fn programming_attach_fallback_is_only_for_target_contact_loss() {
+        assert!(may_retry_attach_normally(RigErrorKind::ContactLost));
+        assert!(!may_retry_attach_normally(RigErrorKind::ProbeGone));
+        assert!(!may_retry_attach_normally(RigErrorKind::Program));
+    }
+}

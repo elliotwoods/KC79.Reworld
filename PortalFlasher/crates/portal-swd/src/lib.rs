@@ -24,6 +24,7 @@ pub mod artefacts;
 pub mod device;
 pub mod image;
 pub mod machine;
+pub mod persistent;
 pub mod program;
 pub mod rig;
 pub mod symbols;
@@ -35,12 +36,16 @@ pub use artefacts::{Artefact, Discovery, Origin, discover};
 pub use device::{DeviceImage, DeviceReport, Layout, OptionBytes, OptionWarning, VectorTable};
 
 pub use image::{BundleFault, ImageBundle, OptionBytePolicy, Region, RegionName, RunCheckSpec};
-pub use machine::{Action, Cue, Input, Machine, Millis, Pass, Phase, Timing};
+pub use machine::{Action, Cue, Input, Machine, Millis, Pass, Phase, Sequence, Timing};
+pub use persistent::{
+    DeviceSettings, IdentityRecord, IdentityState, JournalWrite, OpticalCalibration,
+    SettingsRecord, SettingsSource,
+};
 #[cfg(feature = "probe")]
 pub use probe::{ProbeDescriptor, ProbeRsRig, list_probes};
 pub use rig::{
-    BootFault, BootReport, FlashReport, Presence, ProbeInfo, Rig, RigError, RigErrorKind,
-    RunCheckFault, RunCheckReport, SimRig, Step, Trigger,
+    BootFault, BootReport, FlashReport, PersistentWriteReport, Presence, ProbeInfo, Rig, RigError,
+    RigErrorKind, RunCheckFault, RunCheckReport, SimRig, Step, Trigger,
 };
 
 /// Fixed addresses on the STM32G070, verified against the CMSIS device header
@@ -61,6 +66,13 @@ pub mod addr {
     pub const APP_BASE: u32 = FLASH_BASE + BOOTLOADER_BYTES;
     /// One past the end of flash on the 128 kB part.
     pub const FLASH_END: u32 = 0x0802_0000;
+    /// First byte that is not application firmware. The final three 2 KiB pages survive every
+    /// firmware update.
+    pub const PERSIST_BASE: u32 = 0x0801_E800;
+    pub const IDENTITY_BASE: u32 = PERSIST_BASE;
+    pub const SETTINGS_A_BASE: u32 = 0x0801_F000;
+    pub const SETTINGS_B_BASE: u32 = 0x0801_F800;
+    pub const FLASH_PAGE_BYTES: u32 = 2 * 1024;
 
     /// SRAM, 36 kB. `RAM_END` is one past the last byte, which is also where a valid initial
     /// stack pointer sits — the stack grows down, so `0x20009000` is correct rather than
@@ -68,7 +80,9 @@ pub mod addr {
     pub const RAM_BASE: u32 = 0x2000_0000;
     pub const RAM_END: u32 = 0x2000_9000;
     /// Bytes available to the application.
-    pub const APP_BANK_BYTES: u32 = FLASH_END - APP_BASE;
+    pub const APP_BANK_BYTES: u32 = PERSIST_BASE - APP_BASE;
+    pub const FIRMWARE_BYTES: u32 = PERSIST_BASE - FLASH_BASE;
+    pub const PERSIST_BYTES: u32 = FLASH_END - PERSIST_BASE;
 
     /// Flash controller. `ACR +0x00`, `KEYR +0x08`, `OPTKEYR +0x0C`, `SR +0x10`, `CR +0x14`,
     /// `ECCR +0x18`, `OPTR +0x20`, `WRP1AR +0x2C`, `WRP1BR +0x30`.
@@ -182,7 +196,12 @@ mod addr_tests {
         // rather than as a corrupt device.
         assert_eq!(APP_BASE, 0x0800_6000);
         assert_eq!(BOOTLOADER_BYTES, 0x6000);
-        assert_eq!(APP_BANK_BYTES, 106_496);
+        assert_eq!(APP_BANK_BYTES, 98 * 1024);
+        assert_eq!(FIRMWARE_BYTES, 122 * 1024);
+        assert_eq!(PERSIST_BYTES, 6 * 1024);
+        assert_eq!(IDENTITY_BASE + FLASH_PAGE_BYTES, SETTINGS_A_BASE);
+        assert_eq!(SETTINGS_A_BASE + FLASH_PAGE_BYTES, SETTINGS_B_BASE);
+        assert_eq!(SETTINGS_B_BASE + FLASH_PAGE_BYTES, FLASH_END);
         assert_eq!(FLASH_END - FLASH_BASE, 128 * 1024);
     }
 

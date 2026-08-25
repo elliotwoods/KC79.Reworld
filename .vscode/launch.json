@@ -6,6 +6,19 @@
   // ignored by their own .gitignore files.
   //
   // The Rust entries need the CodeLLDB extension (`vadimcn.vscode-lldb`).
+  //
+  // Every path that differs between platforms is expressed with VS Code's own `windows` / `osx`
+  // override blocks rather than by duplicating configurations. There are three kinds of
+  // difference and each one is a real fact about the platform, not cosmetics:
+  //
+  //   * `.exe`.
+  //   * **A native macOS run launches out of the bundle, not out of `target/`.** CEF resolves its
+  //     framework relative to the main bundle, so a bare binary finds nothing and the window
+  //     never renders. `--headless` is exempt and launches from `target/` on both.
+  //   * **Vulkan has to be found before the process starts.** `ash` `dlopen`s `libvulkan.dylib`
+  //     by bare name and dyld reads `DYLD_LIBRARY_PATH` once at launch, so it is set here rather
+  //     than by anything inside the program. The bundle's own launcher stub does the same job for
+  //     a run started from Finder.
   "version": "0.2.0",
   "configurations": [
     {
@@ -13,7 +26,7 @@
       "name": "Portal Test Bench (native)",
       "type": "lldb",
       "request": "launch",
-      "program": "${workspaceFolder}/PortalTestBench/target/debug/portal-test-bench.exe",
+      "program": "${workspaceFolder}/PortalTestBench/target/debug/portal-test-bench",
       "args": [],
       "cwd": "${workspaceFolder}/PortalTestBench",
       "env": {
@@ -21,7 +34,19 @@
       },
       "terminal": "integrated",
       "preLaunchTask": "Portal Test Bench: build",
-      "sourceLanguages": ["rust"]
+      "sourceLanguages": ["rust"],
+      "windows": {
+        "program": "${workspaceFolder}/PortalTestBench/target/debug/portal-test-bench.exe"
+      },
+      "osx": {
+        "program": "${workspaceFolder}/PortalTestBench/target/debug/bundle/PortalTestBench.app/Contents/MacOS/portal-test-bench",
+        "preLaunchTask": "Portal Test Bench: bundle (macOS)",
+        "env": {
+          "RUST_LOG": "info,av_gui_host=info,av_gui_shell=info",
+          "DYLD_LIBRARY_PATH": "${workspaceFolder}/PortalTestBench/target/debug/bundle/PortalTestBench.app/Contents/Frameworks",
+          "VK_ICD_FILENAMES": "${workspaceFolder}/PortalTestBench/target/debug/bundle/PortalTestBench.app/Contents/Frameworks/vulkan/icd.d/MoltenVK_icd.json"
+        }
+      }
     },
     {
       // No probe or serial adapter needed: the Test Bench exposes a modelled STM32G070 and
@@ -29,7 +54,7 @@
       "name": "Portal Test Bench (simulated target)",
       "type": "lldb",
       "request": "launch",
-      "program": "${workspaceFolder}/PortalTestBench/target/debug/portal-test-bench.exe",
+      "program": "${workspaceFolder}/PortalTestBench/target/debug/portal-test-bench",
       "args": ["--simulate"],
       "cwd": "${workspaceFolder}/PortalTestBench",
       "env": {
@@ -37,14 +62,28 @@
       },
       "terminal": "integrated",
       "preLaunchTask": "Portal Test Bench: build",
-      "sourceLanguages": ["rust"]
+      "sourceLanguages": ["rust"],
+      "windows": {
+        "program": "${workspaceFolder}/PortalTestBench/target/debug/portal-test-bench.exe"
+      },
+      "osx": {
+        "program": "${workspaceFolder}/PortalTestBench/target/debug/bundle/PortalTestBench.app/Contents/MacOS/portal-test-bench",
+        "preLaunchTask": "Portal Test Bench: bundle (macOS)",
+        "env": {
+          "RUST_LOG": "info,av_gui_host=info,av_gui_shell=info",
+          "DYLD_LIBRARY_PATH": "${workspaceFolder}/PortalTestBench/target/debug/bundle/PortalTestBench.app/Contents/Frameworks",
+          "VK_ICD_FILENAMES": "${workspaceFolder}/PortalTestBench/target/debug/bundle/PortalTestBench.app/Contents/Frameworks/vulkan/icd.d/MoltenVK_icd.json"
+        }
+      }
     },
     {
-      // Serves the same test-bench page without opening its native window.
+      // Serves the same test-bench page without opening its native window. No bundle, no CEF
+      // payload and no GPU on either platform — which is what makes it the configuration to
+      // reach for when something native is misbehaving.
       "name": "Portal Test Bench (headless, opens browser)",
       "type": "lldb",
       "request": "launch",
-      "program": "${workspaceFolder}/PortalTestBench/target/debug/portal-test-bench.exe",
+      "program": "${workspaceFolder}/PortalTestBench/target/debug/portal-test-bench",
       "args": ["--headless", "--simulate"],
       "cwd": "${workspaceFolder}/PortalTestBench",
       "env": {
@@ -57,44 +96,50 @@
         "pattern": "(http://127\\.0\\.0\\.1:8770)",
         "uriFormat": "%s"
       },
-      "sourceLanguages": ["rust"]
+      "sourceLanguages": ["rust"],
+      "windows": {
+        "program": "${workspaceFolder}/PortalTestBench/target/debug/portal-test-bench.exe"
+      }
     },
     {
       "name": "RouterRS: app",
       "type": "lldb",
       "request": "launch",
-      "program": "${workspaceFolder}/RouterRS/target/debug/router-app.exe",
+      "program": "${workspaceFolder}/RouterRS/target/debug/router-app",
       "args": [],
       // config.json is read relative to the working directory.
       "cwd": "${workspaceFolder}/RouterRS",
       "env": { "RUST_LOG": "info" },
       "terminal": "integrated",
       "preLaunchTask": "RouterRS: cargo build",
-      "sourceLanguages": ["rust"]
+      "sourceLanguages": ["rust"],
+      "windows": { "program": "${workspaceFolder}/RouterRS/target/debug/router-app.exe" }
     },
     {
       "name": "RouterRS: app (simulated bus)",
       "type": "lldb",
       "request": "launch",
-      "program": "${workspaceFolder}/RouterRS/target/debug/router-app.exe",
+      "program": "${workspaceFolder}/RouterRS/target/debug/router-app",
       "args": ["--simulate", "--sim-dead", "2,7", "--sim-noisy", "5"],
       "cwd": "${workspaceFolder}/RouterRS",
       "env": { "RUST_LOG": "info" },
       "terminal": "integrated",
       "preLaunchTask": "RouterRS: cargo build",
-      "sourceLanguages": ["rust"]
+      "sourceLanguages": ["rust"],
+      "windows": { "program": "${workspaceFolder}/RouterRS/target/debug/router-app.exe" }
     },
     {
       "name": "RouterRS: headless (60 s simulated session)",
       "type": "lldb",
       "request": "launch",
-      "program": "${workspaceFolder}/RouterRS/target/debug/router-headless.exe",
+      "program": "${workspaceFolder}/RouterRS/target/debug/router-headless",
       "args": ["--config", "config.json", "--simulate", "--poll", "3", "--duration", "60"],
       "cwd": "${workspaceFolder}/RouterRS",
       "env": { "RUST_LOG": "info" },
       "terminal": "console",
       "preLaunchTask": "RouterRS: cargo build",
-      "sourceLanguages": ["rust"]
+      "sourceLanguages": ["rust"],
+      "windows": { "program": "${workspaceFolder}/RouterRS/target/debug/router-headless.exe" }
     },
     {
       // Reads the NDJSON session reports RouterRS writes into ../RouterRS/reports.
@@ -118,8 +163,11 @@
       "request": "launch",
       "program": "${workspaceFolder}/HomeSwitchTest/monitor/overnight_monitor.py",
       "cwd": "${workspaceFolder}/HomeSwitchTest",
-      "python": "${workspaceFolder}/HomeSwitchTest/monitor/.venv/Scripts/python.exe",
-      "console": "integratedTerminal"
+      "python": "${workspaceFolder}/HomeSwitchTest/monitor/.venv/bin/python",
+      "console": "integratedTerminal",
+      "windows": {
+        "python": "${workspaceFolder}/HomeSwitchTest/monitor/.venv/Scripts/python.exe"
+      }
     }
   ]
 }

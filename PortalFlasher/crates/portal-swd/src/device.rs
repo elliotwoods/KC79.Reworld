@@ -22,6 +22,7 @@ use sha2::{Digest, Sha256};
 
 use crate::addr;
 use crate::bits;
+use crate::persistent::{IdentityState, McuUid, SettingsState};
 
 /// A raw readback plus the registers worth capturing with it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -235,16 +236,21 @@ pub struct DeviceReport {
     pub flash_kb: u16,
     pub programmed_bytes: usize,
     pub total_bytes: usize,
+    pub identity: IdentityState,
+    pub settings: SettingsState,
 }
 
 impl DeviceImage {
     pub fn analyse(&self) -> DeviceReport {
         let split = addr::BOOTLOADER_BYTES as usize;
+        let firmware_end = addr::FIRMWARE_BYTES as usize;
+        let firmware = &self.flash[..firmware_end.min(self.flash.len())];
         let boot_vector = VectorTable::read(&self.flash, 0);
         let app_vector = VectorTable::read(&self.flash, split);
 
-        let boot_used = used_bytes(&self.flash[..split.min(self.flash.len())]);
-        let app_used = used_bytes(&self.flash[split.min(self.flash.len())..]);
+        let boot_used = used_bytes(&firmware[..split.min(firmware.len())]);
+        let app_bytes = &firmware[split.min(firmware.len())..];
+        let app_used = used_bytes(app_bytes);
 
         // A vector table at 0 whose entry point is past the bank boundary means one image spans
         // both banks -- there is no bootloader, whatever else is programmed.
@@ -275,10 +281,8 @@ impl DeviceImage {
                 base: addr::APP_BASE,
                 used_bytes: app_used,
                 vector: app_vector,
-                banner: first_banner(&self.flash[split.min(self.flash.len())..]),
-                sha256: hex(&Sha256::digest(
-                    &self.flash[split.min(self.flash.len())..][..app_used],
-                )),
+                banner: first_banner(app_bytes),
+                sha256: hex(&Sha256::digest(&app_bytes[..app_used])),
             },
             flat_vector: if flat { boot_vector } else { None },
             options: OptionBytes::decode(self.optr),
@@ -291,6 +295,24 @@ impl DeviceImage {
             flash_kb: self.flash_kb,
             programmed_bytes: self.flash.iter().filter(|&&b| b != 0xFF).count(),
             total_bytes: self.flash.len(),
+            identity: {
+                let at = (addr::IDENTITY_BASE - addr::FLASH_BASE) as usize;
+                let end = at + addr::FLASH_PAGE_BYTES as usize;
+                crate::persistent::scan_identity_page(
+                    self.flash.get(at..end).unwrap_or(&[]),
+                    McuUid(self.uid),
+                )
+            },
+            settings: {
+                let a = (addr::SETTINGS_A_BASE - addr::FLASH_BASE) as usize;
+                let b = (addr::SETTINGS_B_BASE - addr::FLASH_BASE) as usize;
+                let page = addr::FLASH_PAGE_BYTES as usize;
+                SettingsState::load(
+                    self.flash.get(a..a + page).unwrap_or(&[]),
+                    self.flash.get(b..b + page).unwrap_or(&[]),
+                    McuUid(self.uid),
+                )
+            },
         }
     }
 

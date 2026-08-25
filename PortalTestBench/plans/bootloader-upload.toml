@@ -1,0 +1,24 @@
+# Destructive single-module fixture check.
+#
+# The resident bootloader receives the currently selected application over RS485. SWD captures
+# the bootloader and persistent partitions before transmission and verifies every partition plus
+# stable application execution afterwards. The selected production images are both larger than
+# 64 KiB, so this also exercises uint32 firmware-frame offsets.
+
+name = "bootloader-upload"
+kind = "busdiag"
+requires = { firmware = "production", transport = "rs485" }
+
+setup = [
+  { op = "connect" },
+]
+
+[body]
+once = [
+  { op = "marker", label = "bootloader upload begins" },
+  { op = "bootloader_upload", timeout_s = 110 },
+  { op = "marker", label = "bootloader upload verified" },
+]
+
+[limits]
+max_duration_s = 140

@@ -5,7 +5,7 @@
 //! is the point of keeping the machine pure — a contact that bounces seven times in 200 ms is
 //! difficult to arrange on a bench and trivial to arrange here.
 
-use portal_swd::machine::{Action, Cue, Input, Machine, Millis, Pass, Phase, Timing};
+use portal_swd::machine::{Action, Cue, Input, Machine, Millis, Pass, Phase, Sequence, Timing};
 
 /// Drives a machine along a timeline, collecting everything it emitted.
 struct Rig {
@@ -22,6 +22,15 @@ impl Rig {
     fn new() -> Self {
         Self {
             machine: Machine::new(Timing::default()),
+            now: 0,
+            actions: Vec::new(),
+            heartbeat: true,
+        }
+    }
+
+    fn flash_every_insertion() -> Self {
+        Self {
+            machine: Machine::with_sequence(Timing::default(), Sequence::FlashEveryInsertion),
             now: 0,
             actions: Vec::new(),
             heartbeat: true,
@@ -278,6 +287,20 @@ fn flash_then_reinsert_gives_a_run_check_not_a_second_flash() {
         Some(Pass::Flash),
         "the next board should get a flash"
     );
+}
+
+#[test]
+fn production_bench_flashes_every_insertion() {
+    let mut r = Rig::flash_every_insertion();
+    r.arm_and_settle();
+
+    r.complete_pass(Pass::Flash, true);
+    assert_eq!(r.cues().last(), Some(&Cue::Pass));
+    assert_eq!(r.machine.expect(), Some(Pass::Flash));
+
+    r.absent_run(8).clear();
+    r.complete_pass(Pass::Flash, true);
+    assert_eq!(r.passes_begun(), vec![Pass::Flash]);
 }
 
 #[test]

@@ -13,6 +13,7 @@ use std::collections::VecDeque;
 
 use crate::dut::{Axis, FirmwareKind, GearRatio, Health};
 use crate::threshold::Band;
+use crate::transport::direct::{SessionMode, SurveyConfig, SurveySample};
 use crate::transport::{Channel, LinkDiagnostics, LinkKind, MotionProfile};
 
 /// How many log lines the bench keeps in memory.
@@ -51,6 +52,10 @@ pub struct DutState {
     pub b: AxisState,
     /// The optical threshold band measured this session, if any.
     pub threshold: Option<ThresholdState>,
+    pub provision_serial: Option<u32>,
+    pub operating_current_ma: Option<u16>,
+    pub full_current_home_recovery: Option<bool>,
+    pub settings_source: Option<String>,
 }
 
 impl DutState {
@@ -114,6 +119,44 @@ pub struct ChannelState {
 pub struct ChannelsState {
     pub serial: ChannelState,
     pub rs485: ChannelState,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum FieldUpdatePhase {
+    #[default]
+    Idle,
+    Uploading,
+    Handoff,
+    Verifying,
+    Passed,
+    Failed,
+}
+
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct FieldUpdateState {
+    pub attempt: u64,
+    pub phase: FieldUpdatePhase,
+    pub progress: f64,
+    pub detail: String,
+    pub application_bytes: usize,
+    pub total_packets: usize,
+    pub sent_packets: usize,
+    pub expected_sha256: String,
+    pub readback_sha256: String,
+    pub bootloader_unchanged: bool,
+    pub persistent_unchanged: bool,
+    pub application_booted: bool,
+    pub beyond_64k: bool,
+}
+
+impl FieldUpdateState {
+    pub fn running(&self) -> bool {
+        matches!(
+            self.phase,
+            FieldUpdatePhase::Uploading | FieldUpdatePhase::Handoff | FieldUpdatePhase::Verifying
+        )
+    }
 }
 
 // `LinkKind` is an enum of the transports; serialise it by name so a report reads the same
@@ -258,6 +301,34 @@ pub struct BenchState {
     /// The motion profile the bench applies to moves it originates.
     pub profile: MotionProfile,
     pub faults: u32,
+    pub direct: DirectState,
+    pub survey: SurveyState,
+    pub field_update: FieldUpdateState,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct DirectState {
+    pub mode: SessionMode,
+    pub detail: String,
+}
+
+impl Default for DirectState {
+    fn default() -> Self {
+        Self {
+            mode: SessionMode::Menu,
+            detail: "human menu".into(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct SurveyState {
+    pub running: bool,
+    pub config: Option<SurveyConfig>,
+    pub expected: usize,
+    pub samples: Vec<SurveySample>,
+    pub aborted: bool,
+    pub detail: String,
 }
 
 #[cfg(test)]

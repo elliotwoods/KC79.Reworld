@@ -45,6 +45,16 @@ pub enum Pass {
     RunCheck,
 }
 
+/// What a successful flash insertion means to the owning application.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Sequence {
+    /// Standalone flasher workflow: flash, power-cycle the same board, then run-check it.
+    FlashThenRunCheck,
+    /// Production bench workflow: boot/application verification is part of the flash pass, so
+    /// every new insertion is another board to flash.
+    FlashEveryInsertion,
+}
+
 impl fmt::Display for Pass {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -208,6 +218,7 @@ enum State {
 #[derive(Clone, Debug)]
 pub struct Machine {
     timing: Timing,
+    sequence: Sequence,
     state: State,
     last_heartbeat: Millis,
     /// Set when a disarm is asked for during a pass. Aborting a write to honour a button is
@@ -217,8 +228,13 @@ pub struct Machine {
 
 impl Machine {
     pub fn new(timing: Timing) -> Self {
+        Self::with_sequence(timing, Sequence::FlashThenRunCheck)
+    }
+
+    pub fn with_sequence(timing: Timing, sequence: Sequence) -> Self {
         Self {
             timing,
+            sequence,
             state: State::Disarmed,
             last_heartbeat: 0,
             disarm_pending: false,
@@ -439,6 +455,9 @@ impl Machine {
 
     fn finish_pass(&mut self, pass: Pass, ok: bool, actions: &mut Vec<Action>) {
         let (cue, expect_next) = match (pass, ok) {
+            (Pass::Flash, true) if self.sequence == Sequence::FlashEveryInsertion => {
+                (Cue::Pass, Pass::Flash)
+            }
             (Pass::Flash, true) => (Cue::FlashedCycleIt, Pass::RunCheck),
             (Pass::RunCheck, true) => (Cue::Pass, Pass::Flash),
             // Any failure sends the rig back to expecting a flash, which is what makes a failed

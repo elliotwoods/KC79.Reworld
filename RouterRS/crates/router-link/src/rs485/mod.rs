@@ -68,6 +68,7 @@ impl Rs485 {
 
     /// `RS485::deserialise`: store the connection settings and connect.
     pub fn open_from_settings(&mut self, settings: Json) {
+        self.params.apply_settings(&settings);
         self.settings = Some(settings);
         self.try_open();
     }

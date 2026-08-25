@@ -10,6 +10,7 @@
 #define LOG_MESSAGE_LENGTH 64
 
 HardwareSerial serial(PB7, PB6);
+msgpack::COBSRWStream directStream(serial);
 
 //----------
 void
@@ -48,6 +49,10 @@ log(const Exception& exception)
 void
 print(const LogMessage& logMessage)
 {
+	if(Logger::X().directActive()) {
+		Logger::X().sendDirectLog(logMessage);
+		return;
+	}
 	// Special cases for begin and end messages
 	if(logMessage.message == "begin" && logMessage.level == LogLevel::Status) {
 		serial.println("/---------");
@@ -227,6 +232,10 @@ Logger::setup()
 void
 Logger::update()
 {
+	if(this->directMode) {
+		this->updateDirect();
+		return;
+	}
 	// take commands (one per update loop)
 	{
 		char command = 0;
@@ -315,6 +324,21 @@ Logger::runLineCommand(char * line)
 	}
 
 	switch(verb) {
+	case 'b':
+	{
+		if(argCount != 2 || args[0] != 1 || args[1] < 0) {
+			this->printRaw("usage: :b <protocol=1> <nonce>\r\n");
+			break;
+		}
+		serial.print("DIRECT 1 ");
+		serial.println((unsigned long) args[1]);
+		serial.flush();
+		this->directMode = true;
+		this->directHeartbeatMs = millis();
+		this->lineMode = false;
+		this->lineLength = 0;
+		break;
+	}
 #ifndef HOME_SWITCH_LEGACY
 	case 't':
 	{
@@ -356,17 +380,50 @@ Logger::runLineCommand(char * line)
 		break;
 	}
 
+	case 'h':
+	{
+		const long axis = (argCount >= 1) ? args[0] : 0;
+		long count = (argCount >= 2) ? args[1] : 1;
+		if(axis < 0 || axis > 1 || count < 1 || count > 200) {
+			this->printRaw("usage: :h <axis 0=A 1=B> [count 1..200]\r\n");
+			break;
+		}
+		auto * motionControl = axis == 1
+			? Modules::App::X().motionControlB
+			: Modules::App::X().motionControlA;
+		Modules::MotionControl::MeasureRoutineSettings settings;
+		for(long run = 1; run <= count; run++) {
+			char marker[80];
+			sprintf(marker, "home campaign: axis=%c run=%ld/%ld\r\n"
+				, axis == 1 ? 'B' : 'A', run, count);
+			this->printRaw(marker);
+			auto exception = motionControl->fastHomeRoutine(settings);
+			if(exception) {
+				::log(exception);
+				break;
+			}
+			if(!Modules::App::X().persistOpticalCalibration(motionControl)) {
+				::log(LogLevel::Error, motionControl->getName()
+					, "home campaign stopped: calibration persistence failed");
+				break;
+			}
+		}
+		break;
+	}
+
 	case 'd':
 		this->printHomeSwitchInfo();
 		break;
 #endif
 
 	case 'v':
+		serial.print("Provision Serial: ");
+		serial.println((unsigned long) Modules::App::X().getProvisionSerial());
 		this->printVersion();
 		break;
 
 	default:
-		this->printRaw("line commands: :t [duty]  :n <duty> [speed] [axis]  :d  :v\r\n");
+		this->printRaw("line commands: :b <version> <nonce>  :t [duty]  :n <duty> [speed] [axis]  :h <axis> [count]  :d  :v\r\n");
 		break;
 	}
 }
@@ -614,8 +671,351 @@ Logger::log(const LogMessage& logMessage)
 void
 Logger::printRaw(const char * message)
 {
+	if(this->directMode) {
+		return;
+	}
 	serial.print(message);
 }
+
+namespace {
+	enum DirectKind : uint8_t {
+		DIRECT_HELLO = 1, DIRECT_HEARTBEAT = 2, DIRECT_EXIT = 3,
+		DIRECT_STATUS = 4, DIRECT_OP = 5, DIRECT_JOG = 6,
+		DIRECT_SURVEY_START = 7, DIRECT_ABORT = 8,
+		DIRECT_ACK = 64, DIRECT_ERROR = 65, DIRECT_STATUS_EVENT = 66,
+		DIRECT_LOG_EVENT = 67, DIRECT_SURVEY_BEGIN = 68,
+		DIRECT_SURVEY_SAMPLE = 69, DIRECT_SURVEY_END = 70
+	};
+
+	void directFrameBegin(uint8_t seq, uint8_t kind)
+	{
+		msgpack::writeArraySize4(directStream, 5);
+		msgpack::writeIntU7(directStream, 1);
+		msgpack::writeIntU7(directStream, seq);
+		msgpack::writeIntU7(directStream, kind);
+	}
+
+	void directFrameEnd()
+	{
+		msgpack::writeIntU16(directStream, directStream.getTxRunningCRC());
+		directStream.flush();
+	}
+}
+
+//----------
+void
+Logger::sendDirectAck(uint8_t seq)
+{
+	directFrameBegin(seq, DIRECT_ACK);
+	msgpack::writeNil(directStream);
+	directFrameEnd();
+}
+
+//----------
+void
+Logger::sendDirectError(uint8_t seq, const char * detail)
+{
+	directFrameBegin(seq, DIRECT_ERROR);
+	msgpack::writeArraySize4(directStream, 2);
+	msgpack::writeIntU7(directStream, 1);
+	msgpack::writeString(directStream, detail);
+	directFrameEnd();
+}
+
+//----------
+void
+Logger::sendDirectStatus(uint8_t seq)
+{
+	auto & app = Modules::App::X();
+	directFrameBegin(seq, DIRECT_STATUS_EVENT);
+	msgpack::writeArraySize4(directStream, 12);
+	msgpack::writeInt32(directStream, app.motionControlA->getPosition());
+	msgpack::writeInt32(directStream, app.motionControlB->getPosition());
+	msgpack::writeInt32(directStream, app.motionControlA->getTargetPosition());
+	msgpack::writeInt32(directStream, app.motionControlB->getTargetPosition());
+	const auto & a = app.motionControlA->getHealthStatus();
+	const auto & b = app.motionControlB->getHealthStatus();
+	msgpack::writeBool(directStream, a.measureCycleOK);
+	msgpack::writeBool(directStream, a.switchesOK);
+	msgpack::writeBool(directStream, a.backlashOK);
+	msgpack::writeBool(directStream, a.homeOK);
+	msgpack::writeBool(directStream, b.measureCycleOK);
+	msgpack::writeBool(directStream, b.switchesOK);
+	msgpack::writeBool(directStream, b.backlashOK);
+	msgpack::writeBool(directStream, b.homeOK);
+	directFrameEnd();
+}
+
+//----------
+void
+Logger::sendDirectLog(const LogMessage& message)
+{
+	directFrameBegin(this->directTxSeq++, DIRECT_LOG_EVENT);
+	msgpack::writeArraySize4(directStream, 3);
+	msgpack::writeIntU8(directStream, (uint8_t) message.level);
+	std::string text = message.module + ": " + message.message;
+	msgpack::writeString(directStream, text.c_str());
+	msgpack::writeIntU32(directStream, message.timestamp_ms);
+	directFrameEnd();
+}
+
+//----------
+void
+Logger::updateDirect()
+{
+	if(millis() - this->directHeartbeatMs > 3000U) {
+		Modules::App::X().motionControlA->stop();
+		Modules::App::X().motionControlB->stop();
+		Modules::App::X().escapeFromRoutine();
+		this->directMode = false;
+		this->lineMode = false;
+		return;
+	}
+
+	if(!directStream.isStartOfIncomingPacket()) {
+		directStream.nextIncomingPacket();
+	}
+	while(directStream.isStartOfIncomingPacket() && directStream.available()) {
+		this->processDirectPacket();
+		if(directStream.isEndOfIncomingPacket()) {
+			directStream.nextIncomingPacket();
+		}
+		else {
+			break;
+		}
+	}
+}
+
+//----------
+bool
+Logger::processDirectPacket()
+{
+	size_t frameSize = 0;
+	uint8_t version = 0, seq = 0, kind = 0;
+	if(!msgpack::readArraySize(directStream, frameSize)
+		|| frameSize != 5
+		|| !msgpack::readInt<uint8_t>(directStream, version)
+		|| !msgpack::readInt<uint8_t>(directStream, seq)
+		|| !msgpack::readInt<uint8_t>(directStream, kind)) {
+		this->sendDirectError(seq, "invalid direct frame");
+		return false;
+	}
+
+	uint8_t axisIndex = 0, surveyMode = 0, dutyMin = 0, dutyMax = 0;
+	int32_t speed = 0, center = 0, halfRange = 0, step = 0, value = 0;
+	uint8_t opCode = 0;
+	bool bodyOK = true;
+
+	switch(kind) {
+	case DIRECT_HEARTBEAT:
+	case DIRECT_EXIT:
+	case DIRECT_STATUS:
+	case DIRECT_ABORT:
+		bodyOK = msgpack::readNil(directStream);
+		break;
+	case DIRECT_JOG:
+	{
+		size_t count = 0;
+		bodyOK = msgpack::readArraySize(directStream, count) && count == 2
+			&& msgpack::readInt<uint8_t>(directStream, axisIndex)
+			&& msgpack::readInt<int32_t>(directStream, speed);
+		break;
+	}
+	case DIRECT_SURVEY_START:
+	{
+		size_t count = 0;
+		bool centerIsHome = false;
+		bodyOK = msgpack::readArraySize(directStream, count) && count == 8
+			&& msgpack::readInt<uint8_t>(directStream, axisIndex)
+			&& msgpack::readInt<uint8_t>(directStream, surveyMode)
+			&& msgpack::readInt<int32_t>(directStream, center)
+			&& msgpack::readBool(directStream, centerIsHome)
+			&& msgpack::readInt<int32_t>(directStream, halfRange)
+			&& msgpack::readInt<int32_t>(directStream, step)
+			&& msgpack::readInt<uint8_t>(directStream, dutyMin)
+			&& msgpack::readInt<uint8_t>(directStream, dutyMax);
+		break;
+	}
+	case DIRECT_OP:
+	{
+		size_t count = 0;
+		bodyOK = msgpack::readArraySize(directStream, count) && count >= 2
+			&& msgpack::readInt<uint8_t>(directStream, opCode);
+		if(bodyOK && opCode == 3) {
+			bodyOK = count == 2 && msgpack::readInt<int32_t>(directStream, value);
+		}
+		else {
+			bodyOK = bodyOK && msgpack::readInt<uint8_t>(directStream, axisIndex);
+			if(bodyOK && opCode == 2) {
+				bodyOK = count == 3 && msgpack::readInt<int32_t>(directStream, value);
+			}
+		}
+		break;
+	}
+	default:
+		bodyOK = false;
+		break;
+	}
+
+	const uint16_t calculated = directStream.getRxRunningCRC();
+	uint16_t transmitted = 0;
+	bodyOK = bodyOK && msgpack::readIntU16(directStream, transmitted, true);
+	if(!bodyOK || version != 1 || transmitted != calculated) {
+		this->sendDirectError(seq, "direct CRC or body invalid");
+		return false;
+	}
+	this->directHeartbeatMs = millis();
+
+	auto * axis = axisIndex == 1
+		? Modules::App::X().motionControlB
+		: Modules::App::X().motionControlA;
+
+	switch(kind) {
+	case DIRECT_HEARTBEAT:
+		this->sendDirectStatus(seq);
+		return true;
+	case DIRECT_EXIT:
+		Modules::App::X().motionControlA->stop();
+		Modules::App::X().motionControlB->stop();
+		this->sendDirectAck(seq);
+		this->directMode = false;
+		return true;
+	case DIRECT_STATUS:
+		this->sendDirectStatus(seq);
+		return true;
+	case DIRECT_ABORT:
+		Modules::App::X().motionControlA->stop();
+		Modules::App::X().motionControlB->stop();
+		Modules::App::X().escapeFromRoutine();
+		this->sendDirectAck(seq);
+		return true;
+	case DIRECT_JOG:
+		if(axisIndex > 1 || speed < -14080 || speed > 14080) {
+			this->sendDirectError(seq, "jog outside safe range");
+			return false;
+		}
+		if(speed == 0) axis->stop();
+		else axis->run(speed > 0, speed > 0 ? speed : -speed);
+		this->sendDirectAck(seq);
+		return true;
+#ifndef HOME_SWITCH_LEGACY
+	case DIRECT_SURVEY_START:
+		if(axisIndex > 1 || surveyMode > 1 || halfRange <= 0 || step <= 0
+			|| halfRange > 20000 || dutyMin > dutyMax
+			|| ((uint32_t) halfRange * 2U / (uint32_t) step) + 1U > 4096U) {
+			this->sendDirectError(seq, "survey bounds invalid");
+			return false;
+		}
+		this->runDirectSurvey(seq, axis, surveyMode, center, halfRange, step
+			, dutyMin, dutyMax);
+		return true;
+#endif
+	case DIRECT_OP:
+		if(axisIndex > 1 && opCode != 3) {
+			this->sendDirectError(seq, "axis invalid");
+			return false;
+		}
+		if(opCode == 1) {
+#ifndef HOME_SWITCH_LEGACY
+			Modules::MotionControl::MeasureRoutineSettings settings;
+			auto error = axis->fastHomeRoutine(settings);
+			if(error) this->sendDirectError(seq, error.getMessage().c_str());
+			else this->sendDirectAck(seq);
+#else
+			this->sendDirectError(seq, "optical home unavailable");
+#endif
+		}
+		else if(opCode == 2) {
+			auto result = axis->routineMoveTo(value, millis() + 30000U);
+			if(result.exception) this->sendDirectError(seq, result.exception.getMessage().c_str());
+			else this->sendDirectAck(seq);
+		}
+		else if(opCode == 3) {
+#ifndef HOME_SWITCH_LEGACY
+			if(value < 0) value = 0;
+			if(value > 255) value = 255;
+			Modules::HomeSwitchOptical::setThreshold((uint8_t) value);
+			this->sendDirectAck(seq);
+#else
+			this->sendDirectError(seq, "optical threshold unavailable");
+#endif
+		}
+		else this->sendDirectError(seq, "direct op unsupported");
+		return true;
+	default:
+		this->sendDirectError(seq, "direct kind unsupported");
+		return false;
+	}
+}
+
+#ifndef HOME_SWITCH_LEGACY
+//----------
+void
+Logger::runDirectSurvey(uint8_t seq, Modules::MotionControl * axis
+	, uint8_t mode, int32_t center, int32_t halfRange, int32_t step
+	, uint8_t dutyMin, uint8_t dutyMax)
+{
+	const uint32_t expected = ((uint32_t) halfRange * 2U / (uint32_t) step) + 1U;
+	const uint8_t thresholdBefore = Modules::HomeSwitchOptical::getThreshold();
+	directFrameBegin(seq, DIRECT_SURVEY_BEGIN);
+	msgpack::writeArraySize4(directStream, 1);
+	msgpack::writeIntU32(directStream, expected);
+	directFrameEnd();
+
+	bool aborted = false;
+	const int32_t first = center - halfRange;
+	for(uint32_t index = 0; index < expected; index++) {
+		const int32_t position = first + (int32_t) index * step;
+		auto move = axis->routineMoveTo(position, millis() + 30000U);
+		if(move.exception || Modules::App::getShouldEscapeFromRoutine()
+			|| !this->directMode) {
+			aborted = true;
+			break;
+		}
+
+		int crossing = -1;
+		bool railLo = false;
+		uint8_t sampleClass = 0;
+		if(mode == 1) {
+			crossing = axis->probeHomeCrossing(railLo, millis() + 20000U);
+			if(crossing == -1) sampleClass = railLo ? 1 : 2;
+			else if(crossing < 0) sampleClass = 3;
+			else if(crossing < dutyMin) { crossing = -1; sampleClass = 1; }
+			else if(crossing > dutyMax) { crossing = -1; sampleClass = 2; }
+		}
+		else {
+			bool activeAtMin = false;
+			for(uint16_t duty = dutyMin; duty <= dutyMax; duty++) {
+				Modules::HomeSwitchOptical::setThreshold((uint8_t) duty);
+				HAL_Delay(20);
+				const bool active = axis->getHomeSwitchActive();
+				if(duty == dutyMin) activeAtMin = active;
+				if(active && !activeAtMin) { crossing = duty; break; }
+			}
+			if(activeAtMin) sampleClass = 1;
+			else if(crossing < 0) sampleClass = 2;
+		}
+
+		directFrameBegin(this->directTxSeq++, DIRECT_SURVEY_SAMPLE);
+		msgpack::writeArraySize4(directStream, 5);
+		msgpack::writeIntU32(directStream, index);
+		msgpack::writeInt32(directStream, position);
+		msgpack::writeInt32(directStream, position - center);
+		if(crossing >= 0) msgpack::writeIntU8(directStream, (uint8_t) crossing);
+		else msgpack::writeNil(directStream);
+		msgpack::writeIntU7(directStream, sampleClass);
+		directFrameEnd();
+	}
+
+	axis->routineMoveTo(center, millis() + 30000U);
+	Modules::HomeSwitchOptical::setThreshold(thresholdBefore);
+	directFrameBegin(this->directTxSeq++, DIRECT_SURVEY_END);
+	msgpack::writeArraySize4(directStream, 2);
+	msgpack::writeBool(directStream, aborted);
+	msgpack::writeString(directStream, aborted ? "survey aborted" : "survey complete");
+	directFrameEnd();
+}
+#endif
 
 //----------
 void

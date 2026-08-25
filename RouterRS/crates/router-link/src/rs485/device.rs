@@ -65,7 +65,11 @@ impl SerialPortDevice {
             .data_bits(serialport::DataBits::Eight)
             .parity(serialport::Parity::None)
             .stop_bits(serialport::StopBits::One)
-            .timeout(Duration::from_millis(1))
+            // The worker already calls bytes_to_read before reading, so receive polling does
+            // not depend on this being 1 ms. That value also governs writes on Windows: once
+            // the driver queue fills during a firmware image, write_all can legitimately need
+            // several frame times and the 1 ms deadline tears down an otherwise healthy port.
+            .timeout(Duration::from_millis(100))
             .open()
             .map_err(|e| std::io::Error::new(ErrorKind::NotConnected, e.to_string()))?;
         Ok(Self {

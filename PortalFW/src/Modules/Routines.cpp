@@ -192,7 +192,39 @@ namespace Modules {
 			}
 		}
 		if(exception) {
-			return exception;
+			const float previousCurrent = this->app->motorDriverSettings->getCurrent();
+			// Extra current only addresses lost motor position. A feature that is absent,
+			// speed-dependent, optically weak, or internally inconsistent cannot be repaired by
+			// driving both axes harder; doing so merely repeats the same scan and can persist an
+			// unnecessary module-wide 250 mA setting.
+			if(motionControl->getLastFastHomeFailure() != MotionControl::FastHomeFailure::Motion
+				|| !this->app->getFullCurrentHomeRecovery()
+				|| previousCurrent >= MOTORDRIVERSETTINGS_MAX_CURRENT) {
+				log(LogLevel::Warning, motionControl->getName()
+					, "home recovery current skipped: failure is not motion-related");
+				return exception;
+			}
+
+			log(LogLevel::Warning, motionControl->getName()
+				, "home failed at persisted current; retrying once at 250 mA");
+			this->app->motorDriverSettings->setCurrent(MOTORDRIVERSETTINGS_MAX_CURRENT);
+			Exception boosted = motionControl->fastHomeRoutine(settings);
+			if(boosted) {
+				log(boosted);
+				this->app->motorDriverSettings->setCurrent(previousCurrent);
+				log(LogLevel::Error, motionControl->getName()
+					, "home failed at both persisted and boosted current; retained previous setting");
+				return boosted;
+			}
+
+			if(!this->app->persistOperatingSettings(250, true)) {
+				this->app->motorDriverSettings->setCurrent(previousCurrent);
+				return Exception(motionControl->getName()
+					, "250 mA recovery succeeded but settings persistence failed");
+			}
+			log(LogLevel::Status, motionControl->getName()
+				, "250 mA recovery succeeded; promoted module current persistently");
+			exception = Exception::None();
 		}
 		const bool didCalibrate = motionControl->opticalDefaultRejected;
 		if(wasCold && didCalibrate && !App::getShouldEscapeFromRoutine()) {
@@ -201,9 +233,48 @@ namespace Modules {
 				log(exception);
 			}
 		}
+		if(!exception && !this->app->persistOpticalCalibration(motionControl)) {
+			return Exception(motionControl->getName()
+				, "home succeeded but optical calibration persistence failed");
+		}
 		return exception;
 	}
 #endif
+
+	//----------
+	// Normal home first uses the module-wide persisted current. A single successful retry at the
+	// hardware limit promotes that shared current durably; a failed retry restores the prior value.
+	Exception
+	Routines::homeAxisWithRecovery(MotionControl * motionControl
+		, const MotionControl::MeasureRoutineSettings & settings)
+	{
+		Exception original = motionControl->homeRoutine(settings);
+		if(!original) return original;
+		const float previousCurrent = this->app->motorDriverSettings->getCurrent();
+		if(!this->app->getFullCurrentHomeRecovery()
+			|| previousCurrent >= MOTORDRIVERSETTINGS_MAX_CURRENT) return original;
+
+		log(original);
+		log(LogLevel::Warning, motionControl->getName()
+			, "home failed at persisted current; retrying once at 250 mA");
+		this->app->motorDriverSettings->setCurrent(MOTORDRIVERSETTINGS_MAX_CURRENT);
+		Exception boosted = motionControl->homeRoutine(settings);
+		if(boosted) {
+			log(boosted);
+			this->app->motorDriverSettings->setCurrent(previousCurrent);
+			log(LogLevel::Error, motionControl->getName()
+				, "home failed at both persisted and boosted current; retained previous setting");
+			return boosted;
+		}
+		if(!this->app->persistOperatingSettings(250, true)) {
+			this->app->motorDriverSettings->setCurrent(previousCurrent);
+			return Exception(motionControl->getName()
+				, "250 mA home recovery succeeded but settings persistence failed");
+		}
+		log(LogLevel::Status, motionControl->getName()
+			, "250 mA home recovery succeeded; promoted module current persistently");
+		return Exception::None();
+	}
 
 	//----------
 	Exception
@@ -248,7 +319,7 @@ namespace Modules {
 			}
 			failedAnywhere = true;
 		}
-		if(app->motionControlA->homeRoutine(settings).report()) {
+		if(this->homeAxisWithRecovery(app->motionControlA, settings).report()) {
 			if(settings.stopAllRoutinesIfOneFails) {
 				return Exception(moduleName, "Fail on home A");
 			}
@@ -261,7 +332,7 @@ namespace Modules {
 			}
 			failedAnywhere = true;
 		}
-		if(app->motionControlB->homeRoutine(settings).report()) {
+		if(this->homeAxisWithRecovery(app->motionControlB, settings).report()) {
 			if(settings.stopAllRoutinesIfOneFails) {
 				return Exception(moduleName, "Fail on home B");
 			}
@@ -292,13 +363,13 @@ namespace Modules {
 
 		bool failedAnywhere = false;
 
-		if(app->motionControlA->homeRoutine(settings).report()) {
+		if(this->homeAxisWithRecovery(app->motionControlA, settings).report()) {
 			if(settings.stopAllRoutinesIfOneFails) {
 				return Exception(moduleName, "Fail on A");
 			}
 			failedAnywhere = true;
 		}
-		if(app->motionControlB->homeRoutine(settings).report()) {
+		if(this->homeAxisWithRecovery(app->motionControlB, settings).report()) {
 			if(settings.stopAllRoutinesIfOneFails) {
 				return Exception(moduleName, "Fail on B");
 			}

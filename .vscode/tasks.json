@@ -1,44 +1,119 @@
 {
-  // Build tasks referenced by .vscode/launch.json.
+  // Every build in this repository, from either platform.
   //
-  // Each Rust project here is its own Cargo workspace (RouterRS, PortalTestBench), so every task
-  // uses a project-specific manifest or build script and an explicit working directory.
+  // These used to be `powershell -File tools\something.ps1`, which meant none of them ran on a
+  // Mac. They are `node` now -- one command that resolves on both -- and the scripts they call
+  // are the same ones a person runs by hand. The `.ps1` entry points still exist and are three
+  // lines each; they call the same `.mjs`.
+  //
+  // Each Rust project here is its own Cargo workspace (RouterRS, PortalTestBench, PortalFlasher),
+  // so anything invoking cargo directly uses an explicit manifest path. A shell that has wandered
+  // into `third_party/av-frameworks` builds the framework instead, successfully, saying nothing.
   "version": "2.0.0",
   "tasks": [
+    {
+      // Everything, in the one order that works: firmware, then the web bundle, then cargo, then
+      // the package. `dependsOrder: sequence` is load-bearing -- the default is parallel, and a
+      // cargo build racing the web build embeds the previous UI.
+      "label": "Package: distributable",
+      "dependsOrder": "sequence",
+      "dependsOn": ["Firmware: build all", "Portal Test Bench: build (release)"],
+      "type": "shell",
+      "command": "node",
+      "args": ["tools/package.mjs", "--skip-build"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": []
+    },
+    {
+      // PCB v6 alone, which is the one most bench sessions need.
+      "label": "Firmware: build v6 optical",
+      "type": "shell",
+      "command": "node",
+      "args": ["tools/build-firmware.mjs", "--env", "application_bank_optical"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": ["$gcc"]
+    },
+    {
+      // Both PCB variants and the bootloader. Each image is checked against its bank and its
+      // reset vector before this reports success, so a build linked for the wrong slot fails
+      // here rather than on a board.
+      "label": "Firmware: build all",
+      "type": "shell",
+      "command": "node",
+      "args": ["tools/build-firmware.mjs"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": ["$gcc"]
+    },
+    {
+      "label": "Firmware: list environments",
+      "type": "shell",
+      "command": "node",
+      "args": ["tools/build-firmware.mjs", "--list"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": []
+    },
+    {
+      // Idempotent. Links the framework, installs the web package, and on macOS fetches CEF --
+      // which is a build prerequisite there, not a runtime payload.
+      "label": "Portal Test Bench: bootstrap",
+      "type": "shell",
+      "command": "node",
+      "args": ["tools/bootstrap.mjs"],
+      "options": { "cwd": "${workspaceFolder}/PortalTestBench" },
+      "problemMatcher": []
+    },
     {
       // This script deliberately builds the web bundle before Rust so web_assets! embeds the
       // current UI rather than the previous bundle.
       "label": "Portal Test Bench: build",
       "type": "shell",
-      "command": "powershell",
-      "args": [
-        "-NoProfile",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-File",
-        "tools/build.ps1"
-      ],
+      "command": "node",
+      "args": ["tools/build.mjs"],
       "options": { "cwd": "${workspaceFolder}/PortalTestBench" },
       "group": { "kind": "build", "isDefault": true },
-      "problemMatcher": []
+      "problemMatcher": ["$rustc"]
+    },
+    {
+      "label": "Portal Test Bench: build (release)",
+      "type": "shell",
+      "command": "node",
+      "args": ["tools/build.mjs", "--release"],
+      "options": { "cwd": "${workspaceFolder}/PortalTestBench" },
+      "problemMatcher": ["$rustc"]
     },
     {
       "label": "Portal Test Bench: test",
       "type": "shell",
-      "command": "powershell",
-      "args": [
-        "-NoProfile",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-File",
-        "tools/test.ps1"
-      ],
+      "command": "node",
+      "args": ["tools/test.mjs"],
       "options": { "cwd": "${workspaceFolder}/PortalTestBench" },
       "group": { "kind": "test", "isDefault": true },
+      "problemMatcher": ["$rustc"]
+    },
+    {
+      // Gates 1-3 only: the inner loop while writing code.
+      "label": "Portal Test Bench: test (fast)",
+      "type": "shell",
+      "command": "node",
+      "args": ["tools/test.mjs", "--fast"],
+      "options": { "cwd": "${workspaceFolder}/PortalTestBench" },
+      "problemMatcher": ["$rustc"]
+    },
+    {
+      // macOS only. A native run needs a bundle: CEF resolves its framework relative to the main
+      // bundle and finds nothing beside a bare binary.
+      "label": "Portal Test Bench: bundle (macOS)",
+      "dependsOn": ["Portal Test Bench: build"],
+      "type": "shell",
+      "command": "node",
+      "args": ["tools/bundle-macos.mjs", "--profile", "debug"],
+      "options": { "cwd": "${workspaceFolder}/PortalTestBench" },
       "problemMatcher": []
     },
     {
       // The framework's own structural conformance check for a downstream operator app.
+      // PowerShell, and part of the pinned submodule, so it is Windows-only by construction --
+      // `tools/test.mjs` announces the skip rather than hiding it.
       "label": "Portal Test Bench: check-av-app",
       "type": "shell",
       "command": "powershell",
@@ -57,7 +132,7 @@
     {
       // Compiles the real msgpack-arduino sources on the non-Arduino path the RS485 bootloader
       // uses, and replays FWUpdateApp::processIncoming's parse over every frame offset of a full
-      // application bank. Needs MSVC; no board, no PlatformIO.
+      // application bank. Needs MSVC; no board, no PlatformIO. Windows-only.
       "label": "Bootloader: native protocol tests",
       "type": "shell",
       "command": "powershell",

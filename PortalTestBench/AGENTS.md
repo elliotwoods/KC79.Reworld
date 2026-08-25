@@ -20,16 +20,16 @@ it and inherits its rules:
 `PortalFlasher/` in this repository is the reference downstream app and the closest thing to a
 worked example; copy its idioms rather than inventing new ones.
 
-## The four things that will catch you here
+## The five things that will catch you here
 
-1. **`third_party/av-frameworks` is a JUNCTION, not a submodule.** It points at
-   `PortalFlasher/third_party/av-frameworks`. One checkout, one pinned revision, shared by both
-   apps. Consequences: never run an unscoped `cargo fmt --all`, `cargo clippy --fix` or
+1. **`third_party/av-frameworks` is a LINK, not a submodule** — a junction on Windows, a symlink on
+   macOS. It points at `PortalFlasher/third_party/av-frameworks`. One checkout, one pinned
+   revision, shared by both apps. Consequences: never run an unscoped `cargo fmt --all`, `cargo clippy --fix` or
    `cargo fix` — they reach through the junction and rewrite the framework, which dirties
    **PortalFlasher's submodule** as well as this app. Always name packages:
-   `cargo clippy -p bench-core -p portal-test-bench -p ptb`. `tools/test.ps1` gate 7 fails the
-   build if the checkout is dirty. `framework.lock` records the revision this app was
-   bootstrapped against; bootstrap warns when PortalFlasher moves it.
+   `cargo clippy -p bench-core -p portal-test-bench -p ptb -p av-gui-subprocess`. `tools/test.mjs`
+   gate 7 fails the build if the checkout is dirty. `framework.lock` records the revision this app
+   was bootstrapped against; bootstrap warns when PortalFlasher moves it.
 
 2. **Always pass an absolute `--manifest-path`.** There is a second complete Cargo workspace
    behind that junction. A shell that has wandered into it builds the framework instead —
@@ -37,12 +37,37 @@ worked example; copy its idioms rather than inventing new ones.
 
 3. **Web bundle first, then cargo, never in parallel.** `web_assets!` resolves `web/dist` at
    compile time. A Rust-first build embeds the previous bundle and serves a stale page, which
-   reads as a host bug rather than a missing build step. `tools/build.ps1` enforces the order.
+   reads as a host bug rather than a missing build step. `tools/build.mjs` enforces the order.
 
 4. **This app is `ui = "control-window"` and must NOT have an `av-gui-subprocess` crate.**
    Nothing is drawn underneath the page — the plots are canvas in the DOM. The CEF helper is a
    `composed-window` requirement; `check-av-app.ps1` warns (AVAPP115) if a control-window app
    ships one. PortalFlasher has one only because its manifest omits `ui`.
+
+   This was briefly `composed-window`, and the reason is worth carrying because it looked like a
+   platform fact and was not. `av-gui-webview` declared `tao`/`wry` under `cfg(windows)` alone, so
+   `av-operator-app` answered `NativeUnavailable` for `control-window` off Windows and a macOS
+   window meant declaring the heavier kind — a CEF payload, four helper bundles and a Vulkan
+   compositor, to draw a page that needed none of them. tao and wry cover WKWebView; the crate had
+   simply never been built there. Porting it was five `cfg` gates. **Before accepting a platform
+   limit, check whether it is a limit or an untried path.**
+
+5. **CEF is a build prerequisite on macOS and a run-time one on Windows.** `av-operator-app`
+   depends on `av-gui-shell` unconditionally, so `av-gui-cef-sys` compiles everywhere and its build
+   script panics without `vendor/cef`; `tools/bootstrap.mjs` fetches it. Nothing loads it at run
+   time here — `vmmap` on a live macOS process reports zero CEF images — but on Windows `libcef`
+   is an *import library*, so `libcef.dll` is resolved through the import table before `main` runs
+   whether anything calls it or not. That is why the Windows package carries the payload and the
+   macOS bundle does not.
+
+   `PortalTestBench/.cargo/config.toml` carries the `-Wl,-U,_cef_*` allowances, regenerated with
+   `nm -u` over the shim objects rather than copied: cargo config does not inherit across
+   workspaces, and the framework's own list has been out of step before. They are still needed —
+   the shim's objects reach the link line even though nothing calls into them.
+
+   And the trap that cost a release build: **cargo reads `.cargo/config.toml` from the working
+   directory upwards, not from `--manifest-path`.** Set both, always. A build invoked from the
+   repository root silently drops every flag in that file and fails at link.
 
 ## Where behaviour lives
 
@@ -94,10 +119,18 @@ These are measured, they survive firmware rewrites, and each is enforced by
 
 The framework's acceptance gates apply (`application-contract.md` §6) and are not optional:
 
-- `powershell -File tools\test.ps1` — all gates, including the simulated end-to-end run
-- **Screenshots**: the flagless native `control-window` (including the page's own caption strip
-  actually dragging, and all three window buttons working), the same UI in a browser, and
-  `--headless` opening no window
+- `node tools/test.mjs` — all gates, including the simulated end-to-end run. Gate 5
+  (`check-av-app.ps1`) is PowerShell and part of the pinned submodule, so it **skips on macOS and
+  says so**: run it on Windows before a release. `tools/{bootstrap,build,test}.ps1` still exist and
+  are three-line wrappers around the same `.mjs`
+- **Screenshots**: the flagless native window on both shells — on Windows a frameless WebView2
+  window, including the page's own caption strip actually dragging and all three window buttons
+  working; on macOS a decorated WKWebView window, where AppKit draws the traffic lights and the
+  page draws no caption strip at all — plus the same UI in a browser, and `--headless` opening no
+  window
+- **For a package**: the checks in the repository [`README.md`](../README.md) under "Verifying a
+  package" — unpacked on a machine with no repository, `missing` empty in
+  `/api/bench/firmware`, a `--type=renderer` in the process tree, and a real board flashed
 - Evidence for each entry in `required_surfaces`
 - A `ptb run --wait` transcript against a real module, and an abort mid-`Home` showing
   `escapeFromRoutine` in the NDJSON

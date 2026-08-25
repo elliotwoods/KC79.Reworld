@@ -1,7 +1,8 @@
 // Does a firmware-update frame whose offset is past 65535 survive the wire?
 //
-// The Portal's application bank is 0x08006000..0x08020000 = 106,496 bytes, so the last frame of
-// a full image starts at offset 106,464. There has been a long-standing worry that something in
+// The Portal's application bank is 0x08006000..0x0801E800 = 100,352 bytes; the final three
+// pages are durable identity/settings storage. The last application frame starts at offset
+// 100,320. There has been a long-standing worry that something in
 // this path narrows the offset to 16 bits and thereby caps the uploadable image at 64 kB.
 //
 // This settles it on a PC, against the *same* COBSRWStream and deserialiser the RS485 bootloader
@@ -34,8 +35,8 @@
 namespace {
 
 constexpr uint32_t APP_FLASH_ADDRESS = 0x08006000;
-constexpr uint32_t FLASH_END = 0x08020000;
-constexpr uint32_t APP_BANK_BYTES = FLASH_END - APP_FLASH_ADDRESS; // 106,496
+constexpr uint32_t FLASH_END = 0x0801E800;
+constexpr uint32_t APP_BANK_BYTES = FLASH_END - APP_FLASH_ADDRESS;
 constexpr size_t FRAME_DATA_SIZE = 32;
 
 int failures = 0;
@@ -227,7 +228,7 @@ void testLastFrameOfFullApplicationBank()
 {
 	std::printf("last frame of a full application bank\n");
 
-	const uint32_t offset = APP_BANK_BYTES - FRAME_DATA_SIZE; // 106,464
+	const uint32_t offset = APP_BANK_BYTES - FRAME_DATA_SIZE; // 100,320
 	expectRoundTrip(offset);
 
 	// Pin the exact wire bytes of the key, so a change of encoding is visible here rather than
@@ -235,8 +236,8 @@ void testLastFrameOfFullApplicationBank()
 	const auto body = makeFrameBody(offset, makeData(offset));
 	check(body[0] == 0x81, "fixmap(1)", offset);
 	check(body[1] == 0xCE, "uint32 key marker, not uint16", offset);
-	check(body[2] == 0x00 && body[3] == 0x01 && body[4] == 0x9F && body[5] == 0xE0,
-		"key bytes 00 01 9F E0", offset);
+	check(body[2] == 0x00 && body[3] == 0x01 && body[4] == 0x87 && body[5] == 0xE0,
+		"key bytes 00 01 87 E0", offset);
 	check(body[6] == 0xC4 && body[7] == 34, "bin8 of 34", offset);
 }
 
@@ -264,7 +265,7 @@ void testOffsetsAcrossEncodingWidths()
 /// Every frame start of a full image, so nothing wraps or aliases anywhere in the bank.
 void testEveryFrameOffsetInAFullImage()
 {
-	std::printf("every frame offset in a full 106,496-byte image\n");
+	std::printf("every frame offset in the bounded 100,352-byte application bank\n");
 
 	uint32_t frames = 0;
 	for (uint32_t offset = 0; offset + FRAME_DATA_SIZE <= APP_BANK_BYTES;
@@ -287,15 +288,15 @@ void testEveryFrameOffsetInAFullImage()
 ///
 /// Deliberately encode the last frame's offset as a uint16, which is what a 16-bit narrowing
 /// anywhere in the host would produce, and confirm the parser faithfully reports the truncated
-/// value. 106,464 & 0xFFFF = 40,928 -- an address 65,536 bytes short, landing back inside the
-/// image and silently corrupting it. If this test ever reports 106,464, the round-trip checks
+/// value. 100,320 & 0xFFFF = 34,784 -- an address 65,536 bytes short, landing back inside the
+/// image and silently corrupting it. If this test ever reports 100,320, the round-trip checks
 /// above are not actually reading the key and none of them mean anything.
 void testANarrowedKeyWouldBeCaught()
 {
 	std::printf("a deliberately 16-bit-narrowed key is visibly wrong\n");
 
-	const uint32_t trueOffset = APP_BANK_BYTES - FRAME_DATA_SIZE; // 106,464
-	const uint32_t truncated = trueOffset & 0xFFFF;               // 40,928
+	const uint32_t trueOffset = APP_BANK_BYTES - FRAME_DATA_SIZE; // 100,320
+	const uint32_t truncated = trueOffset & 0xFFFF;               // 34,784
 
 	const auto data = makeData(trueOffset);
 	const auto got = roundTripFrame(truncated, data);
@@ -303,7 +304,7 @@ void testANarrowedKeyWouldBeCaught()
 	check(got.parsed, "narrowed frame still parses", truncated);
 	check(got.offset == truncated, "parser reports the truncated offset", truncated);
 	check(got.offset != trueOffset, "truncation is detectable", truncated);
-	check(truncated == 40928, "truncation arithmetic", truncated);
+	check(truncated == 34784, "truncation arithmetic", truncated);
 }
 
 /// The write address the bootloader computes must stay inside the bank for every frame.
@@ -314,7 +315,7 @@ void testWriteAddressStaysInBank()
 	const uint32_t lastOffset = APP_BANK_BYTES - FRAME_DATA_SIZE;
 	const uint32_t lastAddress = APP_FLASH_ADDRESS + lastOffset;
 
-	check(lastAddress == 0x0801FFE0, "last write address is 0x0801FFE0", lastOffset);
+	check(lastAddress == 0x0801E7E0, "last write address is 0x0801E7E0", lastOffset);
 	check(lastAddress + FRAME_DATA_SIZE == FLASH_END, "last frame ends exactly at flash end",
 		lastOffset);
 }

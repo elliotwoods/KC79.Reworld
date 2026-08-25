@@ -16,6 +16,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use crate::addr;
 use crate::bits;
 use crate::image::{ImageBundle, RunCheckSpec};
+use crate::persistent::DeviceSettings;
 
 /// Whether a target answered.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -79,6 +80,9 @@ pub enum RigErrorKind {
     NotRunning,
     /// A bundle that should never have been loaded.
     BadBundle,
+    /// Provisioning identity is corrupt, bound to another MCU, or conflicts with the requested
+    /// PCB serial. This always needs an explicit operator resolution.
+    IdentityConflict,
 }
 
 impl RigErrorKind {
@@ -95,6 +99,7 @@ impl RigErrorKind {
             RigErrorKind::OptionBytes => "option-bytes",
             RigErrorKind::NotRunning => "not-running",
             RigErrorKind::BadBundle => "bad-bundle",
+            RigErrorKind::IdentityConflict => "identity-conflict",
         }
     }
 
@@ -143,6 +148,10 @@ impl RigErrorKind {
                 "The selected image was refused before anything was written. The board is \
                  untouched. Pick a different artefact."
             }
+            RigErrorKind::IdentityConflict => {
+                "Resolve the on-board and PCB serial explicitly. Automatic flashing will not \
+                 choose which identity wins."
+            }
         }
     }
 
@@ -158,6 +167,7 @@ impl RigErrorKind {
             | RigErrorKind::ResetIneffective
             | RigErrorKind::ReadoutProtected
             | RigErrorKind::BadBundle
+            | RigErrorKind::IdentityConflict
             | RigErrorKind::OptionBytes => false,
             // `ContactLost` is the ambiguous one and is deliberately counted as written: it can
             // arrive during the attach, when nothing has happened, or 60% of the way through
@@ -189,6 +199,8 @@ pub enum Step {
     Program,
     Readback,
     ResetRun,
+    Identity,
+    Settings,
 }
 
 impl core::fmt::Display for Step {
@@ -200,6 +212,8 @@ impl core::fmt::Display for Step {
             Step::Program => "program",
             Step::Readback => "readback",
             Step::ResetRun => "reset-run",
+            Step::Identity => "identity",
+            Step::Settings => "settings",
         })
     }
 }
@@ -215,6 +229,18 @@ pub struct FlashReport {
     pub rcc_csr: u32,
     /// Hash of what was read back off the device, not of what was sent to it.
     pub readback_sha256: String,
+    /// Hashes over the independently read-back durable partitions. They are evidence that the
+    /// flash pass preserved both, not hashes inferred from bytes read before programming.
+    pub identity_sha256: String,
+    pub settings_sha256: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PersistentWriteReport {
+    pub serial: u32,
+    pub settings: DeviceSettings,
+    pub identity_written: bool,
+    pub settings_written: bool,
 }
 
 /// Non-invasive evidence that reset reached the application and left the core executing.
@@ -385,6 +411,16 @@ pub trait Rig: Send {
         progress: &mut Progress<'_>,
     ) -> Result<FlashReport, RigError>;
 
+    /// Append identity and journal settings. A conflicting/corrupt identity is changed only when
+    /// `allow_identity_override` records an operator's explicit resolution.
+    fn write_persistent(
+        &mut self,
+        serial: u32,
+        settings: DeviceSettings,
+        allow_identity_override: bool,
+        progress: &mut Progress<'_>,
+    ) -> Result<PersistentWriteReport, RigError>;
+
     /// Assert reset, release the debugger's halt, and leave the MCU executing.
     fn reset_and_run(&mut self) -> Result<(), RigError>;
 
@@ -500,7 +536,8 @@ impl SimRig {
 
     /// Start from a part that already has an image on it, rather than a virgin one.
     pub fn preloaded(mut self, bundle: &ImageBundle) -> Self {
-        self.flash = bundle.expected_flash_image();
+        let firmware = bundle.expected_firmware_image();
+        self.flash[..firmware.len()].copy_from_slice(&firmware);
         self.programmed = true;
         self.vtor = addr::APP_BASE;
         self
@@ -624,8 +661,8 @@ impl Rig for SimRig {
             programmed_options = true;
         }
 
-        // Erase.
-        let total = self.flash.len() as u64;
+        // Erase firmware pages only. The final three pages are durable identity/settings.
+        let total = addr::FIRMWARE_BYTES as u64;
         let erase_stop = self
             .faults
             .iter()
@@ -634,7 +671,10 @@ impl Rig for SimRig {
                 _ => None,
             })
             .map(|pct| (total * u64::from(pct.min(100))) / 100);
-        for (index, byte) in self.flash.iter_mut().enumerate() {
+        for (index, byte) in self.flash[..addr::FIRMWARE_BYTES as usize]
+            .iter_mut()
+            .enumerate()
+        {
             if let Some(stop) = erase_stop
                 && index as u64 >= stop
             {
@@ -653,7 +693,7 @@ impl Rig for SimRig {
         self.vtor = 0;
 
         // Program.
-        let expected = bundle.expected_flash_image();
+        let expected = bundle.expected_firmware_image();
         let program_stop = self
             .faults
             .iter()
@@ -682,7 +722,7 @@ impl Rig for SimRig {
         if let Some(err) = self.trip(Trigger::DuringReadback) {
             return Err(err);
         }
-        if self.flash != expected {
+        if self.flash[..expected.len()] != expected {
             let at = self
                 .flash
                 .iter()
@@ -715,7 +755,130 @@ impl Rig for SimRig {
             // Of the array, not of the bundle. The field says "what was read back off the
             // device", and the real rig hashes exactly that -- a simulation that quietly hashed
             // the input instead would be the one place the two could never be compared.
-            readback_sha256: crate::device::sha256_hex(&self.flash),
+            readback_sha256: crate::device::sha256_hex(&self.flash[..expected.len()]),
+            identity_sha256: crate::device::sha256_hex(
+                &self.flash[(addr::IDENTITY_BASE - addr::FLASH_BASE) as usize
+                    ..(addr::SETTINGS_A_BASE - addr::FLASH_BASE) as usize],
+            ),
+            settings_sha256: crate::device::sha256_hex(
+                &self.flash[(addr::SETTINGS_A_BASE - addr::FLASH_BASE) as usize..],
+            ),
+        })
+    }
+
+    fn write_persistent(
+        &mut self,
+        serial: u32,
+        mut settings: DeviceSettings,
+        allow_identity_override: bool,
+        progress: &mut Progress<'_>,
+    ) -> Result<PersistentWriteReport, RigError> {
+        use crate::persistent::{
+            IdentityRecord, IdentityState, JournalWrite, McuUid, SettingsRecord, SettingsSource,
+            SettingsState, encode_identity, encode_settings, identity_write, scan_identity_page,
+            settings_write,
+        };
+        if !self.opened || !self.is_present() {
+            return Err(RigError::new(
+                RigErrorKind::ContactLost,
+                "no target in the fixture",
+            ));
+        }
+        if serial == 0 || serial == u32::MAX || !settings.validate() {
+            return Err(RigError::new(
+                RigErrorKind::BadBundle,
+                "invalid serial or settings",
+            ));
+        }
+        let page = addr::FLASH_PAGE_BYTES as usize;
+        let persist = (addr::PERSIST_BASE - addr::FLASH_BASE) as usize;
+        let (identity_page, rest) = self.flash[persist..].split_at_mut(page);
+        let (settings_a, settings_b) = rest.split_at_mut(page);
+        let uid = McuUid([0x5111_0000, 0x5111_0001, 0x5111_0002]);
+        let identity = scan_identity_page(identity_page, uid);
+        let existing = identity.serial();
+        if (matches!(
+            identity,
+            IdentityState::Corrupt | IdentityState::ForeignUid { .. }
+        ) || existing.is_some_and(|value| value != serial))
+            && !allow_identity_override
+        {
+            return Err(RigError::new(
+                RigErrorKind::IdentityConflict,
+                format!("on-board identity is {}", identity.name()),
+            ));
+        }
+
+        let mut identity_written = false;
+        if existing != Some(serial) {
+            progress(Step::Identity, 0, 1);
+            let generation = match identity {
+                IdentityState::Valid { record } | IdentityState::ForeignUid { record } => {
+                    record.generation.saturating_add(1)
+                }
+                _ => 1,
+            };
+            let Some(JournalWrite::Append { address }) = identity_write(identity_page) else {
+                return Err(RigError::new(
+                    RigErrorKind::IdentityConflict,
+                    "identity journal is full",
+                ));
+            };
+            let at = (address - addr::IDENTITY_BASE) as usize;
+            identity_page[at..at + crate::persistent::RECORD_BYTES].copy_from_slice(
+                &encode_identity(IdentityRecord {
+                    generation,
+                    uid,
+                    serial,
+                }),
+            );
+            identity_written = true;
+            progress(Step::Identity, 1, 1);
+        }
+
+        let state = SettingsState::load(settings_a, settings_b, uid);
+        if settings.axis_a_calibration.is_none() {
+            settings.axis_a_calibration = state.record.settings.axis_a_calibration;
+        }
+        if settings.axis_b_calibration.is_none() {
+            settings.axis_b_calibration = state.record.settings.axis_b_calibration;
+        }
+        let mut settings_written = false;
+        if state.source == SettingsSource::Defaults || state.record.settings != settings {
+            progress(Step::Settings, 0, 1);
+            let record = encode_settings(SettingsRecord {
+                generation: state.record.generation.saturating_add(1),
+                uid,
+                settings,
+            });
+            match settings_write(settings_a, settings_b, state.source) {
+                JournalWrite::Append { address } => {
+                    let (base, bytes) = if address >= addr::SETTINGS_B_BASE {
+                        (addr::SETTINGS_B_BASE, settings_b)
+                    } else {
+                        (addr::SETTINGS_A_BASE, settings_a)
+                    };
+                    let at = (address - base) as usize;
+                    bytes[at..at + record.len()].copy_from_slice(&record);
+                }
+                JournalWrite::Compact { page_address } => {
+                    let bytes = if page_address == addr::SETTINGS_A_BASE {
+                        settings_a
+                    } else {
+                        settings_b
+                    };
+                    bytes.fill(0xFF);
+                    bytes[..record.len()].copy_from_slice(&record);
+                }
+            }
+            settings_written = true;
+            progress(Step::Settings, 1, 1);
+        }
+        Ok(PersistentWriteReport {
+            serial,
+            settings,
+            identity_written,
+            settings_written,
         })
     }
 
@@ -781,7 +944,7 @@ impl Rig for SimRig {
 
 #[cfg(test)]
 mod tests {
-    use super::{BootFault, BootReport};
+    use super::{BootFault, BootReport, DeviceSettings, Rig, RigErrorKind, SimRig};
 
     const APP_VTOR: u32 = 0x0800_8000;
     const DHCSR_HALT: u32 = 1 << 17;
@@ -819,5 +982,34 @@ mod tests {
             resetting.verdict(APP_VTOR),
             Err(BootFault::ResetDuringWindow)
         ));
+    }
+
+    #[test]
+    fn simulated_identity_is_durable_and_overrides_are_explicit() {
+        let mut rig = SimRig::new();
+        rig.fixture()
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+        rig.open().unwrap();
+        let settings = DeviceSettings::default();
+        let mut progress = |_, _, _| {};
+        let first = rig
+            .write_persistent(41, settings, false, &mut progress)
+            .unwrap();
+        assert!(first.identity_written);
+        assert!(first.settings_written);
+        let report = rig.read_device().unwrap().analyse();
+        assert_eq!(report.identity.serial(), Some(41));
+        assert_eq!(report.settings.record.settings, settings);
+
+        let conflict = rig
+            .write_persistent(42, settings, false, &mut progress)
+            .unwrap_err();
+        assert_eq!(conflict.kind, RigErrorKind::IdentityConflict);
+        rig.write_persistent(42, settings, true, &mut progress)
+            .unwrap();
+        assert_eq!(
+            rig.read_device().unwrap().analyse().identity.serial(),
+            Some(42)
+        );
     }
 }

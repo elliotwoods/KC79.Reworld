@@ -28,6 +28,12 @@ pub enum Command {
     ResetLocal { col: usize, portal: u8 },
     TakeCurrentPosition { col: usize, portal: u8 },
 
+    /// The "Pilot all" drag pad: broadcast one collateable `{"m":[a,b]}` computed from a
+    /// unit-circle position through the **first portal's** pilot (its offset applies to
+    /// every unit — BUG-COMPAT with the C++ `Installation`/`Column` pads).
+    /// `col: None` = every column.
+    PilotAll { col: Option<usize>, position: Vec2 },
+
     // actions & polling
     PerformAction { scope: Scope, action: ActionKind },
     Poll(Scope),
@@ -86,6 +92,9 @@ pub enum Command {
     /// Apply a JSON fragment to a source (routes through its deserialise,
     /// so any parameter key works: {"alpha": 0.5}, {"text": "HI"}, ...).
     SourceSetParams { index: usize, params: serde_json::Value },
+
+    /// Clear one portal's firmware log ring (the C++ Logger panel's Clear button).
+    ClearPortalLog { col: usize, portal: u8 },
 
     // misc
     Marker(String),

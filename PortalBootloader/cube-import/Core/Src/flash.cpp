@@ -30,7 +30,7 @@ Exception flash_erase()
 			flashErase.TypeErase = FLASH_TYPEERASE_PAGES;
 			flashErase.Banks = FLASH_BANK_1;
 			flashErase.Page = appOffset / FLASH_PAGE_SIZE;
-			flashErase.NbPages = (FLASH_SIZE - appOffset) / FLASH_PAGE_SIZE;
+			flashErase.NbPages = APP_FLASH_SIZE / FLASH_PAGE_SIZE;
 		}
 
 		uint32_t pageError;
@@ -54,6 +54,13 @@ Exception flash_erase()
 
 Exception flash_write(const uint8_t *src, uint32_t dst, uint32_t size)
 {
+	// Firmware updates may not enter the three durable pages. Check without an overflowing
+	// `dst + size` expression, and include the padded final double-word in the bound.
+	const uint32_t programmedSize = (size + 7U) & ~7U;
+	if(dst < APP_FLASH_ADDRESS || dst > APP_FLASH_END
+		|| programmedSize > APP_FLASH_END - dst) {
+		return Exception("Write outside app partition");
+	}
 	// Unlock the flash
 	if(HAL_FLASH_Unlock() != HAL_OK) {
 		return Exception(messageUnlockFailed);

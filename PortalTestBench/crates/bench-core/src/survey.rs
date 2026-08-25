@@ -155,6 +155,18 @@ pub fn open_link(kind: LinkKind, endpoint: &str) -> Result<Box<dyn Link>, String
 /// refactored: a report read months later must not depend on today's variant names.
 pub fn event_json(event: &LinkEvent) -> String {
     let value = match event {
+        LinkEvent::DirectMode { mode, detail } => serde_json::json!({
+            "event": "direct_mode", "mode": mode.name(), "detail": detail,
+        }),
+        LinkEvent::SurveyBegin { config, expected } => serde_json::json!({
+            "event": "survey_begin", "config": config, "expected": expected,
+        }),
+        LinkEvent::SurveySample(sample) => serde_json::json!({
+            "event": "survey_sample", "sample": sample,
+        }),
+        LinkEvent::SurveyEnd { aborted, detail } => serde_json::json!({
+            "event": "survey_end", "aborted": aborted, "detail": detail,
+        }),
         LinkEvent::Identified {
             firmware,
             version,
@@ -192,6 +204,17 @@ pub fn event_json(event: &LinkEvent) -> String {
         LinkEvent::Uptime { seconds } => {
             serde_json::json!({ "event": "uptime", "seconds": seconds })
         }
+        LinkEvent::Provisioning { serial } => {
+            serde_json::json!({ "event": "provisioning", "serial": serial })
+        }
+        LinkEvent::Settings {
+            current_ma,
+            full_current_home_recovery,
+            source,
+        } => serde_json::json!({
+            "event": "settings", "current_ma": current_ma,
+            "full_current_home_recovery": full_current_home_recovery, "source": source,
+        }),
         LinkEvent::Log {
             level,
             message,
