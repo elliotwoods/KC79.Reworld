@@ -201,15 +201,24 @@ impl OperatorApp for PortalFlasherApp {
 /// Marked [`Provenance::Synthetic`] so the page says so: a simulated run that looked like a real
 /// one in the log would be worse than no simulation at all.
 pub(crate) fn synthetic_bundle() -> ImageBundle {
+    use portal_swd::addr;
+
+    // A v6 pair: an application linked for 0x08004000, carrying the descriptor that says so, and a
+    // bootloader small enough to sit below it. The two halves have to agree here as strictly as
+    // they do for a real image, because `ImageBundle::validate` is what the simulated pass runs
+    // through and a bundle it refuses would make the whole rhythm untestable.
     let mut application = vec![0u8; 60_000];
     application[0..4].copy_from_slice(&0x2000_9000u32.to_le_bytes());
-    application[4..8].copy_from_slice(&(portal_swd::addr::APP_BASE + 0x241).to_le_bytes());
+    application[4..8].copy_from_slice(&(addr::APP_BASE + 0x241).to_le_bytes());
+    let at = addr::APP_DESCRIPTOR_OFFSET;
+    application[at..at + 8].copy_from_slice(addr::APP_DESCRIPTOR_MAGIC);
+    application[at + 8..at + 12].copy_from_slice(&addr::APP_BASE.to_le_bytes());
 
     ImageBundle {
         bootloader: Region::new(
             RegionName::Bootloader,
             portal_swd::addr::FLASH_BASE,
-            vec![0xA5; 22_708],
+            vec![0xA5; 14_000],
         ),
         application: Region::new(
             RegionName::Application,
@@ -223,6 +232,7 @@ pub(crate) fn synthetic_bundle() -> ImageBundle {
             ..RunCheckSpec::default()
         },
         provenance: portal_swd::image::Provenance::Synthetic,
+        unselected: portal_swd::image::Unselected::Erase,
     }
 }
 

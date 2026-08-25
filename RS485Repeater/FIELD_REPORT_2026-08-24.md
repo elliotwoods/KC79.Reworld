@@ -341,3 +341,80 @@ stayed in `transparent` mode because no valid inner reply ever taught it a
 local range. Addressed polling of IDs 1–9, the learned-range and filtering
 checks, and the V3 batch/gap/54-Portal soak all remain outstanding on a
 `B003AHF1`-class adapter.
+
+## Adapter pair test and repeater isolation — 2026-08-25 (later)
+
+### `B003ASAG` is a good adapter
+
+Wired A-A/B-B to `B003AHF1` with nothing else on the pair, both adapters passed every
+pattern in both directions at 115200 8N1, with **no local echo** on either:
+
+| pattern | `B003ASAG` → `B003AHF1` | `B003AHF1` → `B003ASAG` |
+|---|---|---|
+| 20 × `0x00` | 20/20 | 20/20 |
+| 20 × `0x55` | 20/20 | 20/20 |
+| 20 × `0xFF` | 20/20 | 20/20 |
+| COBS broadcast poll | 12/12 | 12/12 |
+
+Passing `0x00` and `0x55` is the discriminator from the 2026-08-25 resolution above: an
+adapter whose driver-enable follows RTS decodes only `0xFF`. `B003ASAG` therefore has
+working automatic half-duplex direction control and is **not** an `AR9366BD`-class part.
+
+Sustained upload-shaped traffic over the same pair — real 32-byte firmware frames with
+their XOR-16 checksums, COBS-framed — was byte-exact at every pacing tried:
+
+| profile | frames | result |
+|---|---|---|
+| 10 ms gap (`resilient`) | 200 | 9388/9388 bytes, 200/200 frames, byte-exact |
+| 5 ms gap (`default`) | 200 | 9388/9388 bytes, 200/200 frames, byte-exact |
+| 2 ms gap | 200 | 9388/9388 bytes, 200/200 frames, byte-exact |
+| back-to-back, no gap | 300 | 14088/14088 bytes, 300/300 frames, byte-exact |
+
+200 of 200 half-duplex round trips completed. (The ~56 ms median round trip is the test
+harness's own read-timeout polling, not a property of the bus.)
+
+**This proves the host transport only.** Two adapters on a two-node pair is not a
+repeater store-and-forward hop, and it is not the Portal bootloader's 10 ms receive loop,
+so it says nothing about either.
+
+### The repeater is isolated on both sides
+
+Measured before the adapters were paired, with the repeater running v3.0.0 and the branch
+connected as normal:
+
+| segment | direction | result |
+|---|---|---|
+| `B003ASAG` ↔ repeater side 1 | both | 0 bytes each way, 0 UART errors, all six DTR/RTS modes |
+| repeater side 2 → Portal branch | 4,800 frames, `tx_errors=0` | module 1's `PA3` never left idle mark |
+| repeater side 2, IDs 1–9 | polled twice each | nothing answered |
+| repeater side 1, IDs 1–9 | polled twice each | nothing answered |
+
+The `PA3` measurement is the decisive one and it is new: `rs485_line_probe`
+(`PortalFlasher/crates/portal-swd/examples/`) samples `GPIOA->IDR` over SWD without
+halting the core, so it observes the Portal's RS485 receive pin directly rather than
+inferring from silence at one end of the bus. Over 9,380 samples in 8 s it recorded zero
+edges and zero low samples on `PA3` while the repeater drove 4,800 frames at it. The same
+run recorded `PB4` toggling 602 times, which is what makes "no edges" a measurement
+rather than a broken tool.
+
+`PA1` reading low throughout corroborates the pin mapping in `pins.md`: that is DE parked
+in receive.
+
+Since both adapters are now proven good, and the repeater drives its own transmitters
+without error while neither of its peers hears anything, the remaining fault is in the
+repeater's RS485 front end or its harnesses — **on both sides**. `Protocol.md` §7's
+escalation applies: measure at the MAX3362 pins, not at a connector — transceiver VCC on
+both sides, then continuity from each terminal (A, B, and the signal reference) through
+to the transceiver pins.
+
+One asymmetry worth carrying into that measurement: side 2's receiver picks up exactly one
+corrupt byte per transmission when DE releases (`turnaround_events = 0`, so it arrives
+*after* the driver lets go — a floating, unbiased line), while side 1 never glitches at
+all. The two sides are in different electrical states; neither should be assumed from the
+other.
+
+### Still outstanding
+
+Addressed polling of the branch, the learned-range and filtering checks, and the V3
+batch/gap topology soak — unchanged from the 2026-08-25 resolution, and now blocked on the
+repeater front end rather than on the adapter.

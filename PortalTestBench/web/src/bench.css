@@ -88,6 +88,8 @@
 .firmware-bank { display: grid; align-content: start; gap: var(--space-1); min-width: 0; }
 .firmware-bank > strong { padding: 0 var(--space-1); color: var(--text-secondary); font-size: var(--text-xs); letter-spacing: var(--tracking-label); text-transform: uppercase; }
 .firmware-bank > small { padding: var(--space-2); color: var(--text-faint); }
+/* The preserve switch sits under both banks because it applies to whichever one is left out. */
+.firmware-policy { display: flex; justify-content: flex-start; padding: var(--space-1) 0 0; }
 .choice-list { display: grid; grid-template-columns: 1fr; gap: 2px; max-height: 260px; overflow: auto; }
 .choice-row { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; align-items: center; gap: var(--space-2); width: 100%; padding: var(--space-2); border: 1px solid transparent; border-radius: var(--radius-sm); background: transparent; color: var(--text); text-align: left; cursor: pointer; }
 .choice-row:hover { background: var(--surface-raised); }

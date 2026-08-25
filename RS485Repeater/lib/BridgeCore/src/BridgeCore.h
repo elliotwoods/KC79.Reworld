@@ -150,6 +150,18 @@ public:
     void relearn();
     void resetStats();
 
+    /// How long an unterminated frame is allowed to stall before it is abandoned.
+    ///
+    /// This is a store-and-forward bridge, so the whole frame has to arrive before any of
+    /// it is relayed, and a gap longer than this discards what has accumulated. Two
+    /// milliseconds is ample for a frame a host writes in one call, and far too tight for
+    /// one a Portal *generates* as it transmits: a full status reply is built through a
+    /// 256-byte COBS buffer while the application keeps running, so it reaches the wire in
+    /// bursts with real gaps between them, and the bridge chops it into fragments that
+    /// decode as nothing.
+    void setIdleTimeoutUs(uint32_t microseconds) { idleTimeoutUs_ = microseconds; }
+    uint32_t idleTimeoutUs() const { return idleTimeoutUs_; }
+
     /// Adopt a previously learned block without waiting for a branch reply. Used to
     /// restore the range persisted at the last shutdown, so a cold boot does not
     /// fail open and flood the branch with all 54 unicasts.

@@ -4,18 +4,31 @@
 //!
 //! `PortalFW` builds two application environments, one per PCB revision in production:
 //! `application_bank_optical` (v6, the reflective-sensor home switch, default) and
-//! `application_bank_mechanical` (v4, rev-1 mechanical switches, `-D HOME_SWITCH_LEGACY`). Both
-//! link at `0x08006000` via `set_bank2.py` and are offered side by side, the same way a built
-//! bootloader and the committed reference are both offered — there is no hardware strap on the
-//! board that would let this module tell which revision is attached, so the operator picks by
-//! board type rather than the flasher guessing. [`Discovery::application`] still gives a default
-//! (optical) for the common case; it is a starting point, not a substitute for the choice.
+//! `application_bank_mechanical` (v4, rev-1 mechanical switches, `-D HOME_SWITCH_LEGACY`). Both are
+//! offered side by side, the same way a built bootloader and the committed reference are both
+//! offered — there is no hardware strap on the board that would let this module tell which revision
+//! is attached, so the operator picks by board type rather than the flasher guessing.
+//! [`Discovery::application`] still gives a default (optical) for the common case; it is a starting
+//! point, not a substitute for the choice.
 //!
-//! `no_bootloader` and `debug_no_bootloader` link at `0x08000000` instead of `0x08006000`. Either
-//! produces a binary that programs cleanly into the application slot, verifies cleanly, and never
-//! runs — the board on the bench during development turned out to be exactly that. So they are
-//! refused **by name here** and again **by reset vector** in [`ImageBundle::validate`]; one check
-//! is a policy and two are a guarantee.
+//! # Two bootloader generations, so four application builds
+//!
+//! Each PCB variant is built twice more: once linked at `0x08004000` for a board carrying a v6
+//! bootloader, and once at `0x08006000` for a board still on v4/v5. Both are current, so both are
+//! discovered and offered, distinguished in the picker by label rather than left to a naming
+//! convention.
+//!
+//! Which base a file was linked for is **read out of the file**, never inferred from which
+//! directory it was found in: [`crate::image::image_base`] takes the descriptor the image carries
+//! at `base + 0xC0`, and falls back to the legacy base only when a descriptor-less image's reset
+//! vector proves it. An environment could be renamed or a `.bin` copied by hand; the bytes cannot
+//! lie about themselves.
+//!
+//! `no_bootloader` and `debug_no_bootloader` link at `0x08000000` instead. Either produces a binary
+//! that programs cleanly into the application slot, verifies cleanly, and never runs — the board on
+//! the bench during development turned out to be exactly that. So they are refused **by name here**
+//! and again **by reset vector** in [`ImageBundle::validate`]; one check is a policy and two are a
+//! guarantee.
 //!
 //! # Paths are resolved from the package or source tree, not the working directory
 //!
@@ -70,22 +83,35 @@ pub struct Artefact {
     /// 8799276+`, `Bootloader v5` -- so a picker can name the build rather than the file.
     /// `None` when the file has none or could not be read; the artefact is listed either way.
     pub banner: Option<String>,
+    /// Where this image was linked, read from the file itself when it was discovered.
+    ///
+    /// `FLASH_BASE` for a bootloader. For an application it is the base its descriptor states, or
+    /// the legacy base when a descriptor-less image's reset vector proves it. An image that can be
+    /// neither read nor inferred also lands on the legacy base and is then refused by
+    /// [`ImageBundle::validate`] for its reset vector -- listing it with a plausible-looking base
+    /// and refusing it at load says more than hiding it would.
+    pub base: u32,
+    /// How the base above was established, for the log and for a picker that wants to say
+    /// "declared" rather than "assumed". `None` for a bootloader, which has only one place to go.
+    pub base_source: Option<crate::image::BaseSource>,
 }
 
 impl Artefact {
     pub fn load_address(&self) -> u32 {
-        match self.region {
-            RegionName::Bootloader => addr::FLASH_BASE,
-            RegionName::Application => addr::APP_BASE,
-        }
+        self.base
     }
 
     /// Whether it can physically fit where it is meant to go. Checked here so a too-large file is
     /// visible in the picker rather than at the moment someone presses Flash.
+    ///
+    /// A bootloader is measured against the *larger* of the two bootloader banks: a v4/v5 image
+    /// legitimately fills 24 kB, and the 16 kB limit belongs to v6 builds alone.
+    /// [`ImageBundle::validate`] applies that one, where the image's banner is available to say
+    /// which generation it is.
     pub fn fits(&self) -> bool {
         let limit = match self.region {
-            RegionName::Bootloader => u64::from(addr::BOOTLOADER_BYTES),
-            RegionName::Application => u64::from(addr::APP_BANK_BYTES),
+            RegionName::Bootloader => u64::from(addr::BOOTLOADER_BYTES_LEGACY),
+            RegionName::Application => u64::from(addr::app_bank_bytes(self.base)),
         };
         self.bytes > 0 && self.bytes <= limit
     }
@@ -262,24 +288,30 @@ pub fn discover_in(root: &Path) -> Discovery {
     let mut found = Vec::new();
     let mut missing = Vec::new();
 
-    // ---- the application: one entry per PCB revision, see the module docs
+    // ---- the application: one entry per PCB revision per bootloader generation, see the module
+    // docs
     for (env, label, variant, hardware) in APPLICATION_ENVS {
         let app_dir = root.join("PortalFW/.pio/build").join(env);
         let app_bin = app_dir.join("firmware.bin");
         match stat(&app_bin) {
-            Some((bytes, modified)) => found.push(Artefact {
-                id: format!("portalfw:{env}"),
-                label: (*label).into(),
-                region: RegionName::Application,
-                origin: Origin::Built,
-                banner: banner_of(&app_bin),
-                path: app_bin,
-                bytes,
-                modified,
-                elf: exists(app_dir.join("firmware.elf")),
-                variant: Some((*variant).into()),
-                hardware: Some((*hardware).into()),
-            }),
+            Some((bytes, modified)) => {
+                let (base, base_source) = base_of(&app_bin);
+                found.push(Artefact {
+                    id: format!("portalfw:{env}"),
+                    label: (*label).into(),
+                    region: RegionName::Application,
+                    origin: Origin::Built,
+                    banner: banner_of(&app_bin),
+                    path: app_bin,
+                    bytes,
+                    modified,
+                    elf: exists(app_dir.join("firmware.elf")),
+                    variant: Some((*variant).into()),
+                    hardware: Some((*hardware).into()),
+                    base,
+                    base_source,
+                })
+            }
             None => missing.push(Missing {
                 label: (*label).into(),
                 path: app_bin,
@@ -304,6 +336,8 @@ pub fn discover_in(root: &Path) -> Discovery {
             elf: exists(boot_dir.join("firmware.elf")),
             variant: None,
             hardware: None,
+            base: addr::FLASH_BASE,
+            base_source: None,
         }),
         None => missing.push(Missing {
             label: "PortalBootloader (built)".into(),
@@ -336,6 +370,8 @@ pub fn discover_in(root: &Path) -> Discovery {
             elf: None,
             variant: None,
             hardware: None,
+            base: addr::FLASH_BASE,
+            base_source: None,
         });
     }
 
@@ -346,9 +382,18 @@ pub fn discover_in(root: &Path) -> Discovery {
     }
 }
 
-/// The two PCB revisions in production: the env each one builds as, its label, and the variant
-/// and hardware revision a picker can show on their own. Kept as data so discovery and the
-/// module docs stay in sync with what `PortalFW/platformio.ini` actually defines.
+/// Every application environment `PortalFW/platformio.ini` defines: the env, its label, and the
+/// PCB variant and hardware revision a picker can show on their own.
+///
+/// Two PCB revisions times two bootloader generations. The `*_legacy_base` pair links at
+/// `0x08006000` for a board that has not had its bootloader replaced yet; the plain pair links at
+/// `0x08004000` and only runs under a v6 bootloader. The label says which, because choosing the
+/// wrong one produces a board that programs and verifies cleanly and then hard-faults -- the exact
+/// failure the descriptor and [`crate::image::ImageBundle::validate`] exist to make impossible, and
+/// the labels are the first line of that defence rather than the last.
+///
+/// Kept as data so discovery and the module docs stay in sync with what the build actually
+/// defines.
 const APPLICATION_ENVS: &[(&str, &str, &str, &str)] = &[
     (
         "application_bank_optical",
@@ -359,6 +404,18 @@ const APPLICATION_ENVS: &[(&str, &str, &str, &str)] = &[
     (
         "application_bank_mechanical",
         "PortalFW application (mechanical, PCB v4)",
+        "mechanical",
+        "PCB v4",
+    ),
+    (
+        "application_bank_optical_legacy_base",
+        "PortalFW application (optical, PCB v6) for boards still on bootloader v4/v5",
+        "optical",
+        "PCB v6",
+    ),
+    (
+        "application_bank_mechanical_legacy_base",
+        "PortalFW application (mechanical, PCB v4) for boards still on bootloader v4/v5",
         "mechanical",
         "PCB v4",
     ),
@@ -410,6 +467,23 @@ fn banner_of(path: &Path) -> Option<String> {
         .and_then(|bytes| crate::device::first_banner(&bytes))
 }
 
+/// Where an application image says it was linked.
+///
+/// An image that says nothing usable -- unreadable, too short, or linked at `0x08000000` -- is
+/// recorded at the legacy base with no source. That is not a guess about the image: it is the base
+/// against which [`ImageBundle::validate`] will read its reset vector and refuse it by name. The
+/// alternative, dropping it from the listing, would leave an operator staring at a build they can
+/// see in `.pio/build` and no reason for its absence.
+fn base_of(path: &Path) -> (u32, Option<crate::image::BaseSource>) {
+    match std::fs::read(path)
+        .ok()
+        .and_then(|bytes| crate::image::image_base(&bytes))
+    {
+        Some((base, source)) => (base, Some(source)),
+        None => (addr::APP_BASE_LEGACY, None),
+    }
+}
+
 /// The most recently modified `.bin` in a directory. More than one reference image is expected
 /// eventually — the README asks for a new one to be added beside the old rather than replacing
 /// it — so picking deterministically matters.
@@ -449,6 +523,28 @@ mod tests {
         path
     }
 
+    /// An application image that carries the descriptor a real one does, so discovery has the same
+    /// thing to read here as it does in `.pio/build`.
+    fn write_app(root: &Path, rel: &str, bytes: usize, base: u32) -> PathBuf {
+        let path = root.join(rel);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, app_image(base, bytes)).unwrap();
+        path
+    }
+
+    fn app_image(base: u32, len: usize) -> Vec<u8> {
+        let mut bytes = vec![0xA5; len];
+        bytes[0..4].copy_from_slice(&0x2000_9000u32.to_le_bytes());
+        bytes[4..8].copy_from_slice(&((base + 0x240) | 1).to_le_bytes());
+        let at = addr::APP_DESCRIPTOR_OFFSET;
+        bytes[at..at + 8].copy_from_slice(addr::APP_DESCRIPTOR_MAGIC);
+        bytes[at + 8..at + 12].copy_from_slice(&base.to_le_bytes());
+        bytes[at + 12..at + 16].copy_from_slice(&0u32.to_le_bytes());
+        bytes[at + 16..at + 16 + addr::APP_VERSION_BYTES].fill(0);
+        bytes[at + 16..at + 16 + 8].copy_from_slice(b"Portal v");
+        bytes
+    }
+
     #[test]
     fn a_firmware_tree_beside_the_executable_is_a_portable_root() {
         let exe_dir = scratch("portable");
@@ -486,10 +582,11 @@ mod tests {
     #[test]
     fn a_built_application_is_found_with_its_elf() {
         let root = scratch("app");
-        write(
+        write_app(
             &root,
             "PortalFW/.pio/build/application_bank_optical/firmware.bin",
             60_000,
+            addr::APP_BASE,
         );
         write(
             &root,
@@ -502,12 +599,72 @@ mod tests {
         assert_eq!(app.region, RegionName::Application);
         assert_eq!(app.origin, Origin::Built);
         assert_eq!(app.load_address(), addr::APP_BASE);
+        assert_eq!(app.base_source, Some(crate::image::BaseSource::Descriptor));
         assert_eq!(app.bytes, 60_000);
         assert!(
             app.elf.is_some(),
             "the ELF beside it is what a liveness symbol comes from"
         );
         assert!(app.fits());
+    }
+
+    /// The base comes out of the file, not out of the directory it was found in. An environment
+    /// can be renamed and a `.bin` copied by hand; the bytes cannot lie about themselves.
+    #[test]
+    fn an_applications_base_is_read_from_the_image_and_not_from_its_environment() {
+        let root = scratch("bases");
+        write_app(
+            &root,
+            "PortalFW/.pio/build/application_bank_optical/firmware.bin",
+            60_000,
+            addr::APP_BASE,
+        );
+        write_app(
+            &root,
+            "PortalFW/.pio/build/application_bank_optical_legacy_base/firmware.bin",
+            60_000,
+            addr::APP_BASE_LEGACY,
+        );
+        // An image built before descriptors existed: only its reset vector says where it belongs,
+        // and the only conclusion available from one is the legacy base.
+        let old = write_app(
+            &root,
+            "PortalFW/.pio/build/application_bank_mechanical_legacy_base/firmware.bin",
+            60_000,
+            addr::APP_BASE_LEGACY,
+        );
+        let mut bytes = std::fs::read(&old).unwrap();
+        bytes[addr::APP_DESCRIPTOR_OFFSET] = 0xA5;
+        std::fs::write(&old, &bytes).unwrap();
+
+        let found = discover_in(&root);
+        let base_of_id = |id: &str| found.by_id(id).map(|a| (a.base, a.base_source));
+        assert_eq!(
+            base_of_id("portalfw:application_bank_optical"),
+            Some((addr::APP_BASE, Some(crate::image::BaseSource::Descriptor)))
+        );
+        assert_eq!(
+            base_of_id("portalfw:application_bank_optical_legacy_base"),
+            Some((
+                addr::APP_BASE_LEGACY,
+                Some(crate::image::BaseSource::Descriptor)
+            ))
+        );
+        assert_eq!(
+            base_of_id("portalfw:application_bank_mechanical_legacy_base"),
+            Some((
+                addr::APP_BASE_LEGACY,
+                Some(crate::image::BaseSource::InferredLegacy)
+            ))
+        );
+        assert!(
+            found
+                .by_id("portalfw:application_bank_optical_legacy_base")
+                .unwrap()
+                .label
+                .contains("v4/v5"),
+            "the picker has to say which bootloader generation a build is for"
+        );
     }
 
     #[test]
@@ -659,6 +816,45 @@ mod tests {
         assert!(boot.fits(), "it must fit the 24 kB bootloader bank");
     }
 
+    /// Against whatever this repository has actually built.
+    ///
+    /// The environment names carry a promise -- `*_legacy_base` links at `0x08006000` and the
+    /// others at `0x08004000` -- and nothing in `platformio.ini` is checked against the image it
+    /// produces. This is that check: it reads the descriptor out of the built binary and holds it
+    /// to the name it was built under. Skipped when the tree has not been built, since a fresh
+    /// clone has nothing to compare.
+    #[test]
+    fn a_built_applications_descriptor_agrees_with_the_environment_it_was_built_under() {
+        let root = repo_root();
+        let found = discover_in(&root);
+        let mut checked = 0;
+        for app in found.applications() {
+            let expected = if app.id.ends_with("_legacy_base") {
+                addr::APP_BASE_LEGACY
+            } else {
+                addr::APP_BASE
+            };
+            assert_eq!(
+                app.base, expected,
+                "{} was built linked for {:#010X}",
+                app.id, app.base
+            );
+            assert_eq!(
+                app.base_source,
+                Some(crate::image::BaseSource::Descriptor),
+                "{} carries no descriptor; every build after the v6 split must",
+                app.id
+            );
+            checked += 1;
+        }
+        if checked == 0 {
+            eprintln!(
+                "skipping: PortalFW has not been built in {}",
+                root.display()
+            );
+        }
+    }
+
     #[test]
     fn a_built_bootloader_in_this_repository_supersedes_the_reference() {
         let root = repo_root();
@@ -783,7 +979,7 @@ mod tests {
 
 // ---------------------------------------------------------------- loading
 
-use crate::image::{ImageBundle, OptionBytePolicy, Provenance, Region, RunCheckSpec};
+use crate::image::{ImageBundle, OptionBytePolicy, Provenance, Region, RunCheckSpec, Unselected};
 use crate::symbols;
 
 /// Why a selection could not be turned into something flashable.
@@ -859,17 +1055,29 @@ impl Discovery {
     /// refuse to programme a good image. `ImageBundle::warnings` reports it, the operator sees it,
     /// and `Rig::run_check` refuses on its own if anyone tries to run one anyway.
     ///
-    /// `vtor` is always set: it is the application's load address, a fact about the layout rather
-    /// than about the build, and it is what catches the specific failure of a board that came out
-    /// of reset into the system ROM instead of into our firmware.
+    /// `vtor` is always set: it is the selected application's own load address, read from the image
+    /// during discovery, and it is what catches the specific failure of a board that came out of
+    /// reset into the system ROM instead of into our firmware. It is not a constant -- a
+    /// legacy-base image started by a v6 bootloader reports `0x08006000`, and a run-check that
+    /// insisted on `0x08004000` would fail a board that is working perfectly.
     fn run_check_for(&self, selection: &Selection) -> RunCheckSpec {
-        let spec = RunCheckSpec::default();
-        let Some(elf) = selection
+        // No application in this pass means no vector table to arrive at, and `vtor == 0` is how
+        // every caller already asks that question. It used to be unaskable: this returned the
+        // default, whose `vtor` is `APP_BASE`, for a *deselected* application as readily as for an
+        // application whose ELF simply could not be read -- so four guards in the bench spelled
+        // "there is no application" as `run_check.vtor == 0` and none of them could ever fire.
+        if selection.application.is_none() {
+            return RunCheckSpec {
+                vtor: 0,
+                ..RunCheckSpec::default()
+            };
+        }
+        let artefact = selection
             .application
             .as_deref()
-            .and_then(|id| self.by_id(id))
-            .and_then(|artefact| artefact.elf.as_deref())
-        else {
+            .and_then(|id| self.by_id(id));
+        let spec = RunCheckSpec::for_base(artefact.map_or(addr::APP_BASE, |a| a.base));
+        let Some(elf) = artefact.and_then(|artefact| artefact.elf.as_deref()) else {
             return spec;
         };
         match symbols::liveness_address(elf) {
@@ -882,54 +1090,61 @@ impl Discovery {
         }
     }
 
-    pub fn load(&self, selection: &Selection) -> Result<ImageBundle, LoadError> {
+    pub fn load(
+        &self,
+        selection: &Selection,
+        unselected: Unselected,
+    ) -> Result<ImageBundle, LoadError> {
         if selection.bootloader.is_none() && selection.application.is_none() {
             return Err(LoadError::NothingSelected);
         }
 
-        let read = |id: &Option<String>| -> Result<(Vec<u8>, String), LoadError> {
-            let Some(id) = id else {
-                return Ok((Vec::new(), "erased".to_owned()));
-            };
-            let artefact = self
-                .by_id(id)
-                .ok_or_else(|| LoadError::UnknownArtefact(id.clone()))?;
-            let bytes = std::fs::read(&artefact.path).map_err(|err| LoadError::Unreadable {
-                path: artefact.path.clone(),
-                reason: err.to_string(),
-            })?;
-            Ok((bytes, artefact.label.clone()))
+        let absent = match unselected {
+            Unselected::Preserve => "preserved",
+            Unselected::Erase => "erased",
         };
+        // The base travels with the bytes. An application region's load address is the one its own
+        // descriptor stated during discovery, so nothing between here and the probe has to decide
+        // -- or guess -- which bank a file belongs in.
+        let read =
+            |id: &Option<String>, absent_base: u32| -> Result<(Vec<u8>, String, u32), LoadError> {
+                let Some(id) = id else {
+                    return Ok((Vec::new(), absent.to_owned(), absent_base));
+                };
+                let artefact = self
+                    .by_id(id)
+                    .ok_or_else(|| LoadError::UnknownArtefact(id.clone()))?;
+                let bytes = std::fs::read(&artefact.path).map_err(|err| LoadError::Unreadable {
+                    path: artefact.path.clone(),
+                    reason: err.to_string(),
+                })?;
+                Ok((bytes, artefact.label.clone(), artefact.base))
+            };
 
-        let (boot_bytes, boot_from) = read(&selection.bootloader)?;
-        let (app_bytes, app_from) = read(&selection.application)?;
+        let (boot_bytes, boot_from, boot_base) = read(&selection.bootloader, addr::FLASH_BASE)?;
+        // A bank with no bytes still needs an address for the record to be well-formed. The v6
+        // base is the one that claims the least: `write_windows` takes the bootloader's bank end
+        // from the bootloader's own size when there is no application in the pass, so this value
+        // decides nothing about what gets erased.
+        let (app_bytes, app_from, app_base) = read(&selection.application, addr::APP_BASE)?;
 
         let bundle = ImageBundle {
-            bootloader: Region::new(RegionName::Bootloader, addr::FLASH_BASE, boot_bytes),
-            application: Region::new(RegionName::Application, addr::APP_BASE, app_bytes),
+            bootloader: Region::new(RegionName::Bootloader, boot_base, boot_bytes),
+            application: Region::new(RegionName::Application, app_base, app_bytes),
             option_bytes: OptionBytePolicy::default(),
             run_check: self.run_check_for(selection),
             provenance: Provenance::Composed {
                 bootloader: boot_from,
                 application: app_from,
             },
+            unselected,
         };
 
-        // A region that was not selected has no vector table to check; everything else still
-        // applies.
-        let faults: Vec<_> = bundle
-            .validate()
-            .into_iter()
-            .filter(|fault| {
-                // A region that was not selected has no vector table to check.
-                !(selection.application.is_none()
-                    && matches!(
-                        fault,
-                        crate::image::BundleFault::BadResetVector { .. }
-                            | crate::image::BundleFault::NoVectorTable
-                    ))
-            })
-            .collect();
+        // No filtering here any more. `validate` skips the vector-table checks when there is no
+        // application to have one, so this and `ProbeRsRig::flash` -- which re-validates before it
+        // touches the probe -- now agree. They did not, and a bootloader-only bundle that loaded
+        // cleanly here was refused at the rig as `BadBundle`.
+        let faults = bundle.validate();
         if !faults.is_empty() {
             return Err(LoadError::Invalid(faults));
         }
@@ -938,26 +1153,60 @@ impl Discovery {
 }
 
 #[cfg(test)]
+impl Discovery {
+    /// `load` under the policy these tests are about, so the multi-line selections below stay
+    /// readable. `Unselected::Erase` is the pre-existing behaviour, which is what most of this
+    /// module was written to pin down.
+    fn load_erasing(&self, selection: &Selection) -> Result<ImageBundle, LoadError> {
+        self.load(selection, Unselected::Erase)
+    }
+}
+
+#[cfg(test)]
 mod load_tests {
     use super::*;
 
-    /// A minimal application image: a vector table that points into the application bank.
-    fn application_bytes(len: usize) -> Vec<u8> {
-        let mut bytes = vec![0u8; len.max(8)];
+    /// A minimal application image: a vector table and a descriptor stating its base, which is
+    /// what a build after the v6 split produces.
+    fn application_bytes(base: u32, len: usize) -> Vec<u8> {
+        let mut bytes =
+            vec![0u8; len.max(addr::APP_DESCRIPTOR_OFFSET + addr::APP_DESCRIPTOR_BYTES)];
         bytes[0..4].copy_from_slice(&0x2000_9000u32.to_le_bytes());
-        bytes[4..8].copy_from_slice(&(addr::APP_BASE + 0x241).to_le_bytes());
+        bytes[4..8].copy_from_slice(&((base + 0x240) | 1).to_le_bytes());
+        let at = addr::APP_DESCRIPTOR_OFFSET;
+        bytes[at..at + 8].copy_from_slice(addr::APP_DESCRIPTOR_MAGIC);
+        bytes[at + 8..at + 12].copy_from_slice(&base.to_le_bytes());
         bytes
     }
 
+    /// A bootloader image that names its own generation, since `validate` reads the banner to
+    /// decide which bank the image is held to.
+    fn bootloader_bytes(version: u32, len: usize) -> Vec<u8> {
+        let mut bytes = vec![0xA5; len];
+        let banner = format!("Bootloader v{version}\0");
+        bytes[0x200..0x200 + banner.len()].copy_from_slice(banner.as_bytes());
+        bytes
+    }
+
+    /// A v6 tree: a 16 kB-class reference bootloader and an application linked for 0x08004000.
     fn tree(name: &str) -> PathBuf {
+        tree_at(name, addr::APP_BASE, bootloader_bytes(6, 14_000))
+    }
+
+    fn tree_at(name: &str, base: u32, boot: Vec<u8>) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("portal-load-{name}"));
         let _ = std::fs::remove_dir_all(&dir);
-        let app = dir.join("PortalFW/.pio/build/application_bank_optical");
+        let env = if base == addr::APP_BASE {
+            "application_bank_optical"
+        } else {
+            "application_bank_optical_legacy_base"
+        };
+        let app = dir.join("PortalFW/.pio/build").join(env);
         std::fs::create_dir_all(&app).unwrap();
-        std::fs::write(app.join("firmware.bin"), application_bytes(60_000)).unwrap();
+        std::fs::write(app.join("firmware.bin"), application_bytes(base, 60_000)).unwrap();
         let reference = dir.join("PortalBootloader/reference");
         std::fs::create_dir_all(&reference).unwrap();
-        std::fs::write(reference.join("boot.bin"), vec![0xA5; 22_708]).unwrap();
+        std::fs::write(reference.join("boot.bin"), boot).unwrap();
         dir
     }
 
@@ -970,11 +1219,104 @@ mod load_tests {
         };
         assert_eq!(selection.scope(), "full");
 
-        let bundle = found.load(&selection).expect("full image");
-        assert_eq!(bundle.bootloader.bytes.len(), 22_708);
+        let bundle = found
+            .load(&selection, Unselected::Erase)
+            .expect("full image");
+        assert_eq!(bundle.bootloader.bytes.len(), 14_000);
         assert_eq!(bundle.application.bytes.len(), 60_000);
         assert_eq!(bundle.bootloader.load_address, addr::FLASH_BASE);
         assert_eq!(bundle.application.load_address, addr::APP_BASE);
+    }
+
+    /// A tree holding the other generation's build. The whole pass follows the image's own base:
+    /// the region, the run-check's VTOR, and the bank the pass will write.
+    #[test]
+    fn a_legacy_base_build_loads_at_the_base_its_descriptor_states() {
+        let found = discover_in(&tree_at(
+            "legacy",
+            addr::APP_BASE_LEGACY,
+            bootloader_bytes(5, 22_708),
+        ));
+        let selection = Selection {
+            bootloader: found.bootloader().map(|a| a.id.clone()),
+            application: found.application().map(|a| a.id.clone()),
+        };
+        let bundle = found
+            .load(&selection, Unselected::Preserve)
+            .expect("a matched v4/v5 pair is as valid as a v6 one");
+
+        assert_eq!(bundle.application.load_address, addr::APP_BASE_LEGACY);
+        assert_eq!(bundle.run_check.vtor, addr::APP_BASE_LEGACY);
+        assert_eq!(
+            bundle.write_windows()[1].start,
+            addr::APP_BASE_LEGACY,
+            "the application is written to the bank it was linked for"
+        );
+    }
+
+    /// The sentinel four call sites in the bench already believed in, and which never fired.
+    ///
+    /// `RunCheckSpec::default()` puts `APP_BASE` in `vtor`, and this used to return that default
+    /// for a *deselected* application as readily as for one whose ELF could not be read -- so
+    /// `run_check.vtor == 0`, the way every caller spells "there is no application in this pass",
+    /// was unreachable and every guard written against it was dead code.
+    #[test]
+    fn a_deselected_application_has_no_vector_table_to_arrive_at() {
+        let found = discover_in(&tree("no-vtor"));
+
+        let boot_only = Selection {
+            bootloader: found.bootloader().map(|a| a.id.clone()),
+            application: None,
+        };
+        let bundle = found
+            .load(&boot_only, Unselected::Preserve)
+            .expect("bootloader only");
+        assert_eq!(bundle.run_check.vtor, 0);
+        assert_eq!(bundle.scope(), "bootloader only");
+
+        // And it is still set whenever there is an application, whether or not a liveness address
+        // could be resolved from its ELF.
+        let with_app = Selection {
+            bootloader: found.bootloader().map(|a| a.id.clone()),
+            application: found.application().map(|a| a.id.clone()),
+        };
+        assert_eq!(
+            found
+                .load(&with_app, Unselected::Preserve)
+                .expect("full")
+                .run_check
+                .vtor,
+            addr::APP_BASE
+        );
+    }
+
+    /// The provenance has to say which of the two things happened to the bank left out, because
+    /// "erased" and "preserved" are the whole difference between the two policies.
+    #[test]
+    fn the_policy_is_carried_on_the_bundle_and_named_in_its_provenance() {
+        let found = discover_in(&tree("policy"));
+        let boot_only = Selection {
+            bootloader: found.bootloader().map(|a| a.id.clone()),
+            application: None,
+        };
+
+        let kept = found
+            .load(&boot_only, Unselected::Preserve)
+            .expect("preserve");
+        assert_eq!(kept.unselected, Unselected::Preserve);
+        assert!(
+            matches!(&kept.provenance, Provenance::Composed { application, .. } if application == "preserved"),
+            "{:?}",
+            kept.provenance
+        );
+
+        let blanked = found.load(&boot_only, Unselected::Erase).expect("erase");
+        assert_eq!(blanked.unselected, Unselected::Erase);
+        assert!(
+            matches!(&blanked.provenance, Provenance::Composed { application, .. } if application == "erased"),
+            "{:?}",
+            blanked.provenance
+        );
     }
 
     #[test]
@@ -988,7 +1330,9 @@ mod load_tests {
         };
         assert_eq!(selection.scope(), "application only");
 
-        let bundle = found.load(&selection).expect("application only");
+        let bundle = found
+            .load(&selection, Unselected::Erase)
+            .expect("application only");
         assert!(bundle.bootloader.bytes.is_empty());
         let image = bundle.expected_flash_image();
         assert!(
@@ -1007,13 +1351,15 @@ mod load_tests {
             application: None,
         };
         assert_eq!(selection.scope(), "bootloader only");
-        assert!(found.load(&selection).is_ok());
+        assert!(found.load(&selection, Unselected::Erase).is_ok());
     }
 
     #[test]
     fn selecting_nothing_is_refused_with_a_usable_message() {
         let found = discover_in(&tree("nothing"));
-        let err = found.load(&Selection::default()).unwrap_err();
+        let err = found
+            .load(&Selection::default(), Unselected::Erase)
+            .unwrap_err();
         assert_eq!(err, LoadError::NothingSelected);
         assert!(err.to_string().contains("choose"));
     }
@@ -1022,7 +1368,7 @@ mod load_tests {
     fn an_unknown_id_is_refused_by_name() {
         let found = discover_in(&tree("unknown"));
         let err = found
-            .load(&Selection {
+            .load_erasing(&Selection {
                 application: Some("portalfw:nonexistent".into()),
                 ..Selection::default()
             })
@@ -1037,13 +1383,18 @@ mod load_tests {
         // never runs. Refused by name during discovery, and again here by reset vector.
         let dir = tree("wrong-link");
         let app = dir.join("PortalFW/.pio/build/application_bank_optical/firmware.bin");
-        let mut bytes = application_bytes(60_000);
+        // No descriptor and an entry point at 0x08000241: nothing about this image says which
+        // bank it belongs in, so discovery records the legacy base -- the only one a
+        // descriptor-less image could ever have been built for -- and `validate` then refuses it
+        // by reset vector rather than programming it somewhere plausible-looking.
+        let mut bytes = application_bytes(addr::APP_BASE, 60_000);
+        bytes[addr::APP_DESCRIPTOR_OFFSET] = 0x00;
         bytes[4..8].copy_from_slice(&(addr::FLASH_BASE + 0x241).to_le_bytes());
         std::fs::write(&app, bytes).unwrap();
 
         let found = discover_in(&dir);
         let err = found
-            .load(&Selection {
+            .load_erasing(&Selection {
                 bootloader: None,
                 application: found.application().map(|a| a.id.clone()),
             })
@@ -1055,7 +1406,7 @@ mod load_tests {
     fn a_loaded_bundle_records_where_each_half_came_from() {
         let found = discover_in(&tree("provenance"));
         let bundle = found
-            .load(&Selection {
+            .load_erasing(&Selection {
                 bootloader: found.bootloader().map(|a| a.id.clone()),
                 application: found.application().map(|a| a.id.clone()),
             })
@@ -1079,7 +1430,7 @@ mod load_tests {
         // visible rather than silently absent.
         let found = discover_in(&tree("warn"));
         let bundle = found
-            .load(&Selection {
+            .load_erasing(&Selection {
                 bootloader: None,
                 application: found.application().map(|a| a.id.clone()),
             })
@@ -1106,7 +1457,7 @@ mod load_tests {
         let root = tree_with_elf("liveness", &[("g_liveness_counter", 0x2000_0180, 4)]);
         let found = discover_in(&root);
         let bundle = found
-            .load(&Selection {
+            .load_erasing(&Selection {
                 bootloader: None,
                 application: found.application().map(|a| a.id.clone()),
             })
@@ -1126,7 +1477,7 @@ mod load_tests {
         let root = tree_with_elf("old", &[("setup", 0x0800_6200, 4)]);
         let found = discover_in(&root);
         let bundle = found
-            .load(&Selection {
+            .load_erasing(&Selection {
                 bootloader: None,
                 application: found.application().map(|a| a.id.clone()),
             })
@@ -1143,7 +1494,7 @@ mod load_tests {
         let root = tree_with_elf("bootonly", &[("g_liveness_counter", 0x2000_0180, 4)]);
         let found = discover_in(&root);
         let bundle = found
-            .load(&Selection {
+            .load_erasing(&Selection {
                 bootloader: found.bootloader().map(|a| a.id.clone()),
                 application: None,
             })

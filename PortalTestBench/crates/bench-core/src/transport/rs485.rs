@@ -482,21 +482,25 @@ impl Link for Rs485Link {
             return Err(LinkError::NotOpen);
         }
         let start_tx = self.bus.stats().tx_count;
-        // A sustained 5 ms stream can fill the Windows serial driver's output queue and turn
-        // its 1 ms device timeout into a mid-image disconnect. The Router's mass-update pacing
-        // is proven on the same transport; keep its 10 ms frame gap. Firmware frames are
-        // broadcast and unacknowledged, so send each one twice even on a single-module fixture.
+        // `resilient()` is the 10 ms / x2 profile: a sustained 5 ms stream can fill the Windows
+        // serial driver's output queue and turn its 1 ms device timeout into a mid-image
+        // disconnect, and firmware frames are broadcast and unacknowledged, so each one is sent
+        // twice even on a single-module fixture. `run_after` puts "RU" at the tail of the same
+        // outbox: a test of the complete bootloader contract has to request the application
+        // handoff too, and queueing it here rather than afterwards means it cannot race the
+        // last data frame.
         let params = router_link::fw_update::FwUpdateParams {
-            wait_between_frames_ms: 10,
-            frame_repetitions: 2,
-            ..router_link::fw_update::FwUpdateParams::default()
+            run_after: true,
+            ..router_link::fw_update::FwUpdateParams::resilient()
         };
-        let mut total = router_link::fw_update::upload(&self.bus, firmware, &params)
+        // Where this image says it was linked, rather than a constant. Both application bases are
+        // current -- a board on bootloader v6 runs at 0x08004000, one still on v4/v5 at
+        // 0x08006000 -- and the two images are indistinguishable except by the descriptor each
+        // carries. Uploading to the wrong one programs and verifies cleanly and never runs.
+        let (base, _) = router_proto::app_image::image_base(firmware)
             .map_err(|error| LinkError::Io(error.to_string()))?;
-        // Upload only queues announce/erase/data. RU is deliberately a separate Router action.
-        // A test of the complete bootloader contract must request the application handoff too.
-        router_link::fw_update::run_application(&self.bus, &params);
-        total += 1;
+        let total = router_link::fw_update::upload(&self.bus, firmware, base, &params)
+            .map_err(|error| LinkError::Io(error.to_string()))?;
         self.firmware_upload = Some((total, start_tx));
         Ok(self.firmware_upload_progress().unwrap_or_default())
     }
@@ -545,6 +549,18 @@ impl Link for Rs485Link {
                         events.push(event);
                     }
                 }
+                // A board answering correctly from its bootloader is not a fault, and must not be
+                // reported as one: these replies share the `[0, id, ...]` envelope with ordinary
+                // traffic, so before they were classified they fell through to `Other` and the
+                // bench called a working board broken.
+                Reply::Bootloader(reply) => {
+                    for event in events_from_bootloader_reply(&reply) {
+                        if let LinkEvent::Identified { banner, .. } = &event {
+                            self.banner = Some(banner.clone());
+                        }
+                        events.push(event);
+                    }
+                }
                 Reply::Other(value) => {
                     events.push(LinkEvent::Fault(format!("unexpected reply: {value}")))
                 }
@@ -552,6 +568,31 @@ impl Link for Rs485Link {
         }
         events
     }
+}
+
+/// What a bootloader's control-plane reply tells the bench.
+///
+/// Only `status` carries anything the bench models -- it is the reply that says a board is alive,
+/// which image it is running, and which bank it expects an application in. The rest are answers to
+/// requests the firmware-update path made and reads for itself.
+fn events_from_bootloader_reply(reply: &router_proto::bootloader::BlReply) -> Vec<LinkEvent> {
+    use router_proto::bootloader::BlReply;
+
+    let BlReply::Status(status) = reply else {
+        return Vec::new();
+    };
+
+    // The banner is what the rest of the bench identifies a board by, and it is deliberately the
+    // same string `portal-swd` scrapes out of a flash readback -- so a board identified over the
+    // bus and the same board identified over SWD agree.
+    let banner = format!("Bootloader v{}", status.version);
+    vec![LinkEvent::Identified {
+        firmware: FirmwareKind::BootloaderOnly,
+        version: Some(banner.clone()),
+        ratio: GearRatio::default(),
+        usteps_per_rev: None,
+        banner,
+    }]
 }
 
 fn json_to_msgpack(value: &serde_json::Value) -> Result<router_proto::Value, LinkError> {

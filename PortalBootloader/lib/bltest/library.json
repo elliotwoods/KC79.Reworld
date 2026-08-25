@@ -1,0 +1,13 @@
+{
+    "name": "bltest",
+    "version": "1.0.0",
+    "description": "Host fakes for the bootloader's hardware seam: a 128 kB flash that refuses to reprogram a written double-word, a settable clock, and a record of terminal actions instead of an execution that never returns.",
+    "build": {
+        "srcFilter": [
+            "+<*.cpp>"
+        ],
+        "flags": [
+            "-I../../include"
+        ]
+    }
+}

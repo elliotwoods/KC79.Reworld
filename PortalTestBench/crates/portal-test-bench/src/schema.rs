@@ -396,6 +396,16 @@ pub fn declare(builder: &mut SchemaBuilder, simulated: bool) -> Result<(), Strin
     )?;
     check(
         builder
+            // The one control on this page that can destroy working firmware, so it is a control
+            // and not an inference. Only consulted when a bank is left out: with both banks chosen
+            // the two policies do byte-identical work.
+            .param("/flash/preserve_unselected")
+            .bool(true)
+            .label("Preserve the bank left out")
+            .register(),
+    )?;
+    check(
+        builder
             .param("/flash/armed")
             .bool(false)
             .label("Auto-flash armed")
@@ -1278,6 +1288,7 @@ pub struct FlashParams {
     pub last_outcome: ParamId,
     pub boot_id: ParamId,
     pub app_id: ParamId,
+    pub preserve_unselected: ParamId,
     pub scope: ParamId,
 }
 
@@ -1488,6 +1499,7 @@ impl Params {
                 last_outcome: id("/flash/last_outcome")?,
                 boot_id: id("/flash/boot_id")?,
                 app_id: id("/flash/app_id")?,
+                preserve_unselected: id("/flash/preserve_unselected")?,
                 scope: id("/flash/scope")?,
             },
             provision: ProvisionParams {

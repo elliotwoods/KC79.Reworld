@@ -9,6 +9,8 @@
 //! C++ Router and are golden-tested against captured frames. They are not tuning knobs: a
 //! change here makes every measurement taken with a different value incomparable.
 
+pub mod bootloader_update;
+pub mod fw_session;
 pub mod fw_update;
 pub mod repeater_ota;
 pub mod rs485;

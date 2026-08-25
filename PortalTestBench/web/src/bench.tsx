@@ -6,7 +6,7 @@ import { SystemSounds } from '@auroravision/av-gui/calibration';
 import { mount, useParam, useSchema } from '@auroravision/av-gui/runtime';
 import '@auroravision/av-gui/styles.css';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { type BoardValue, type Cue, type FirmwareItem, type LinkView, type SerialView, type SettingsView, connectBlocker, firmwareRow, linkBlocker, probeListEmpty, serialState, settingsState, settingsSummary, soundFor } from './bench-model';
+import { type BoardValue, type Cue, type FirmwareItem, type LinkView, type SerialView, type SettingsView, connectBlocker, eraseWarning, firmwareRow, flashButtonLabel, linkBlocker, omitDetail, omitLabel, probeListEmpty, serialState, settingsState, settingsSummary, soundFor } from './bench-model';
 import { loadSurvey, loadSurveyForGeneration, subscribeSurvey, surveySnapshot, type ProbeChoice } from './bench-survey';
 import { SessionLog } from './bench-log';
 import { MotionGraphs, MotionPilot } from './motion';
@@ -140,6 +140,8 @@ function SetupPicker() {
   const flashBusy = useBool('/flash/busy');
   const runBusy = useBool('/run/busy');
   const scope = useText('/flash/scope');
+  const preserveParam = useParam<boolean>('/flash/preserve_unselected');
+  const preserve = preserveParam.value !== false;
   const probeName = useText('/probe/name');
   const generation = useNumber('/setup/ports_generation');
   const { probes, swd_support: swdSupport, loaded, loading: surveying, error } = usePortSurvey();
@@ -198,15 +200,27 @@ function SetupPicker() {
           <div className="firmware-banks">{(['bootloader', 'application'] as const).map((region) => {
             const selection = region === 'bootloader' ? boot : app;
             const regionItems = items.filter((item) => item.region === region);
+            const omitted = !selection.value;
             return <section key={region} className="firmware-bank" aria-label={`${region} bank`}>
               <strong>{region === 'bootloader' ? 'PortalBootloader' : 'PortalFW Application'}</strong>
-              {regionItems.length === 0 ? <small>No {region} image found.</small> : <div className="choice-list" role="listbox" aria-label={`${region} firmware`}>{regionItems.map((item) => {
-                const selected = selection.value === item.id;
-                const row = firmwareRow(item);
-                return <ChoiceRow key={item.id} selected={selected} disabled={!item.fits || setupLocked} title={row.title} detail={row.detail} badges={!item.fits ? <Badge tone="error">too large</Badge> : undefined} onClick={() => selection.set(selected ? '' : item.id)} />;
-              })}</div>}
+              {regionItems.length === 0 ? <small>No {region} image found.</small> : <div className="choice-list" role="listbox" aria-label={`${region} firmware`}>
+                {/* Leaving a bank out is a choice, so it is a row you pick rather than a state you
+                    reach by clicking the selected one again. That still works; this is what says
+                    the option exists. */}
+                <ChoiceRow selected={omitted} disabled={setupLocked} title={omitLabel(region)} detail={omitDetail(region, preserve)} onClick={() => selection.set('')} />
+                {regionItems.map((item) => {
+                  const selected = selection.value === item.id;
+                  const row = firmwareRow(item);
+                  return <ChoiceRow key={item.id} selected={selected} disabled={!item.fits || setupLocked} title={row.title} detail={row.detail} badges={!item.fits ? <Badge tone="error">too large</Badge> : undefined} onClick={() => selection.set(selected ? '' : item.id)} />;
+                })}
+              </div>}
             </section>;
           })}</div>}
+        <div className="firmware-policy">
+          <StripSwitch label="Preserve the bank left out" hint={PRESERVE_HINT} disabled={setupLocked} onToggle={() => preserveParam.set(!preserve)}><Toggle path="/flash/preserve_unselected" /></StripSwitch>
+        </div>
+        {/* The one control on this page that can destroy working firmware. It should not be quiet. */}
+        {!preserve && (!boot.value || !app.value) && <Banner tone="warn">{eraseWarning(!boot.value, !app.value)}</Banner>}
         {setupLocked && <Banner tone="info">Selection is locked while flashing, auto-flash, or a test plan is active.</Banner>}
         {missing.map((item) => <Banner key={item.path} tone="info">{item.label}: {item.hint}</Banner>)}
         <footer title={root}><span>{scope || 'nothing'} selected</span><code>{root || 'build tree unavailable'}</code></footer>
@@ -222,14 +236,15 @@ function ManualFlashButton() {
   const probe = useBool('/probe/connected');
   const target = useBool('/probe/target_present');
   const runBusy = useBool('/run/busy');
+  const scope = useText('/flash/scope');
   const [confirmUntil, setConfirmUntil] = useState(0);
-  const why = busy ? 'a flash pass is running' : runBusy ? 'a test plan is running' : armed ? 'disable auto-flash first' : !probe ? 'no ST-Link' : !target ? 'no MCU is answering' : null;
+  const why = busy ? 'a flash pass is running' : runBusy ? 'a test plan is running' : armed ? 'disable auto-flash first' : !probe ? 'no ST-Link' : !target ? 'no MCU is answering' : scope === 'nothing' ? 'no firmware selected' : null;
   const click = () => {
     const now = Date.now();
     if (now < confirmUntil) { action.set((action.value ?? 0) + 1); setConfirmUntil(0); }
     else { setConfirmUntil(now + 5000); window.setTimeout(() => setConfirmUntil((v) => v <= Date.now() ? 0 : v), 5100); }
   };
-  return <span className="manual-flash" title={why ?? 'Press twice within five seconds. Always programs and restarts the board, even if it already carries this image.'}><Button variant={confirmUntil > Date.now() ? 'danger' : 'primary'} disabled={!!why || !action.decl} onClick={click}>{confirmUntil > Date.now() ? 'Confirm flash' : 'Flash / Provision now'}</Button></span>;
+  return <span className="manual-flash" title={why ?? 'Press twice within five seconds. Always programs and restarts the board, even if it already carries this image.'}><Button variant={confirmUntil > Date.now() ? 'danger' : 'primary'} disabled={!!why || !action.decl} onClick={click}>{confirmUntil > Date.now() ? 'Confirm flash' : flashButtonLabel(scope)}</Button></span>;
 }
 
 /**
@@ -291,8 +306,9 @@ function StripSwitch({ label, hint, disabled, onToggle, children }: { label: Rea
   </span>;
 }
 
-const AUTO_FLASH_HINT = 'Arm the fixture: every board inserted is flashed and provisioned without pressing anything. While armed, Flash / Provision now is disabled.';
-const FORCE_HINT = 'Auto-flash only: program even when the board already carries the selected image. A manual flash always programs.';
+const AUTO_FLASH_HINT = 'Arm the fixture: every board inserted is flashed and provisioned without pressing anything. While armed, the manual flash button is disabled.';
+const FORCE_HINT = 'Auto-flash only: program even when the board already carries every image this pass would write. A manual flash always programs.';
+const PRESERVE_HINT = 'A bank you leave out is kept as the board already has it, and read back to prove it did not move. Turn this off to erase it instead — which for the bootloader bank leaves a board that cannot boot.';
 const SOUND_HINT = 'Bench sounds: a board connecting or dropping, a run starting, pass, fail and abort.';
 
 function FlashActionStrip({ soundEnabled, onSoundEnabledChange }: { soundEnabled: boolean; onSoundEnabledChange: (enabled: boolean) => void }) {

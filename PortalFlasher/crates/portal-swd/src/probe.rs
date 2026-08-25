@@ -734,19 +734,54 @@ impl Rig for ProbeRsRig {
                 })?;
         }
 
-        // Stage the complete firmware partition, including erased tails. Page erase is bounded
-        // by this range; whole-chip erase is forbidden because the next page is identity.
+        // Snapshot the banks this pass is *not* writing, for the same reason and by the same means
+        // as the durable pages above: a preserve that nobody checked is indistinguishable from one
+        // that did not happen. Empty on a full pass, and on any pass that erases the bank it
+        // leaves out.
+        let preserved = bundle.preserved_windows();
+        let mut preserved_before: Vec<(u32, u32, Vec<u8>)> = Vec::new();
+        {
+            let mut core = session.core(0).map_err(session_error)?;
+            for &(start, end) in &preserved {
+                let mut bytes = vec![0u8; (end - start) as usize];
+                core.read(u64::from(start), &mut bytes).map_err(|err| {
+                    RigError::new(
+                        RigErrorKind::Verify,
+                        format!(
+                            "could not read {start:#010X}..{end:#010X} before programming, so \
+                             leaving it alone could not be proved: {err}"
+                        ),
+                    )
+                })?;
+                preserved_before.push((start, end, bytes));
+            }
+        }
+
+        // Stage the banks this pass writes, each padded to its bank end so no stale tail survives.
+        // Page erase is bounded by what is staged -- probe-rs only erases a sector some staged
+        // data covers -- and whole-chip erase is forbidden because the next page is identity.
+        //
+        // One loader and one commit for both windows: `FlashBuilder` indexes staged data by
+        // address range and walks every sector once, so disjoint ranges do not need separate
+        // commits. Both windows are sector-aligned at each end, which is what keeps probe-rs from
+        // padding a partially filled page and erasing the rest of it.
         let mut loader = session.target().flash_loader();
-        let expected = bundle.expected_firmware_image();
-        loader
-            .add_data(u64::from(addr::FLASH_BASE), &expected)
-            .map_err(|err| {
-                RigError::new(
-                    RigErrorKind::Program,
-                    format!("could not stage the firmware partition: {err}"),
-                )
-            })?;
-        let total = expected.len() as u64;
+        let windows = bundle.write_windows();
+        for window in &windows {
+            loader
+                .add_data(u64::from(window.start), &window.bytes)
+                .map_err(|err| {
+                    RigError::new(
+                        RigErrorKind::Program,
+                        format!(
+                            "could not stage {:#010X}..{:#010X}: {err}",
+                            window.start,
+                            window.end()
+                        ),
+                    )
+                })?;
+        }
+        let total: u64 = windows.iter().map(|w| w.bytes.len() as u64).sum();
         {
             // From `image::strategy`, not from literals here. The settings page publishes those
             // same constants, so what it says about erasing and verifying cannot drift from what
@@ -762,29 +797,65 @@ impl Rig for ProbeRsRig {
             })?;
         }
 
-        // Readback, against the device rather than against what was sent to it.
+        // Readback, against the device rather than against what was sent to it, and only over the
+        // banks this pass wrote. A bank that was left out is checked separately, below, against
+        // what it held before rather than against an image that never claimed to describe it.
         progress(Step::Readback, 0, total);
-        let mut actual = vec![0u8; expected.len()];
+        let mut actual = Vec::with_capacity(total as usize);
         {
             let mut core = session.core(0).map_err(session_error)?;
-            core.read(u64::from(addr::FLASH_BASE), &mut actual)
-                .map_err(|err| {
+            for window in &windows {
+                let mut bytes = vec![0u8; window.bytes.len()];
+                core.read(u64::from(window.start), &mut bytes)
+                    .map_err(|err| {
+                        RigError::new(
+                            RigErrorKind::Verify,
+                            format!("could not read the device back: {err}"),
+                        )
+                    })?;
+                if let Some(at) = bytes
+                    .iter()
+                    .zip(window.bytes.iter())
+                    .position(|(a, b)| a != b)
+                {
+                    return Err(RigError::new(
+                        RigErrorKind::Verify,
+                        format!(
+                            "readback differs at {:#010X}: expected {:#04X}, got {:#04X}",
+                            window.start as usize + at,
+                            window.bytes[at],
+                            bytes[at]
+                        ),
+                    ));
+                }
+                actual.extend_from_slice(&bytes);
+            }
+        }
+        // The other half of the promise: the bank this pass did not write reads exactly as it did
+        // before. A flash algorithm that ran past the window it was given fails here, loudly, with
+        // the address it reached.
+        {
+            let mut core = session.core(0).map_err(session_error)?;
+            for (start, end, was) in &preserved_before {
+                let mut now = vec![0u8; was.len()];
+                core.read(u64::from(*start), &mut now).map_err(|err| {
                     RigError::new(
                         RigErrorKind::Verify,
-                        format!("could not read the device back: {err}"),
+                        format!("could not read {start:#010X}..{end:#010X} back: {err}"),
                     )
                 })?;
-        }
-        if let Some(at) = actual.iter().zip(expected.iter()).position(|(a, b)| a != b) {
-            return Err(RigError::new(
-                RigErrorKind::Verify,
-                format!(
-                    "readback differs at {:#010X}: expected {:#04X}, got {:#04X}",
-                    addr::FLASH_BASE as usize + at,
-                    expected[at],
-                    actual[at]
-                ),
-            ));
+                if let Some(at) = now.iter().zip(was.iter()).position(|(a, b)| a != b) {
+                    return Err(RigError::new(
+                        RigErrorKind::Verify,
+                        format!(
+                            "the bank left out changed at {:#010X}: was {:#04X}, now {:#04X}",
+                            *start as usize + at,
+                            was[at],
+                            now[at]
+                        ),
+                    ));
+                }
+            }
         }
         progress(Step::Readback, total, total);
         let readback_sha256 = crate::device::sha256_hex(&actual);
@@ -832,6 +903,8 @@ impl Rig for ProbeRsRig {
             readback_sha256,
             identity_sha256,
             settings_sha256,
+            scope: bundle.scope(),
+            preserved,
         })
     }
 

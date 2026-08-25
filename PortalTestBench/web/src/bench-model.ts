@@ -456,3 +456,43 @@ export function firmwareRow(item: FirmwareItem): { title: string; detail: string
   const size = `${(item.bytes / 1024).toFixed(1)} kB`;
   return { title, detail: [version, when, size].filter(Boolean).join(' · ') };
 }
+
+// ---------------------------------------------------------------- leaving a bank out
+
+/** The head row of each bank's list: the choice not to write that bank at all. */
+export function omitLabel(region: 'bootloader' | 'application'): string {
+  return region === 'bootloader' ? 'No bootloader' : 'No application';
+}
+
+/**
+ * What leaving this bank out will actually do, which depends entirely on the preserve toggle.
+ *
+ * Written as two different sentences rather than one hedged one: "left alone" and "erased" are
+ * opposite outcomes for the same click, and an operator reading the row should not have to
+ * cross-reference a switch elsewhere on the page to know which they are choosing.
+ */
+export function omitDetail(region: 'bootloader' | 'application', preserve: boolean): string {
+  return preserve
+    ? `Do not write this bank — keep whatever the board already has`
+    : `Do not write this bank — the board's ${region} will be erased`;
+}
+
+/** The banner shown when preserve is off and a bank has been left out. */
+export function eraseWarning(bootOmitted: boolean, appOmitted: boolean): string {
+  if (bootOmitted && appOmitted) return 'Nothing is selected, so there is nothing to flash.';
+  const bank = bootOmitted ? 'bootloader' : 'application';
+  const consequence = bootOmitted
+    ? ' The board will not be able to boot until a bootloader is written again.'
+    : '';
+  return `Preserve is off: this pass will erase the board's ${bank} bank rather than keeping it.${consequence}`;
+}
+
+/** The manual flash button's label, so a one-bank pass cannot be pressed as if it were a full one. */
+export function flashButtonLabel(scope: string): string {
+  switch (scope) {
+    case 'bootloader only': return 'Flash bootloader only';
+    case 'application only': return 'Flash application only';
+    case 'nothing': return 'Nothing selected';
+    default: return 'Flash / Provision now';
+  }
+}

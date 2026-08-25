@@ -1126,6 +1126,33 @@ impl Worker {
             self.flash_selection_seen = selection;
             *self.shared.artefacts.lock().unwrap() = self.flash.artefacts_json();
         }
+
+        // Part of the setup, and locked with the rest of it: what happens to a bank that was left
+        // out must not change under a pass that is already running.
+        let preserve = schema::get_bool(&self.bus, self.params.flash.preserve_unselected);
+        let wanted = if preserve {
+            portal_swd::Unselected::Preserve
+        } else {
+            portal_swd::Unselected::Erase
+        };
+        if wanted != self.flash.unselected() {
+            if self.setup_is_locked() {
+                let _ = self.bus.set(
+                    self.params.flash.preserve_unselected,
+                    Value::Bool(self.flash.unselected() == portal_swd::Unselected::Preserve),
+                );
+                return;
+            }
+            self.flash.set_unselected(wanted);
+            if !preserve {
+                self.bench.note(
+                    now,
+                    bench_core::LOG_LEVEL_WARNING,
+                    "preserve is off: a bank left out will be erased, not kept",
+                );
+            }
+            *self.shared.artefacts.lock().unwrap() = self.flash.artefacts_json();
+        }
     }
 
     fn sync_probe_selection(&mut self, now: u64) {
@@ -1533,24 +1560,33 @@ impl Worker {
             if let Some(reservation) = reservation.as_ref() {
                 let snapshot = self.flash.snapshot().clone();
                 let mcu = snapshot.mcu.as_ref();
-                let selected = self.flash.selected_application_sha256().unwrap_or_default();
+                let (want_boot, want_app) = self.flash.selected_region_hashes();
+                let selected = want_app.clone().unwrap_or_default();
                 let force_write = schema::get_bool(&self.bus, self.params.flash.force_write);
                 let already_matches = may_skip_flash(
                     automatic,
                     force_write,
                     mcu.and_then(|mcu| mcu.provision_serial),
                     reservation.serial,
-                    mcu.map_or("", |mcu| mcu.application_sha256.as_str()),
-                    &selected,
+                    (
+                        mcu.map_or("", |mcu| mcu.bootloader_sha256.as_str()),
+                        mcu.map_or("", |mcu| mcu.application_sha256.as_str()),
+                    ),
+                    (want_boot.as_deref(), want_app.as_deref()),
                 );
                 if already_matches {
                     self.flash.verified_skip(
                         now,
                         automatic,
                         format!(
-                            "serial {} already has selected firmware {}",
+                            "serial {} already has the selected {} ({})",
                             reservation.serial,
-                            short_hash_text(&selected)
+                            self.flash.snapshot().scope,
+                            short_hash_text(if selected.is_empty() {
+                                want_boot.as_deref().unwrap_or_default()
+                            } else {
+                                &selected
+                            })
                         ),
                     )
                 } else {
@@ -2744,14 +2780,26 @@ fn may_skip_flash(
     force_write: bool,
     on_board_serial: Option<u32>,
     reserved_serial: u32,
-    on_board_application_sha256: &str,
-    selected_application_sha256: &str,
+    on_board: (&str, &str),
+    selected: (Option<&str>, Option<&str>),
 ) -> bool {
+    // Every bank this pass would write has to already match. Comparing the application alone was
+    // right while every pass wrote both, and became two different bugs once a pass could write
+    // one: a bootloader-only pass could never skip (there is nothing to compare it against), and
+    // an application-only pass could skip on a matching application while the bootloader it was
+    // about to write differed.
+    let (board_boot, board_app) = on_board;
+    let (want_boot, want_app) = selected;
+    let matches = |want: Option<&str>, board: &str| match want {
+        None => true,
+        Some(want) => !want.is_empty() && want == board,
+    };
     automatic
         && !force_write
         && on_board_serial == Some(reserved_serial)
-        && !selected_application_sha256.is_empty()
-        && on_board_application_sha256 == selected_application_sha256
+        && (want_boot.is_some() || want_app.is_some())
+        && matches(want_boot, board_boot)
+        && matches(want_app, board_app)
 }
 
 /// Convert each rig sub-step's local 0..1 fraction into one operation-wide timeline.
@@ -2829,32 +2877,97 @@ mod tests {
     /// that lives here.
     #[test]
     fn a_manual_flash_never_answers_itself_with_a_verified_skip() {
+        const BOOT: &str = "1f0a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8";
         const SHA: &str = "06455f0c3a8390272994431c053e05e0470a6b6a0080ce7d2547837ae2ebb7f5";
+        let board = (BOOT, SHA);
+        let full = (Some(BOOT), Some(SHA));
 
-        // The exact situation on the bench: serial 7, carrying the selected image already.
+        // The exact situation on the bench: serial 7, carrying the selected images already.
         assert!(
-            may_skip_flash(true, false, Some(7), 7, SHA, SHA),
+            may_skip_flash(true, false, Some(7), 7, board, full),
             "an automatic pass over a matching board still skips"
         );
         assert!(
-            !may_skip_flash(false, false, Some(7), 7, SHA, SHA),
+            !may_skip_flash(false, false, Some(7), 7, board, full),
             "a manual pass over the same board must program it"
         );
 
         // Force is the auto path's bypass and remains so.
-        assert!(!may_skip_flash(true, true, Some(7), 7, SHA, SHA));
-        assert!(!may_skip_flash(false, true, Some(7), 7, SHA, SHA));
+        assert!(!may_skip_flash(true, true, Some(7), 7, board, full));
+        assert!(!may_skip_flash(false, true, Some(7), 7, board, full));
 
         // The auto skip's own preconditions are unchanged: same serial, and an image to compare.
-        assert!(!may_skip_flash(true, false, Some(8), 7, SHA, SHA), "serial");
-        assert!(!may_skip_flash(true, false, None, 7, SHA, SHA), "no serial");
         assert!(
-            !may_skip_flash(true, false, Some(7), 7, SHA, "other"),
+            !may_skip_flash(true, false, Some(8), 7, board, full),
+            "serial"
+        );
+        assert!(
+            !may_skip_flash(true, false, None, 7, board, full),
+            "no serial"
+        );
+        assert!(
+            !may_skip_flash(true, false, Some(7), 7, (BOOT, "other"), full),
             "different image"
         );
         assert!(
-            !may_skip_flash(true, false, Some(7), 7, "", ""),
+            !may_skip_flash(true, false, Some(7), 7, ("", ""), full),
             "an unreadable pair of hashes is not a match"
+        );
+        assert!(
+            !may_skip_flash(true, false, Some(7), 7, board, (None, None)),
+            "a selection with nothing in it is not something a board can already match"
+        );
+    }
+
+    /// The skip has to answer the question the pass is actually about.
+    ///
+    /// It compared the application hash alone, which was right while every pass wrote both banks
+    /// and became two separate wrong answers once a pass could write one. A bootloader-only pass
+    /// had nothing to compare and so could never skip; an application-only pass compared the half
+    /// it was not going to write and could skip while the bootloader it *was* going to write
+    /// differed from the board's.
+    #[test]
+    fn a_skip_compares_every_bank_the_pass_would_write_and_no_others() {
+        const BOOT: &str = "1f0a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8";
+        const APP: &str = "06455f0c3a8390272994431c053e05e0470a6b6a0080ce7d2547837ae2ebb7f5";
+
+        // Bootloader only: the application on the board is irrelevant, and a matching bootloader
+        // is now enough to skip -- which it never could be before.
+        assert!(may_skip_flash(
+            true,
+            false,
+            Some(7),
+            7,
+            (BOOT, "anything at all"),
+            (Some(BOOT), None)
+        ));
+        assert!(
+            !may_skip_flash(true, false, Some(7), 7, ("other", APP), (Some(BOOT), None)),
+            "a different bootloader is the one thing this pass would change"
+        );
+
+        // Application only: the bootloader is left alone, so it cannot veto the skip.
+        assert!(may_skip_flash(
+            true,
+            false,
+            Some(7),
+            7,
+            ("a bootloader nobody is writing", APP),
+            (None, Some(APP))
+        ));
+
+        // The regression this method existed to prevent: a full pass must not skip on a matching
+        // application while the bootloader differs.
+        assert!(
+            !may_skip_flash(
+                true,
+                false,
+                Some(7),
+                7,
+                ("stale bootloader", APP),
+                (Some(BOOT), Some(APP))
+            ),
+            "a full pass writes the bootloader too, so a stale one must not be skipped over"
         );
     }
 

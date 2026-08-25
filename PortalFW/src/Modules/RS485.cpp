@@ -7,31 +7,10 @@
 #include "App.h"
 #include "Logger.h"
 #include "Exception.h"
+#include "../Handoff.h"
 
 HardwareSerial serialRS485(PA3, PA2);
 msgpack::COBSRWStream cobsStream(serialRS485);
-
-#define BOOTLOADER_FLASH_ADDRESS 0x08000000U
-
-void run_bootloader()
-{
-	typedef void (*bootloader_reset_handler_pointer)(void);
-	__IO uint32_t* bootloader_vect_table = (__IO uint32_t*) BOOTLOADER_FLASH_ADDRESS;
-	bootloader_reset_handler_pointer bootloader_reset_handler = (bootloader_reset_handler_pointer) *(bootloader_vect_table + 1);
-
-	HAL_RCC_DeInit();
-	HAL_DeInit();
-
-	SysTick->CTRL = 0;
-	SysTick->LOAD = 0;
-	SysTick->VAL  = 0;
-
-	SCB->VTOR = (uint32_t) bootloader_vect_table;
-
-	__set_MSP(*bootloader_vect_table);
-
-	bootloader_reset_handler();
-}
 
 #define PIN_DE PA1
 namespace Modules {
@@ -121,6 +100,40 @@ namespace Modules {
 					msgpack::writeInt32(cobsStream, this->app->motionControlB->getPosition());
 					msgpack::writeInt32(cobsStream, this->app->motionControlA->getTargetPosition());
 					msgpack::writeInt32(cobsStream, this->app->motionControlB->getTargetPosition());
+				}
+			}
+		}
+
+		this->finishFrame();
+	}
+
+	//---------
+	void
+	RS485::sendBootloaderImageStatus(uint8_t state, uint32_t length, uint32_t received)
+	{
+		// A reply, not an ACK, so this frame carries information the bare bool cannot.
+		RS485::noACKRequired();
+
+		this->beginTransmission();
+
+		const auto ourID = this->app->id->get();
+
+		msgpack::writeArraySize4(cobsStream, 5);
+		{
+			msgpack::writeInt8(cobsStream, 0);
+			msgpack::writeInt8(cobsStream, ourID);
+
+			msgpack::writeMapSize4(cobsStream, 1);
+			{
+				msgpack::writeString5(cobsStream, "blimg", 5);
+				msgpack::writeMapSize4(cobsStream, 3);
+				{
+					msgpack::writeString5(cobsStream, "st", 2);
+					msgpack::writeIntU8(cobsStream, state);
+					msgpack::writeString5(cobsStream, "len", 3);
+					msgpack::writeIntU32(cobsStream, length);
+					msgpack::writeString5(cobsStream, "n", 1);
+					msgpack::writeIntU32(cobsStream, received);
 				}
 			}
 		}
@@ -316,8 +329,15 @@ namespace Modules {
 						if(!RS485::checkChecksum()) {
 							return Exception(moduleName, "Checksum FAIL");
 						}
-						// Firmware announce packet
-						// Reset into the bootloader
+						// Firmware announce packet. Reset into the bootloader, leaving it a
+						// note: the bootloader has no way of its own to learn this board's RS485
+						// address -- the daisy-chain that assigns it is run by this image -- so
+						// without the handoff it can only be addressed as part of an anonymous
+						// broadcast crowd, which is what made the old update protocol unsteerable.
+						// STAY also buys it a thirty-second window instead of three.
+						Handoff::write(this->app->id->get(),
+							this->app->getProvisionSerial(),
+							PORTAL_HANDOFF_REQUEST_STAY);
 						log(LogLevel::Status, moduleName, "Firmware announced, rebooting...");
 						HAL_Delay(500);
 						NVIC_SystemReset();

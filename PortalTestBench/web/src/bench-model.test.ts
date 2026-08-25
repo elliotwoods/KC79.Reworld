@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { type BenchView, type FirmwareItem, type LinkView, type SerialView, type SettingsView, connectBlocker, enumName, firmwareRow, linkBlocker, probeListEmpty, serialState, settingsState, settingsSummary, soundFor, thresholdTone, verdictTile, whyDisabled } from './bench-model';
+import { type BenchView, type FirmwareItem, type LinkView, type SerialView, type SettingsView, connectBlocker, enumName, eraseWarning, firmwareRow, flashButtonLabel, linkBlocker, omitDetail, omitLabel, probeListEmpty, serialState, settingsState, settingsSummary, soundFor, thresholdTone, verdictTile, whyDisabled } from './bench-model';
 
 const ready: BenchView = {
   connected: true,
@@ -418,5 +418,41 @@ describe('the ST-Link list when it is empty', () => {
     const blind = probeListEmpty({ ...attached, swdSupport: false });
     expect(blind.detail).toContain('not evidence');
     expect(blind.detail).not.toContain('No ST-Link found');
+  });
+});
+
+describe('leaving a bank out', () => {
+  it('names the choice per bank', () => {
+    expect(omitLabel('bootloader')).toBe('No bootloader');
+    expect(omitLabel('application')).toBe('No application');
+  });
+
+  // The same click has opposite consequences depending on a switch elsewhere on the page, so the
+  // row has to say which one the operator is about to get rather than leaving them to look it up.
+  it('says what leaving a bank out will actually do, and the two answers are opposites', () => {
+    expect(omitDetail('application', true)).toContain('keep whatever the board already has');
+    expect(omitDetail('application', false)).toContain('erased');
+    expect(omitDetail('bootloader', false)).toContain("board's bootloader will be erased");
+  });
+
+  it('warns about an erase, and says plainly when it costs the board its ability to boot', () => {
+    const boot = eraseWarning(true, false);
+    expect(boot).toContain('bootloader bank');
+    expect(boot).toContain('will not be able to boot');
+
+    const app = eraseWarning(false, true);
+    expect(app).toContain('application bank');
+    expect(app).not.toContain('will not be able to boot');
+
+    expect(eraseWarning(true, true)).toContain('nothing to flash');
+  });
+
+  // A one-bank pass pressed by an operator who thought they were doing a full one is the whole
+  // hazard this label exists to remove.
+  it('never calls a one-bank pass a full provision', () => {
+    expect(flashButtonLabel('full')).toBe('Flash / Provision now');
+    expect(flashButtonLabel('bootloader only')).toBe('Flash bootloader only');
+    expect(flashButtonLabel('application only')).toBe('Flash application only');
+    expect(flashButtonLabel('nothing')).toBe('Nothing selected');
   });
 });

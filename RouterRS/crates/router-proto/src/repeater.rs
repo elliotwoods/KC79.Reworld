@@ -255,22 +255,12 @@ pub fn parse_reply(body: &Value) -> Result<Option<RepeaterReply>, ProtoError> {
 
 /// CRC-16/CCITT-FALSE: poly `0x1021`, init `0xFFFF`, no reflection, xorout `0x0000`.
 ///
-/// The definition pinned in `protocol-hardening.md`, and the one the repeater
-/// firmware uses to check each OTA chunk. CRC of `"123456789"` is `0x29B1`.
-pub fn crc16_ccitt_false(data: &[u8]) -> u16 {
-    let mut crc: u16 = 0xFFFF;
-    for byte in data {
-        crc ^= (*byte as u16) << 8;
-        for _ in 0..8 {
-            crc = if crc & 0x8000 != 0 {
-                (crc << 1) ^ 0x1021
-            } else {
-                crc << 1
-            };
-        }
-    }
-    crc
-}
+/// The definition pinned in `protocol-hardening.md`, the one the repeater firmware uses to check
+/// each OTA chunk, and the one the Portal frame trailer uses. It moved to [`crate::crc`] when the
+/// bootloader control plane became a second caller -- a checksum that two unrelated protocols
+/// depend on byte-for-byte does not belong inside one of them. Re-exported here so the repeater
+/// OTA code keeps its single import.
+pub use crate::crc::crc16_ccitt_false;
 
 #[cfg(test)]
 mod tests {

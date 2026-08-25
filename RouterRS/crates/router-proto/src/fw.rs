@@ -1,10 +1,18 @@
-//! Firmware update protocol (`FWUpdate.cpp` / `MassFWUpdate`).
+//! Firmware update protocol (`FWUpdate.cpp` / `MassFWUpdate`), and its v6 successor's data frames.
 //!
-//! Sequence: broadcast the "FW" magic word repeatedly (announce), "ER"
-//! (erase), then upload the binary in 32-byte frames, then "RU" (run).
-//! All packets are broadcast with the msgpack-c style forced-int8 header.
+//! The sequence is: alternate the two announce words until every running application has rebooted
+//! and every bootloader is held resident, settle on the short word alone, erase, upload the binary
+//! in fixed-size frames, then run. The ordering is not arbitrary and the reason it looks the way
+//! it does is documented where it is built, in `router_link::fw_update` -- the short summary is
+//! that the application and the bootloader listen for *different words*, so a phase carrying only
+//! one of them leaves half the fleet in the wrong state.
+//!
+//! All of it is broadcast, with the msgpack-c style forced-int8 header.
+//!
+//! A v6 bootloader accepts these same frames, in any order, and additionally verifies a
+//! `[seq, crc16]` trailer when one is present -- see [`fw_frame_envelope_trailer`].
 
-use crate::envelope::encode_envelope_fix8;
+use crate::envelope::{encode_envelope_fix8, encode_envelope_fix8_trailer};
 use crate::value::dump_uint;
 
 /// Magic words broadcast as bare strings.
@@ -18,9 +26,13 @@ pub enum FwMagic {
     /// "FW!KC79": reboots a running application into its bootloader. Longer and more
     /// improbable than the bare "FW" so a corrupted frame that happens to decode as a
     /// 2-byte match can't bounce a device mid-move (protocol-hardening.md Finding 4).
-    /// Send this first in an update sequence to bump every running app; once they've
-    /// had time to reboot, continue announcing with the short `Announce` word instead,
-    /// which is what the (already-entered) bootloader actually parses.
+    ///
+    /// This word and [`FwMagic::Announce`] are **interleaved**, not sent in sequence: a phase
+    /// carrying only the long word puts a board into a loop, because the application reboots into
+    /// a bootloader that then hears nothing it can parse, times out after 3 s, and jumps straight
+    /// back into the application. A v4/v5 bootloader rejects this word outright (it parses an
+    /// announce with a 3-byte buffer, so 7 bytes is a format error); a v6 bootloader accepts any
+    /// word beginning "FW" as a keepalive.
     AnnounceLong,
     /// "ER": erase application flash
     Erase,
@@ -72,11 +84,26 @@ pub fn magic_word_envelope(magic: FwMagic) -> Vec<u8> {
 /// `msgpack_pack_uint32` does); the value is a bin of the 2-byte LE checksum
 /// followed by the frame data.
 pub fn fw_frame_envelope(frame_offset: u32, data: &[u8]) -> Vec<u8> {
+    encode_envelope_fix8(-1, &fw_frame_body(frame_offset, data))
+}
+
+/// The same frame with a `[seq, crc16]` trailer.
+///
+/// The payload's own XOR-16 checksum stays: it is what a v4/v5 bootloader checks, and dropping it
+/// would make these frames unintelligible to the fielded fleet. The trailer is additional, covers
+/// the *whole* frame rather than just the payload (a bit-flip in the offset key is undetectable to
+/// XOR-16, and lands a chunk in the wrong place), and is what a v6 bootloader gates on.
+pub fn fw_frame_envelope_trailer(frame_offset: u32, data: &[u8], seq: u8) -> Vec<u8> {
+    encode_envelope_fix8_trailer(-1, &fw_frame_body(frame_offset, data), seq)
+}
+
+/// `{frame_offset: bin(checksum_le ++ data)}`.
+fn fw_frame_body(frame_offset: u32, data: &[u8]) -> Vec<u8> {
     let checksum = checksum_xor16(data);
 
     let mut body = Vec::with_capacity(data.len() + 16);
     body.push(0x81); // fixmap(1)
-    dump_uint(frame_offset as u64, &mut body);
+    dump_uint(u64::from(frame_offset), &mut body);
     // bin header
     let len = data.len() + 2;
     if len < 256 {
@@ -88,8 +115,7 @@ pub fn fw_frame_envelope(frame_offset: u32, data: &[u8]) -> Vec<u8> {
     }
     body.extend_from_slice(&checksum.to_le_bytes());
     body.extend_from_slice(data);
-
-    encode_envelope_fix8(-1, &body)
+    body
 }
 
 #[cfg(test)]
@@ -188,6 +214,47 @@ mod tests {
 
         // 16 identical LE words XOR to zero, so the checksum is a stable literal here.
         assert_eq!(&env[13..15], &[0x00, 0x00]);
+    }
+
+    /// The last 128-byte chunk of a completely full **v6** bank, which is 8 kB larger than the
+    /// legacy one. Same uint32 path, one bank further out.
+    #[test]
+    fn a_v6_chunk_at_the_top_of_the_new_bank_still_encodes_a_uint32_offset() {
+        use crate::layout;
+        const CHUNK: u32 = 128;
+        let last = layout::app_bank_bytes(layout::APP_BASE) as u32 - CHUNK;
+        assert_eq!(last, 0x0001_A780);
+
+        let data = [0xA5u8; 128];
+        let env = fw_frame_envelope_trailer(last, &data, 5);
+        assert_eq!(&env[..5], &[0x95, 0xD0, 0xFF, 0xD0, 0x00], "5-element envelope");
+        assert_eq!(env[5], 0x81, "fixmap(1)");
+        assert_eq!(env[6], 0xCE, "uint32 key");
+        assert_eq!(&env[7..11], &last.to_be_bytes());
+        assert_eq!(&env[7..11], &[0x00, 0x01, 0xA7, 0x80]);
+        assert_eq!(env[11], 0xC4, "bin8");
+        assert_eq!(env[12], 130, "2 checksum bytes + 128 data");
+        assert_eq!(&env[15..15 + 128], &data[..]);
+
+        // 64 identical LE words XOR to zero.
+        assert_eq!(&env[13..15], &[0x00, 0x00]);
+        assert_eq!(
+            crate::envelope::check_trailer(&env),
+            crate::envelope::Trailer::Ok { seq: 5 }
+        );
+    }
+
+    /// The trailered and untrailered forms must carry an identical payload, or a v6 bootloader
+    /// and a v4 bootloader would disagree about what was uploaded.
+    #[test]
+    fn adding_a_trailer_changes_nothing_but_the_envelope() {
+        let data: Vec<u8> = (0u8..128).collect();
+        let plain = fw_frame_envelope(1_024, &data);
+        let trailered = fw_frame_envelope_trailer(1_024, &data, 9);
+        assert_eq!(plain[0], 0x93, "3 elements");
+        assert_eq!(trailered[0], 0x95, "5 elements");
+        assert_eq!(&plain[1..], &trailered[1..plain.len()], "same header and body");
+        assert_eq!(trailered.len(), plain.len() + 5);
     }
 
     /// Every offset boundary the msgpack encoder crosses, so a regression narrows here rather

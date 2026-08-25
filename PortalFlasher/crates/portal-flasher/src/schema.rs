@@ -92,12 +92,15 @@ pub const CUES: &[(u32, &str)] = &[
     (7, "rearmed"),
 ];
 
+/// Indices are stable: a page that has already been served keeps rendering the same word for the
+/// same number, so `split-legacy` is appended rather than inserted beside `split`.
 pub const LAYOUTS: &[(u32, &str)] = &[
     (0, "unknown"),
     (1, "erased"),
     (2, "split"),
     (3, "flat"),
     (4, "unrecognised"),
+    (5, "split-legacy"),
 ];
 
 pub fn phase_index(phase: Phase) -> u32 {
@@ -135,7 +138,10 @@ pub fn layout_index(layout: Option<Layout>) -> u32 {
     match layout {
         None => 0,
         Some(Layout::Erased) => 1,
-        Some(Layout::Split) => 2,
+        // The two split arrangements are separate readings, not one: an operator has to be able
+        // to tell a board whose bootloader has been replaced from one whose has not.
+        Some(Layout::Split { app_base }) if app_base == portal_swd::addr::APP_BASE => 2,
+        Some(Layout::Split { .. }) => 5,
         Some(Layout::Flat) => 3,
         Some(Layout::Unrecognised) => 4,
     }

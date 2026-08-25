@@ -107,6 +107,15 @@ uint32_t rebootAtMs = 0;
 /// about between polls, so a host that only samples occasionally can tell it missed
 /// something rather than silently seeing a steady picture.
 uint32_t eventSeq = 0;
+
+/// `tx-test` state. Frames are emitted one per loop pass rather than queued in a burst,
+/// so a long run cannot overflow the four-slot originate queue and report drops that are
+/// an artefact of the test rather than of the bus.
+uint32_t txTestRemaining = 0;
+repeater::Side txTestSide = repeater::Side::None;
+uint8_t txTestSequence = 0;
+int8_t txTestTarget = 0;
+uint32_t txTestLastMs = 0;
 repeater::RoutingMode lastReportedMode = repeater::RoutingMode::Transparent;
 
 uint64_t uptimeMs() {
@@ -359,6 +368,61 @@ bool parseOtaData(const repeater::ControlRequest& request, uint8_t& session, uin
     if(!cursor.readInteger(value) || value < 0 || value > 0xFFFF) return false;
     crc = static_cast<uint16_t>(value);
     return true;
+}
+
+/// Put a known frame on one bus, from the repeater itself.
+///
+/// Commissioning has a blind spot that costs hours: every other check here is driven by
+/// frames arriving from the host, so when nothing arrives there is no way to separate a
+/// host adapter that never drives the line from a differential pair that is not landing
+/// on this transceiver. Both present as silence with zero UART errors. Driving the line
+/// from the middle of the topology splits them in one command -- if the host hears this
+/// frame, its receive path and the wiring are good and only its transmitter is suspect.
+///
+/// The frame is envelope target 0. That is the one class a Portal ignores (it is neither
+/// its own ID nor the -1 broadcast) and the one class every repeater refuses to relay, in
+/// every routing mode, so it is inert on either bus and cannot leak to a neighbour.
+///
+/// With a `target` of 0 the frame is that inert marker. Given a Portal ID instead, it is a
+/// real `{"poll": nil}` addressed to that one board -- which turns the same command into
+/// the other half of the diagnosis: if the branch answers, side 2's transceiver, wiring
+/// and receive path are all proven at once, and the fault is confined to side 1. Unicast
+/// rather than broadcast, so nine boards do not answer into each other.
+void sendTestFrame(repeater::Side destination, uint8_t sequence, int8_t target) {
+    uint8_t body[16];
+    repeater::wire::MsgpackWriter out(body, sizeof(body));
+    out.arrayHeader(3);
+    out.integer(target);
+    out.integer(target == 0 ? repeaterIndex : 0);
+    out.mapHeader(1);
+    if(target == 0) {
+        out.key("tx");
+        out.uinteger(sequence);
+    }
+    else {
+        out.key("poll");
+        out.nil();
+    }
+    if(!out.ok()) return;
+
+    uint8_t framed[repeater::MAX_ORIGINATED_FRAME_BYTES];
+    const size_t size =
+        repeater::wire::cobsEncodeFrame(out.data(), out.size(), framed, sizeof(framed));
+    if(size == 0) return;
+    router.originate(destination, framed, size);
+}
+
+void serviceTxTest() {
+    if(txTestRemaining == 0 || txTestSide == repeater::Side::None) return;
+    // Wait for the previous one to actually leave, so the count the operator asked for is
+    // the count that reached the wire.
+    if(router.originateDepth(txTestSide) > 0) return;
+    // A poll needs an answering gap; the inert marker does not.
+    if(txTestTarget != 0 && millis() - txTestLastMs < 200) return;
+    sendTestFrame(txTestSide, txTestSequence++, txTestTarget);
+    txTestRemaining--;
+    txTestLastMs = millis();
+    lastActivityMs = millis();
 }
 
 /// Frames whatever `beginReply` started and queues it toward the host bus.
@@ -738,6 +802,60 @@ void serviceUsbDiagnostics() {
             else if(commandLine == "index") {
                 printStatus("index");
             }
+            else if(commandLine.startsWith("idle-timeout")) {
+                // `idle-timeout <us>`; bare, it reports. Adjustable at run time because the
+                // value that matters is a property of how the Portals transmit, which is
+                // measured on a branch rather than known in advance.
+                String args = commandLine.substring(12);
+                args.trim();
+                if(args.length() > 0) {
+                    const long value = args.toInt();
+                    if(value >= 500 && value <= 200000) {
+                        router.setIdleTimeoutUs(static_cast<uint32_t>(value));
+                    }
+                    else if(Serial.availableForWrite() >= 80) {
+                        Serial.printf(
+                            "{\"type\":\"error\",\"message\":\"idle-timeout 500..200000 us\"}\n");
+                        commandLine = "";
+                        continue;
+                    }
+                }
+                if(Serial.availableForWrite() >= 64) {
+                    Serial.printf("{\"type\":\"idle-timeout\",\"us\":%lu}\n",
+                        static_cast<unsigned long>(router.idleTimeoutUs()));
+                }
+            }
+            else if(commandLine.startsWith("tx-test")) {
+                // `tx-test <1|2> [count]` -- emit inert frames on one bus so each
+                // segment can be proven without a working host adapter.
+                String args = commandLine.substring(7);
+                args.trim();
+                const int space = args.indexOf(' ');
+                const long side = (space < 0 ? args : args.substring(0, space)).toInt();
+                String rest = space < 0 ? String("") : args.substring(space + 1);
+                rest.trim();
+                const int second = rest.indexOf(' ');
+                long count = rest.length() == 0 ? 5 : (second < 0 ? rest : rest.substring(0, second)).toInt();
+                const long target = second < 0 ? 0 : rest.substring(second + 1).toInt();
+                if(count < 1) count = 5;
+                if(count > 200) count = 200;
+                if((side == 1 || side == 2) && target >= 0 && target <= 127) {
+                    txTestSide = side == 1 ? repeater::Side::One : repeater::Side::Two;
+                    txTestRemaining = static_cast<uint32_t>(count);
+                    txTestTarget = static_cast<int8_t>(target);
+                    txTestLastMs = 0;
+                    if(Serial.availableForWrite() >= 128) {
+                        Serial.printf(
+                            "{\"type\":\"tx-test\",\"side\":%ld,\"count\":%ld,\"target\":%ld,"
+                            "\"body\":\"%s\"}\n",
+                            side, count, target, target == 0 ? "inert marker" : "poll");
+                    }
+                }
+                else if(Serial.availableForWrite() >= 80) {
+                    Serial.printf(
+                        "{\"type\":\"error\",\"message\":\"tx-test <1|2> [count] [portal-id]\"}\n");
+                }
+            }
             else if(commandLine == "ota-state" && Serial.availableForWrite() >= 160) {
                 Serial.printf(
                     "{\"type\":\"ota-state\",\"slot\":\"%s\",\"state\":\"%s\","
@@ -890,6 +1008,7 @@ void setup() {
 void loop() {
     serviceBridge();
     serviceUsbDiagnostics();
+    serviceTxTest();
     serviceIdentity();
     serviceSnapshot();
     serviceOtaVerify();

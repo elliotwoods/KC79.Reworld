@@ -812,7 +812,12 @@ impl Worker {
         };
         self.selection = selection.clone();
 
-        match self.discovery.load(&selection) {
+        // This app has no control for the policy and is marked for removal in `Todo.md`; keep it
+        // on the behaviour it has always had rather than growing a second UI for the choice.
+        match self
+            .discovery
+            .load(&selection, portal_swd::image::Unselected::Erase)
+        {
             Ok(bundle) => {
                 self.bundle = Some(bundle);
                 self.set_detail("");

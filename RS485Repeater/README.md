@@ -141,9 +141,15 @@ transparent mode until a valid inner reply identifies the local nine-ID block.
    each of `0x00`, `0x55` and `0xFF` and read side-1 counters. An adapter with working automatic
    direction control decodes 20 of 20 for every pattern. An adapter without it decodes nothing
    except under `0xFF`, which holds the line at mark nine bit times in ten — an asymmetry that is
-   diagnostic, and is the opposite way round from reversed polarity. Confirmed good: FT232R serial
-   `B003AHF1`. Confirmed unusable: FT232R serial `AR9366BD`. See the 2026-08-25 resolution in
-   [`FIELD_REPORT_2026-08-24.md`](FIELD_REPORT_2026-08-24.md).
+   diagnostic, and is the opposite way round from reversed polarity. Confirmed good: FT232R serials
+   `B003AHF1` and `B003ASAG`. Confirmed unusable: FT232R serial `AR9366BD`. See the 2026-08-25
+   resolution in [`FIELD_REPORT_2026-08-24.md`](FIELD_REPORT_2026-08-24.md).
+
+   The cheapest way to prove an adapter is against another adapter, not against the bridge: wire
+   two of them A-A/B-B and send both ways. That removes the repeater, the branch and every
+   firmware from the experiment, so a pass means the remaining fault is downstream of the host
+   entirely. It is worth doing *before* the byte-pattern test above, because a silent bridge and
+   a silent adapter look identical from the host.
 2. Query `version`, confirm the expected polarity flags, then run `reset-counters`.
 3. Send one known-good non-motion frame at 115200/8N1 and wait before sending another. Do not use a
    burst discovery as the first electrical test; it can fill the four-frame queue.

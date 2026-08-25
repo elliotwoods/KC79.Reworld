@@ -1,6 +1,6 @@
 // Build the firmware this repository flashes, on either platform.
 //
-//     node tools/build-firmware.mjs                    # all three shipped environments
+//     node tools/build-firmware.mjs                    # every shipped environment
 //     node tools/build-firmware.mjs --env bootloader   # one of them
 //     node tools/build-firmware.mjs --clean            # `pio run -t clean` first
 //     node tools/build-firmware.mjs --list             # what is available, and what is refused
@@ -91,18 +91,21 @@ function parseArgs(argv) {
 }
 
 function list() {
+  // Wide enough for the longest environment name, since two of them now carry a
+  // `_legacy_base` suffix and a column that wraps is worse than a wide one.
+  const width = Math.max(...ENVIRONMENTS.map((e) => e.env.length)) + 2;
   console.log('\nShipped environments:\n');
   for (const environment of ENVIRONMENTS) {
     const { bin } = artefactPaths(environment);
     const built = fs.existsSync(bin) ? `${commas(fs.statSync(bin).size)} bytes` : 'not built';
     console.log(
-      `  ${environment.env.padEnd(30)} 0x${environment.base.toString(16)}  ` +
-        `${environment.label}\n${' '.repeat(32)}${built}`,
+      `  ${environment.env.padEnd(width)} 0x${environment.base.toString(16).padStart(8, '0')}  ` +
+        `${environment.label}\n${' '.repeat(width + 2)}${built}`,
     );
   }
   console.log('\nRefused, and why:\n');
   for (const [name, reason] of Object.entries(REFUSED)) {
-    console.log(`  ${name.padEnd(30)} ${reason}`);
+    console.log(`  ${name.padEnd(width)} ${reason}`);
   }
   console.log('');
 }

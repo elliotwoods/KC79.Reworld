@@ -43,6 +43,12 @@ Jargon is defined the first time it's used and again in the
 8. [RS485 over Ethernet (the TCP gateway)](#8-rs485-over-ethernet-the-tcp-gateway)
 9. [The ID daisy-chain](#9-the-id-daisy-chain)
 10. [Firmware update / bootloader protocol](#10-firmware-update--bootloader-protocol)
+    - [10.1 Compatibility mode](#101-compatibility-mode-the-broadcast-flow)
+    - [10.2 The v6 control plane](#102-the-v6-control-plane)
+    - [10.3 The handoff block](#103-the-handoff-block)
+    - [10.4 The descriptor and the two bases](#104-the-application-descriptor-and-the-two-bases)
+    - [10.5 Replacing the bootloader in band](#105-replacing-the-bootloader-itself-in-band)
+    - [10.6 Updating a fleet](#106-updating-a-fleet)
 11. [The repeater control plane](#11-the-repeater-control-plane)
 12. [Repeater firmware update (OTA)](#12-repeater-firmware-update-ota)
 13. [Known limitations](#13-known-limitations)
@@ -512,7 +518,17 @@ encoded, and both are accepted on decode:
 
 Firmware replies use yet another encoder (msgpack-arduino's
 `writeInt8`/`writeIntU7`), which again may differ byte-for-byte from either
-of the above. None of this matters to a receiver: every decoder in this
+of the above.
+
+Some frames carry two **extra elements** after the body: a sequence number and a
+CRC-16 over everything before them, `[target, source, body, seq, crc16]`.
+PortalFW appends them to every reply; the host appends them to every bootloader
+control-plane request (§10.2). Both are forced-width encodings (`0xCC` + 1 byte,
+`0xCD` + 2 bytes) specifically so the trailer is always the last five bytes and a
+receiver never has to re-parse the body to find where it starts. Older readers
+are unaffected — every decoder here requires only three elements and ignores the
+rest, which is the tolerance that lets a hardened frame and a legacy frame share
+a bus. None of this matters to a receiver: every decoder in this
 project only requires the envelope to be *an array of at least 3 elements*
 whose first two elements are integers of any width — extra trailing
 elements are tolerated and ignored (this tolerance is deliberately relied
@@ -858,79 +874,315 @@ is reserved for the host) — giving addresses 1–16 without the chain.
 
 ## 10. Firmware update / bootloader protocol
 
-Firmware updates are broadcast-only (`target = -1`) and use the same
-envelope/COBS framing as everything else, but with three special
-2-character **magic-word** bodies and a distinct upload-frame body shape.
-None of this traffic expects an ACK.
+Two protocols share this wire, and a board may speak either. Which one it speaks
+is a property of the **bootloader** burned into it:
 
-On Reworld V3, repeaters deliberately do not filter or reinterpret this
-traffic. `"FW!KC79"`, `"FW"`, `"ER"`, `"RU"`, and every upload-frame map
-are forwarded to all six branches exactly as received. Both repeater UARTs
-remain at the bootloader's 115200 baud, so the Router's existing update
-procedure is unchanged and updates all Portals on the shared outer channel.
-Use the firmware updater's own pacing values; the normal 5 ms V3 broadcast
-gap does not override a packet's explicit firmware-update wait.
+- **v4/v5**, in every board not yet updated: broadcast-only, silent, strictly
+  sequential. [§10.1](#101-compatibility-mode-the-broadcast-flow) describes it.
+  A v6 bootloader still accepts all of it.
+- **v6**: addressed, answers, and can be asked what it actually received.
+  [§10.2](#102-the-v6-control-plane) onward.
+
+A fleet contains both for as long as it takes to update it, so a host has to
+discover which it is talking to rather than assume.
+
+### 10.0 Why v6 exists
+
+The v4/v5 bootloader's erase covered three pages more than the application bank.
+Those three pages hold the board's provisioning serial number and both settings
+journals, so **every field update destroyed the board's identity** — silently,
+because the update itself succeeded and the loss only surfaced later.
+
+Fixing that needed a new bootloader, and since a bootloader is replaced rarely,
+everything else worth fixing was fixed with it. The consequential changes for a
+host author:
+
+| | v4/v5 | v6 |
+|---|---|---|
+| durable pages | erased on every update | never touched |
+| addressing | broadcast only | unicast, or broadcast with a selector |
+| replies | none | every request answered, sequence-numbered |
+| a lost frame | ends the upload; host reports success | reported by a bitmap, repaired |
+| frame order | strictly increasing | any order; duplicates free |
+| reception during erase | deaf for over a second | continuous |
+| application base | `0x08006000` | `0x08004000` (the bootloader is 8 kB smaller) |
+
+### 10.1 Compatibility mode: the broadcast flow
+
+Unchanged, and what an un-updated Router sends. All broadcast (`target = -1`),
+none of it acknowledged.
 
 ```mermaid
 sequenceDiagram
     participant R as Router
     participant All as All Portals (broadcast)
 
-    loop ~5s, every 100ms
-        R->>All: "FW!KC79"  (long announce — apps reboot into their bootloader)
+    loop ~5 s, alternating every 100 ms
+        R->>All: "FW!KC79"   (applications reboot into their bootloader)
+        R->>All: "FW"        (bootloaders stay resident)
     end
-    R->>All: "ER"  (erase application flash)
-    loop ~5s, every 100ms, while erase completes
-        R->>All: "FW"
+    loop ~2 s
+        R->>All: "FW"        (settle: cover the 500 ms reboot delay)
     end
-    loop for each 32-byte chunk of the .bin
+    loop twice
+        R->>All: "ER"        (erase)
+        R->>All: "FW" x30    (cover the blocking erase)
+    end
+    loop each 32-byte chunk
         R->>All: {frameOffset: bin(checksum ++ data)}
     end
-    R->>All: "RU"  (run the newly-uploaded application)
+    R->>All: "RU"            (run)
 ```
 
-**Magic words** (`FwMagic` / `FWUpdate::sendMagicWord`,
-`Router/src/Modules/Hardware/FWUpdate.cpp:214-274`) are a bare 2-byte
-MessagePack `fixstr` body:
+**The two announce words are interleaved, not sequential**, and this is the part
+most easily got wrong. A running application acts only on the 7-byte
+`"FW!KC79"`; a v4/v5 bootloader cannot parse that word at all — it reads an
+announce into a 3-byte buffer, so seven bytes is a format error — and acts only
+on `"FW"`. A phase carrying just the long word therefore puts a board in a loop:
+the application reboots into a bootloader that hears three seconds of nothing it
+understands, times out, and jumps straight back into the application. Whether a
+given board is resident when the short word finally starts is a race on its own
+phase, and a board that loses it sits out the whole update while the host
+reports success.
 
 | Word | Bytes | Meaning |
 |---|---|---|
-| `"FW!KC79"` | `A7 46 57 21 4B 43 37 39` | Long announce — a running application resets into its bootloader. |
-| `"FW"` | `A2 46 57` | Short announce — resets upload progress in the field bootloader after applications have entered it. |
-| `"ER"` | `A2 45 52` | Erase application flash (bootloader-only; the application doesn't act on this word). |
-| `"RU"` | `A2 52 55` | Run the newly-flashed application. |
+| `"FW!KC79"` | `A7 46 57 21 4B 43 37 39` | A running application resets into its bootloader. |
+| `"FW"` | `A2 46 57` | Keepalive. On v4/v5 it also resets upload progress; **on v6 it does not** — a host holding other boards resident must not be able to discard this one's session. |
+| `"ER"` | `A2 45 52` | Erase the application bank. |
+| `"RU"` | `A2 52 55` | Start the application. |
 
-Full envelope bytes for `"FW"` (using the forced-int8 header style this
-path uses): `93 D0 FF D0 00 A2 46 57`.
+Full envelope bytes for `"FW"` (forced-int8 header): `93 D0 FF D0 00 A2 46 57`.
 
-**Upload frames** carry the firmware binary in fixed-size chunks (32 bytes
-by default, `FW_FRAME_SIZE`), each wrapped as a 1-entry map keyed by byte
-offset, value a MessagePack `bin` blob of `checksum (2 bytes, little-endian)
-++ data`:
+**Upload frames** carry the image in fixed-size chunks (32 bytes by default,
+`FW_FRAME_SIZE`), each a 1-entry map keyed by byte offset, value a `bin` of
+`checksum (2 bytes, little-endian) ++ data`:
 
 ```
 { frameOffset(uint32) : bin( checksum_le(u16) ‖ raw_data ) }
 ```
 
-The checksum is a simple XOR of every 16-bit little-endian word in the
-chunk (`Utils::calcCheckSum`, `Router/src/Utils.cpp:176-188`) — this is a
-**payload-only** integrity check for the firmware image being uploaded; it
-has nothing to do with, and offers no protection for, ordinary
-command/status/ACK traffic (see §11). Example, for a 32-byte all-`0xAA`
-chunk at offset 64:
+The checksum is an XOR of every 16-bit little-endian word in the chunk
+(`Utils::calcCheckSum`, `router_proto::fw::checksum_xor16`) — a payload-only
+check that says nothing about the offset key it arrived with. Example, for a
+32-byte all-`0xAA` chunk at offset 64:
 
 ```
 93 D0 FF D0 00                  -- [-1, 0, ...] envelope (broadcast, forced-int8)
 81 40                            -- fixmap(1), key = 64 (fixint)
 C4 22                            -- bin8, length 34 (2 checksum + 32 data)
-00 00                            -- checksum: 16× 0xAAAA XORed together = 0 (even count)
+00 00                            -- checksum: 16x 0xAAAA XORed together = 0 (even count)
 AA AA AA ... (32 bytes)          -- the data itself
 ```
 
-By default each chunk is transmitted once, with a 5 ms pacing gap between
-frames (`waitBetweenFrames`); both are configurable, along with a
-frame-repetition count, for noisier buses. Trailing `0xFF` padding bytes in
-the source `.bin` are trimmed before upload by default.
+Offsets are 32-bit the whole way; the folklore that a 16-bit field limited image
+size traced to a different bug entirely (`protocol-hardening.md` §7.4).
+
+**On v6, this flow writes at the legacy base `0x08006000`** — a host old enough
+to send `"ER"` is sending an image linked for it. The erase still covers the
+whole `0x08004000`–`0x0801E800` bank, so a stale new-base image cannot shadow
+the one just uploaded.
+
+On Reworld V3 the repeaters do not filter or reinterpret any of this: every word
+and every upload frame is forwarded to all six branches as received, at the same
+115200 baud. Use the firmware updater's own pacing; the 5 ms V3 broadcast gap
+does not override a packet's explicit wait.
+
+### 10.2 The v6 control plane
+
+Body key `"bl"`, carried in the ordinary envelope with a trailer:
+
+```text
+host -> board : [id | -1, 0, {"bl": {"q": "<verb>", ...}}, seq, crc16]
+board -> host : [0, id,      {"bl": {"q": "<verb>", ...}}, seq, crc16]
+```
+
+`seq` is echoed, so a reply can be matched to the request it answers — the
+correlation ordinary command traffic still lacks (§13). The trailer is the same
+`[seq_u8, crc16_u16]` PortalFW already appends to its replies (§5): forced
+widths, always the last five bytes, CRC-16/CCITT-FALSE over everything before
+it. A frame whose trailer does not verify is dropped without a reply.
+
+#### Who answers
+
+Half-duplex, so exactly one board may answer one frame.
+
+- **Unicast** to a board's id: answered.
+- **Broadcast with a selector** — `"s": <serial>` or `"uid": bin(12)` — answered
+  only by the board that matches. This is the escape hatch that matters: a board
+  that power-cycled has no application to tell its bootloader its id, so the
+  serial in its identity page is the only way to single it out.
+- **Broadcast without a selector**: acted on by every board, answered by none.
+  That is how one `begin` opens a session on fifty-four boards at once. `adopt`
+  is the exception — it is ignored, since every board taking the same id is how
+  a bus becomes unusable.
+
+#### Verbs
+
+| Verb | Request | Reply |
+|---|---|---|
+| `status` | — | `v`, `id`, `src`, `s`, `uid`, `base`, `cap`, `chunk`, `st`, `prog`, `wp`, `n`, `err`, `app:{base, ver}` |
+| `begin` | `len`, `crc` (CRC-32C), `chunk`, `base?` | `ok`, `err?` — **after the erase completes** |
+| `map` | `chunk?` | `chunk`, `len`, `map: bin` |
+| `verify` | — | `ok`, `crc`, `len` |
+| `run` | — | `ok`, `err?`, `base` |
+| `adopt` | `id` | `id` |
+| `reset` | — | `ok`, then resets |
+
+`begin` erases the whole application bank one page per loop pass and answers
+when the last page is done — about 1.2 s. **Allow at least 3 s.** Answering only
+then is the point: the host waits for a fact instead of blanketing the erase in
+announce frames and hoping, as it must with v4/v5.
+
+`v` is the capability gate. A host must read `status` before using any other
+verb, and must degrade **per board** rather than fleet-wide.
+
+`src` says where the board's address came from — `"handoff"`, `"adopt"` or
+`"dip"`. A DIP-derived address is a fallback that several boards on a branch may
+share, so a host that sees `"dip"` should prefer a serial selector.
+
+`st` is `0` idle, `1` erasing, `2` receiving, `3` held (nothing valid to run, or
+a session open). `err` is a numeric code; the names are in
+`router_proto::bootloader::error_name`.
+
+The `map` bitmap has bit *i* set when chunk *i* arrived **in full**, LSB-first
+within each byte — the same convention as the repeater's OTA bitmap (§12), so a
+host can share one repair loop. A partially-received chunk reads as missing, so
+the host resends the whole thing rather than leaving a hole it has been told is
+filled. A full 106 kB bank at 256-byte chunks is 53 bytes of bitmap.
+
+#### A v6 update, end to end
+
+```mermaid
+sequenceDiagram
+    participant R as Router
+    participant B as Boards
+
+    R->>B: announce (as §10.1, to get everyone into a bootloader)
+    R->>B: bl status (unicast per id, or selector broadcast)
+    B-->>R: v=6, base, chunk, serial, uid
+    R->>B: bl begin {len, crc32c, chunk}   (per board)
+    B-->>R: ok   (after ~1.2 s of erasing)
+    R->>B: data frames, broadcast, once each
+    R->>B: bl map   (per board)
+    B-->>R: bitmap
+    R->>B: the missing chunks only
+    R->>B: bl verify   (per board)
+    B-->>R: ok, crc32c
+    R->>B: bl run   (per board)
+    B-->>R: ok, base
+```
+
+The image is transmitted **once** regardless of how many boards are being
+updated, and only the gaps are repaired. Contrast §10.1, where the only recovery
+available is to send everything several times.
+
+### 10.3 The handoff block
+
+A bootloader has no address of its own: the RS485 id is assigned by the
+daisy-chain (§9), which the *application* runs. So before resetting into the
+bootloader, the application leaves a note — 32 bytes at `0x20008FE0`, the top of
+SRAM, excluded from both images' linker RAM so neither stack can reach it and
+startup neither copies nor zeroes it.
+
+```
++0x00 u32  magic       0x4839374B ("K79H")
++0x04 u8   version     1
++0x05 u8   request     0 none, 1 stay in the bootloader, 2 run now (internal)
++0x06 i8   id          RS485 address, <= 0 when unknown
++0x07 u8   flags       bit 0: the serial field is valid
++0x08 u32  serial      provisioning serial
++0x0C u32  arg0        for request 2: the base to start
++0x10 u32  reserved[3]
++0x1C u32  crc32c      over bytes 0..27
+```
+
+The CRC is not decoration: this RAM holds whatever the last program left there,
+and a stale pattern resembling the magic would give a board a wrong bus address.
+
+`request = 1` also buys a **30-second** residency instead of the 3 seconds a
+board waits after an ordinary power-on — which removes the race the old host had
+to paper over by shouting announce frames for the entire update.
+
+### 10.4 The application descriptor, and the two bases
+
+Bootloader v6 is 16 kB rather than 24 kB, so the application moves from
+`0x08006000` to `0x08004000` and gains 8 kB. Both bases are current for as long
+as any board still runs an old bootloader.
+
+The two images are **indistinguishable by inspection**: the banks overlap, so
+both have a stack pointer in SRAM and a Thumb reset vector inside the
+application region, and starting the wrong one does not fail at the jump — it
+hard-faults later at an unrelated absolute address. So an image states its own
+base, in a 56-byte descriptor at `base + 0xC0` (immediately past the G070's
+46-entry vector table):
+
+```
++0x00 char[8]   "KC79APP1"
++0x08 u32       app_base
++0x0C u32       flags
++0x10 char[40]  version string, NUL-padded
+```
+
+The bootloader refuses to start an image at `0x08004000` that carries no
+descriptor, or whose descriptor names a different base. Host tooling refuses to
+*send* one to a board that would not run it.
+
+The legacy base is tried only when the new bank is **entirely blank** — the
+state a board is in between having its bootloader replaced and its application
+re-uploaded. Without that fallback, updating a fleet would be a flag day. An
+image built before descriptors existed has none, and is legacy-base by
+definition.
+
+### 10.5 Replacing the bootloader itself, in band
+
+A bootloader cannot rewrite itself — erasing the page it is executing from
+stalls the fetch that would bring back the next instruction. Until v6 that meant
+a debug probe, physically, one board at a time.
+
+The other path is the *application*: it receives a bootloader image over the bus
+into RAM, checks it, and then as the last thing it ever does rewrites the
+bootloader bank and resets. Unicast and ACKed, under the body key `"blimg"`:
+
+| Request | Meaning |
+|---|---|
+| `{"blimg": {"begin": [len, crc32c]}}` | declare a transfer; `len` ≤ 16 kB and a multiple of 8 |
+| `{"blimg": {"data": [offset, bin]}}` | one 128-byte chunk |
+| `{"blimg": {"commit": [stay]}}` | check everything, then install and reset |
+| `{"blimg": {"abort": nil}}` | discard |
+| `{"blimg": {"q": nil}}` | reply `{"blimg": {"st", "len", "n"}}` — for resuming |
+
+`commit` refuses unless every chunk arrived, the CRC-32C matches, the vector
+table is plausible, the image contains the `Bootloader v` banner, and no motion
+routine is running. It is also gated on the frame's own CRC-16: it is the one
+command in the application that is irreversible.
+
+> **There is a window of roughly half a second** between the first erase and the
+> last verified write during which the board has no bootloader. A power loss
+> inside it leaves a board that needs a debug probe. Nothing can remove that;
+> the checks above exist to make sure it is only ever entered with an image that
+> is already known to be good.
+
+Interrupts stay enabled throughout — flash operations stall the bus rather than
+faulting, and the erase wait needs SysTick — and the watchdog is fed from inside
+the loop rather than around it.
+
+### 10.6 Updating a fleet
+
+For a board running an old bootloader and an old application:
+
+1. **Legacy upload of the transition application** (`*_legacy_base`, linked at
+   `0x08006000`), through §10.1. It carries the handoff writer, the descriptor
+   and `"blimg"`. Confirm with a `poll`.
+2. **Replace the bootloader in band**, per board, via §10.5. About three seconds
+   each. The board resets into v6, which finds the new bank blank and starts the
+   transition application still sitting at the legacy base — nothing visible
+   changes.
+3. **One v6 fleet session** with the new-base application (§10.2). Every board
+   now answers `status`, so the image goes out once and only the gaps are
+   repaired.
+
+Steps 2 and 3 can be combined per board with `commit`'s `stay` flag.
 
 ---
 
@@ -1141,16 +1393,24 @@ and a bench-test plan live in
 [`protocol-hardening.md`](./protocol-hardening.md). In summary, as of this
 writing:
 
-- **No per-frame integrity check.** COBS only frames; MessagePack only
-  validates structure. A single bit-flip inside, say, a motion target can
-  decode as a perfectly valid — but wrong — command. There is no parity,
-  checksum, or CRC on ordinary traffic (the XOR checksum in §10 covers only
-  firmware-upload payloads).
+- **No per-frame integrity check on ordinary traffic.** COBS only frames;
+  MessagePack only validates structure. A single bit-flip inside, say, a motion
+  target can decode as a perfectly valid — but wrong — command. PortalFW does
+  now append a CRC-16 to its replies and can verify one on requests, but that
+  verification is off by default and the Router does not yet append one to
+  ordinary commands. The one place it *is* enforced end to end is the bootloader
+  control plane (§10.2), where a frame that fails is dropped.
 - **ACKs are not truly correlated.** Any frame from the expected sender
   within the response window counts as "the ACK," regardless of its actual
   content, and there's no sequence number to distinguish a reply to
-  command *N* from a reply to command *N+1*.
-- **No retransmission.** A timed-out send is only logged, never retried.
+  command *N* from a reply to command *N+1*. Again the exception is §10.2,
+  where every reply echoes the request's sequence number.
+- **No retransmission.** A timed-out send is only logged, never retried. A
+  firmware upload to a v6 bootloader is the exception: losses are found by
+  reading back a bitmap and repaired (§10.2).
+- **A v4/v5 bootloader destroys a board's provisioning identity on every
+  update**, and says nothing. This is the defect §10.0 exists to describe and
+  bootloader v6 to fix; until a board has been updated, it is still true of it.
 - **The ID daisy-chain checksum doesn't actually check anything**, due to
   a C++ operator-precedence bug (§9).
 
@@ -1174,6 +1434,12 @@ class itself on both sides.
 | Router serial/TCP transport abstraction | `Router/src/SerialDevices/IDevice.h`, `Serial.cpp`/`.h`, `TCP.cpp`/`.h` |
 | Router COBS codec | `Router/src/cobs-c/` |
 | Router firmware upload | `Router/src/Modules/Hardware/FWUpdate.cpp`, `MassFWUdpdate.cpp`, `Utils.cpp` (checksum) |
+| **Bootloader v6** — frame parser, upload session, run decision | `PortalBootloader/src/core/` (`link.cpp`, `session.cpp`, `image.cpp`, `bootloader.cpp`) |
+| Bootloader host-independent tests (83, no board) | `PortalBootloader/test/` |
+| **The flash map**, shared by every project that has an opinion about it | `PortalBootloader/include/portal_flash_layout.h` |
+| Firmware handoff block; application descriptor | `PortalFW/src/Handoff.cpp`, `PortalFW/src/AppDescriptor.cpp` |
+| In-band bootloader replacement, application side | `PortalFW/src/Modules/BootloaderImage.cpp` |
+| Bootloader control plane, host side | `RouterRS/crates/router-proto/src/bootloader.rs`, `router-link/src/fw_session.rs` |
 | Reworld V3 ESP32 frame router | `RS485Repeater/src/main.cpp`, `RS485Repeater/lib/BridgeCore/src/BridgeCore.*` |
 | Firmware top-level loop | `PortalFW/src/main.cpp` |
 | Firmware command handlers | `PortalFW/src/Modules/App.cpp` |

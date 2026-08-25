@@ -3,6 +3,8 @@
 
 #include "../Version.h"
 #include "../Platform.h"
+#include "../Handoff.h"
+#include "BootloaderImage.h"
 
 #include "stm32g0xx_ll_iwdg.h"
 
@@ -79,6 +81,8 @@ namespace Modules
 
 		MotorDriverSettings::Config motorSettingsConfig;
 		motorSettingsConfig.initialCurrent = (float) this->persistentSettings.operatingCurrentMa / 1000.0f;
+		this->bootloaderImage = new BootloaderImage(this);
+
 		this->motorDriverSettings = new MotorDriverSettings(motorSettingsConfig);
 		this->motorDriverSettings->setup();
 
@@ -722,7 +726,30 @@ namespace Modules
 			if(!RS485::checkChecksum()) {
 				return false;
 			}
+			// Leave the bootloader our address on the way past, so a board that comes back up
+			// can still be spoken to individually. `RUN` rather than `STAY`: this is an ordinary
+			// reboot, so the bootloader should take the id and then get on with starting us
+			// again after its short window.
+			Handoff::write(this->id->get(), this->getProvisionSerial(),
+				PORTAL_HANDOFF_REQUEST_NONE);
 			NVIC_SystemReset();
+		}
+
+		else if (strcmp(key, "blimg") == 0) {
+			// A replacement bootloader, arriving over the bus. Unicast and ACKed like any other
+			// command; see BootloaderImage.h for what it does with it.
+			return this->bootloaderImage->processIncoming(stream);
+		}
+
+		else if (strcmp(key, "bl") == 0) {
+			// Bootloader control-plane traffic, addressed to this board while it is running its
+			// application rather than its bootloader. Nothing here can answer it, and answering
+			// it wrongly is worse than silence: a NACK from an application would tell a host
+			// scanning for bootloaders that this board is broken rather than simply running.
+			//
+			// The value is left unread; `nextIncomingPacket()` discards the rest of the frame.
+			RS485::noACKRequired();
+			return true;
 		}
 
 		else if (strcmp(key, "verifyChecksum") == 0) {

@@ -4,9 +4,12 @@
 //! - a bare bool: ACK (true = success, false = firmware exception)
 //! - a map with any subset of the keys `app`, `mca`, `mcb`, `logger`, `p`
 //!   (the full status report has all of them; the mini position poll reply
-//!   has just `p`).
+//!   has just `p`)
+//! - a map with a `bl` key: a bootloader control-plane reply.
 
 use rmpv::Value;
+
+use crate::bootloader::{self, BlReply};
 
 /// Classified reply body.
 #[derive(Debug, Clone, PartialEq)]
@@ -15,6 +18,8 @@ pub enum Reply {
     Ack(bool),
     /// A map body parsed into a report (may be partial).
     Report(PortalReport),
+    /// A reply from a board sitting in its v6 bootloader.
+    Bootloader(BlReply),
     /// Anything else (unexpected).
     Other(Value),
 }
@@ -117,7 +122,14 @@ impl PortalReport {
 }
 
 /// Classify a reply body from a device.
+///
+/// Bootloader replies are checked for first. They share the `[0, id, ...]` envelope with ordinary
+/// traffic and would otherwise fall through to [`Reply::Other`], which callers treat as a fault --
+/// so a board answering correctly from its bootloader would be reported as a broken board.
 pub fn classify_reply(body: &Value) -> Reply {
+    if let Ok(Some(reply)) = bootloader::parse_reply(body) {
+        return Reply::Bootloader(reply);
+    }
     match body {
         Value::Boolean(b) => Reply::Ack(*b),
         Value::Map(_) => {

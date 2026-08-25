@@ -370,7 +370,12 @@ impl Portal {
                 let fresh_logs = self.logger.ingest(&report.logs);
                 (fresh_logs, Some(report))
             }
-            Reply::Ack(_) | Reply::Other(_) => (Vec::new(), None),
+            // A bootloader reply means this board is sitting in its bootloader rather than running
+            // the application, so there is no application state to update from it. The firmware
+            // update path reads these directly from the bus; the portal model deliberately keeps
+            // its last known application state rather than clearing it, because a board mid-update
+            // has not lost its calibration -- it has only stopped talking about it.
+            Reply::Ack(_) | Reply::Bootloader(_) | Reply::Other(_) => (Vec::new(), None),
         }
     }
 

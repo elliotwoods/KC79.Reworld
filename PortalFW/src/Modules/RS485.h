@@ -13,6 +13,12 @@ namespace Modules {
 		void update() override;
 		
 		void sendStatusReport();
+
+		/// Progress of a bootloader-image transfer, as a reply rather than an ACK.
+		///
+		/// A host that lost contact mid-transfer needs to know how far it got; an ACK is a bare
+		/// bool and cannot say.
+		void sendBootloaderImageStatus(uint8_t state, uint32_t length, uint32_t received);
 		void sendPositions();
 
 		// Use this function if you want to manually send an ACK

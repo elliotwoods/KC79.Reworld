@@ -1,174 +1,179 @@
 # PortalBootloader
 
-The RS485 field-update bootloader for KC79 Portal boards. 24 kB at `0x08000000`; the application
-sits above it at `0x08006000`.
-
-```powershell
-pio run -e bootloader          # what goes on a board
-```
-
-or, from the repository root and on either platform — it finds `pio` wherever the installer put it,
-and checks the image against the 24 kB bank and its reset vector before reporting success:
+The RS485 field-update bootloader for KC79 Portal boards. 16 kB at `0x08000000`; the application
+sits above it at `0x08004000`.
 
 ```sh
-node tools/build-firmware.mjs --env bootloader
+pio run -e bootloader     # the image that goes on a board
+pio test -e native        # the protocol, on a laptop, in three seconds
 ```
 
-The platform is pinned (`platform = ststm32@19.6.0`) and has to be. Unpinned, PlatformIO resolves
-whatever release a machine already carries: on one with 17.6.0 installed that is
-`framework-stm32cubeg0@1.5.0`, whose `HAL_UART_Transmit` takes a **non-`const`** `uint8_t *pData`,
-so `Logger.cpp` and `SerialStream.cpp` fail to compile against sources that pass a `const uint8_t *`.
-The build succeeded on the machine that happened to have 19.x and nowhere else. See the repository
-[`README.md`](../README.md) for the build and packaging workflows this project feeds.
+## Why this was rewritten
 
-`PortalFlasher` finds `.pio/build/bootloader/firmware.bin` automatically and prefers it over the
-committed reference image from that point on.
+The bootloader burned into every fielded board erases three pages more than the application bank.
+Those three pages hold the board's provisioning serial number and both settings journals, so **every
+field update destroyed a board's identity**, and nothing said so — the update itself succeeded, and
+the loss only surfaced later as a board that could no longer be told apart from any other.
 
-| | |
-|---|---|
-| `cube-import/` | The STM32CubeIDE project, imported unmodified. The build compiles straight out of it. |
-| `reference/` | The 2023 image every fielded board runs, and its `.elf`. |
-| `test-native/` | 47 checks over the frame-offset arithmetic, built with MSVC on the host. |
-| `bootloader.ld` | The linker script, with the bank length corrected. |
+That is the defect this replaces. Since a bootloader can only be replaced rarely and (until now)
+only with a debug probe, everything else worth fixing was fixed at the same time:
 
-## The port is a build configuration, not a rewrite
-
-`platformio.ini` points `src_dir` straight at `cube-import/Core` and adds two include paths.
-Nothing was moved into a `src/` directory and no `#include` was rewritten, so `git diff` against
-the import commit is exactly the set of changes porting required — one source edit, and it is a
-bug fix.
-
-Four things the build settled, none of them guessable from reading:
-
-**`board_build.stm32cube.custom_config_header = yes` is required and silent when missing.**
-Without it the framework compiles against its own `stm32g0xx_hal_conf.h` and the project's — which
-is where it decides which HAL modules exist at all — is ignored. The build still succeeds.
-
-**The linker script said `LENGTH = 28K` for a 24 kB bank.** `bootloader.ld` is the imported script
-with that one number corrected. At 22,708 bytes the difference has never mattered; a link that is
-permitted to run 4 kB into the application bank is not something to keep once it has been seen.
-
-**`syscalls.c` and `system_stm32g0xx.c` are excluded from the build.** The framework supplies both
-from CMSIS, generated from the same ST template, and compiling both is a duplicate-symbol link
-error. `sysmem.c` stays: it is the real `_sbrk`, where libnosys's only fails.
-
-**`assert(lwrb_init(...))` did not compile, and that was lucky.** CubeIDE's include list happened
-to pull `assert` in transitively and PlatformIO's does not. The declaration was the smaller
-problem: `assert` compiles to *nothing* under `NDEBUG`, so in a release build the `lwrb_init` call
-disappears along with the check, leaving a `SerialStream` whose ring buffer was never initialised —
-in the firmware that receives updates over RS485. It survived because the buffer is a member of a
-statically-allocated object and therefore starts zeroed, which is close enough to initialised that
-the failure would have been intermittent rather than immediate.
-
-## How it compares to the 2023 reference
-
-Bit-for-bit was never available: that image was linked by GCC 10.3 under CubeIDE, and PlatformIO's
-`ststm32@19.6` resolves GCC **7.2.1** for `framework-stm32cube` — older, not newer, which the plan
-had the wrong way round. So the gate is behavioural equivalence, structurally diffed.
-
-| | reference | `bootloader` |
+| | fielded v4/v5 | v6 |
 |---|---|---|
-| text | 22,692 | 19,428 |
-| data | 16 | 12 |
-| bss | 2,884 | 2,880 |
-| defined symbols | 370 | 323 |
-| initial SP | `0x20009000` | `0x20009000` |
-| banner | `Bootloader v4` | `Bootloader v5` |
+| erase | 52 pages — three past the application bank | 53 pages, bounded at `0x0801E800` |
+| durable pages | destroyed on every update | never written, never erased |
+| addressing | broadcast only; no address of its own | addressed, and answerable by serial or MCU UID |
+| replies | none — it never transmits | every request answered, with a sequence number |
+| lost frame | ends the upload silently, host reports success | reported by a received-chunk bitmap and repaired |
+| frame order | strictly increasing offsets only | any order; duplicates are free |
+| integrity | 16-bit XOR over the payload | that, plus a CRC-16 over the whole frame, plus a CRC-32C over the programmed image |
+| reception during erase | deaf for over a second | continuous — the receive path runs from SRAM |
+| residency | 3 s, fixed | 3 s, or 30 s when the application asks for it, or indefinite mid-session |
+| size | 22,708 bytes of 24 kB | 14,796 bytes of 16 kB |
 
-(The `text`/reset-vector numbers above are after the fixes in the next section — the defined-symbol
-count is unchanged by them, since every fix edits an existing function rather than adding one.)
+The image is 8 kB smaller, which is where the application's extra 8 kB comes from.
 
-The build deliberately uses `-fno-lto`, both so every function remains structurally comparable
-and because GCC 7 LTO mislinks the interrupt vectors as described below.
+## Layout
 
-**newlib.** The library-only symbols in the reference but not in `bootloader` are newlib internals
-— `__sfp`, `__swsetup_r`, `_fflush_r`, `fiprintf`, `sbrk_aligned` and their
-relatives, plus a handful of function-static counters. Not one is project code, HAL, or msgpack.
-The reference linked full newlib stdio; PlatformIO defaults to `nano.specs`, and the ~3.3 kB
-difference is that machinery. Nothing here formats a float, which is nano printf's one real
-limitation.
-
-The vector table agrees exactly on the initial stack pointer, the reset vector is inside the bank
-with the Thumb bit set, and the `Bootloader v4` banner survives into the image — which is what
-`PortalFlasher`'s readback scrapes to identify a board.
-
-## Fixes layered on top of the import
-
-Found by reading the source while answering "can the bootloader be improved at all,
-without breaking compatibility" — none change the wire protocol, so a mixed fleet of old
-and new bootloaders stays interoperable with the same Router.
-
-**GCC 7 LTO must stay disabled for this build.** The startup object defines weak aliases for every
-IRQ, and the production LTO link discarded the strong handlers from `stm32g0xx_it.c` in favour of
-those aliases. `HAL_Init()` then enabled SysTick and the first tick entered `Default_Handler`,
-where IWDG later reset the MCU. The non-LTO build resolves the vector table correctly and remains
-comfortably inside the 24 kB bootloader bank.
-
-**`FWUpdateApp::processIncoming` sized a stack VLA from an unbounded wire value.**
-`packetBodyAndChecksumSize16` came straight off the wire as a `uint16_t` with no upper
-bound before sizing `uint8_t dataWithChecksum[packetBodyAndChecksumSize]` — a corrupt or
-malicious frame claiming up to 65,535 bytes would smash the stack of an image only
-re-flashable via ST-Link. A value smaller than `sizeof(CRCType)` also underflowed
-`packetBodySize` (unsigned wraparound). Now rejected before the VLA is declared:
-`packetBodyAndChecksumSize16` must be in `[sizeof(CRCType), FW_FRAME_SIZE +
-FW_CHECKSUM_SIZE]`. `test-native/fw_bounds_check_test.cpp` regression-tests this against
-the real parser.
-
-**`flash_write` read past the caller's buffer on a non-8-byte-multiple chunk.** The
-double-word program loop advanced a raw `uint64_t*` from `src` to `src + size`
-regardless of alignment, so any final chunk whose length wasn't a multiple of 8 read
-past the buffer (the VLA above) for the last double-word and programmed whatever
-was there. Now pads the final partial double-word with `0xFF` (flash's erased-state
-value) instead.
-
-**Safe IRQ handoff around the bootloader -> application jump.** `run_application()` used to swap
-`SCB->VTOR` and reload MSP with no `__disable_irq()` guarding the transition, so a still-pending
-NVIC interrupt could fire against the new vector table while still on the old stack. The first
-attempt to fix that masked IRQs but did not restore PRIMASK before entering the application; on a
-real board that trapped the application in its first interrupt-driven delay until IWDG reset it.
-The handoff now leaves IRQs enabled through `HAL_RCC_DeInit()` (whose clock-transition waits use
-the interrupt-driven HAL tick), then masks only while it disables and clears inherited NVIC state,
-installs VTOR and MSP, and re-enables IRQs immediately before the application's reset handler.
-
-**`SerialStream::getSerialStream` could fall off the end of a non-void function.** Same
-category of bug as the `assert`/`lwrb_init` one above — undefined behaviour dressed up as
-"this can't happen." Now returns `nullptr` explicitly in that case.
-
-## Live-board verification
-
-The corrected non-LTO bootloader and optical PortalFW application were flashed and verified on an
-STM32G070RBT6 through Portal Test Bench. The post-flash probe check observed the application vector
-table at `VTOR=0x08006000` and a stable running state; the former build instead trapped in the weak
-SysTick alias at `Default_Handler` and was reset by IWDG.
-The remaining bootloader-specific bench check is an actual RS485 field update through it — because
-receiving firmware over RS485 is its primary job, and the one thing the SWD flash path does not
-exercise.
-
-**`cube-import/Core/msgpack-arduino` is still the 2023 snapshot**, not the submodule at
-`PortalFW/lib/msgpack-arduino` that `test-native/` builds its 47 checks against. They have
-diverged, and the shape of the divergence decides how much that matters:
-
-| identical | diverged |
-|---|---|
-| `serialize`, `deserialize`, `Serializer`, `logError`, `NotArduino`, `Platform`, `constants.h` | `COBSRWStream` (89 lines), `DataType` (15), `Messaging` (13) |
-
-The 47 checks are about frame-offset arithmetic, which runs entirely through `serialize` /
-`deserialize` / `Serializer` — byte-identical in both copies. So they do prove what they claim
-about both sides. That is luck rather than design, and worth re-checking if the tests ever grow.
-
-The divergence itself is real and one line of it is load-bearing. The bootloader's
-`COBSRWStream.hpp` hard-codes
-
-```cpp
-#define MSGPACK_COBSRWSTREAM_BUFFER_SIZE 64
+```
+platformio.ini            two environments: `bootloader` (STM32) and `native` (host tests)
+bootloader.ld             16 kB bank, RAM short of the handoff block, .ram_vectors, .RamFunc
+include/
+  portal_flash_layout.h   THE flash map. Shared with PortalFW, portal-swd and tools/. See below.
+  portal_crc32c.h         the checksum every durable structure on the board is checked with
+  bl/*.hpp                the bootloader's own headers
+src/
+  core/                   hardware-independent: parser, session, run decision, state machine
+  target/                 STM32 only: clock, vectors, ISRs, flash, UART, the hardware seam
+  stm32g0xx_hal_conf.h    enables no HAL module at all — see the comment in it
+lib/bltest/               host fakes: a flash that refuses to reprogram, a settable clock
+test/                     83 checks over everything in src/core
+tools/size_gate.py        five post-build checks, described below
+reference/                the 2023 image every un-updated board still runs
 ```
 
-where the submodule's says `256`, with a comment offering 64 as the smaller option. Fielded boards
-therefore run a **64-byte COBS decode buffer in the bootloader and a 256-byte one in the
-application**, and `protocol-hardening.md` §7.3's finding that `-D MSGPACK_COBSRWSTREAM_BUFFER_SIZE=64`
-is inert is explained by this: the header defines it unconditionally, so the build flag never had
-anything to do. The two copies also implement the buffer differently — a manual double-buffer with
-`realignIncoming()` here, an `lwrb` ring buffer there.
+### `include/portal_flash_layout.h` is the flash map, for everyone
 
-Unifying them means changing what fielded bootloaders do to their receive path, which is not a
-change to make alongside a build-system port.
+The same numbers used to be written out four times — here, in `PortalFW/set_bank2.py`, in
+`portal-swd`'s `addr` module, and in `tools/firmware.mjs` — and nothing checked that they still
+agreed. They are load-bearing in the way that a wrong one destroys a board's provisioning rather
+than failing a build.
+
+So there is one definition, and because three of its four readers are not C compilers, it is also
+parsed as text. That is why every value in it is a bare hexadecimal literal with no arithmetic.
+Four things read it and fail if they disagree:
+
+- `router_proto::layout` and `portal_swd::addr` (Rust, `include_str!` plus a test per constant)
+- `tools/firmware.mjs` (regex)
+- `PortalFW/layout_check.py`, which asserts the build's own bounds against it before linking
+
+## How an update works
+
+Two protocols share the wire. A v6 bootloader speaks both, which is what lets a fleet be updated
+one board at a time rather than all at once.
+
+**The legacy flow** is what an un-updated Router sends and is unchanged: broadcast `"FW"` announces,
+`"ER"`, `{offset: bin(xor16 ++ data)}` frames, `"RU"`. A v6 bootloader accepts all of it — in any
+frame order now, and writing at the **legacy** base, because a host old enough to send `"ER"` is
+sending an image linked for `0x08006000`.
+
+**The addressed flow** is `{"bl": {...}}` bodies with a sequence number and CRC-16 trailer:
+
+| verb | what it is for |
+|---|---|
+| `status` | version, address and where it came from, serial, UID, bank geometry, state, and the installed application's own version |
+| `begin` | erase the bank and declare length, CRC-32C and chunk size. **Answered when the erase finishes**, about 1.2 s later, so the host waits for a fact rather than a guess |
+| `map` | which chunks arrived, as a bitmap |
+| `verify` | CRC-32C over what was actually programmed |
+| `run` | start the application, or say why not |
+| `adopt` | take an RS485 address |
+| `reset` | reply, then reset |
+
+A unicast request is answered by its target. A broadcast is answered by **nobody** unless it carries
+a selector naming one board by serial or UID — six boards answering one frame on a half-duplex bus
+is a collision, not a conversation. A broadcast without a selector still *acts*, which is how one
+`begin` opens a session on fifty-four boards at once.
+
+### Where the address comes from
+
+A bootloader has no address of its own: the RS485 id is assigned by a daisy-chain the *application*
+runs. So before the application resets into the bootloader it writes a 32-byte block at the top of
+SRAM — id, serial, and whether an update is expected — which startup neither copies nor zeroes.
+Failing that, `adopt`, and failing that the four ID switches, exactly as the application maps them.
+`status` reports which of the three it used, because a switch-derived address is a fallback several
+boards on a branch may share and a host should prefer a serial selector when it sees one.
+
+### Refusing to start the wrong image
+
+An application linked for `0x08004000` and one linked for `0x08006000` are indistinguishable by
+inspection — the banks overlap, so even the reset vector cannot separate them — and starting the
+wrong one hard-faults later at an unrelated address. So an image states its own base in a descriptor
+at `base + 0xC0`, and the bootloader refuses anything at the new base that does not say, or that
+says the wrong thing.
+
+The legacy base is tried only when the new bank is **entirely blank**, which is exactly the state a
+board is in between having its bootloader replaced and having its application re-uploaded. Without
+that fallback, updating a fleet would be a flag day.
+
+## Two things that are worth knowing before changing this
+
+**The receive path runs from SRAM, and that is not optional.** Erasing a page stalls every flash
+read for 20-25 ms, so code fetched from flash cannot execute during it — including the UART receive
+interrupt. That is why the old bootloader was deaf for over a second after `"ER"`, and why the host
+had to blanket each erase in three seconds of announce frames and send it twice. The interrupt, the
+vector table and the flash routines are therefore all copied into SRAM, and `tools/size_gate.py`
+disassembles the built image to check that none of them branches back into flash. A single
+accidental call would restore the deafness silently.
+
+**`COBSRWStream::available()` merges packets if called twice before the first `read()`.** It only
+stops at a packet boundary once the reader has consumed a byte, so a second call decodes straight
+through the delimiter and appends the next packet to the current one; the merged tail is then
+discarded when the reader advances, and the second frame vanishes without a trace. Every
+`waitForData` inside every parse calls `available()`, so this is reachable from ordinary parsing,
+and two frames arriving back to back is the *normal* case during an upload. `bl::FrameWindow` exists
+for this: it buffers exactly one frame and shows the codec nothing past its delimiter. This was
+found by a test, not by reading.
+
+## The size gate
+
+`pio run -e bootloader` fails rather than warns on any of:
+
+1. the image not fitting the 16 kB bank with 512 bytes reserved;
+2. an initial stack pointer that is not the top of RAM below the handoff block, or a reset vector
+   outside the bank or without its Thumb bit;
+3. the `Bootloader v` banner missing — `portal-swd` identifies a board by scraping it out of a flash
+   readback, so without it every host tool stops recognising the image;
+4. `printf`, `sprintf`, `malloc` or `_sbrk` being linked in (one `sprintf` in an error path costs
+   1.9 kB, and the v4 bootloader's two also returned pointers to stack that had gone out of scope);
+5. RAM-resident code branching into flash.
+
+## The tests
+
+`pio test -e native` builds `src/core` for the host against `lib/bltest`'s fakes and the real
+msgpack sources, and runs 83 checks in about three seconds. They are the ones that would otherwise
+need a board, a probe and a bus.
+
+The fake flash reproduces the two behaviours real flash has that a naive fake would not: an erased
+double-word can be programmed once, and **programming a written one fails even when the value is
+identical**. That second rule is why the session tracks written granules at all — duplicate frames
+are routine, the legacy host sends every frame twice by default, and a fake that quietly accepted
+repeat programming would let every test pass against firmware that bricks on the second frame of
+every upload.
+
+Two defects were found this way rather than on a bench: the packet-merging above, and a corrupted
+array header being able to downgrade a trailered frame into an unverified one (a 3-element frame is
+now required to end exactly where it says it does).
+
+## Building
+
+`platform = ststm32@19.6.0` is pinned, and has to be — unpinned, PlatformIO resolves whatever
+release a machine already carries and the compiler comes with it, so two machines produce two
+different images from one commit. 19.6.0 resolves GCC 7.2.1.
+
+`-fno-lto` is not optional either: GCC 7's LTO resolves the startup object's weak IRQ aliases in
+preference to the strong handlers, so the vector table ends up pointing every interrupt at
+`Default_Handler`. The image verifies byte-for-byte and traps on its first SysTick.
+
+`board_build.stm32cube.custom_config_header = yes` is required and silent when missing. Without it
+the framework compiles against its own `stm32g0xx_hal_conf.h` and this project's — which enables no
+HAL module at all — is ignored, and about 6 kB of HAL arrives that nothing calls.

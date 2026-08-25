@@ -613,12 +613,34 @@ fn handle_command(
         }
         FwUpload { col, path } => match std::fs::read(&path) {
             Ok(firmware) => {
+                // The GUI drives the blind broadcast path, whose `"ER"` erases the legacy
+                // bank -- a bootloader old enough to be driven this way has its
+                // application at 0x08006000 and nowhere else. An image linked for the v6
+                // bank would program cleanly into the wrong place and never start, so it
+                // is refused here rather than discovered on a dark installation.
+                let base = router_proto::layout::APP_BASE_LEGACY;
+                let linked_here = match router_proto::app_image::image_base(&firmware) {
+                    Ok((image_base, _)) if image_base != base => {
+                        eprintln!(
+                            "FW upload refused: image is linked for 0x{image_base:08X}; the \
+                             broadcast path only reaches bootloaders whose application is at \
+                             0x{base:08X}"
+                        );
+                        false
+                    }
+                    Err(error) => {
+                        eprintln!("FW upload refused: {error}");
+                        false
+                    }
+                    Ok(_) => true,
+                };
                 let params = if col.is_some() {
                     crate::fw_update::FwUpdateParams::default()
                 } else {
                     crate::fw_update::FwUpdateParams::mass()
                 };
                 let targets: Vec<usize> = match col {
+                    _ if !linked_here => Vec::new(),
                     Some(col) => vec![col],
                     None => installation
                         .columns
@@ -630,7 +652,7 @@ fn handle_command(
                 };
                 for col in targets {
                     if let Some(column) = installation.column(col) {
-                        match crate::fw_update::upload(&column.rs485, &firmware, &params) {
+                        match crate::fw_update::upload(&column.rs485, &firmware, base, &params) {
                             Ok(queued) => reporter.emit(router_report::Event::Marker {
                                 label: format!(
                                     "FW upload queued: column {col}, {queued} packets, {} bytes",

@@ -20,6 +20,8 @@
 #include <vector>
 
 namespace Modules {
+	class BootloaderImage;
+
 	class App : public Base {
 	public:
 		App();
@@ -68,6 +70,12 @@ namespace Modules {
 		bool persistOperatingSettings(uint16_t currentMa, bool recovery);
 		bool persistOpticalCalibration(MotionControl * axis);
 
+		/// Whether a long-running routine (init, calibrate, home, unjam) is in progress.
+		///
+		/// Public because replacing the bootloader ends in a reset, and resetting part-way through
+		/// a homing run leaves the mechanism wherever it happened to stop.
+		bool isRunningRoutine() const { return this->isInsideRoutine; }
+
 #ifndef GUI_DISABLED
 		GUI * gui;
 #endif
@@ -88,6 +96,10 @@ namespace Modules {
 		Routines * routines;
 
 		KeyframeMotionControl * keyframeMotionControl;
+
+		/// Receives a replacement bootloader over the bus. See BootloaderImage.h for why the
+		/// application is the only image that can install one.
+		BootloaderImage * bootloaderImage;
 		
 	protected:
 		static App * instance;

@@ -91,8 +91,9 @@ pub struct DeviceJson {
     pub selected_occupancy: Option<Vec<u8>>,
     /// Bytes per sector, so the page labels rows with real addresses rather than guessing.
     pub sector_bytes: u32,
-    /// How many sectors the bootloader bank occupies. 24 kB in 2 kB sectors is exactly 12, which
-    /// is what makes bootloader-only and application-only flashing sector-aligned.
+    /// How many 2 kB sectors the bootloader bank occupies *on this board*: eight under a v6
+    /// bootloader, twelve under a v4/v5 one. Either way a whole number of sectors, which is what
+    /// makes bootloader-only and application-only flashing sector-aligned.
     pub bootloader_sectors: usize,
     /// The base address the sector grid starts at.
     pub flash_base: String,
@@ -136,7 +137,12 @@ impl DeviceJson {
                 portal_swd::device::occupancy_of(&bundle.expected_flash_image(), BUCKETS)
             }),
             sector_bytes: SECTOR_BYTES,
-            bootloader_sectors: (addr::BOOTLOADER_BYTES / SECTOR_BYTES) as usize,
+            // Where the map draws the line between the two banks, taken from where the
+            // application actually is on *this* board rather than from a constant: on a v6 board
+            // that is eight sectors and on a v4/v5 board twelve, and a map that always said one
+            // of them would be misdrawing half the fleet.
+            bootloader_sectors: ((report.application.base - addr::FLASH_BASE) / SECTOR_BYTES)
+                as usize,
             flash_base: format!("{:#010X}", addr::FLASH_BASE),
         }
     }

@@ -26,7 +26,7 @@ builds the bench, and **Package: distributable** does the whole chain in the one
 | | |
 |---|---|
 | [`PortalFW/`](PortalFW) | The application firmware. PlatformIO + Arduino, links at `0x08006000` |
-| [`PortalBootloader/`](PortalBootloader/README.md) | The RS485 field-update bootloader. PlatformIO + STM32Cube, `0x08000000`, 24 kB |
+| [`PortalBootloader/`](PortalBootloader/README.md) | The RS485 field-update bootloader. PlatformIO + STM32Cube, `0x08000000`, 16 kB. Also holds `include/portal_flash_layout.h`, the flash map every project here reads |
 | [`RS485Repeater/`](RS485Repeater/README.md) | The Reworld V3 ESP32-C3 frame router between the shared outer bus and a nine-Portal branch. PlatformIO + Arduino |
 | [`PortalTestBench/`](PortalTestBench/AGENTS.md) | One module on a bench: flash it, drive it, watch it, record it. Rust + a React page |
 | [`PortalFlasher/`](PortalFlasher/AGENTS.md) | The production SWD rig for virgin boards. Shares `portal-swd` with the bench |
@@ -89,9 +89,23 @@ node tools/build-firmware.mjs --clean                    # rebuild from nothing
 
 | Environment | PCB | Loads at | |
 |---|---|---|---|
-| `application_bank_optical` | v6 | `0x08006000` | optical home switch — **the production default** |
-| `application_bank_mechanical` | v4 | `0x08006000` | rev-1 mechanical switches, `-D HOME_SWITCH_LEGACY` |
-| `bootloader` | — | `0x08000000` | RS485 field update, 24 kB bank |
+| `application_bank_optical` | v6 | `0x08004000` | optical home switch — **the production default** |
+| `application_bank_mechanical` | v4 | `0x08004000` | rev-1 mechanical switches, `-D HOME_SWITCH_LEGACY` |
+| `application_bank_optical_legacy_base` | v6 | `0x08006000` | for a board still on bootloader v4/v5 — see below |
+| `application_bank_mechanical_legacy_base` | v4 | `0x08006000` | as above |
+| `bootloader` | — | `0x08000000` | RS485 field update, 16 kB bank |
+
+**Two application bases, and both are current.** Bootloader v6 is 16 kB where v4/v5 were 24 kB, so
+the application moved down to `0x08004000` and gained 8 kB. A board still carrying an old bootloader
+runs its application at `0x08006000`, and a v6 bootloader will also start an image there when the
+new bank is blank — which is the state a board is in between having its bootloader replaced and its
+application re-uploaded.
+
+An image says which bank it was built for, in a descriptor at `base + 0xC0`. The bootloader refuses
+to *start* one whose descriptor disagrees with where it sits, and the flasher refuses to *send* one
+to a board that would not run it — the two images are otherwise indistinguishable, and starting the
+wrong one hard-faults later at an unrelated address. The `*_legacy_base` builds drop the OLED
+(`GUI_DISABLED`) because the older bank is 8 kB smaller and they do not otherwise fit.
 
 Output lands at `<project>/.pio/build/<env>/firmware.bin`, which is where the bench looks for it.
 There is no merge step and there never will be: the RS485 field-update path can only ever ship an

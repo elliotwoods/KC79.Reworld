@@ -1,7 +1,19 @@
 # RS485 Protocol Hardening — Recommendations
 
-**Status:** proposal only. No code changes are committed. Apply on a test bench
-following the procedures below.
+**Status:** partly implemented. This document is kept as the analysis it always was, not as a
+to-do list — several of its findings have since shipped, and saying so here is cheaper than
+finding out by reading five projects.
+
+| Finding | State |
+| --- | --- |
+| 1 — ID daisy-chain checksum silently disabled | **fixed** (`PortalFW/src/Modules/ID.cpp`) |
+| 2 — no payload integrity | **partly**: the CRC-16 trailer exists and PortalFW verifies it at commit time, but verification is off by default and the Router does not append one to ordinary commands. It *is* enforced end to end on the bootloader control plane |
+| 3 — ACK is cosmetic, no correlation, no retransmission | **partly**: replies carry a sequence number, and a firmware upload to a v6 bootloader now finds and repairs its own losses. Ordinary command traffic is unchanged |
+| 4 — unauthenticated reboot-to-bootloader | **fixed** (`"FW!KC79"`) |
+| 5 — ID receive buffer never cleared | **fixed** |
+| §7 — the bootloader | **superseded**; see the note at §7 and `Protocol.md` §10 |
+
+The stage plan and bench procedures below remain the right way to land the rest.
 
 **Date:** 2026-05-29
 **Scope:** the RS485 link between the Router (openFrameworks app) and the Portal
@@ -514,6 +526,19 @@ Remember the submodule two-step for any `COBSRWStream` change: commit in
 ---
 
 ## 7. The RS485 bootloader
+
+> **Superseded for v6.** Everything below describes the fielded v4/v5 bootloader and the plan for
+> importing it, which happened. The bootloader was then rewritten: it no longer erases the durable
+> pages, it answers, it accepts frames in any order, and it is 16 kB rather than 24 kB. The wire
+> protocol it speaks is documented in [`Protocol.md` §10](./Protocol.md#10-firmware-update--bootloader-protocol),
+> which is the contract; this section is kept because a fleet still contains v4/v5 boards and
+> because §7.4's findings are what the rewrite was built on.
+>
+> Two specific corrections to what follows. The budget in §7.3 ("1,868 bytes; the current image is
+> 22,708 of 24,576") is now 16,384 with the image at 14,796. And §7.1's conclusion that the
+> protocol is "effectively frozen" was right about v4/v5 and is what the compatibility mode in
+> §10.1 preserves — but replacing a bootloader no longer requires a debug probe, because the
+> application can now install one (§10.5).
 
 ### 7.1 Which bootloader is in use
 

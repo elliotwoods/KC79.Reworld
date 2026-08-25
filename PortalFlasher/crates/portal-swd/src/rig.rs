@@ -259,6 +259,12 @@ pub struct FlashReport {
     /// flash pass preserved both, not hashes inferred from bytes read before programming.
     pub identity_sha256: String,
     pub settings_sha256: String,
+    /// Which banks this pass wrote: `"full"`, `"bootloader only"` or `"application only"`.
+    pub scope: &'static str,
+    /// The firmware spans this pass left alone, `(start, end)`, proved unchanged by reading them
+    /// before programming and again after. Empty on a full pass, and on any pass that erased the
+    /// bank it left out.
+    pub preserved: Vec<(u32, u32)>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -482,6 +488,14 @@ pub enum Trigger {
     DuringProgram(u8),
     DuringReadback,
     OnRunCheck,
+    /// The erase runs past the window it was given, into a bank this pass promised to leave alone.
+    ///
+    /// Not a fault the *host* injects but one the target can produce: probe-rs erases whole
+    /// sectors, and a staged range that were ever mis-computed -- or a flash algorithm that
+    /// rounded outwards -- would take the neighbouring bank with it. Modelled because the
+    /// preserved-range comparison is the only thing standing between that and a board whose
+    /// firmware is silently gone, and a guard nothing can trip is a guard nobody is testing.
+    EraseBeyondWindow,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -514,6 +528,11 @@ pub struct SimRig {
     /// Increments while the simulated application runs.
     liveness: u32,
     vtor: u32,
+    /// Where the application this part would start actually sits, so the modelled `VTOR` is the
+    /// one a real board would report rather than a constant. A board flashed with a legacy-base
+    /// image comes up with `VTOR == 0x08006000`, and a simulation that always said `0x08004000`
+    /// would make the run-check's whole purpose untestable.
+    app_base: u32,
     dhcsr: u32,
     /// Whether a board is in the fixture.
     ///
@@ -549,6 +568,7 @@ impl SimRig {
             optr: 0xFFFF_FEAA,
             liveness: 0,
             vtor: 0,
+            app_base: addr::APP_BASE,
             dhcsr: 0,
             present: Arc::new(AtomicBool::new(false)),
             opened: false,
@@ -572,7 +592,7 @@ impl SimRig {
     /// Reset the modelled part and let it run — the one thing that restarts a board, counted.
     fn release_to_run(&mut self) {
         self.dhcsr = 0;
-        self.vtor = if self.programmed { addr::APP_BASE } else { 0 };
+        self.vtor = if self.programmed { self.app_base } else { 0 };
         self.starts.fetch_add(1, Ordering::Relaxed);
     }
 
@@ -594,7 +614,8 @@ impl SimRig {
         let firmware = bundle.expected_firmware_image();
         self.flash[..firmware.len()].copy_from_slice(&firmware);
         self.programmed = true;
-        self.vtor = addr::APP_BASE;
+        self.app_base = bundle.application.load_address;
+        self.vtor = self.app_base;
         self
     }
 
@@ -717,8 +738,25 @@ impl Rig for SimRig {
             programmed_options = true;
         }
 
-        // Erase firmware pages only. The final three pages are durable identity/settings.
-        let total = addr::FIRMWARE_BYTES as u64;
+        // Only the banks this pass writes, and never the final three pages: those are durable
+        // identity/settings. A bank left out under `Unselected::Preserve` produces no window and
+        // is therefore neither erased nor programmed -- which is the whole of "preserve", modelled
+        // here the same way the real rig does it rather than asserted.
+        let windows = bundle.write_windows();
+        let preserved = bundle.preserved_windows();
+        let offset_of = |address: u32| (address - addr::FLASH_BASE) as usize;
+        let before: Vec<(u32, u32, Vec<u8>)> = preserved
+            .iter()
+            .map(|&(start, end)| {
+                (
+                    start,
+                    end,
+                    self.flash[offset_of(start)..offset_of(end)].to_vec(),
+                )
+            })
+            .collect();
+
+        let total: u64 = windows.iter().map(|w| w.bytes.len() as u64).sum();
         let erase_stop = self
             .faults
             .iter()
@@ -727,29 +765,44 @@ impl Rig for SimRig {
                 _ => None,
             })
             .map(|pct| (total * u64::from(pct.min(100))) / 100);
-        for (index, byte) in self.flash[..addr::FIRMWARE_BYTES as usize]
-            .iter_mut()
-            .enumerate()
-        {
-            if let Some(stop) = erase_stop
-                && index as u64 >= stop
-            {
-                // Left half-erased on purpose. This is the state a lift mid-write produces, and
-                // the thing the "never resume a partial write" rule exists for.
-                self.programmed = false;
-                self.vtor = 0;
-                return Err(self.trip(Trigger::DuringErase(0)).unwrap_or_else(|| {
-                    RigError::new(RigErrorKind::ContactLost, "erase interrupted")
-                }));
+        let mut erased = 0_u64;
+        for window in &windows {
+            let at = offset_of(window.start);
+            for byte in &mut self.flash[at..at + window.bytes.len()] {
+                if let Some(stop) = erase_stop
+                    && erased >= stop
+                {
+                    // Left half-erased on purpose. This is the state a lift mid-write produces,
+                    // and the thing the "never resume a partial write" rule exists for.
+                    self.programmed = false;
+                    self.vtor = 0;
+                    return Err(self.trip(Trigger::DuringErase(0)).unwrap_or_else(|| {
+                        RigError::new(RigErrorKind::ContactLost, "erase interrupted")
+                    }));
+                }
+                *byte = 0xFF;
+                erased += 1;
             }
-            *byte = 0xFF;
+        }
+        // A modelled flash algorithm that does not respect the window it was handed. This does
+        // not return an error: the point is that the pass proceeds, succeeds at everything it was
+        // watching, and has to be caught by the preserved-range comparison alone.
+        if self
+            .faults
+            .iter()
+            .any(|f| f.at == Trigger::EraseBeyondWindow)
+        {
+            for &(start, end) in &preserved {
+                for byte in &mut self.flash[offset_of(start)..offset_of(end)] {
+                    *byte = 0xFF;
+                }
+            }
         }
         progress(Step::Erase, total, total);
         self.programmed = false;
         self.vtor = 0;
 
         // Program.
-        let expected = bundle.expected_firmware_image();
         let program_stop = self
             .faults
             .iter()
@@ -758,17 +811,22 @@ impl Rig for SimRig {
                 _ => None,
             })
             .map(|pct| (total * u64::from(pct.min(100))) / 100);
-        for (index, byte) in expected.iter().enumerate() {
-            if let Some(stop) = program_stop
-                && index as u64 >= stop
-            {
-                return Err(self.trip(Trigger::DuringProgram(0)).unwrap_or_else(|| {
-                    RigError::new(RigErrorKind::ContactLost, "programming interrupted")
-                }));
-            }
-            self.flash[index] = *byte;
-            if (index as u64).is_multiple_of(4096) {
-                progress(Step::Program, index as u64, total);
+        let mut written = 0_u64;
+        for window in &windows {
+            let at = offset_of(window.start);
+            for (index, byte) in window.bytes.iter().enumerate() {
+                if let Some(stop) = program_stop
+                    && written >= stop
+                {
+                    return Err(self.trip(Trigger::DuringProgram(0)).unwrap_or_else(|| {
+                        RigError::new(RigErrorKind::ContactLost, "programming interrupted")
+                    }));
+                }
+                self.flash[at + index] = *byte;
+                written += 1;
+                if written.is_multiple_of(4096) {
+                    progress(Step::Program, written, total);
+                }
             }
         }
         progress(Step::Program, total, total);
@@ -778,26 +836,57 @@ impl Rig for SimRig {
         if let Some(err) = self.trip(Trigger::DuringReadback) {
             return Err(err);
         }
-        if self.flash[..expected.len()] != expected {
-            let at = self
-                .flash
+        for window in &windows {
+            let at = offset_of(window.start);
+            let actual = &self.flash[at..at + window.bytes.len()];
+            if let Some(index) = actual
                 .iter()
-                .zip(expected.iter())
+                .zip(window.bytes.iter())
                 .position(|(a, b)| a != b)
-                .unwrap_or(0);
-            return Err(RigError::new(
-                RigErrorKind::Verify,
-                format!(
-                    "readback differs at {:#010X}: expected {:#04X}, got {:#04X}",
-                    addr::FLASH_BASE as usize + at,
-                    expected[at],
-                    self.flash[at]
-                ),
-            ));
+            {
+                return Err(RigError::new(
+                    RigErrorKind::Verify,
+                    format!(
+                        "readback differs at {:#010X}: expected {:#04X}, got {:#04X}",
+                        window.start as usize + index,
+                        window.bytes[index],
+                        actual[index]
+                    ),
+                ));
+            }
+        }
+        // A bank left out was neither erased nor programmed, so it must read exactly as it did
+        // before the pass. Checked rather than assumed, for the same reason the real rig checks
+        // it: a preserve nobody verified is indistinguishable from one that did not happen.
+        for (start, end, was) in &before {
+            let now = &self.flash[offset_of(*start)..offset_of(*end)];
+            if let Some(index) = now.iter().zip(was.iter()).position(|(a, b)| a != b) {
+                return Err(RigError::new(
+                    RigErrorKind::Verify,
+                    format!(
+                        "the bank left out changed at {:#010X}: was {:#04X}, now {:#04X}",
+                        *start as usize + index,
+                        was[index],
+                        now[index]
+                    ),
+                ));
+            }
         }
         progress(Step::Readback, total, total);
 
-        self.programmed = true;
+        // Whether an application will run is a fact about the flash, not about whether this pass
+        // happened to write one: a bootloader-only pass over a preserved application leaves a
+        // board that still boots, and a pass that erased the bank leaves one that does not.
+        //
+        // Both bases are examined, in the order a v6 bootloader tries them, so a preserved
+        // legacy-base application is still found after a pass that only wrote the bootloader.
+        (self.programmed, self.app_base) = [addr::APP_BASE, addr::APP_BASE_LEGACY]
+            .into_iter()
+            .find(|base| {
+                crate::device::VectorTable::read(&self.flash, (base - addr::FLASH_BASE) as usize)
+                    .is_some()
+            })
+            .map_or((false, addr::APP_BASE), |base| (true, base));
         match release {
             Release::Run => {
                 progress(Step::ResetRun, 0, 1);
@@ -817,7 +906,14 @@ impl Rig for SimRig {
             // Of the array, not of the bundle. The field says "what was read back off the
             // device", and the real rig hashes exactly that -- a simulation that quietly hashed
             // the input instead would be the one place the two could never be compared.
-            readback_sha256: crate::device::sha256_hex(&self.flash[..expected.len()]),
+            readback_sha256: {
+                let mut read = Vec::with_capacity(total as usize);
+                for window in &windows {
+                    let at = offset_of(window.start);
+                    read.extend_from_slice(&self.flash[at..at + window.bytes.len()]);
+                }
+                crate::device::sha256_hex(&read)
+            },
             identity_sha256: crate::device::sha256_hex(
                 &self.flash[(addr::IDENTITY_BASE - addr::FLASH_BASE) as usize
                     ..(addr::SETTINGS_A_BASE - addr::FLASH_BASE) as usize],
@@ -825,6 +921,8 @@ impl Rig for SimRig {
             settings_sha256: crate::device::sha256_hex(
                 &self.flash[(addr::SETTINGS_A_BASE - addr::FLASH_BASE) as usize..],
             ),
+            scope: bundle.scope(),
+            preserved,
         })
     }
 
@@ -1020,22 +1118,321 @@ mod tests {
     const DHCSR_HALT: u32 = 1 << 17;
     const DHCSR_RESET_ST: u32 = 1 << 25;
 
+    /// An application image that says which bank it was linked for, the way a real one does.
+    fn application_image(base: u32, len: usize) -> Vec<u8> {
+        use crate::addr;
+        let mut bytes = vec![0u8; len];
+        bytes[0..4].copy_from_slice(&0x2000_9000u32.to_le_bytes());
+        bytes[4..8].copy_from_slice(&((base + 0x240) | 1).to_le_bytes());
+        let at = addr::APP_DESCRIPTOR_OFFSET;
+        bytes[at..at + 8].copy_from_slice(addr::APP_DESCRIPTOR_MAGIC);
+        bytes[at + 8..at + 12].copy_from_slice(&base.to_le_bytes());
+        bytes
+    }
+
     /// A bundle that passes `validate`, so a pass over it reaches the release rather than being
-    /// refused before the probe is touched. Shaped like the flasher's `synthetic_bundle`.
+    /// refused before the probe is touched. Shaped like the flasher's `synthetic_bundle`: a v6
+    /// bootloader and an application linked for the base that pairs with it.
     fn flashable_bundle() -> crate::image::ImageBundle {
+        bundle_for(crate::addr::APP_BASE, 14_000)
+    }
+
+    /// The same, for either generation: `boot_bytes` has to fit below `base` or the pair is the
+    /// one `validate` refuses.
+    fn bundle_for(base: u32, boot_bytes: usize) -> crate::image::ImageBundle {
         use crate::addr;
         use crate::image::{OptionBytePolicy, Provenance, Region, RegionName, RunCheckSpec};
 
-        let mut application = vec![0u8; 60_000];
-        application[0..4].copy_from_slice(&0x2000_9000u32.to_le_bytes());
-        application[4..8].copy_from_slice(&(addr::APP_BASE + 0x241).to_le_bytes());
         crate::image::ImageBundle {
-            bootloader: Region::new(RegionName::Bootloader, addr::FLASH_BASE, vec![0xA5; 22_708]),
-            application: Region::new(RegionName::Application, addr::APP_BASE, application),
+            bootloader: Region::new(
+                RegionName::Bootloader,
+                addr::FLASH_BASE,
+                vec![0xA5; boot_bytes],
+            ),
+            application: Region::new(
+                RegionName::Application,
+                base,
+                application_image(base, 60_000),
+            ),
             option_bytes: OptionBytePolicy::default(),
-            run_check: RunCheckSpec::default(),
+            run_check: RunCheckSpec::for_base(base),
             provenance: Provenance::Synthetic,
+            unselected: crate::image::Unselected::Erase,
         }
+    }
+
+    /// Preserve has to actually preserve, and the only way to know is to look at the bytes.
+    ///
+    /// A board is programmed in full, then flashed again with the application left out. What the
+    /// application bank held has to survive verbatim, and so do the three durable pages.
+    #[test]
+    fn a_bootloader_only_pass_leaves_the_application_bank_exactly_as_it_found_it() {
+        use crate::addr;
+        use crate::image::{Region, RegionName, Unselected};
+
+        let full = flashable_bundle();
+        let mut rig = SimRig::new().preloaded(&full);
+        rig.set_present(true);
+        rig.open().unwrap();
+        let app_before = rig.flash_bytes()[(addr::APP_BASE - addr::FLASH_BASE) as usize
+            ..(addr::PERSIST_BASE - addr::FLASH_BASE) as usize]
+            .to_vec();
+        let durable_before =
+            rig.flash_bytes()[(addr::PERSIST_BASE - addr::FLASH_BASE) as usize..].to_vec();
+
+        let mut boot_only = flashable_bundle();
+        boot_only.unselected = Unselected::Preserve;
+        boot_only.bootloader =
+            Region::new(RegionName::Bootloader, addr::FLASH_BASE, vec![0x5A; 12_000]);
+        boot_only.application = Region::new(RegionName::Application, addr::APP_BASE, Vec::new());
+
+        let report = rig
+            .flash(&boot_only, Release::Run, &mut |_, _, _| {})
+            .expect("a bootloader-only pass must be flashable");
+        assert_eq!(report.scope, "bootloader only");
+        assert_eq!(report.preserved, vec![(addr::APP_BASE, addr::PERSIST_BASE)]);
+
+        let after = rig.flash_bytes();
+        assert_eq!(
+            after[(addr::APP_BASE - addr::FLASH_BASE) as usize
+                ..(addr::PERSIST_BASE - addr::FLASH_BASE) as usize],
+            app_before[..],
+            "the application bank was left out, so not one byte of it may have moved"
+        );
+        assert_eq!(
+            after[(addr::PERSIST_BASE - addr::FLASH_BASE) as usize..],
+            durable_before[..],
+            "identity and settings are never in range of a firmware pass"
+        );
+        assert_eq!(
+            &after[..12_000],
+            &vec![0x5A; 12_000][..],
+            "the new bootloader"
+        );
+        assert!(
+            after[12_000..(addr::APP_BASE - addr::FLASH_BASE) as usize]
+                .iter()
+                .all(|&b| b == 0xFF),
+            "a shorter bootloader must not leave the old one's tail behind"
+        );
+    }
+
+    /// A board still on v4/v5: the application sits at `0x08006000`, and everything a pass does
+    /// has to follow it there rather than assume the v6 bank.
+    #[test]
+    fn a_legacy_base_bundle_is_written_and_started_at_the_legacy_base() {
+        use crate::addr;
+        use crate::image::{Region, RegionName, Unselected};
+
+        let legacy = bundle_for(addr::APP_BASE_LEGACY, 22_708);
+        assert_eq!(legacy.validate(), vec![], "a matched v4/v5 pair is valid");
+
+        let mut rig = SimRig::new();
+        rig.set_present(true);
+        rig.open().unwrap();
+        rig.flash(&legacy, Release::Run, &mut |_, _, _| {})
+            .expect("a legacy-base pair must be flashable");
+
+        assert_eq!(
+            rig.boot_check(addr::APP_BASE_LEGACY).unwrap().vtor,
+            addr::APP_BASE_LEGACY,
+            "the board comes up on the vector table it was actually given"
+        );
+        assert_eq!(
+            &rig.flash_bytes()[(addr::APP_BASE_LEGACY - addr::FLASH_BASE) as usize
+                ..(addr::APP_BASE_LEGACY - addr::FLASH_BASE) as usize + 8],
+            &legacy.application.bytes[..8],
+            "the application was programmed at its own base, not at the v6 one"
+        );
+
+        // And a bootloader-only pass over it preserves the bank where that application actually
+        // is: the boundary comes from the bootloader's size, which is what makes 0x08004000..
+        // 0x08006000 part of the bootloader's bank on this board.
+        let mut boot_only = bundle_for(addr::APP_BASE_LEGACY, 22_708);
+        boot_only.unselected = Unselected::Preserve;
+        boot_only.application =
+            Region::new(RegionName::Application, addr::APP_BASE_LEGACY, Vec::new());
+        let report = rig
+            .flash(&boot_only, Release::Run, &mut |_, _, _| {})
+            .expect("flashable");
+        assert_eq!(
+            report.preserved,
+            vec![(addr::APP_BASE_LEGACY, addr::PERSIST_BASE)]
+        );
+        assert_eq!(
+            rig.boot_check(addr::APP_BASE_LEGACY).unwrap().vtor,
+            addr::APP_BASE_LEGACY,
+            "the preserved legacy application is still what the board runs"
+        );
+    }
+
+    /// The pairing that bricks a board, refused before the probe is touched.
+    #[test]
+    fn a_legacy_bootloader_beside_a_new_base_application_is_refused_by_the_rig() {
+        use crate::addr;
+        use crate::image::{BundleFault, Region, RegionName};
+
+        let mut brick = flashable_bundle();
+        // 22,708 bytes occupies eleven pages, so it reaches 0x08006000 -- over the top of an
+        // application based at 0x08004000, vector table first.
+        brick.bootloader =
+            Region::new(RegionName::Bootloader, addr::FLASH_BASE, vec![0xA5; 22_708]);
+        assert!(
+            brick
+                .validate()
+                .contains(&BundleFault::BootloaderOverlapsApplication {
+                    bootloader_end: addr::APP_BASE_LEGACY,
+                    app_base: addr::APP_BASE,
+                })
+        );
+
+        let mut rig = SimRig::new();
+        rig.set_present(true);
+        rig.open().unwrap();
+        let error = rig
+            .flash(&brick, Release::Run, &mut |_, _, _| {})
+            .expect_err("the rig re-validates, so this must never reach the flash algorithm");
+        assert_eq!(error.kind, RigErrorKind::BadBundle);
+    }
+
+    /// The brick this makes impossible.
+    ///
+    /// An application-only selection used to erase the bootloader bank -- documented, deliberate,
+    /// and productive of a board with an application at `0x08006000`, nothing at the reset vector
+    /// the core actually starts from, and no way back in except SWD.
+    #[test]
+    fn an_application_only_pass_leaves_the_bootloader_that_makes_the_board_bootable() {
+        use crate::addr;
+        use crate::image::{Region, RegionName, Unselected};
+
+        let full = flashable_bundle();
+        let mut rig = SimRig::new().preloaded(&full);
+        rig.set_present(true);
+        rig.open().unwrap();
+        let boot_before =
+            rig.flash_bytes()[..(addr::APP_BASE - addr::FLASH_BASE) as usize].to_vec();
+
+        let mut app_only = flashable_bundle();
+        app_only.unselected = Unselected::Preserve;
+        app_only.bootloader = Region::new(RegionName::Bootloader, addr::FLASH_BASE, Vec::new());
+
+        let report = rig
+            .flash(&app_only, Release::Run, &mut |_, _, _| {})
+            .expect("an application-only pass must be flashable");
+        assert_eq!(report.scope, "application only");
+        assert_eq!(report.preserved, vec![(addr::FLASH_BASE, addr::APP_BASE)]);
+        assert_eq!(
+            &rig.flash_bytes()[..(addr::APP_BASE - addr::FLASH_BASE) as usize],
+            &boot_before[..],
+            "the bootloader is what the board boots from; it must survive"
+        );
+    }
+
+    /// The old behaviour stays reachable, and stays exactly what it was.
+    #[test]
+    fn erasing_the_bank_left_out_still_blanks_it() {
+        use crate::addr;
+        use crate::image::{Region, RegionName, Unselected};
+
+        let full = flashable_bundle();
+        let mut rig = SimRig::new().preloaded(&full);
+        rig.set_present(true);
+        rig.open().unwrap();
+
+        let mut boot_only = flashable_bundle();
+        boot_only.unselected = Unselected::Erase;
+        boot_only.application = Region::new(RegionName::Application, addr::APP_BASE, Vec::new());
+
+        let report = rig
+            .flash(&boot_only, Release::Run, &mut |_, _, _| {})
+            .expect("erasing the bank left out is still a pass");
+        assert!(report.preserved.is_empty());
+        assert!(
+            rig.flash_bytes()[(addr::APP_BASE - addr::FLASH_BASE) as usize
+                ..(addr::PERSIST_BASE - addr::FLASH_BASE) as usize]
+                .iter()
+                .all(|&b| b == 0xFF),
+            "the bank left out was erased, as asked"
+        );
+    }
+
+    /// The guard that makes "preserve" a claim rather than a hope.
+    ///
+    /// Everything else about a bootloader-only pass can be right -- the correct bytes staged, the
+    /// correct window erased, a clean readback of everything the pass wrote -- while the bank it
+    /// promised to leave alone has quietly gone. Nothing in the written half of the pass can see
+    /// that. Only reading the other bank before and after can, which is why that comparison
+    /// exists; this is what fails if anyone removes it.
+    #[test]
+    fn a_pass_that_erases_past_its_window_is_caught_by_the_preserved_range_comparison() {
+        use crate::addr;
+        use crate::image::{Region, RegionName, Unselected};
+        use crate::rig::Trigger;
+
+        let mut rig = SimRig::new()
+            .preloaded(&flashable_bundle())
+            .with_fault(Trigger::EraseBeyondWindow, RigErrorKind::Verify);
+        rig.set_present(true);
+        rig.open().unwrap();
+
+        let mut boot_only = flashable_bundle();
+        boot_only.unselected = Unselected::Preserve;
+        boot_only.application = Region::new(RegionName::Application, addr::APP_BASE, Vec::new());
+
+        let error = rig
+            .flash(&boot_only, Release::Run, &mut |_, _, _| {})
+            .expect_err("an erase that reached the preserved bank must fail the pass");
+        assert_eq!(error.kind, RigErrorKind::Verify);
+        assert!(
+            error.detail.contains("the bank left out changed"),
+            "the operator has to be told which promise was broken, not just that one was: {}",
+            error.detail
+        );
+        assert!(
+            error.detail.contains("08004000"),
+            "and where: {}",
+            error.detail
+        );
+    }
+
+    /// Whether a board will boot is a fact about its flash, not about what this pass wrote.
+    ///
+    /// A bootloader-only pass over a preserved application leaves a board that still starts its
+    /// application; the same pass over a board with an empty bank does not. The bench reads this
+    /// to decide what to prove after the write, so the simulation has to model it rather than
+    /// report "I programmed something".
+    #[test]
+    fn a_preserved_application_still_boots_and_an_erased_one_does_not() {
+        use crate::addr;
+        use crate::image::{Region, RegionName, Unselected};
+
+        let mut boot_only = flashable_bundle();
+        boot_only.application = Region::new(RegionName::Application, addr::APP_BASE, Vec::new());
+
+        let mut kept = SimRig::new().preloaded(&flashable_bundle());
+        kept.set_present(true);
+        kept.open().unwrap();
+        boot_only.unselected = Unselected::Preserve;
+        kept.flash(&boot_only, Release::Run, &mut |_, _, _| {})
+            .expect("flashable");
+        assert_eq!(
+            kept.boot_check(addr::APP_BASE).unwrap().vtor,
+            addr::APP_BASE,
+            "the preserved application is still what the board runs"
+        );
+
+        let mut blanked = SimRig::new().preloaded(&flashable_bundle());
+        blanked.set_present(true);
+        blanked.open().unwrap();
+        boot_only.unselected = Unselected::Erase;
+        blanked
+            .flash(&boot_only, Release::Run, &mut |_, _, _| {})
+            .expect("flashable");
+        assert_eq!(
+            blanked.boot_check(addr::APP_BASE).unwrap().vtor,
+            0,
+            "with the bank erased there is no application to arrive at"
+        );
     }
 
     #[test]

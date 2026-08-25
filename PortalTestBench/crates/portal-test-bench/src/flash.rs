@@ -17,6 +17,10 @@ use portal_swd::{
 /// handing off. Boot verification must allow that interval, then prove the application remains
 /// selected long enough to reject a watchdog reset loop.
 const BOOT_HANDOFF_TIMEOUT: Duration = Duration::from_secs(5);
+/// Long enough to cover a full bootloader-with-no-application cycle -- ~3 s resident plus a ~4 s
+/// watchdog lockup -- with margin, so which half the first sample lands in cannot decide a pass.
+/// See `observe_bootloader_alive`.
+const BOOTLOADER_ALIVE_TIMEOUT: Duration = Duration::from_secs(10);
 const BOOT_STABILITY_WINDOW: Duration = Duration::from_millis(600);
 const TARGET_SETTLE_MS: u64 = 250;
 const IDENTITY_RETRY_MS: u64 = 250;
@@ -29,6 +33,17 @@ pub struct McuSnapshot {
     pub dev_id: String,
     pub flash_kb: u16,
     pub layout: String,
+    /// Where this board's application actually is: whichever of the two bases a vector table was
+    /// found at, measured rather than assumed. `None` when there is no application.
+    pub application_base: Option<u32>,
+    /// Whether a plausible vector table sits at the head of each bank.
+    ///
+    /// Separate from `layout`, which says `split` only when *both* banks look right. Each of the
+    /// two questions this feature asks is about one bank on its own: whether there is an
+    /// application to boot after a bootloader-only pass, and whether there is a bootloader worth
+    /// keeping when the selection has none.
+    pub bootloader_present: bool,
+    pub application_present: bool,
     pub rdp: String,
     pub firmware: String,
     pub bootloader_sha256: String,
@@ -76,6 +91,12 @@ pub struct FlashSnapshot {
 pub struct FieldUpdateTarget {
     pub application: Vec<u8>,
     pub expected_sha256: String,
+    /// Where this image was linked, from its own descriptor.
+    ///
+    /// Not a constant: both application bases are current, and which one a board uses depends on
+    /// which bootloader it carries. Verifying a legacy-base upload against the v6 base would
+    /// compare the wrong 8 kB and fail a perfectly good transfer.
+    pub base: u32,
     run_check: portal_swd::RunCheckSpec,
     bootloader_before: Vec<u8>,
     persistent_before: Vec<u8>,
@@ -104,6 +125,16 @@ pub struct FlashController {
     starts: Option<Arc<AtomicU32>>,
     simulated: bool,
     probe_selector: String,
+    /// What a pass does about a bank the operator left out. Preserve by default; the page can
+    /// turn it off, and says so loudly when it does.
+    unselected: portal_swd::image::Unselected,
+    /// Which banks the operator emptied on purpose, `(bootloader, application)`.
+    ///
+    /// Without this, `rescan` re-filled any empty bank with the discovered default and a
+    /// deliberate "leave the bootloader out" quietly became "flash both" on the next rescan --
+    /// which, since a rescan also happens when the hardware survey bumps, could happen with
+    /// nobody touching the page.
+    deliberately_empty: (bool, bool),
 }
 
 impl FlashController {
@@ -156,6 +187,8 @@ impl FlashController {
             starts,
             simulated,
             probe_selector,
+            unselected: portal_swd::image::Unselected::Preserve,
+            deliberately_empty: (false, false),
         };
         this.refresh_selection_snapshot();
         this.open_probe();
@@ -248,6 +281,7 @@ impl FlashController {
                 "bootloader": self.selection.bootloader,
                 "application": self.selection.application,
                 "scope": self.selection.scope(),
+                "preserve_unselected": self.unselected == portal_swd::Unselected::Preserve,
             },
             "found": found,
             "missing": missing,
@@ -263,19 +297,24 @@ impl FlashController {
             Some(root) => portal_swd::artefacts::discover_in(root),
             None => portal_swd::discover(),
         };
-        if self
-            .selection
-            .bootloader
-            .as_deref()
-            .is_none_or(|id| self.discovery.by_id(id).is_none())
+        // Re-fill only a bank whose chosen artefact has gone. A bank the operator emptied on
+        // purpose stays empty: a rescan runs whenever the hardware survey bumps, so re-defaulting
+        // it here used to undo "leave the bootloader out" with nobody touching the page.
+        if !self.deliberately_empty.0
+            && self
+                .selection
+                .bootloader
+                .as_deref()
+                .is_none_or(|id| self.discovery.by_id(id).is_none())
         {
             self.selection.bootloader = self.discovery.bootloader().map(|a| a.id.clone());
         }
-        if self
-            .selection
-            .application
-            .as_deref()
-            .is_none_or(|id| self.discovery.by_id(id).is_none())
+        if !self.deliberately_empty.1
+            && self
+                .selection
+                .application
+                .as_deref()
+                .is_none_or(|id| self.discovery.by_id(id).is_none())
         {
             self.selection.application = self.discovery.application().map(|a| a.id.clone());
         }
@@ -304,9 +343,22 @@ impl FlashController {
     }
 
     pub fn select(&mut self, boot_id: String, app_id: String) {
+        // An empty id is a choice, not an absence, and `rescan` has to be able to tell the two
+        // apart. Recorded here because this is the only place the operator's intent arrives.
+        self.deliberately_empty = (boot_id.is_empty(), app_id.is_empty());
         self.selection.bootloader = (!boot_id.is_empty()).then_some(boot_id);
         self.selection.application = (!app_id.is_empty()).then_some(app_id);
         self.refresh_selection_snapshot();
+    }
+
+    /// What a pass does about a bank the operator left out.
+    pub fn set_unselected(&mut self, unselected: portal_swd::image::Unselected) {
+        self.unselected = unselected;
+        self.refresh_selection_snapshot();
+    }
+
+    pub fn unselected(&self) -> portal_swd::image::Unselected {
+        self.unselected
     }
 
     pub fn tick(&mut self, now_ms: u64, page_heartbeat: bool, auto_enabled: bool) -> Option<Pass> {
@@ -399,7 +451,7 @@ impl FlashController {
     pub fn manual_ready(&self) -> Result<(), String> {
         self.swd_ready()?;
         self.discovery
-            .load(&self.selection)
+            .load(&self.selection, self.unselected)
             .map(|_| ())
             .map_err(|e| e.to_string())
     }
@@ -441,14 +493,14 @@ impl FlashController {
         self.snapshot.phase = pass.to_string();
 
         let result = match pass {
-            Pass::Flash => match self.discovery.load(&self.selection) {
+            Pass::Flash => match self.discovery.load(&self.selection, self.unselected) {
                 Ok(bundle) => self.flash_and_boot(&bundle, progress),
                 Err(error) => Err(portal_swd::RigError::new(
                     portal_swd::RigErrorKind::BadBundle,
                     error.to_string(),
                 )),
             },
-            Pass::RunCheck => match self.discovery.load(&self.selection) {
+            Pass::RunCheck => match self.discovery.load(&self.selection, self.unselected) {
                 Ok(bundle) => self.rig.run_check(&bundle.run_check).and_then(|report| {
                     report
                         .verdict(&bundle.run_check)
@@ -519,18 +571,45 @@ impl FlashController {
         self.snapshot.step = "attach".into();
         self.snapshot.phase = Pass::Flash.to_string();
 
-        let result = match self.discovery.load(&self.selection) {
-            Ok(_bundle) if self.selection.bootloader.is_none() => Err(RigError::new(
-                RigErrorKind::BadBundle,
-                "provisioning requires the production bootloader image",
-            )),
+        // A board must end this pass with a bootloader on it. That used to be spelled "the
+        // selection must include one", which also refused an application-only pass onto a board
+        // that already carries a perfectly good bootloader -- and, worse, the *reason* it was
+        // refused was never the real one: an application-only pass erased the bootloader bank, so
+        // what actually made it unsafe was the erase, not the absence.
+        //
+        // So ask the real question. The selection may omit the bootloader when the board already
+        // has one and this pass will leave it alone.
+        let board_has_bootloader = self
+            .snapshot
+            .mcu
+            .as_ref()
+            .is_some_and(|mcu| mcu.bootloader_present);
+        let preserving = self.unselected == portal_swd::image::Unselected::Preserve;
+        let result = match self.discovery.load(&self.selection, self.unselected) {
             Ok(_bundle)
-                if self
-                    .selection
-                    .bootloader
-                    .as_deref()
-                    .and_then(|id| self.discovery.by_id(id))
-                    .is_none_or(|artefact| artefact.origin != Origin::Built) =>
+                if self.selection.bootloader.is_none() && !(board_has_bootloader && preserving) =>
+            {
+                Err(RigError::new(
+                    RigErrorKind::BadBundle,
+                    if board_has_bootloader {
+                        "this pass would erase the bank it leaves out, so it would take the \
+                         board's bootloader with it; select a bootloader or turn preserve back on"
+                    } else {
+                        "no bootloader selected, and this board has none to keep -- it would not \
+                         be able to boot"
+                    },
+                ))
+            }
+            // Only when a bootloader is actually being written. A pass that keeps the one already
+            // on the board has nothing to say about which image it came from.
+            Ok(_bundle)
+                if self.selection.bootloader.is_some()
+                    && self
+                        .selection
+                        .bootloader
+                        .as_deref()
+                        .and_then(|id| self.discovery.by_id(id))
+                        .is_none_or(|artefact| artefact.origin != Origin::Built) =>
             {
                 Err(RigError::new(
                     RigErrorKind::BadBundle,
@@ -549,16 +628,24 @@ impl FlashController {
         self.finish_pass(now_ms, Pass::Flash, automatic, result)
     }
 
-    pub fn selected_application_sha256(&self) -> Option<String> {
-        self.discovery
-            .load(&self.selection)
-            .ok()
-            .map(|bundle| bundle.application.sha256())
+    /// The hash of each bank this pass would actually write, `(bootloader, application)`.
+    ///
+    /// `None` for a bank that is left out: it has no image to compare, and hashing the empty
+    /// region would produce the hash of nothing -- a real, stable string that would then be
+    /// compared against a real board and never match, which is a slower way of saying "no".
+    pub fn selected_region_hashes(&self) -> (Option<String>, Option<String>) {
+        match self.discovery.load(&self.selection, self.unselected) {
+            Ok(bundle) => (
+                (!bundle.bootloader.bytes.is_empty()).then(|| bundle.bootloader.sha256()),
+                (!bundle.application.bytes.is_empty()).then(|| bundle.application.sha256()),
+            ),
+            Err(_) => (None, None),
+        }
     }
 
     pub fn selected_bundle_evidence(&self) -> Option<(String, String)> {
         self.discovery
-            .load(&self.selection)
+            .load(&self.selection, self.unselected)
             .ok()
             .map(|bundle| (bundle.sha256(), format!("{:?}", bundle.provenance)))
     }
@@ -567,7 +654,7 @@ impl FlashController {
         self.swd_ready()?;
         let bundle = self
             .discovery
-            .load(&self.selection)
+            .load(&self.selection, self.unselected)
             .map_err(|error| error.to_string())?;
         if bundle.application.bytes.len() <= 65_536 {
             return Err(format!(
@@ -584,7 +671,11 @@ impl FlashController {
                 report.layout.as_str()
             ));
         }
-        let boot_end = portal_swd::addr::BOOTLOADER_BYTES as usize;
+        // The bootloader bank is whatever sits below this image's base, which is 16 kB for a v6
+        // board and 24 kB for one still on v4/v5. Snapshotting a fixed 16 kB on a legacy board
+        // would leave pages 8-11 unwatched -- exactly the pages an over-long erase would take.
+        let base = bundle.application.load_address;
+        let boot_end = (base - portal_swd::addr::FLASH_BASE) as usize;
         let persist_at = (portal_swd::addr::PERSIST_BASE - portal_swd::addr::FLASH_BASE) as usize;
         if image.flash.len() < persist_at {
             return Err("SWD readback was shorter than the persistent partition".into());
@@ -600,6 +691,7 @@ impl FlashController {
         Ok(FieldUpdateTarget {
             expected_sha256: bundle.application.sha256(),
             application: bundle.application.bytes.clone(),
+            base,
             run_check: bundle.run_check.clone(),
             bootloader_before: image.flash[..boot_end].to_vec(),
             persistent_before: image.flash[persist_at..].to_vec(),
@@ -611,7 +703,7 @@ impl FlashController {
         target: &FieldUpdateTarget,
     ) -> Result<FieldUpdateEvidence, String> {
         let image = self.rig.read_device().map_err(|error| error.to_string())?;
-        let app_at = (portal_swd::addr::APP_BASE - portal_swd::addr::FLASH_BASE) as usize;
+        let app_at = (target.base - portal_swd::addr::FLASH_BASE) as usize;
         let persist_at = (portal_swd::addr::PERSIST_BASE - portal_swd::addr::FLASH_BASE) as usize;
         let app_end = app_at + target.application.len();
         if image.flash.len() < persist_at || app_end > persist_at {
@@ -638,7 +730,7 @@ impl FlashController {
                 |offset| {
                     format!(
                         "first mismatch at application +0x{offset:08X} (flash 0x{:08X}): expected 0x{:02X}, got 0x{:02X}",
-                        portal_swd::addr::APP_BASE + offset as u32,
+                        target.base + offset as u32,
                         target.application[offset],
                         image.flash[app_at + offset]
                     )
@@ -729,9 +821,9 @@ impl FlashController {
         self.snapshot.boot_state = "checking".into();
         let result = self
             .discovery
-            .load(&self.selection)
+            .load(&self.selection, self.unselected)
             .map_err(|error| RigError::new(RigErrorKind::BadBundle, error.to_string()))
-            .and_then(|bundle| self.observe_boot(bundle.run_check.vtor))
+            .and_then(|bundle| self.observe_after_write(&bundle))
             .map(|boot| format!("{detail}; {boot}"));
         match result {
             Ok(detail) => {
@@ -773,11 +865,11 @@ impl FlashController {
         self.swd_ready()?;
         let bundle = self
             .discovery
-            .load(&self.selection)
+            .load(&self.selection, self.unselected)
             .map_err(|e| e.to_string())?;
-        if bundle.run_check.vtor == 0 {
-            return Err("the selected firmware has no application to boot".into());
-        }
+        // No refusal for a bootloader-only selection any more: resetting a board that carries only
+        // a bootloader and watching it come up is a real thing to want, and `observe_after_write`
+        // knows what to look for.
         self.snapshot.busy = true;
         self.snapshot.phase = "reset-run".into();
         self.snapshot.step = "reset-run".into();
@@ -788,7 +880,7 @@ impl FlashController {
         let result = self
             .rig
             .reset_and_run()
-            .and_then(|()| self.observe_boot(bundle.run_check.vtor));
+            .and_then(|()| self.observe_after_write(&bundle));
         self.finish_boot_action("reset & run", result)
     }
 
@@ -797,17 +889,15 @@ impl FlashController {
         self.swd_ready()?;
         let bundle = self
             .discovery
-            .load(&self.selection)
+            .load(&self.selection, self.unselected)
             .map_err(|e| e.to_string())?;
-        if bundle.run_check.vtor == 0 {
-            return Err("the selected firmware has no application to check".into());
-        }
+
         self.snapshot.busy = true;
         self.snapshot.phase = "boot-check".into();
         self.snapshot.step = "boot-check".into();
         self.snapshot.boot_state = "checking".into();
         self.snapshot.boot_detail.clear();
-        let result = self.observe_boot(bundle.run_check.vtor);
+        let result = self.observe_after_write(&bundle);
         self.finish_boot_action("boot check", result)
     }
 
@@ -861,18 +951,29 @@ impl FlashController {
                 };
                 progress(&state.step, state.progress);
             })?;
-        let verified = format!("verified {}", short_hash(&report.readback_sha256));
-
-        // Bootloader-only programming has nothing to enter or observe.
-        if bundle.run_check.vtor == 0 {
-            self.snapshot.boot_state = "not-applicable".into();
-            self.snapshot.boot_detail = "no application was selected".into();
-            return Ok(verified);
-        }
+        let verified = format!(
+            "verified {} ({}{})",
+            short_hash(&report.readback_sha256),
+            report.scope,
+            if report.preserved.is_empty() {
+                String::new()
+            } else {
+                format!(
+                    ", {} left alone and proved unchanged",
+                    if report.preserved.iter().any(|&(start, _)| start
+                        == portal_swd::addr::FLASH_BASE)
+                    {
+                        "bootloader bank"
+                    } else {
+                        "application bank"
+                    }
+                )
+            }
+        );
 
         self.snapshot.step = "boot-check".into();
         progress("boot-check", 1.0);
-        match self.observe_boot(bundle.run_check.vtor) {
+        match self.observe_after_write(bundle) {
             Ok(detail) => Ok(format!("{verified}; {detail}")),
             Err(first) => {
                 // A second explicit reset covers a debugger halt that survived the programming
@@ -890,7 +991,7 @@ impl FlashController {
                     }
                     return Err(reset_error);
                 }
-                match self.observe_boot(bundle.run_check.vtor) {
+                match self.observe_after_write(bundle) {
                     Ok(detail) => Ok(format!("{verified}; {detail} after reset retry")),
                     Err(second) if report.option_bytes_programmed => {
                         // The first option-byte reload on a factory-fresh part can require power
@@ -1002,13 +1103,6 @@ impl FlashController {
             persistent.settings.operating_current_ma,
         );
 
-        if bundle.run_check.vtor == 0 {
-            return Err(self.restart_after_failure(RigError::new(
-                RigErrorKind::BadBundle,
-                "provisioning requires an application image",
-            )));
-        }
-
         // The one restart of the pass, and the pass does not pass until it has happened.
         self.snapshot.step = "reset-run".into();
         progress("reset-run", 1.0);
@@ -1019,7 +1113,7 @@ impl FlashController {
         }
         self.snapshot.step = "boot-check".into();
         progress("boot-check", 1.0);
-        match self.observe_boot(bundle.run_check.vtor) {
+        match self.observe_after_write(bundle) {
             Ok(detail) => Ok(format!("{verified}; {detail}")),
             Err(first) => {
                 if let Err(reset_error) = self.rig.reset_and_run() {
@@ -1033,7 +1127,7 @@ impl FlashController {
                     }
                     return Err(reset_error);
                 }
-                match self.observe_boot(bundle.run_check.vtor) {
+                match self.observe_after_write(bundle) {
                     Ok(detail) => Ok(format!("{verified}; {detail} after reset retry")),
                     Err(second) if report.option_bytes_programmed => {
                         self.snapshot.boot_state = "replug-required".into();
@@ -1090,6 +1184,128 @@ impl FlashController {
         }
         self.refresh_start_count();
         ok
+    }
+
+    /// Whether this board will have an application on it when the pass ends.
+    ///
+    /// Three cases, and only the third is new: this pass writes one; this pass erases the bank it
+    /// left out, so it will not; or this pass preserves that bank, and the answer is whatever the
+    /// board already held. The last is read from the identity read taken on insertion -- the bank
+    /// is untouched by a preserving pass, so that reading is still current, and it costs no extra
+    /// 128 kB readback at the one moment the operator is watching a progress bar.
+    fn application_will_be_present(&self, bundle: &portal_swd::ImageBundle) -> bool {
+        if !bundle.application.bytes.is_empty() {
+            return true;
+        }
+        if bundle.unselected == portal_swd::Unselected::Erase {
+            return false;
+        }
+        self.snapshot
+            .mcu
+            .as_ref()
+            .is_some_and(|mcu| mcu.application_present)
+    }
+
+    /// Prove a board carrying only a bootloader is nevertheless alive.
+    ///
+    /// **This cannot be `observe_boot`, and the reason is not obvious.** Two facts about the
+    /// shipped bootloader decide it, both checked in the source rather than assumed:
+    ///
+    /// - It runs with `VTOR == 0`. `USER_VECT_TAB_ADDRESS` is commented out in
+    ///   `system_stm32g0xx.c`, so the relocation that would set `SCB->VTOR` to `0x08000000` is
+    ///   compiled out and the register keeps its reset value. A check for `VTOR == 0x08000000`
+    ///   could never pass.
+    /// - After its 3 s window it jumps unconditionally (`RunApplication.c`), and it sets
+    ///   `SCB->VTOR = 0x08006000` and `MSP` from the application's vector table *before* it does.
+    ///   With an erased bank that vector is `0xFFFFFFFF`, so the core locks up **with the
+    ///   application vector table already installed**, and the IWDG (~4 s) resets it back into the
+    ///   bootloader.
+    ///
+    /// So the board cycles: ~3 s at `VTOR == 0` running, then ~4 s locked up at
+    /// `VTOR == APP_BASE`. That is a designed reset loop, not a fault, and it means *stability* is
+    /// a property this board does not have -- `observe_boot` would assert something false, and it
+    /// treats `LockedUp` as terminal rather than retryable, so a first sample landing in the
+    /// larger half of the cycle would fail a perfectly good pass.
+    ///
+    /// What is asserted instead is execution: either half of that cycle proves the bootloader ran.
+    /// `VTOR == 0` without lockup is it running; `VTOR == APP_BASE` with lockup is it having run
+    /// to the end and jumped, which only `run_application` can produce. Seeing neither across a
+    /// full cycle is the only real failure.
+    fn observe_bootloader_alive(&mut self) -> Result<String, RigError> {
+        use portal_swd::bits;
+
+        let started = Instant::now();
+        let mut last = String::from("nothing observed");
+        while started.elapsed() < BOOTLOADER_ALIVE_TIMEOUT {
+            let report = self.rig.boot_check(0)?;
+            let locked = (report.dhcsr_first | report.dhcsr_second) & bits::DHCSR_S_LOCKUP != 0;
+            let halted = (report.dhcsr_first | report.dhcsr_second) & bits::DHCSR_S_HALT != 0;
+            if report.vtor == 0 && !locked && !halted {
+                self.snapshot.boot_state = "bootloader-only".into();
+                self.snapshot.boot_detail = format!(
+                    "no application present; the bootloader is resident and running \
+                     (RCC_CSR {:#010X})",
+                    report.rcc_csr
+                );
+                self.snapshot.needs_replug = false;
+                return Ok("no application present; the bootloader is running".into());
+            }
+            if report.vtor == portal_swd::addr::APP_BASE && locked {
+                // It reached the end of its window and jumped. Nothing but `run_application` sets
+                // that vector table, so this is proof the bootloader executed -- and locking up on
+                // an empty bank is the correct next thing to do.
+                self.snapshot.boot_state = "bootloader-only".into();
+                self.snapshot.boot_detail = format!(
+                    "no application present; the bootloader ran and jumped to an absent \
+                     application, so the board will watchdog-reset in a loop until one is \
+                     installed (RCC_CSR {:#010X})",
+                    report.rcc_csr
+                );
+                self.snapshot.needs_replug = false;
+                return Ok(
+                    "no application present; the bootloader ran and is waiting for one".into(),
+                );
+            }
+            last = format!(
+                "VTOR {:#010X}, DHCSR {:#010X}/{:#010X}, RCC_CSR {:#010X}",
+                report.vtor, report.dhcsr_first, report.dhcsr_second, report.rcc_csr
+            );
+            std::thread::sleep(Duration::from_millis(150));
+        }
+        Err(RigError::new(
+            RigErrorKind::NotRunning,
+            format!(
+                "the bootloader was written and verified, but the board never showed either half \
+                 of the expected bootloader cycle in {:?}; last saw {last}",
+                BOOTLOADER_ALIVE_TIMEOUT
+            ),
+        ))
+    }
+
+    /// What to prove once the firmware is written: that the application runs, or -- when there is
+    /// no application to run -- that the bootloader does.
+    fn observe_after_write(&mut self, bundle: &portal_swd::ImageBundle) -> Result<String, RigError> {
+        if !self.application_will_be_present(bundle) {
+            return self.observe_bootloader_alive();
+        }
+
+        // Which base to expect, rather than a constant.
+        //
+        // When this pass wrote the application, it is wherever the image said it was linked. When
+        // it preserved one -- `run_check.vtor` is zero, which is a different question from
+        // "is there an application" -- it is wherever the board already had it, and a board still
+        // carrying a v4/v5 bootloader has it 8 kB higher. Expecting the wrong one would fail a
+        // board that is running perfectly well.
+        let expected = if bundle.application.bytes.is_empty() {
+            self.snapshot
+                .mcu
+                .as_ref()
+                .and_then(|mcu| mcu.application_base)
+                .unwrap_or(portal_swd::addr::APP_BASE)
+        } else {
+            bundle.application.load_address
+        };
+        self.observe_boot(expected)
     }
 
     fn observe_boot(&mut self, expected_vtor: u32) -> Result<String, RigError> {
@@ -1284,8 +1500,14 @@ fn mcu_snapshot(report: DeviceReport) -> McuSnapshot {
         SettingsSource::Defaults => "defaults",
         SettingsSource::FlashA | SettingsSource::FlashB => "flash",
     };
+    let application_base = report
+        .application
+        .vector
+        .as_ref()
+        .map(|_| report.application.base);
     McuSnapshot {
         part: "STM32G070RBT6".into(),
+        application_base,
         uid: report.uid,
         idcode: report
             .idcode
@@ -1297,6 +1519,8 @@ fn mcu_snapshot(report: DeviceReport) -> McuSnapshot {
             .unwrap_or_default(),
         flash_kb: report.flash_kb,
         layout: report.layout.as_str().into(),
+        bootloader_present: report.bootloader.vector.is_some(),
+        application_present: report.application.vector.is_some(),
         rdp: report.options.rdp_level().to_string(),
         firmware,
         bootloader_sha256: report.bootloader.sha256,
@@ -1370,17 +1594,34 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("portal-bench-{name}"));
         let _ = std::fs::remove_dir_all(&dir);
 
+        // With a descriptor, because a real application has one and the flasher now reads it to
+        // decide which bank an image was built for. Without it this fixture is a v6-base vector
+        // table that can only be *inferred* as legacy-base, and the pass refuses it -- correctly.
         let mut application = vec![0u8; 60_000];
         application[0..4].copy_from_slice(&0x2000_9000u32.to_le_bytes());
         application[4..8]
             .copy_from_slice(&(portal_swd::addr::APP_BASE + 0x241).to_le_bytes());
+        let at = portal_swd::addr::APP_DESCRIPTOR_OFFSET;
+        application[at..at + 8].copy_from_slice(portal_swd::addr::APP_DESCRIPTOR_MAGIC);
+        application[at + 8..at + 12]
+            .copy_from_slice(&portal_swd::addr::APP_BASE.to_le_bytes());
         let app = dir.join("PortalFW/.pio/build/application_bank_optical");
         std::fs::create_dir_all(&app).unwrap();
         std::fs::write(app.join("firmware.bin"), application).unwrap();
 
+        // With a real vector table at its head: the shipped bootloader has one, and whether a
+        // board carries a bootable bootloader is now a question the pass actually asks.
+        //
+        // Sized to the v6 bank rather than the old one. At 19,568 bytes it would occupy ten pages
+        // and reach 0x08005000, over the top of an application based at 0x08004000 -- which the
+        // flasher refuses as a pair, and rightly: programming it would overwrite the application's
+        // vector table.
+        let mut bootloader = vec![0xA5; 14_788];
+        bootloader[0..4].copy_from_slice(&0x2000_9000u32.to_le_bytes());
+        bootloader[4..8].copy_from_slice(&(portal_swd::addr::FLASH_BASE + 0x123).to_le_bytes());
         let boot = dir.join("PortalBootloader/.pio/build/bootloader");
         std::fs::create_dir_all(&boot).unwrap();
-        std::fs::write(boot.join("firmware.bin"), vec![0xA5; 19_568]).unwrap();
+        std::fs::write(boot.join("firmware.bin"), bootloader).unwrap();
         dir
     }
 
@@ -1430,6 +1671,156 @@ mod tests {
             "firmware and durable records are written with the core halted, so the board starts \
              once, at the end, running everything that was written"
         );
+    }
+
+    /// The whole feature, end to end through the controller: leave the application out, flash,
+    /// and get a pass rather than a written board reported as a failure.
+    ///
+    /// Before this, the pass wrote the bootloader, erased the application bank, wrote identity and
+    /// settings, reset, and then failed its boot check against an application it had just removed
+    /// -- so the operator was told the flash failed, over a board that had in fact been programmed
+    /// exactly as asked.
+    #[test]
+    fn a_bootloader_only_pass_passes_and_says_there_is_no_application() {
+        let root = firmware_tree("bootloader-only");
+        let mut controller =
+            FlashController::new_in(portal_swd::artefacts::discover_in(&root), true);
+        controller.select(
+            controller.snapshot().boot_id.clone(),
+            String::new(), // the operator leaves the application out
+        );
+        assert_eq!(controller.snapshot().scope, "bootloader only");
+
+        controller.set_sim_present(true);
+        let _ = controller.tick(0, false, false);
+        let _ = controller.tick(500, false, false);
+
+        let passed = controller.provision(
+            1_000,
+            7,
+            DeviceSettings::default(),
+            false,
+            false,
+            &mut |_, _| {},
+        );
+        assert!(passed, "{}", controller.snapshot().last_outcome);
+        assert_eq!(
+            controller.snapshot().boot_state,
+            "bootloader-only",
+            "{}",
+            controller.snapshot().boot_detail
+        );
+        assert!(
+            controller.snapshot().boot_detail.contains("no application"),
+            "the operator has to be told why nothing booted: {}",
+            controller.snapshot().boot_detail
+        );
+    }
+
+    /// An application-only pass is refused on a board with no bootloader, and allowed on one that
+    /// already has a bootloader this pass will leave alone.
+    ///
+    /// The old refusal was "the selection must include a bootloader", which was the right answer
+    /// for the wrong reason: what actually made it unsafe was that the bank left out was *erased*,
+    /// so the pass took the board's bootloader with it.
+    #[test]
+    fn an_application_only_pass_is_refused_only_when_it_would_leave_the_board_unbootable() {
+        let root = firmware_tree("application-only");
+        let mut controller =
+            FlashController::new_in(portal_swd::artefacts::discover_in(&root), true);
+        let app_id = controller.snapshot().app_id.clone();
+        let boot_id = controller.snapshot().boot_id.clone();
+        controller.select(String::new(), app_id.clone());
+        assert_eq!(controller.snapshot().scope, "application only");
+
+        controller.set_sim_present(true);
+        let _ = controller.tick(0, false, false);
+        let _ = controller.tick(500, false, false);
+
+        // A virgin part: nothing to keep, so there would be no bootloader to boot from.
+        assert!(
+            !controller.provision(1_000, 7, DeviceSettings::default(), false, false, &mut |_, _| {}),
+            "a board with no bootloader must not be left with none"
+        );
+        assert!(
+            controller.snapshot().last_outcome.contains("has none to keep"),
+            "{}",
+            controller.snapshot().last_outcome
+        );
+
+        // Give it one, the ordinary way, then repeat.
+        controller.select(boot_id, app_id.clone());
+        assert!(
+            controller.provision(2_000, 7, DeviceSettings::default(), false, false, &mut |_, _| {}),
+            "{}",
+            controller.snapshot().last_outcome
+        );
+        controller.select(String::new(), app_id);
+        assert!(
+            controller.provision(3_000, 7, DeviceSettings::default(), false, false, &mut |_, _| {}),
+            "a board that already carries a bootloader may be reflashed application-only: {}",
+            controller.snapshot().last_outcome
+        );
+    }
+
+    /// Turning preserve off is what makes an application-only pass dangerous again, and the
+    /// refusal has to follow the danger rather than the shape of the selection.
+    #[test]
+    fn erasing_the_bank_left_out_brings_the_refusal_back() {
+        let root = firmware_tree("erase-refuses");
+        let mut controller =
+            FlashController::new_in(portal_swd::artefacts::discover_in(&root), true);
+        let app_id = controller.snapshot().app_id.clone();
+
+        controller.set_sim_present(true);
+        let _ = controller.tick(0, false, false);
+        let _ = controller.tick(500, false, false);
+        assert!(
+            controller.provision(1_000, 7, DeviceSettings::default(), false, false, &mut |_, _| {}),
+            "{}",
+            controller.snapshot().last_outcome
+        );
+
+        controller.select(String::new(), app_id);
+        controller.set_unselected(portal_swd::Unselected::Erase);
+        assert!(
+            !controller.provision(2_000, 7, DeviceSettings::default(), false, false, &mut |_, _| {}),
+            "this pass would erase the bootloader the board is booting from"
+        );
+        assert!(
+            controller.snapshot().last_outcome.contains("erase the bank it leaves out"),
+            "{}",
+            controller.snapshot().last_outcome
+        );
+    }
+
+    /// A rescan must not undo a deliberate choice.
+    ///
+    /// `rescan` re-filled any empty bank with the discovered default, and it runs whenever the
+    /// hardware survey bumps -- so "leave the bootloader out" could become "flash both" with
+    /// nobody touching the page, on the next probe enumeration.
+    #[test]
+    fn a_rescan_does_not_re_select_a_bank_the_operator_left_out() {
+        let root = firmware_tree("rescan-keeps-choice");
+        let mut controller =
+            FlashController::new_in(portal_swd::artefacts::discover_in(&root), true);
+        assert_eq!(controller.snapshot().scope, "full");
+
+        controller.select(String::new(), controller.snapshot().app_id.clone());
+        assert_eq!(controller.snapshot().scope, "application only");
+
+        controller.rescan();
+        assert_eq!(
+            controller.snapshot().scope,
+            "application only",
+            "the bootloader was left out on purpose and must stay out"
+        );
+        assert!(controller.snapshot().boot_id.is_empty());
+
+        // A bank nobody has spoken about is still filled in for them.
+        let mut fresh = FlashController::new_in(portal_swd::artefacts::discover_in(&root), true);
+        fresh.rescan();
+        assert_eq!(fresh.snapshot().scope, "full");
     }
 
     #[test]

@@ -11,6 +11,12 @@
 //! reporting it as "two broken regions" would be worse than saying nothing. So [`Layout`] is
 //! something this module works out and the UI displays, never something the caller presumes.
 //!
+//! That now includes *where* the application is. A v6 board runs its application at `0x08004000`
+//! and a v4/v5 board at `0x08006000`, so [`DeviceImage::analyse`] looks for a vector table at both
+//! and reports which one it found. Assuming either would misreport half the fleet — and, worse,
+//! would count a legacy bootloader's tail as application bytes or a v6 application's first pages
+//! as bootloader.
+//!
 //! # Identification needs no symbols
 //!
 //! `PORTAL_VERSION_STRING` and the bootloader's `Bootloader v4` are plain string literals, so
@@ -77,10 +83,12 @@ impl VectorTable {
 pub enum Layout {
     /// Nothing programmed anywhere.
     Erased,
-    /// Bootloader at `0x08000000` and application at `0x08006000` — the production arrangement.
-    Split,
-    /// One image linked at `0x08000000` spanning past the bank boundary. A `no_bootloader` build:
-    /// it runs, but the RS485 field-update path cannot touch it, because that path needs the
+    /// Bootloader at `0x08000000` and an application above it — the production arrangement.
+    /// `app_base` says which of the two bases the application was found at, because that is the
+    /// single fact deciding which build may be flashed onto this board next.
+    Split { app_base: u32 },
+    /// One image linked at `0x08000000` spanning past every bootloader bank. A `no_bootloader`
+    /// build: it runs, but the RS485 field-update path cannot touch it, because that path needs the
     /// bootloader.
     Flat,
     /// Something is programmed but no valid vector table was found where one should be.
@@ -88,18 +96,23 @@ pub enum Layout {
 }
 
 impl Layout {
+    /// One word for the readout. The two split arrangements are named apart: "split" on its own
+    /// would leave an operator unable to tell a board that has been updated from one that has not.
     pub fn as_str(self) -> &'static str {
         match self {
             Layout::Erased => "erased",
-            Layout::Split => "split",
+            Layout::Split { app_base } if app_base == addr::APP_BASE => "split",
+            Layout::Split { .. } => "split-legacy",
             Layout::Flat => "flat",
             Layout::Unrecognised => "unrecognised",
         }
     }
 
-    /// Whether this arrangement can be field-updated over RS485. Only a real bootloader can.
+    /// Whether this arrangement can be field-updated over RS485. Only a real bootloader can, and
+    /// both application bases are reachable through one -- a v6 bootloader starts a legacy-base
+    /// image when the new bank is blank.
     pub fn supports_field_update(self) -> bool {
-        self == Layout::Split
+        matches!(self, Layout::Split { .. })
     }
 }
 
@@ -107,6 +120,9 @@ impl Layout {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RegionReport {
     pub name: &'static str,
+    /// Where this region starts on *this* board. For the application that is whichever of the two
+    /// bases a vector table was found at, so it is a measurement rather than a constant — and it
+    /// is also the split point the byte counts and the banner below were taken either side of.
     pub base: u32,
     /// Bytes up to and including the last non-erased one.
     pub used_bytes: usize,
@@ -229,6 +245,11 @@ pub struct DeviceReport {
     pub application: RegionReport,
     /// The whole-flash vector table, meaningful when the layout is [`Layout::Flat`].
     pub flat_vector: Option<VectorTable>,
+    /// The bootloader's major version, scraped from its `Bootloader v…` banner. `None` when the
+    /// bank is erased or holds something with no banner in it. It is what says whether this board
+    /// expects its application at `0x08004000` or at `0x08006000` when the bank is blank, so it is
+    /// reported rather than inferred each time it is needed.
+    pub bootloader_version: Option<u32>,
     pub options: OptionBytes,
     pub uid: String,
     pub idcode: Option<u32>,
@@ -242,26 +263,57 @@ pub struct DeviceReport {
 
 impl DeviceImage {
     pub fn analyse(&self) -> DeviceReport {
-        let split = addr::BOOTLOADER_BYTES as usize;
         let firmware_end = addr::FIRMWARE_BYTES as usize;
         let firmware = &self.flash[..firmware_end.min(self.flash.len())];
         let boot_vector = VectorTable::read(&self.flash, 0);
-        let app_vector = VectorTable::read(&self.flash, split);
+        // Over the largest bank a bootloader can occupy, since which of the two this board uses is
+        // what is being worked out. On a v6 board the top third of that span is application, and
+        // the first match wins -- so the bootloader's own banner, which sits low in flash, is read
+        // rather than any copy of the string an application further up happens to carry.
+        let boot_version = bootloader_version(
+            self.flash
+                .get(..offset_of(addr::APP_BASE_LEGACY))
+                .unwrap_or(&self.flash),
+        );
+
+        // Both bases, because both are in the field. The new one is tried first: a v6 bootloader
+        // starts the image at 0x08004000 whenever there is one and only falls back to 0x08006000
+        // when that bank is blank, so when a board somehow holds both, the one that will actually
+        // run is the one to report.
+        let (app_base, app_vector) = [addr::APP_BASE, addr::APP_BASE_LEGACY]
+            .into_iter()
+            .find_map(|base| {
+                VectorTable::read(&self.flash, offset_of(base)).map(|vector| (base, Some(vector)))
+            })
+            // Nothing to find: an erased or unrecognised part still has to be split somewhere to
+            // be counted, and the bootloader's own version is the best evidence of where this
+            // board would put an application. Falling back to the legacy split keeps a v4/v5
+            // bootloader's tail counted as bootloader rather than as application.
+            .unwrap_or_else(|| {
+                let base = match boot_version {
+                    Some(version) if version >= 6 => addr::APP_BASE,
+                    _ => addr::APP_BASE_LEGACY,
+                };
+                (base, None)
+            });
+        let split = offset_of(app_base);
 
         let boot_used = used_bytes(&firmware[..split.min(firmware.len())]);
         let app_bytes = &firmware[split.min(firmware.len())..];
         let app_used = used_bytes(app_bytes);
 
-        // A vector table at 0 whose entry point is past the bank boundary means one image spans
-        // both banks -- there is no bootloader, whatever else is programmed.
-        let flat = boot_vector.is_some_and(|v| v.entry() >= addr::APP_BASE);
+        // A vector table at 0 whose entry point is past *every* bootloader bank means one image
+        // spans them all -- there is no bootloader, whatever else is programmed. Measured against
+        // the legacy bank end rather than the v6 one, because a 24 kB bootloader's own entry point
+        // legitimately sits above 0x08004000 and reporting that board as flat would be wrong.
+        let flat = boot_vector.is_some_and(|v| v.entry() >= addr::APP_BASE_LEGACY);
 
         let layout = if boot_used == 0 && app_used == 0 {
             Layout::Erased
         } else if flat {
             Layout::Flat
         } else if boot_vector.is_some() && app_vector.is_some() {
-            Layout::Split
+            Layout::Split { app_base }
         } else {
             Layout::Unrecognised
         };
@@ -278,13 +330,14 @@ impl DeviceImage {
             },
             application: RegionReport {
                 name: "application",
-                base: addr::APP_BASE,
+                base: app_base,
                 used_bytes: app_used,
                 vector: app_vector,
                 banner: first_banner(app_bytes),
                 sha256: hex(&Sha256::digest(&app_bytes[..app_used])),
             },
             flat_vector: if flat { boot_vector } else { None },
+            bootloader_version: boot_version,
             options: OptionBytes::decode(self.optr),
             uid: format!(
                 "{:08X}-{:08X}-{:08X}",
@@ -347,8 +400,35 @@ fn used_bytes(region: &[u8]) -> usize {
     region.iter().rposition(|&b| b != 0xFF).map_or(0, |i| i + 1)
 }
 
+/// A flash address as an index into a whole-flash readback.
+fn offset_of(address: u32) -> usize {
+    (address - addr::FLASH_BASE) as usize
+}
+
 /// The version banners this product puts in its binaries.
 const BANNER_NEEDLES: [&str; 2] = ["Portal v", "Bootloader v"];
+
+/// The bootloader's major version, read out of its own bytes.
+///
+/// `Bootloader v6` is a plain string literal in the image, so this needs no symbols and no ELF —
+/// the same property that lets a board be identified from a readback. The number is what says
+/// which application base an image may be paired with, since v6 is where the bank moved:
+/// [`crate::image::ImageBundle::validate`] holds a v6 bootloader to 16 kB and anything older to
+/// 24 kB on the strength of it.
+///
+/// `None` for a bank with no banner in it, which must never be read as "new enough" — an image
+/// this cannot identify is held to the *larger* bank, where being wrong costs nothing.
+pub fn bootloader_version(bytes: &[u8]) -> Option<u32> {
+    let needle = b"Bootloader v";
+    let start = bytes.windows(needle.len()).position(|w| w == needle)? + needle.len();
+    let digits: String = bytes[start..]
+        .iter()
+        .take(4)
+        .take_while(|b| b.is_ascii_digit())
+        .map(|&b| b as char)
+        .collect();
+    digits.parse().ok()
+}
 
 /// The first printable run starting at a known banner prefix.
 pub fn first_banner(region: &[u8]) -> Option<String> {
@@ -412,6 +492,11 @@ mod tests {
         flash[offset + 4..offset + 8].copy_from_slice(&reset.to_le_bytes());
     }
 
+    /// A version banner where a real build puts one: a plain string literal in the image.
+    fn write_banner(flash: &mut [u8], offset: usize, banner: &[u8]) {
+        flash[offset..offset + banner.len()].copy_from_slice(banner);
+    }
+
     // ---------------------------------------------------------------- vector tables
 
     #[test]
@@ -454,21 +539,88 @@ mod tests {
         assert_eq!(report.programmed_bytes, 0);
     }
 
+    /// A board that has been updated: 16 kB bootloader, application at `0x08004000`.
     #[test]
-    fn the_production_arrangement_reads_as_split() {
+    fn a_v6_board_reads_as_split_at_the_new_base() {
         let mut flash = blank();
-        // Bootloader: entry inside its own 24 kB bank.
+        // Bootloader: entry inside its own 16 kB bank.
         put_vector(&mut flash, 0, 0x2000_9000, 0x0800_123D);
-        flash[0x100] = 0x01;
+        write_banner(&mut flash, 0x200, b"Bootloader v6\0");
         // Application: entry inside the application bank.
+        put_vector(&mut flash, 0x4000, 0x2000_9000, 0x0800_4241);
+        flash[0x4100] = 0x02;
+
+        let report = image(flash).analyse();
+        assert_eq!(
+            report.layout,
+            Layout::Split {
+                app_base: addr::APP_BASE
+            }
+        );
+        assert_eq!(report.layout.as_str(), "split");
+        assert_eq!(report.bootloader_version, Some(6));
+        assert_eq!(report.application.base, addr::APP_BASE);
+        assert!(report.bootloader.vector.is_some());
+        assert!(report.application.vector.is_some());
+        assert!(report.layout.supports_field_update());
+    }
+
+    /// A board that has not: 24 kB bootloader, application at `0x08006000`. Still production, and
+    /// still field-updatable — the two split arrangements differ only in where the application is.
+    #[test]
+    fn a_v4_board_reads_as_split_at_the_legacy_base() {
+        let mut flash = blank();
+        put_vector(&mut flash, 0, 0x2000_9000, 0x0800_123D);
+        write_banner(&mut flash, 0x200, b"Bootloader v4\0");
+        // A 22,708-byte bootloader occupies flash past 0x08004000, so the bytes there are its own
+        // and there is no vector table to find at the new base.
+        for byte in flash.iter_mut().take(22_708).skip(0x300) {
+            *byte = 0x5A;
+        }
         put_vector(&mut flash, 0x6000, 0x2000_9000, 0x0800_6241);
         flash[0x6100] = 0x02;
 
         let report = image(flash).analyse();
-        assert_eq!(report.layout, Layout::Split);
-        assert!(report.bootloader.vector.is_some());
-        assert!(report.application.vector.is_some());
+        assert_eq!(
+            report.layout,
+            Layout::Split {
+                app_base: addr::APP_BASE_LEGACY
+            }
+        );
+        assert_eq!(
+            report.layout.as_str(),
+            "split-legacy",
+            "an operator has to be able to tell an updated board from one that is not"
+        );
+        assert_eq!(report.bootloader_version, Some(4));
+        assert_eq!(
+            report.bootloader.used_bytes, 22_708,
+            "the bootloader's own tail above 0x08004000 must not be counted as application"
+        );
         assert!(report.layout.supports_field_update());
+    }
+
+    /// An erased application bank is split where this board's own bootloader expects one.
+    #[test]
+    fn a_blank_application_bank_is_split_by_the_bootloader_version() {
+        let mut with_v6 = blank();
+        put_vector(&mut with_v6, 0, 0x2000_9000, 0x0800_123D);
+        write_banner(&mut with_v6, 0x200, b"Bootloader v6\0");
+        let report = image(with_v6).analyse();
+        assert_eq!(
+            report.layout,
+            Layout::Unrecognised,
+            "no application to start"
+        );
+        assert_eq!(report.application.base, addr::APP_BASE);
+
+        let mut with_v5 = blank();
+        put_vector(&mut with_v5, 0, 0x2000_9000, 0x0800_123D);
+        write_banner(&mut with_v5, 0x200, b"Bootloader v5\0");
+        assert_eq!(
+            image(with_v5).analyse().application.base,
+            addr::APP_BASE_LEGACY
+        );
     }
 
     /// The board actually on the bench. Not a hypothetical.
@@ -517,6 +669,17 @@ mod tests {
             Some("Portal v2026-08-10_15.01"),
             "identifying a board must need no symbols and no firmware change"
         );
+    }
+
+    #[test]
+    fn the_bootloader_version_is_the_number_after_the_banner() {
+        assert_eq!(bootloader_version(b"...Bootloader v6\0..."), Some(6));
+        assert_eq!(bootloader_version(b"Bootloader v10 something"), Some(10));
+        // A version that cannot be read must not be mistaken for a new one: `validate` holds an
+        // unidentified bootloader to the larger bank, where being wrong is harmless.
+        assert_eq!(bootloader_version(b"Portal v2026-08-10_15.01"), None);
+        assert_eq!(bootloader_version(b"Bootloader vX"), None);
+        assert_eq!(bootloader_version(&[0xFF; 64]), None);
     }
 
     #[test]
