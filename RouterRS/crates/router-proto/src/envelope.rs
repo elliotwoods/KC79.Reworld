@@ -100,7 +100,9 @@ mod tests {
 
     /// The captured wire frame from `IPython/2024-11-23 - COBS issues/
     /// cobsissue.py`: a firmware position report `[0, 1, {"p": [94848, 0,
-    /// 94848, 0]}]` (94848 = MICROSTEPS_PER_PRISM_ROTATION / 2).
+    /// 94848, 0]}]` (94848 was MICROSTEPS_PER_PRISM_ROTATION / 2 at the time
+    /// of capture; the constant is 189_704 -> 94_852 since the 2026 rounding
+    /// fix, but the historical bytes are what this test decodes).
     #[test]
     fn golden_captured_frame_decodes() {
         let wire = hex_to_bytes(

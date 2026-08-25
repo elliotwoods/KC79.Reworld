@@ -312,7 +312,10 @@ mod tests {
         let pilot = Pilot::default();
         assert_eq!(pilot.leading_control, LeadingControl::Axes);
         assert!(pilot.cyclic);
-        assert_eq!(pilot.microsteps_per_prism_rotation, 189_696);
+        // Deliberate divergence from the C++ Router's 189_696: the firmware
+        // defines a revolution as the rounded rational (see router-proto
+        // constants.rs), and this must match the firmware, not the old app.
+        assert_eq!(pilot.microsteps_per_prism_rotation, 189_704);
         assert!(!pilot.send_periodically);
     }
 
