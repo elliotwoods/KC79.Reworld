@@ -21,7 +21,10 @@ namespace PersistentStorage {
 
 	struct Settings {
 		uint32_t generation = 0;
-		uint16_t operatingCurrentMa = 150;
+		// What a board with no valid settings record comes up at; App::setup applies it
+		// unconditionally. Kept equal to MOTORDRIVERSETTINGS_DEFAULT_CURRENT -- a virgin board
+		// that came up gentler than a provisioned one would be a trap, not a safety margin.
+		uint16_t operatingCurrentMa = 250;
 		bool fullCurrentHomeRecovery = true;
 		uint16_t opticalCalibrationVersion = 0;
 		bool axisACalibrationValid = false;

@@ -251,8 +251,13 @@ namespace Modules {
 				// switch) builds, which makes this identical to the original one-shot latch:
 				// with M=1, the run threshold fires on the very first matching sample and the
 				// position offset is stepCount - 0.
+				// One read for both latches. getForwardsActive() and getBackwardsActive() are
+				// the same pin on the optical switch, so asking twice bought nothing and cost
+				// the expensive half of this ISR twice over. See HomeSwitchOptical::getRawState.
+				const auto raw = this->homeSwitch.getRawState();
+
 				if(!switchesSeen.forwards.seen) {
-					if (this->homeSwitch.getForwardsActive() ^ this->inInterrupt.invertSwitches) {
+					if (raw.forwards ^ this->inInterrupt.invertSwitches) {
 						if(++this->inInterrupt.fwRun >= this->switchLatchDebounce) {
 							switchesSeen.forwards.seen = true;
 							Steps debounceOffset = (Steps)(this->switchLatchDebounce - 1);
@@ -267,7 +272,7 @@ namespace Modules {
 				}
 
 				if(!switchesSeen.backwards.seen) {
-					if (this->homeSwitch.getBackwardsActive() ^ this->inInterrupt.invertSwitches) {
+					if (raw.backwards ^ this->inInterrupt.invertSwitches) {
 						if(++this->inInterrupt.bwRun >= this->switchLatchDebounce) {
 							switchesSeen.backwards.seen = true;
 							Steps debounceOffset = (Steps)(this->switchLatchDebounce - 1);
@@ -582,34 +587,29 @@ namespace Modules {
 			if(!MotionControl::readMeasureRoutineSettings(stream, settings)) {
 				return false;
 			}
+			bool succeeded = false;
 			for(uint8_t i=0; i<settings.tryCount; i++) {
 				auto exception = this->unjamRoutine(settings);
 				if(exception) {
 					log(exception);
 				}
 				else {
-					return true;
+					succeeded = true;
+					break;
 				}
 			}
-			return false;
+			// Unlike the pre-2026 sweep, unjamRoutine ends with the datum zeroed and homeOK
+			// false whenever it got as far as moving (see unjamEnd) -- deliberately NOT chased
+			// with an automatic home here, so the caller stays in control of when the module
+			// moves again. Say so loudly: a host that treats unjam as datum-preserving (as the
+			// old firmware was) would otherwise carry on in an arbitrary position frame.
+			if(this->getUnjamReport().ran) {
+				log(LogLevel::Warning, this->getName()
+					, "unjam: home datum LOST (position zeroed, homeOK=false); send home before absolute moves");
+			}
+			return succeeded;
 		}
-		else if(strcmp(key, "tuneCurrent") == 0) {
-			// TUNE CURRENT
-			MeasureRoutineSettings settings;
-			if(!MotionControl::readMeasureRoutineSettings(stream, settings)) {
-				return false;
-			}
-			for(uint8_t i=0; i<settings.tryCount; i++) {
-				auto exception = this->tuneCurrentRoutine(settings);
-				if(exception) {
-					log(exception);
-				}
-				else {
-					return true;
-				}
-			}
-			return false;
-		}
+#ifdef HOME_SWITCH_LEGACY
 		else if(strcmp(key, "measureBacklash") == 0) {
 			// MEASURE BACKLASH
 			MeasureRoutineSettings settings;
@@ -627,14 +627,24 @@ namespace Modules {
 			}
 			return false;
 		}
+#endif
 		else if(strcmp(key, "home") == 0) {
 			// HOMING ROUTINE
+			//
+			// An optical board homes with fastHomeRoutine, which produces the datum, the flag
+			// width and the backlash in one pass. This key used to run the legacy mechanical
+			// homeRoutine on every board including v6, so the only homing reachable over the
+			// wire was the wrong one for the hardware it was talking to.
 			MeasureRoutineSettings settings;
 			if(!MotionControl::readMeasureRoutineSettings(stream, settings)) {
 				return false;
 			}
 			for(uint8_t i=0; i<settings.tryCount; i++) {
+#ifdef HOME_SWITCH_LEGACY
 				auto exception = this->homeRoutine(settings);
+#else
+				auto exception = this->fastHomeRoutine(settings);
+#endif
 				if(exception) {
 					log(exception);
 				}
@@ -683,9 +693,20 @@ namespace Modules {
 		this->frameSwitchEvents.forwards.seen = false;
 		this->frameSwitchEvents.backwards.seen = false;
 
-		// Pull step count from interrupt
-		auto stepCount = this->inInterrupt.stepCount;
-		this->inInterrupt.stepCount = 0;
+		// Pull step count from interrupt.
+		//
+		// Read-then-zero is two instructions, and a step landing between them had its increment
+		// thrown away -- one microstep of position lost, permanently, every time it happened.
+		// Rare per frame; not rare over a show, and it accumulates in one direction. The
+		// critical section is those two instructions and nothing else.
+		Steps stepCount;
+		{
+			const uint32_t primask = __get_PRIMASK();
+			__disable_irq();
+			stepCount = this->inInterrupt.stepCount;
+			this->inInterrupt.stepCount = 0;
+			__set_PRIMASK(primask);
+		}
 		
 		// Can we do this fast?
 		auto needsHandleSwitches = this->switchesArmed
@@ -967,235 +988,688 @@ namespace Modules {
 	}
 
 	//----------
+	// The unjam sweep, in three parts so Routines::unjam can step both axes at once.
+	//
+	// Full torque and full steps are the CALLER's to set, because both come from the one
+	// MotorDriverSettings the two axes share -- see the header.
 	Exception
-	MotionControl::unjamRoutine(const MeasureRoutineSettings& settings)
+	MotionControl::unjamBegin(const MeasureRoutineSettings&
+		, const UnjamSettings& unjamSettings)
 	{
-#ifndef UNJAM_DISABLED
-		// Stop any existing motion profile
-		this->stop();
+		auto& state = this->unjamState;
+		state = UnjamState();
+		state.settings = unjamSettings;
 
-		// Create a string for the module name
 		char moduleName[100];
-		sprintf(moduleName, "%s.unjamRoutine", this->getName());
+		sprintf(moduleName, "%s.unjam", this->getName());
 
 		if(!this->timer.hardwareTimer) {
 			return Exception(moduleName, "No hardware timer");
 		}
 
-		log(LogLevel::Status, moduleName, "begin");
+		// Stop any existing motion profile before taking the operating point over
+		this->stop();
 
-		// Store priors for later
-		auto priorCurrent = this->motorDriverSettings.getCurrent();
-		auto priorMicrostep = this->motorDriverSettings.getMicrostepResolution();
-		auto priorMotionProfile = this->motionProfile;
+		// One prism revolution, in the unit this sweep runs in. The caller has already put the
+		// driver in full-step mode, so this reads back as full steps per revolution.
+		const auto revolution = this->getMicrostepsPerPrismRotation();
 
-		// We won't be calibrated any more after this
+		state.stride = unjamSettings.stride > 0
+			? unjamSettings.stride
+			: revolution / 4;
+		if(state.stride < 8) {
+			return Exception(moduleName, "Stride too small");
+		}
+
+		state.travelTarget = revolution * (Steps) unjamSettings.rotations;
+		state.report.expectedGap = revolution;
+
+		// Priors this axis owns. The shared driver settings are the caller's.
+		state.priorMotionProfile = this->motionProfile;
+		state.priorSystemBacklash = this->backlashControl.systemBacklash;
+		state.priorPositionWithinBacklash = this->backlashControl.positionWithinBacklash;
+		state.priorLatchDebounce = this->switchLatchDebounce;
+		state.priorSwitchesArmed = this->switchesArmed;
+
+		// Whatever we knew about where home is, we are about to drive through it on purpose
 		this->healthStatus.homeOK = false;
 
-		// We will check the switches
+		// The backlash model is expressed in microsteps and this sweep counts full steps, so
+		// leaving it engaged would inject a quarter-revolution dead band at every one of the
+		// dozens of reversals below, and corrupt the very distances the sweep exists to
+		// measure. Zeroed for the duration; homing re-measures it afterwards anyway.
+		this->backlashControl.systemBacklash = 0;
+		this->backlashControl.positionWithinBacklash = 0;
+
+		// An RS485 move that arrived just before the routine leaves the filter armed, and
+		// updateFilteredMotion would then rewrite targetPosition under us on every tick.
+		this->motionFiltering.active = false;
+
+		// Watch the flag on the way past. Two consecutive agreeing samples, not one: in
+		// full-step mode the flag is only about nine samples wide, so a long debounce would
+		// swallow it, while a one-shot latch lets comparator noise on the dip flank through as
+		// a phantom sighting.
 		this->switchesArmed = true;
+		this->switchLatchDebounce = 2;
+		this->updateStepsAndSwitches(); // clear any stale events out
 
-		// Set the current to max and steps to 1
-		this->motorDriverSettings.setCurrent(MOTORDRIVERSETTINGS_MAX_CURRENT);
-		this->motorDriverSettings.setMicrostepResolution(MotorDriverSettings::MicrostepResolution::_1);
-
-		// Tone down acceleration and velocity to match full steps movement
-		MotionProfile unblockMotionProfile;
 		{
-			unblockMotionProfile.acceleration = 500;
-			unblockMotionProfile.maximumSpeed = 523; // note C5
-			unblockMotionProfile.minimumSpeed = 100;
+			MotionProfile unjamMotionProfile;
+			unjamMotionProfile.acceleration = unjamSettings.acceleration;
+			unjamMotionProfile.maximumSpeed = unjamSettings.speed;
+			unjamMotionProfile.minimumSpeed = 100;
+			this->setMotionProfile(unjamMotionProfile);
 		}
-		this->setMotionProfile(unblockMotionProfile);
 
-		// Start measuring time for timeout
-		uint32_t startTime = millis();
-		uint32_t routineDeadline = startTime + (uint32_t) settings.timeout_s * 1000U;
+		state.origin = this->getPosition();
+		state.nextRevolutionMark = revolution;
+		state.forwards = true;
+		state.offFlag = !this->homeSwitch.getForwardsActive();
+		state.deadline = millis() + (uint32_t) unjamSettings.timeout_s * 1000U;
+		state.active = true;
+		state.report.ran = true;
 
-		// Create a function to handle ending of routine
-		auto endRoutine = [&]() {
-			this->stop();
-			this->setMotionProfile(priorMotionProfile);
-			this->motorDriverSettings.setCurrent(priorCurrent);
-			this->motorDriverSettings.setMicrostepResolution(priorMicrostep);
-			this->switchesArmed = false;
-			log(LogLevel::Status, moduleName, "end");
-		};
-		
-		// Set end position to be 1.5x complete rotation
-		auto startPosition = this->getPosition();
-		auto endPosition = startPosition + MOTION_STEPS_PER_PRISM_ROTATION * 4 / 3;
-		this->setTargetPosition(endPosition);
+		this->setTargetPosition(state.origin + state.stride);
 
-		// Log if we ever see the switches (for safety sake)
-		bool switchesSeen[2] { false, false};
-
-		// Wait for move
-		log(LogLevel::Status, moduleName, "Walk CW");
 		{
-			while (this->getPosition() < this->getTargetPosition())
-			{
-				this->update();
-				if(App::updateFromRoutine()) { endRoutine(); return Exception::Escape(moduleName); }
-				HAL_Delay(20); // longer delay because dt is otherwise too short for these steps
-
-				if(this->frameSwitchEvents.forwards.seen && !switchesSeen[0]) {
-					log(LogLevel::Status, moduleName, "FW switch seen");
-					switchesSeen[0] = true;
-				}
-
-				if (millis() > routineDeadline)
-				{
-					endRoutine();
-					return Exception::Timeout(moduleName);
-				}
-			}
+			char message[110];
+			sprintf(message, "begin: %d fwd / %d back full steps, clearing %d rev = %d steps, at %dmA"
+				, (int) state.stride
+				, (int) (state.stride / 2)
+				, (int) unjamSettings.rotations
+				, (int) state.travelTarget
+				, (int) (this->motorDriverSettings.getCurrent() * 1000.0f));
+			log(LogLevel::Status, moduleName, message);
 		}
 
-		if(!switchesSeen[0]) {
-			endRoutine();
-			return Exception(moduleName, "Didn't see FW switch");
-		}
-
-		// Instruct move back to 0
-		this->setTargetPosition(startPosition);
-
-		// Wait for move
-		log(LogLevel::Status, moduleName, "Walk CCW");
-		Steps backwardsSwitchSeenPosition;
-		{
-			while (this->getPosition() > this->getTargetPosition())
-			{
-				this->update();
-				if(App::updateFromRoutine()) { endRoutine(); return Exception::Escape(moduleName); }
-				HAL_Delay(20); // longer delay because dt is otherwise too short for these steps
-
-				if(this->frameSwitchEvents.backwards.seen && !switchesSeen[1]) {
-					log(LogLevel::Status, moduleName, "BW switch seen");
-					switchesSeen[1] = true;
-				}
-				
-				if (millis() > routineDeadline)
-				{
-					endRoutine();
-					return Exception::Timeout(moduleName);
-				}
-
-				backwardsSwitchSeenPosition = this->frameSwitchEvents.backwards.positionSeen;
-			}
-		}
-
-		if(!switchesSeen[1]) {
-			endRoutine();
-			return Exception(moduleName, "Didn't see BW switch");
-		}
-
-		endRoutine();
-
-		this->healthStatus.switchesOK = true;
-
-		// Make a guess for the home position
-		{
-			auto switchToHere = this->getPosition() - backwardsSwitchSeenPosition;
-
-			// Take the position from this value and normalise it to the number of steps per rotation
-			this->position = switchToHere * this->motorDriverSettings.getMicrostepsPerStep();
-		}
-
-#endif
 		return Exception::None();
 	}
 
 	//----------
-	Exception
-	MotionControl::tuneCurrentRoutine(const MeasureRoutineSettings& settings)
+	bool
+	MotionControl::unjamUpdate()
 	{
-#ifndef TUNE_CURRENT_DISABLED
-		// Create a module name
+		auto& state = this->unjamState;
+		if(!state.active) {
+			return false;
+		}
+
+		this->update();
+
+		const auto position = this->getPosition();
+
+		// A sighting is the FIRST forward crossing of the flag since we were last off it. Only
+		// forward legs count, so every sighting is the same edge approached the same way and
+		// the distances between them are comparable.
+		if(state.forwards
+			&& this->frameSwitchEvents.forwards.seen
+			&& state.offFlag) {
+			const auto seenAt = this->frameSwitchEvents.forwards.positionSeen;
+			state.offFlag = false;
+
+			auto& report = state.report;
+
+			// The same flag, again. Every cycle steps back half a stride, so a flag crossed
+			// near the end of one forward leg is usually crossed again at the start of the
+			// next -- with the default stride that is roughly every other cycle. Those are one
+			// sighting, not several: the next DIFFERENT flag is a whole revolution away, and
+			// slip only ever makes that distance longer, never shorter, so half a revolution
+			// separates the two cases with room to spare.
+			const bool sameFlagAgain = state.haveSighting
+				&& seenAt - state.lastSighting < report.expectedGap / 2;
+
+			if(!sameFlagAgain) {
+				char moduleName[100];
+				sprintf(moduleName, "%s.unjam", this->getName());
+
+				if(!state.haveSighting) {
+					state.haveSighting = true;
+					report.firstSighting = seenAt;
+					report.sightings = 1;
+
+					char message[80];
+					sprintf(message, "home 1 at %+d (first)", (int) (seenAt - state.origin));
+					log(LogLevel::Status, moduleName, message, false);
+				}
+				else {
+					const Steps gap = seenAt - state.lastSighting;
+					const Steps deviation = gap - report.expectedGap;
+					const Steps absDeviation = deviation < 0 ? -deviation : deviation;
+
+					if(report.sightings == 1 || gap < report.shortestGap) {
+						report.shortestGap = gap;
+					}
+					if(report.sightings == 1 || gap > report.longestGap) {
+						report.longestGap = gap;
+					}
+					if(absDeviation > report.worstDeviation) {
+						report.worstDeviation = absDeviation;
+					}
+					report.totalAbsDeviation += absDeviation;
+					if(report.sightings < 255) {
+						report.sightings++;
+					}
+
+					char message[100];
+					sprintf(message, "home %d at %+d: gap %d, %+d vs one revolution"
+						, (int) report.sightings
+						, (int) (seenAt - state.origin)
+						, (int) gap
+						, (int) deviation);
+					log(LogLevel::Status, moduleName, message, false);
+				}
+				report.lastSighting = seenAt;
+				state.lastSighting = seenAt;
+			}
+		}
+
+		if(!this->homeSwitch.getForwardsActive()) {
+			state.offFlag = true;
+		}
+
+		if(millis() > state.deadline) {
+			state.timedOut = true;
+			state.active = false;
+			return false;
+		}
+
+		if(state.forwards) {
+			if(position < this->getTargetPosition()) {
+				return true;
+			}
+
+			const Steps travelled = position - state.origin;
+			state.report.netTravel = travelled;
+
+			// Progress a revolution at a time rather than a cycle at a time: with the default
+			// stride that is ten lines instead of eighty, and a revolution is the unit the
+			// operator is actually waiting on.
+			while(travelled >= state.nextRevolutionMark) {
+				char moduleName[100];
+				sprintf(moduleName, "%s.unjam", this->getName());
+				char message[100];
+				sprintf(message, "cleared %d/%d rev (%d cycles, %d home sightings)"
+					, (int) (state.nextRevolutionMark / state.report.expectedGap)
+					, (int) state.settings.rotations
+					, (int) state.report.cycles
+					, (int) state.report.sightings);
+				log(LogLevel::Status, moduleName, message, false);
+				state.nextRevolutionMark += state.report.expectedGap;
+			}
+
+			if(travelled >= state.travelTarget) {
+				state.report.completed = true;
+				state.active = false;
+				return false;
+			}
+
+			state.forwards = false;
+			this->setTargetPosition(position - state.stride / 2);
+			return true;
+		}
+
+		if(position > this->getTargetPosition()) {
+			return true;
+		}
+
+		state.report.cycles++;
+		state.forwards = true;
+		this->setTargetPosition(position + state.stride);
+		return true;
+	}
+
+	//----------
+	Exception
+	MotionControl::unjamEnd()
+	{
+		auto& state = this->unjamState;
+
 		char moduleName[100];
-		sprintf(moduleName, "%s.tuneCurrentRoutine", this->getName());
+		sprintf(moduleName, "%s.unjam", this->getName());
+
+		this->stop();
+
+		if(!state.report.ran) {
+			return Exception::None();
+		}
+
+		state.report.netTravel = this->getPosition() - state.origin;
+		const bool stoppedEarly = state.active;
+		state.active = false;
+
+		// Restore this axis's priors. The shared driver settings are the caller's to put back.
+		this->setMotionProfile(state.priorMotionProfile);
+		this->backlashControl.systemBacklash = state.priorSystemBacklash;
+		this->backlashControl.positionWithinBacklash = state.priorPositionWithinBacklash;
+		this->switchLatchDebounce = state.priorLatchDebounce;
+		this->switchesArmed = state.priorSwitchesArmed;
+
+		// The datum is gone, and pretending otherwise would be worse than saying so: `position`
+		// has been counting FULL steps into the variable the rest of the firmware reads as
+		// microsteps, so the only honest value to leave behind is zero. Homing re-datums, and
+		// healthStatus.homeOK has been false since unjamBegin.
+		this->zeroCurrentPosition();
+
+		auto& report = state.report;
+		{
+			char message[110];
+			sprintf(message, "%s: %d cycles, %d full steps net, %d home sightings"
+				, report.completed ? "cleared" : (state.timedOut ? "TIMED OUT" : "stopped")
+				, (int) report.cycles
+				, (int) report.netTravel
+				, (int) report.sightings);
+			log(report.completed ? LogLevel::Status : LogLevel::Warning, moduleName, message);
+		}
+
+		if(report.sightings >= 2) {
+			char message[120];
+			sprintf(message, "home consistency: gap %d..%d against %d expected, worst %d, mean |dev| %d"
+				, (int) report.shortestGap
+				, (int) report.longestGap
+				, (int) report.expectedGap
+				, (int) report.worstDeviation
+				, (int) (report.totalAbsDeviation / (int32_t) (report.sightings - 1)));
+			log(LogLevel::Status, moduleName, message);
+		}
+
+		log(LogLevel::Status, moduleName, "end");
+
+		// Verdicts, worst first. Timing out and being stopped both mean "we do not know"; only
+		// a sweep that ran its whole distance can say anything about the flag.
+		if(state.timedOut) {
+			return Exception::Timeout(moduleName);
+		}
+		if(stoppedEarly) {
+			return Exception::Escape(moduleName);
+		}
+
+		// Seeing the flag once per revolution is the whole confirmation that the prism turned
+		// with the motor -- position counts steps COMMANDED, so it reaches the target whether
+		// anything moved or not, and the flag is the only witness that it did. One sighting
+		// short is allowed for the lap the sweep started part-way into.
+		const int expectedSightings = (int) state.settings.rotations;
+		if(report.sightings == 0) {
+			return Exception(moduleName, "Home flag never seen");
+		}
+		if((int) report.sightings + 1 < expectedSightings) {
+			char message[80];
+			sprintf(message, "Home flag seen %d times in %d revolutions"
+				, (int) report.sightings
+				, expectedSightings);
+			return Exception(moduleName, message);
+		}
+
+		// A prism turning cleanly repeats its revolution to well inside 1%. More scatter than
+		// that is the motor losing steps against a load, which is what a jam looks like from
+		// here, and is the answer this routine exists to give.
+		if(report.worstDeviation > report.expectedGap / 100) {
+			char message[90];
+			sprintf(message, "Home position drifts up to %d full steps per revolution"
+				, (int) report.worstDeviation);
+			return Exception(moduleName, message);
+		}
+
+		return Exception::None();
+	}
+
+	//----------
+	const MotionControl::UnjamReport &
+	MotionControl::getUnjamReport() const
+	{
+		return this->unjamState.report;
+	}
+
+	//----------
+	Exception
+	MotionControl::unjamRoutine(const MeasureRoutineSettings& settings)
+	{
+		return this->unjamRoutine(settings, UnjamSettings());
+	}
+
+	//----------
+	Exception
+	MotionControl::unjamRoutine(const MeasureRoutineSettings& settings
+		, const UnjamSettings& unjamSettings)
+	{
+#ifdef UNJAM_DISABLED
+		return Exception::None();
+#else
+		char moduleName[100];
+		sprintf(moduleName, "%s.unjamRoutine", this->getName());
 
 		log(LogLevel::Status, moduleName, "begin");
 
-		MotorDriverSettings::Amps current = MOTORDRIVERSETTINGS_DEFAULT_CURRENT;
-		this->motorDriverSettings.setCurrent(current);
+		// One axis, so this function owns the shared operating point (see unjamBegin).
+		const auto priorCurrent = this->motorDriverSettings.getCurrent();
+		const auto priorMicrostep = this->motorDriverSettings.getMicrostepResolution();
+		this->motorDriverSettings.setCurrent(MOTORDRIVERSETTINGS_MAX_CURRENT);
+		this->motorDriverSettings.setMicrostepResolution(MotorDriverSettings::MicrostepResolution::_1);
 
-		this->switchesArmed = true;
-
-		auto endRoutine = [&]() {
-			this->switchesArmed = false;
+		auto restore = [&]() {
+			this->motorDriverSettings.setMicrostepResolution(priorMicrostep);
+			this->motorDriverSettings.setCurrent(priorCurrent);
 			log(LogLevel::Status, moduleName, "end");
 		};
 
-		// Start measuring time for timeout
-		uint32_t startTime = millis();
-		uint32_t timeoutTime = startTime + (uint32_t) settings.timeout_s * 1000U;
-
-		// Move off switch if already on
-		if(this->homeSwitch.getForwardsActive()) {
-			// We started on the switch
-
-			// Set the target to be +1 rotation cycle
-			this->setTargetPosition(this->getPosition() + this->getMicrostepsPerPrismRotation());
-
-			log(LogLevel::Status, moduleName, "Move off switch");
-
-			// Keep walking whilst we're on the switch
-			while(this->homeSwitch.getForwardsActive()) {
-				HAL_Delay(1);
-				this->update();
-				if(millis() > timeoutTime) { endRoutine(); return Exception::Timeout(moduleName); }
-				if(App::updateFromRoutine()) { endRoutine(); return Exception::Escape(moduleName); }
-			}
-
-			// Stop once we're off the switch
-			this->stop();
+		auto exception = this->unjamBegin(settings, unjamSettings);
+		if(exception) {
+			this->unjamEnd();
+			restore();
+			return exception;
 		}
 
-		Steps forwardsSwitchPosition;
-
-		while(true) {
-			log(LogLevel::Status, moduleName, "Single rotation CW");
-			
-			// Try to move and see the switch
-			auto startPosition = this->position;
-			auto endPosition = startPosition + this->getMicrostepsPerPrismRotation() * 11 / 10;
-
-			auto result = this->routineMoveToUntilSeeSwitch(endPosition
-				, SwitchesMask { true, false}
-				, timeoutTime);
-
-			if(result.exception) {
-				endRoutine();
-				result.exception.setModuleName(moduleName);
-				return result.exception;
-			}
-
-			if(result.frameSwitchEvents.forwards.seen) {
-				log(LogLevel::Status, moduleName, "Switch seen");
+		bool escaped = false;
+		while(this->unjamUpdate()) {
+			HAL_Delay(2);
+			if(App::updateFromRoutine()) {
+				escaped = true;
 				break;
 			}
+		}
+
+		auto result = this->unjamEnd();
+		restore();
+
+		if(escaped) {
+			return Exception::Escape(moduleName);
+		}
+		return result;
+#endif
+	}
+
+	//----------
+	// The cycle check, in three parts so Routines::cycleCheck can step both axes at once.
+	//
+	// See the header for what it is asking and why the answer is worth having early.
+	Exception
+	MotionControl::cycleCheckBegin(const CycleCheckSettings& settings)
+	{
+		auto& state = this->cycleCheckState;
+		state = CycleCheckState();
+		state.settings = settings;
+
+		char moduleName[100];
+		sprintf(moduleName, "%s.cycleCheck", this->getName());
+
+		if(!this->timer.hardwareTimer) {
+			return Exception(moduleName, "No hardware timer");
+		}
+
+		this->stop();
+
+		state.revolution = this->getMicrostepsPerPrismRotation();
+		state.toleranceUsteps = settings.tolerance * this->motorDriverSettings.getMicrostepsPerStep();
+
+		// How close two sightings have to be before they are the same flag rather than two.
+		//
+		// The latch re-arms every frame, so while we are ON the flag it keeps reporting an
+		// entry; and a comparator that dithers on the dip flank can drop out and re-enter
+		// inside the flag. This absorbs both.
+		//
+		// Expressed as a fraction of a revolution rather than as a microstep count, because a
+		// microstep count is only true at one microstep resolution: the flag measures ~266
+		// microsteps at 32 (FASTHOME_W_DEFAULT), and 8 at full steps. A 128th of a revolution
+		// is about five and a half flag widths at any resolution. It is also nowhere near a
+		// real second feature -- the one this module has sits at 0.57 of a revolution, seventy
+		// times further out.
+		state.sameFlagWindow = state.revolution / 128;
+
+		state.priorMotionProfile = this->motionProfile;
+		state.priorSystemBacklash = this->backlashControl.systemBacklash;
+		state.priorPositionWithinBacklash = this->backlashControl.positionWithinBacklash;
+		state.priorLatchDebounce = this->switchLatchDebounce;
+		state.priorSwitchesArmed = this->switchesArmed;
+
+		// This is the flag's only witness, so say so before we have looked: if the check does
+		// not reach a verdict, the module must not still be claiming the cycle is good.
+		this->healthStatus.measureCycleOK = false;
+
+		// Backlash compensation off for the duration, so `position` is exactly the count of
+		// steps commanded and the distance between two sightings is exactly what the motor did.
+		// It also matters at the very first move: an axis whose last motion was backwards would
+		// otherwise spend systemBacklash microsteps not advancing `position` at all, and a flag
+		// crossed inside that window would be recorded in the wrong place.
+		this->backlashControl.systemBacklash = 0;
+		this->backlashControl.positionWithinBacklash = 0;
+
+		// An RS485 move that arrived just before startup leaves the filter armed, and
+		// updateFilteredMotion would rewrite targetPosition under us on every tick.
+		this->motionFiltering.active = false;
+
+		this->switchesArmed = true;
+
+		// Consecutive agreeing samples before the latch believes an edge. A quarter of a full
+		// step matches the optical routine's coarse floor (FASTHOME_DEBOUNCE_MIN, 8) at the
+		// production 32 microsteps, and stays sane at coarser resolutions where the flag is
+		// only a handful of samples wide -- a fixed 8 would swallow it whole at full steps.
+		{
+			const Steps microstepsPerStep = this->motorDriverSettings.getMicrostepsPerStep();
+			const Steps debounce = microstepsPerStep / 4;
+			this->switchLatchDebounce = (uint16_t) (debounce < 2 ? 2 : debounce);
+		}
+
+		this->updateStepsAndSwitches(); // drop any stale event
+
+		{
+			MotionProfile profile;
+			profile.maximumSpeed = settings.speed;
+			this->setMotionProfile(profile);
+		}
+
+		state.origin = this->getPosition();
+		state.offFlag = !this->homeSwitch.getForwardsActive();
+		state.deadline = millis() + (uint32_t) settings.timeout_s * 1000U;
+		state.verdict = CycleCheckVerdict::Working;
+		state.active = true;
+
+		// A revolution and a bit to find the flag at all -- the bit covers starting just past
+		// it, and the ramp up to speed.
+		this->setTargetPosition(state.origin + state.revolution * 115 / 100);
+
+		return Exception::None();
+	}
+
+	//----------
+	bool
+	MotionControl::cycleCheckUpdate()
+	{
+		auto& state = this->cycleCheckState;
+		if(!state.active) {
+			return false;
+		}
+
+		this->update();
+		const auto position = this->getPosition();
+
+		// A sighting is a fresh forward entry onto the flag: latched by the ISR, and only once
+		// the sensor has read inactive since the last one.
+		bool sighting = false;
+		Steps seenAt = 0;
+		if(this->frameSwitchEvents.forwards.seen && state.offFlag) {
+			seenAt = this->frameSwitchEvents.forwards.positionSeen;
+			state.offFlag = false;
+			sighting = true;
+		}
+		if(!this->homeSwitch.getForwardsActive()) {
+			state.offFlag = true;
+		}
+
+		if(state.parking) {
+			if(position > this->getTargetPosition()) {
+				return true;
+			}
+			state.active = false;
+			return false;
+		}
+
+		if(sighting) {
+			char moduleName[100];
+			sprintf(moduleName, "%s.cycleCheck", this->getName());
+
+			if(!state.confirming) {
+				state.confirming = true;
+				state.firstSighting = seenAt;
+
+				// From here we care about one revolution, measured from the flag rather than
+				// from wherever the axis happened to be parked.
+				this->setTargetPosition(seenAt + state.revolution + state.toleranceUsteps);
+
+				char message[80];
+				sprintf(message, "flag seen after %d usteps; timing one revolution"
+					, (int) (seenAt - state.origin));
+				log(LogLevel::Status, moduleName, message, false);
+			}
 			else {
-				// We didn't see the switch even though we performed enough steps
-				current += 0.2f;
-				if(current > MOTORDRIVERSETTINGS_MAX_CURRENT) {
-					return Exception(moduleName, "Cannot raise the current higher");
+				const Steps gap = seenAt - state.firstSighting;
+
+				if(gap < state.sameFlagWindow) {
+					// Still the same flag. Not a second feature, and not worth a log line.
+				}
+				else if(gap < state.revolution - state.toleranceUsteps) {
+					// A second feature, arriving early. This is the fast fail, and it is the
+					// fault this module has: the flag the homing routine locks onto is not the
+					// only thing on the ring that crosses the threshold.
+					state.spacing = gap;
+					state.verdict = CycleCheckVerdict::ExtraFlag;
+					state.active = false;
+
+					char message[100];
+					sprintf(message, "second flag after %d usteps, %d%% of a revolution"
+						, (int) gap
+						, (int) ((int64_t) gap * 100 / (int64_t) state.revolution));
+					log(LogLevel::Error, moduleName, message);
+					return false;
 				}
 				else {
-					{
-						char message[100];
-						sprintf(message, "Increasing current to %dmA", (int) (current * 1000.0f));
-						log(LogLevel::Status, moduleName, message);
-					}
-					this->motorDriverSettings.setCurrent(current);
+					state.spacing = gap;
+					state.verdict = CycleCheckVerdict::Passed;
+
+					char message[100];
+					sprintf(message, "one revolution = %d usteps (%+d against %d)"
+						, (int) gap
+						, (int) (gap - state.revolution)
+						, (int) state.revolution);
+					log(LogLevel::Status, moduleName, message);
+
+					// Park with the flag a short way ahead, so the homing routine that follows
+					// acquires it almost immediately instead of seeking a whole revolution for
+					// something we have just been looking straight at.
+					state.parking = true;
+					this->setTargetPosition(seenAt
+						- MOTION_CLEAR_SWITCH_STEPS * this->motorDriverSettings.getMicrostepsPerStep());
+					return true;
 				}
 			}
 		}
 
-		endRoutine();
-#endif
-		return Exception::None();
+		if(millis() > state.deadline) {
+			state.verdict = CycleCheckVerdict::Timeout;
+			state.active = false;
+			return false;
+		}
+
+		if(position >= this->getTargetPosition()) {
+			state.verdict = state.confirming
+				? CycleCheckVerdict::WrongSpacing
+				: CycleCheckVerdict::NoFlag;
+			state.active = false;
+			return false;
+		}
+
+		return true;
 	}
+
+	//----------
+	Exception
+	MotionControl::cycleCheckEnd()
+	{
+		auto& state = this->cycleCheckState;
+
+		char moduleName[100];
+		sprintf(moduleName, "%s.cycleCheck", this->getName());
+
+		this->stop();
+
+		if(state.verdict == CycleCheckVerdict::NotRun) {
+			return Exception::None();
+		}
+
+		// Stopped with the state machine still mid-flight: the operator escaped, or the caller
+		// gave up on us. Either way we did not reach a verdict, and must not imply one.
+		if(state.active || state.verdict == CycleCheckVerdict::Working) {
+			state.verdict = CycleCheckVerdict::Aborted;
+		}
+		state.active = false;
+
+		this->setMotionProfile(state.priorMotionProfile);
+		this->backlashControl.systemBacklash = state.priorSystemBacklash;
+		this->backlashControl.positionWithinBacklash = state.priorPositionWithinBacklash;
+		this->switchLatchDebounce = state.priorLatchDebounce;
+		this->switchesArmed = state.priorSwitchesArmed;
+
+		if(state.verdict == CycleCheckVerdict::Passed) {
+			this->healthStatus.measureCycleOK = true;
+			log(LogLevel::Status, moduleName, "pass");
+			return Exception::None();
+		}
+
+		char message[100];
+		switch(state.verdict) {
+		case CycleCheckVerdict::NoFlag:
+			sprintf(message, "no flag in a revolution -- jammed, or the sensor cannot see it");
+			break;
+		case CycleCheckVerdict::ExtraFlag:
+			sprintf(message, "flag seen twice per revolution (second at %d of %d usteps)"
+				, (int) state.spacing, (int) state.revolution);
+			break;
+		case CycleCheckVerdict::WrongSpacing:
+			sprintf(message, "flag did not return within a revolution +/- %d usteps"
+				, (int) state.toleranceUsteps);
+			break;
+		case CycleCheckVerdict::Timeout:
+			sprintf(message, "timed out after %ds", (int) state.settings.timeout_s);
+			break;
+		default:
+			sprintf(message, "stopped before a verdict");
+			break;
+		}
+		return Exception(moduleName, message);
+	}
+
+	//----------
+	MotionControl::CycleCheckVerdict
+	MotionControl::getCycleCheckVerdict() const
+	{
+		return this->cycleCheckState.verdict;
+	}
+
+	//----------
+	Steps
+	MotionControl::getCycleCheckSpacing() const
+	{
+		return this->cycleCheckState.spacing;
+	}
+
+	//----------
+	const char *
+	MotionControl::cycleCheckVerdictName(CycleCheckVerdict verdict)
+	{
+		switch(verdict) {
+		case CycleCheckVerdict::Passed:       return "pass";
+		case CycleCheckVerdict::NoFlag:       return "no flag";
+		case CycleCheckVerdict::ExtraFlag:    return "extra flag";
+		case CycleCheckVerdict::WrongSpacing: return "wrong spacing";
+		case CycleCheckVerdict::Timeout:      return "timeout";
+		case CycleCheckVerdict::Aborted:      return "aborted";
+		case CycleCheckVerdict::Working:      return "working";
+		default:                              return "not run";
+		}
+	}
+
+#ifdef HOME_SWITCH_LEGACY
+	// Mechanical (PCB v4) only. On the optical build fastHomeRoutine produces the datum, the
+	// flag width and the backlash in one pass, so this is dead weight in an application image
+	// that is already 98% full.
 
 	//----------
 	// ReMarkable August 2023 page 2
@@ -1454,120 +1928,8 @@ namespace Modules {
 		endRoutine();
 		return Exception::None();
 	}
+#endif
 
-	//----------
-	Exception
-	MotionControl::measureCycleRoutine(const MeasureRoutineSettings& settings)
-	{
-		// Create a moduleName
-		char moduleName[100];
-		sprintf(moduleName, "%s.measureCycleRoutine", this->getName());
-
-		log(LogLevel::Status, moduleName, "begin");
-
-		this->switchesArmed = true;
-
-		// This routine keeps the caller's motion profile, and that is a deliberate decision
-		// rather than an omission.
-		//
-		// It is mostly travel -- find the switch, step clear, then all the way round to the next
-		// one -- so at the default 14,080 microsteps/s it costs about 33 s per axis, which is
-		// most of a `Routines::init`. Raising the traverse to the validated 24,000/20,000 seek
-		// profile duly cut a startup from 105 s to 79 s. It also made the routine FAIL on a good
-		// module: the cycle length is measured open-loop in the position counter, so every
-		// microstep the faster ramp slips is measured as gear error, and axis A came back 12
-		// full steps out against a 10-step tolerance where the same axis reads 5,928 +/- 2 at
-		// the default speed.
-		//
-		// A startup test that intermittently rejects healthy hardware is worse than a slow one,
-		// and this is the check that would catch a real gearbox fault. The 26 s stays paid.
-		auto endRoutine = [this, &moduleName]() {
-			this->stop();
-			this->switchesArmed = false;
-			log(LogLevel::Status, moduleName, "end");
-		};
-
-		// Stop any existing motion profile
-		this->stop();
-
-		auto timeout_ms = settings.timeout_s * 1000U;
-		auto clearSwitchDistance = MOTION_CLEAR_SWITCH_STEPS * this->motorDriverSettings.getMicrostepsPerStep();
-
-		Steps positionAtStart;
-		log(LogLevel::Status, moduleName, "1: Find the FW switch");
-		{
-			auto result = this->routineFindSwitchAccurate(true
-				, settings.slowMoveSpeed
-				, true
-				, millis() + timeout_ms);
-
-			if(result.exception.report()) {
-				result.exception.setModuleName(moduleName);
-				endRoutine();
-				return result.exception;
-			}
-
-			positionAtStart = result.frameSwitchEvents.forwards.positionSeen;
-		}
-
-		log(LogLevel::Status, moduleName, "2: Move off the switch");
-		{
-			auto result = this->routineMoveTo(positionAtStart + clearSwitchDistance, millis() + timeout_ms);
-
-			if(result.exception.report()) {
-				result.exception.setModuleName(moduleName);
-				endRoutine();
-				return result.exception;
-			}
-		}
-
-		Steps positionAtEnd;
-		log(LogLevel::Status, moduleName, "3: Cycle to next FW switch");
-		{
-			auto result = this->routineFindSwitchAccurate(true
-				, settings.slowMoveSpeed
-				, false
-				, millis() + timeout_ms);
-
-			if(result.exception.report()) {
-				result.exception.setModuleName(moduleName);
-				endRoutine();
-				return result.exception;
-			}
-
-			positionAtEnd = result.frameSwitchEvents.forwards.positionSeen;
-		}
-
-		// Calculate the length of one cycle
-		auto cycleLength = positionAtEnd - positionAtStart;
-
-		// Normalise to full steps
-		cycleLength = cycleLength / this->motorDriverSettings.getMicrostepsPerStep();
-
-		// Log the result
-		{
-			char message[100];
-			sprintf(message, "Cycle = %d full steps (expected %d)", cycleLength, MOTION_STEPS_PER_PRISM_ROTATION);
-			log(LogLevel::Status, moduleName, message);
-		}
-
-		// Check the result
-		{
-			auto delta = abs(cycleLength - MOTION_STEPS_PER_PRISM_ROTATION);
-			if(delta > MOTION_ALLOWED_PRISM_ROTATION_ERROR) {
-				char message[100];
-				sprintf(message, "Cycle length error (%d > %d full steps)", delta, MOTION_ALLOWED_PRISM_ROTATION_ERROR);
-				endRoutine();
-				return Exception(moduleName, message);
-			}
-		}
-
-		endRoutine();
-
-		this->healthStatus.measureCycleOK = true;
-		
-		return Exception::None();
-	}
 
 	//----------
 	void
@@ -2157,6 +2519,7 @@ namespace Modules {
 		const auto currentBefore = this->motorDriverSettings.getCurrent();
 		const uint8_t thresholdBefore = HomeSwitch::getThreshold();
 		const uint16_t debounceBefore = this->switchLatchDebounce;
+		const Steps backlashBefore = this->backlashControl.systemBacklash;
 
 		// Same current as homing, for the same reason: a lap that silently loses microsteps
 		// reports its edges at the wrong positions, and a census whose positions are wrong is
@@ -2171,6 +2534,11 @@ namespace Modules {
 			this->setMotionProfile(normalProfile);
 			this->motorDriverSettings.setCurrent(currentBefore);
 			HomeSwitch::setThreshold(thresholdBefore);
+			// Put the backlash model back -- the header promises the census does not touch it.
+			// Every census move is forward, so on every exit path the mesh is forward-engaged
+			// and the honest pending value is 0, not whatever was pending before the lap.
+			this->backlashControl.systemBacklash = backlashBefore;
+			this->backlashControl.positionWithinBacklash = 0;
 		};
 
 		if(speed == 0) speed = p->seekSpeed;

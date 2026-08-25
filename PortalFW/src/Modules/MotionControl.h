@@ -141,12 +141,158 @@ namespace Modules {
 
 		Steps getMicrostepsPerPrismRotation() const;
 
-		// Warning : This routine loses homing
+		// ---- unjam -------------------------------------------------------------------------
+		//
+		// A jammed prism is a mechanical problem, so the sweep that frees one is deliberately
+		// crude: full steps at full torque, N forwards then N/2 back, over and over, until the
+		// net travel adds up to `rotations` whole prism revolutions. The rocking is what does
+		// the work -- a jam that a steady push cannot pass will often yield to repeated
+		// reversals -- and the 2:1 ratio means every cycle still makes net progress, so the
+		// sweep terminates on distance rather than on hope.
+		//
+		// It is also the module's coarsest instrument. See UnjamReport.
+		struct UnjamSettings {
+			// N, in FULL steps (the routine runs in full-step mode). 0 asks for a quarter of a
+			// prism revolution, which is what getMicrostepsPerPrismRotation() reports once the
+			// microstep resolution is _1.
+			Steps stride = 0;
+
+			// How much NET travel to clear, in whole prism revolutions.
+			uint8_t rotations = 10;
+
+			// Full steps per second, and the ramp that reaches it. 523 is the speed the
+			// previous unjam routine used and is kept unchanged: in full-step mode that is
+			// already ~980 motor RPM and there is no torque to spare above it.
+			//
+			// The acceleration is NOT free to be small. calculateMotionState computes
+			// `acceleration * dt_us / 1000000` in integer arithmetic, so a tick shorter than
+			// 1000000/acceleration microseconds accelerates by zero and the ramp never starts.
+			// The old routine paid for its acceleration of 500 with a 20 ms tick, which is far
+			// too coarse to catch a home flag only ~9 full steps wide. 1500 needs 667 us and
+			// is safe at the 2 ms tick this routine runs.
+			StepsPerSecondPerSecond acceleration = 1500;
+			StepsPerSecond speed = 523;
+
+			// Ceiling for the whole sweep, in seconds. Deliberately not
+			// MeasureRoutineSettings::timeout_s: ten revolutions of NET travel is thirty
+			// revolutions of movement, which at 523 full steps/s cannot fit in that field's
+			// uint8_t range at all.
+			uint16_t timeout_s = 900;
+		};
+
+		// What the sweep saw of the home flag on the way past it.
+		//
+		// This is what makes unjam a diagnostic and not just a repair. The optical flag passes
+		// the sensor exactly once per prism revolution, so the motor-step distance between
+		// consecutive sightings IS one prism revolution as the motor measures it. A prism that
+		// is turning cleanly reports the same number every lap, and that number is
+		// getMicrostepsPerPrismRotation(). A prism that is slipping -- or a gearbox that is
+		// binding and losing steps -- reports gaps that are longer, and reports them
+		// inconsistently. `worstDeviation` is therefore the answer to "is this axis actually
+		// moving the prism", which no other routine reports as a number.
+		//
+		// Every distance here is in FULL steps, the unit the sweep runs in.
+		struct UnjamReport {
+			bool completed = false;      // reached the requested net travel
+			bool ran = false;            // begin() got as far as moving
+			uint16_t cycles = 0;
+			Steps netTravel = 0;         // net forward progress
+			Steps expectedGap = 0;       // one prism revolution, in full steps
+			uint8_t sightings = 0;
+			Steps firstSighting = 0;
+			Steps lastSighting = 0;
+			Steps shortestGap = 0;
+			Steps longestGap = 0;
+			Steps worstDeviation = 0;    // largest |gap - expectedGap|
+			int32_t totalAbsDeviation = 0;
+		};
+
+		// Warning : This routine loses homing -- it ends with the datum zeroed, because a sweep
+		// that deliberately drives through a jam cannot know where it finished.
+		//
+		// Two overloads rather than a defaulted argument: `= UnjamSettings()` inside the class
+		// needs UnjamSettings' member initialisers to be complete, and they are not until the
+		// closing brace.
 		Exception unjamRoutine(const MeasureRoutineSettings&);
-		Exception tuneCurrentRoutine(const MeasureRoutineSettings&);
+		Exception unjamRoutine(const MeasureRoutineSettings&, const UnjamSettings&);
+
+		// The same sweep, split into three so that two axes can run it AT THE SAME TIME.
+		// Routines::unjam drives both; unjamRoutine is these three around one loop.
+		//
+		// Two things are deliberately left to the caller. The shared MotorDriverSettings --
+		// one VREF pin and one microstep pair feed both axes -- must be taken to full torque
+		// and full steps once, by the caller, before either axis begins: if each axis captured
+		// its own "prior" the second would capture the first's override and restore the wrong
+		// operating point. And App::updateFromRoutine() is the caller's to call, because in
+		// the two-axis case doing it inside unjamUpdate would run it twice per tick.
+		Exception unjamBegin(const MeasureRoutineSettings&, const UnjamSettings&);
+		bool unjamUpdate();              // false once this axis has stopped working
+		Exception unjamEnd();
+		const UnjamReport & getUnjamReport() const;
+
+		// ---- cycle check ------------------------------------------------------------------
+		//
+		// The cheapest honest question you can ask a module: does this prism turn, and does its
+		// home flag come past exactly once per revolution? Nothing else in startup answers it
+		// quickly. Calibration is expensive precisely because it is trying to work out an
+		// operating point, and on an axis that cannot turn its prism it spends minutes doing
+		// that before failing -- so this runs first, on BOTH axes at once, and startup does not
+		// pay for calibration until both have passed.
+		//
+		// "Exactly once" is the whole point, and it is stricter than it sounds. An axis whose
+		// sensor fires twice a lap has an optical problem that homing will misread as a datum,
+		// and it is invisible to a check that only asks "did the flag come back". So a second
+		// sighting arriving EARLY is a failure in its own right, reported as soon as it lands.
+		struct CycleCheckSettings {
+			// Traverse speed, in microsteps per second.
+			//
+			// Not a free choice, and not the fast-home seek speed. Raising the traverse to
+			// 24,000 once cut startup from 105 s to 79 s and made a GOOD module fail, because
+			// microsteps slipped at that speed are indistinguishable from gear error: axis A
+			// measured 12 full steps out against a 10-step tolerance, where at this speed it
+			// reads 5928 +/- 2. The measurement is only worth making at a speed it survives.
+			StepsPerSecond speed = MOTION_DEFAULT_SPEED;
+
+			// How far a revolution may be from MOTION_STEPS_PER_PRISM_ROTATION, in FULL steps.
+			Steps tolerance = MOTION_ALLOWED_PRISM_ROTATION_ERROR;
+
+			// Ceiling for one axis's check. Generous: the work is bounded by distance, not by
+			// this, and a check that dies on the clock tells you less than one that finishes.
+			uint16_t timeout_s = 60;
+		};
+
+		enum class CycleCheckVerdict : uint8_t {
+			NotRun = 0,
+			Working,
+			Passed,
+			NoFlag,        // nothing in a revolution and a bit -- jammed, or optically dead
+			ExtraFlag,     // a second sighting arrived early: more than one feature per lap
+			WrongSpacing,  // the flag came back, but not a revolution later
+			Timeout,
+			Aborted
+		};
+
+		// Split three ways so Routines::cycleCheck can step both axes together, exactly as
+		// unjamBegin/Update/End are. The blocking helpers (routineMoveTo,
+		// routineMoveToUntilSeeSwitch, routineFindSwitchAccurate) each call
+		// App::updateFromRoutine() themselves, which is why none of them can be used here.
+		//
+		// Unlike unjam, this one owns nothing shared: it runs at the module's normal current
+		// and microstepping, and leaves the threshold DAC at its power-on value -- which is
+		// what lets both axes run it at once. One DAC feeds both comparators, so a check that
+		// tried to pick a per-axis threshold could not be simultaneous. This one does not need
+		// to: it is asking about geometry, not about optics.
+		Exception cycleCheckBegin(const CycleCheckSettings&);
+		bool cycleCheckUpdate();          // false once this axis has stopped working
+		Exception cycleCheckEnd();
+		CycleCheckVerdict getCycleCheckVerdict() const;
+		Steps getCycleCheckSpacing() const;   // microsteps between the two sightings
+		static const char * cycleCheckVerdictName(CycleCheckVerdict);
+#ifdef HOME_SWITCH_LEGACY
+		// Mechanical (PCB v4) only -- see the definitions.
 		Exception measureBacklashRoutine(const MeasureRoutineSettings&);
 		Exception homeRoutine(const MeasureRoutineSettings&);
-		Exception measureCycleRoutine(const MeasureRoutineSettings&);
+#endif
 #ifndef HOME_SWITCH_LEGACY
 		enum class FastHomeFailure : uint8_t {
 			None = 0,
@@ -291,7 +437,7 @@ namespace Modules {
 
 		struct {
 			struct SwitchSeen {
-				bool seen = false;
+				volatile bool seen = false;
 				Steps stepCountFirstSeen = 0;
 			};
 
@@ -302,7 +448,13 @@ namespace Modules {
 
 			bool invertSwitches = false;
 			SwitchesSeen switchesSeen; // written in interrupt. read/cleared in updateStepCount
-			Steps stepCount = 0;
+
+			// volatile because the comment above is true and the compiler cannot see it. This
+			// survived without the qualifier only because the non-inlined calls around every
+			// access happened to force reloads -- which is a property of this optimiser at this
+			// version, not of the code. The toolchain is pinned partly for reasons like this,
+			// but a latent miscompile is not something to leave resting on a pin.
+			volatile Steps stepCount = 0;
 
 			// Consecutive-sample debounce run counters for the switch latch, reset whenever
 			// the raw reading drops out of the wanted state. See enableInterrupt().
@@ -311,6 +463,69 @@ namespace Modules {
 		} inInterrupt;
 
 		FrameSwitchEvents frameSwitchEvents;
+
+		// Everything unjamBegin/unjamUpdate/unjamEnd carry between ticks. It lives here rather
+		// than on the stack of a routine function because the two-axis form of the sweep is a
+		// state machine stepped from Routines::unjam, not a loop that owns its own frame.
+		struct UnjamState {
+			bool active = false;
+			UnjamSettings settings;
+			uint32_t deadline = 0;
+			Steps stride = 0;
+			Steps travelTarget = 0;      // full steps of net progress wanted
+			Steps origin = 0;            // position when the sweep began
+			Steps nextRevolutionMark = 0;
+			bool forwards = true;
+			bool timedOut = false;
+
+			// Sighting acceptance. The interrupt latch re-arms every frame, so a flag that
+			// stays active for ~9 full steps would otherwise be counted once per frame for as
+			// long as we are on it; and a forward leg that STARTS parked on the flag would
+			// latch a rising edge that is not one. `offFlag` answers both: a sighting is only
+			// accepted once the sensor has read inactive since the last one.
+			bool offFlag = false;
+			bool haveSighting = false;
+			Steps lastSighting = 0;
+
+			// Priors, restored by unjamEnd. The shared MotorDriverSettings are NOT here -- see
+			// unjamBegin's contract.
+			MotionProfile priorMotionProfile;
+			Steps priorSystemBacklash = 0;
+			Steps priorPositionWithinBacklash = 0;
+			uint16_t priorLatchDebounce = 1;
+			bool priorSwitchesArmed = false;
+
+			UnjamReport report;
+		};
+		UnjamState unjamState;
+
+		// Everything cycleCheckBegin/Update/End carry between ticks; see UnjamState above for
+		// why the state lives on the object rather than in a routine's stack frame.
+		struct CycleCheckState {
+			bool active = false;
+			CycleCheckSettings settings;
+			uint32_t deadline = 0;
+
+			Steps revolution = 0;        // microsteps per prism revolution
+			Steps toleranceUsteps = 0;
+			Steps sameFlagWindow = 0;
+			Steps origin = 0;
+
+			bool confirming = false;     // first sighting is in; measuring the lap
+			bool parking = false;        // passed, backing up to leave the flag just ahead
+			bool offFlag = false;        // sensor has read inactive since the last sighting
+
+			Steps firstSighting = 0;
+			Steps spacing = 0;
+			CycleCheckVerdict verdict = CycleCheckVerdict::NotRun;
+
+			MotionProfile priorMotionProfile;
+			Steps priorSystemBacklash = 0;
+			Steps priorPositionWithinBacklash = 0;
+			uint16_t priorLatchDebounce = 1;
+			bool priorSwitchesArmed = false;
+		};
+		CycleCheckState cycleCheckState;
 
 		bool interruptEnabled = false;
 		MotionState currentMotionState;

@@ -11,12 +11,16 @@
 // Overridable as a build flag so a bring-up build can start gentler than production does
 // without editing this file -- see application_bank_optical_bringup in platformio.ini.
 //
-// This used to be defined as MAX_CURRENT and then never referenced, while the state
-// initialiser reached for MAX_CURRENT directly; so "default" and "maximum" were the same
-// number by accident rather than by decision, and there was no way to separate them. Bench
 // Persisted settings override this before motor initialisation.
+//
+// 250 mA -- the hardware maximum, and now simply what a module runs at. 150 mA was chosen on
+// bench evidence that 100-250 mA are indistinguishable for slip and for homing precision, which
+// remains true; what changed is that keeping the two numbers apart bought a laddering path that
+// never paid. Startup now makes one attempt at full torque and reports, rather than making
+// several at rising current and reporting later. See Routines::calibrateAxisFastHome, whose
+// recovery block is left in place and self-disables once the current is already at the ceiling.
 #ifndef MOTORDRIVERSETTINGS_DEFAULT_CURRENT
-	#define MOTORDRIVERSETTINGS_DEFAULT_CURRENT 0.15f
+	#define MOTORDRIVERSETTINGS_DEFAULT_CURRENT MOTORDRIVERSETTINGS_MAX_CURRENT
 #endif
 
 namespace Modules {

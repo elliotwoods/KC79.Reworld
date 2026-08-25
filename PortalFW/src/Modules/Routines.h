@@ -15,19 +15,22 @@ namespace Modules {
 
 		Exception init(const MotionControl::MeasureRoutineSettings& = MotionControl::MeasureRoutineSettings());
 		Exception unjam(const MotionControl::MeasureRoutineSettings& = MotionControl::MeasureRoutineSettings());
-		Exception tuneCurrent(const MotionControl::MeasureRoutineSettings& = MotionControl::MeasureRoutineSettings());
 		Exception calibrate(const MotionControl::MeasureRoutineSettings& = MotionControl::MeasureRoutineSettings());
 		Exception home(const MotionControl::MeasureRoutineSettings& = MotionControl::MeasureRoutineSettings());
-		Exception measureCycle(const MotionControl::MeasureRoutineSettings& = MotionControl::MeasureRoutineSettings());
-		
-		void flashLEDs(uint16_t period, uint16_t count);
 
-		// return false if already at max current
-		bool stepUpCurrent();
+		// The fast check: both axes turned at once, verifying that each home flag comes past
+		// exactly once per revolution. Runs before any calibration, and refuses to pay for
+		// calibration on a module that cannot turn its prisms. See
+		// MotionControl::cycleCheckBegin for the measurement and why it is worth trusting.
+		Exception cycleCheck(const MotionControl::MeasureRoutineSettings& = MotionControl::MeasureRoutineSettings());
+
+		void flashLEDs(uint16_t period, uint16_t count);
 	protected:
 		App * app;
+#ifdef HOME_SWITCH_LEGACY
 		Exception homeAxisWithRecovery(MotionControl * motionControl
 			, const MotionControl::MeasureRoutineSettings & settings);
+#endif
 
 #ifndef HOME_SWITCH_LEGACY
 		// One axis's share of calibrate() for the optical switch -- see the definition for the

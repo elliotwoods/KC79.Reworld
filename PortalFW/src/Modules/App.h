@@ -45,6 +45,22 @@ namespace Modules {
 		// so it stays readable for the whole of a routine chain.
 		static bool getShouldEscapeFromRoutine();
 
+		// What the LEDs say while a routine is blocking the main loop.
+		//
+		// LEDs::update() does not run during a routine -- updateFromRoutine() drives the pins
+		// directly -- so this is the only channel a routine has to someone standing in front of
+		// the module. It is also the only one that survives `debugLightsEnabled = false`, which
+		// the router sends in show mode.
+		//
+		// Normal is the historical 2 Hz alternation, unchanged, and is what every routine says
+		// unless it asks otherwise. Checking is the same anti-phase pattern at double rate,
+		// used only by startup's cycle check: it marks out the short "is this module even
+		// turning" phase from the long calibration that follows, while still obviously being
+		// the same signal rather than a new one. In-phase is deliberately left alone --
+		// Routines::flashLEDs owns that for board identification.
+		enum class RoutineSignal : uint8_t { Normal, Checking };
+		static void setRoutineSignal(RoutineSignal);
+
 		MotionControl * getMotionControl(uint8_t);
 		uint32_t getProvisionSerial() const;
 		uint16_t getOperatingCurrentMa() const;
@@ -78,6 +94,7 @@ namespace Modules {
 		bool processIncomingByKey(const char * key, Stream &) override;
 		bool isInsideRoutine = true;
 		bool shouldEscapeFromRoutine = false;
+		RoutineSignal routineSignal = RoutineSignal::Normal;
 		PersistentStorage::Identity persistentIdentity;
 		PersistentStorage::Settings persistentSettings;
 	};

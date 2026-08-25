@@ -25,6 +25,16 @@ namespace Modules {
 
 		bool getForwardsActive() const;
 		bool getBackwardsActive() const;
+
+		// Both latch inputs in one call, for the step ISR. Two distinct switches here, so this
+		// is two reads -- unlike the optical switch, where it is one. See HomeSwitchOptical.h.
+		struct RawState {
+			bool forwards;
+			bool backwards;
+		};
+		RawState getRawState() const {
+			return RawState { this->getForwardsActive(), this->getBackwardsActive() };
+		}
 	protected:
 		const Config config;
 	};
