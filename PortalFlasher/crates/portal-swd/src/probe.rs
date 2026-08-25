@@ -36,7 +36,7 @@ use probe_rs::{CoreStatus, Error as ProbeRsError, MemoryInterface, Permissions, 
 use crate::device::DeviceImage;
 use crate::image::{ImageBundle, RunCheckSpec};
 use crate::rig::{
-    BootReport, FlashReport, Presence, ProbeInfo, Progress, Rig, RigError, RigErrorKind,
+    BootReport, FlashReport, Presence, ProbeInfo, Progress, Release, Rig, RigError, RigErrorKind,
     RunCheckReport, Step,
 };
 use crate::{addr, bits, program};
@@ -396,6 +396,36 @@ fn survey_after_reload(session: &mut Session) -> Result<Survey, RigError> {
     })
 }
 
+/// Finish with a programming session according to what the caller asked for.
+///
+/// [`Release::Run`] is the historical ending: unfreeze the watchdog, reset, and let the
+/// application run.
+///
+/// [`Release::Halt`] does nothing at all, and the nothing is the point. The core is already
+/// halted — `survey` halted it and froze the IWDG through DBGMCU before the first write — and
+/// probe-rs does not resume a core when its `Session` is dropped, so the part simply stays
+/// stopped, with the watchdog still frozen, until the next attach-under-reset. That is what lets
+/// a pass write firmware and durable records in two sessions while the board starts only once,
+/// at the end.
+///
+/// No `Step::ResetRun` is reported for a halt, because none happened. Callers merge sub-step
+/// progress by retaining the maximum, so a segment that never arrives is already handled.
+fn release_session(
+    session: &mut Session,
+    release: Release,
+    progress: &mut Progress<'_>,
+) -> Result<(), RigError> {
+    match release {
+        Release::Run => {
+            progress(Step::ResetRun, 0, 1);
+            reset_session_and_run(session)?;
+            progress(Step::ResetRun, 1, 1);
+            Ok(())
+        }
+        Release::Halt => Ok(()),
+    }
+}
+
 /// Reset a session that was attached under reset and make the release explicit.
 ///
 /// `Core::reset` is documented to continue execution, but a debugger halt can survive target-
@@ -617,6 +647,7 @@ impl Rig for ProbeRsRig {
     fn flash(
         &mut self,
         bundle: &ImageBundle,
+        release: Release,
         progress: &mut Progress<'_>,
     ) -> Result<FlashReport, RigError> {
         // Before the probe is touched at all: a bundle that cannot be flashed correctly should
@@ -787,14 +818,10 @@ impl Rig for ProbeRsRig {
         let identity_sha256 = crate::device::sha256_hex(&persistent_after[..page]);
         let settings_sha256 = crate::device::sha256_hex(&persistent_after[page..]);
 
-        // Let the watchdog run again before the application does, explicitly release any halt
-        // that survived the reset sequence, then let go.
-        progress(Step::ResetRun, 0, 1);
-        let reset = reset_session_and_run(&mut session);
+        let released = release_session(&mut session, release, progress);
         drop(session);
         self.link = Link::Closed;
-        reset?;
-        progress(Step::ResetRun, 1, 1);
+        released?;
 
         Ok(FlashReport {
             idcode: survey.idcode,
@@ -813,6 +840,7 @@ impl Rig for ProbeRsRig {
         serial: u32,
         mut settings: crate::persistent::DeviceSettings,
         allow_identity_override: bool,
+        release: Release,
         progress: &mut Progress<'_>,
     ) -> Result<crate::rig::PersistentWriteReport, RigError> {
         use crate::persistent::{
@@ -959,10 +987,10 @@ impl Rig for ProbeRsRig {
             ));
         }
 
-        let reset = reset_session_and_run(&mut session);
+        let released = release_session(&mut session, release, progress);
         drop(session);
         self.link = Link::Closed;
-        reset?;
+        released?;
         Ok(crate::rig::PersistentWriteReport {
             serial,
             settings,

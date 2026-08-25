@@ -610,6 +610,16 @@ pub fn declare(builder: &mut SchemaBuilder, simulated: bool) -> Result<(), Strin
             .read_only()
             .register(),
     )?;
+    // Locked, the entered current/recovery survive a board insertion instead of being replaced
+    // by what that board holds -- set a value once, lock it, flash a batch. The serial has no
+    // such lock on purpose: kept across boards it would provision them all identically.
+    check(
+        builder
+            .param("/provision/settings/locked")
+            .bool(false)
+            .label("Lock module settings")
+            .register(),
+    )?;
 
     check(
         builder
@@ -1154,6 +1164,26 @@ pub fn declare(builder: &mut SchemaBuilder, simulated: bool) -> Result<(), Strin
             .register(),
     )?;
 
+    // What is plugged into this machine stays a *document* served over HTTP, not a bus value:
+    // ports and probes must come from one survey so the Test tab can badge a serial port as the
+    // selected probe's VCOM by matching USB serials across the two halves, and two independent
+    // reads could disagree across a replug. This parameter says only *when* that document
+    // changed, so the page knows to re-read it.
+    //
+    // It is bumped when the set of attached devices actually moves, and on an operator rescan --
+    // never otherwise, so it is a notification rather than a poll in disguise. `no_reset` for the
+    // reason a serial number has it: "restore default" on a generation counter would make every
+    // open page re-fetch for nothing.
+    check(
+        builder
+            .param("/setup/ports_generation")
+            .i64(0)
+            .label("Attached hardware generation")
+            .read_only()
+            .no_reset()
+            .register(),
+    )?;
+
     // --- actions -----------------------------------------------------------------------------------
     for name in ACTIONS {
         check(
@@ -1265,6 +1295,7 @@ pub struct ProvisionParams {
     pub settings_source: ParamId,
     pub on_board_current_ma: ParamId,
     pub on_board_recovery: ParamId,
+    pub settings_locked: ParamId,
 }
 
 pub struct ProbeParams {
@@ -1362,6 +1393,7 @@ pub struct Params {
     pub setup_http_port: ParamId,
     pub setup_simulated: ParamId,
     pub setup_report_profile: ParamId,
+    pub setup_ports_generation: ParamId,
 
     /// Action counters, in the order the worker checks them.
     pub actions: Vec<(&'static str, ParamId)>,
@@ -1472,6 +1504,7 @@ impl Params {
                 settings_source: id("/provision/settings/source")?,
                 on_board_current_ma: id("/provision/settings/on_board_current_ma")?,
                 on_board_recovery: id("/provision/settings/on_board_recovery")?,
+                settings_locked: id("/provision/settings/locked")?,
             },
             probe: ProbeParams {
                 selected: id("/probe/selected")?,
@@ -1545,6 +1578,7 @@ impl Params {
             setup_http_port: id("/setup/http_port")?,
             setup_simulated: id("/setup/simulated")?,
             setup_report_profile: id("/setup/report_profile")?,
+            setup_ports_generation: id("/setup/ports_generation")?,
 
             actions,
         })

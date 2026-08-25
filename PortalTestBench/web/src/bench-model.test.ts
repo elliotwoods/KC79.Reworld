@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { type BenchView, type FirmwareItem, type LinkView, type SerialView, type SettingsView, connectBlocker, enumName, firmwareRow, linkBlocker, serialState, settingsState, settingsSummary, soundFor, thresholdTone, verdictTile, whyDisabled } from './bench-model';
+import { type BenchView, type FirmwareItem, type LinkView, type SerialView, type SettingsView, connectBlocker, enumName, firmwareRow, linkBlocker, probeListEmpty, serialState, settingsState, settingsSummary, soundFor, thresholdTone, verdictTile, whyDisabled } from './bench-model';
 
 const ready: BenchView = {
   connected: true,
@@ -290,7 +290,7 @@ describe('serialState', () => {
 });
 
 describe('settingsState', () => {
-  const stored: SettingsView = { boardPresent: true, identity: 'existing-on-board', pending: false, source: 'flash', boardCurrentMa: 150, boardRecovery: true, currentMa: 150, recovery: true };
+  const stored: SettingsView = { boardPresent: true, identity: 'existing-on-board', pending: false, source: 'flash', boardCurrentMa: 150, boardRecovery: true, currentMa: 150, recovery: true, locked: false };
   const every: SettingsView[] = [
     stored,
     { ...stored, currentMa: 200 },
@@ -327,6 +327,14 @@ describe('settingsState', () => {
 
   it('reads PENDING until the replug', () => {
     expect(settingsState({ ...stored, pending: true, currentMa: 200 })).toMatchObject({ word: 'pending', tone: 'warn' });
+  });
+
+  // The lock changes what happens on the next insertion, not the relation to this board.
+  it('keeps the same word when locked and says so in the hint', () => {
+    const locked = settingsState({ ...stored, currentMa: 200, locked: true });
+    expect(locked.word).toBe('changed');
+    expect(locked.hint).toContain('Locked');
+    expect(settingsState({ ...stored, currentMa: 200 }).hint).not.toContain('Locked');
   });
 
   it('never returns a blank word or detail, and the detail never repeats the badge', () => {
@@ -377,5 +385,38 @@ describe('firmwareRow', () => {
     expect(row.detail).toContain('95.9 kB');
     expect(row.detail).not.toContain('null');
     expect(row.detail).not.toContain('undefined');
+  });
+});
+
+describe('the ST-Link list when it is empty', () => {
+  const attached = { loaded: true, error: '', probeConnected: false, probeName: '', swdSupport: true };
+
+  /**
+   * The complaint this whole change answers: "No ST-Link found. Connect the fixture." on a bench
+   * that was flashing a board at the time. Whatever else this function says, it must never say
+   * that while the worker has a probe open.
+   */
+  it('never claims no ST-Link while one is open', () => {
+    const open = probeListEmpty({ ...attached, probeConnected: true, probeName: 'ST-Link V2-1' });
+    expect(open.detail).not.toContain('No ST-Link found');
+    expect(open.detail).toContain('ST-Link V2-1');
+  });
+
+  it('distinguishes not-yet-read from nothing-attached', () => {
+    expect(probeListEmpty({ ...attached, loaded: false }).detail).toContain('Reading');
+    expect(probeListEmpty(attached).detail).toBe('No ST-Link found. Connect the fixture probe and rescan.');
+  });
+
+  it('says a failed ask failed, rather than reporting an empty bench', () => {
+    const failed = probeListEmpty({ ...attached, error: 'the bench answered 503' });
+    expect(failed.detail).toContain('503');
+    expect(failed.detail).not.toContain('No ST-Link found');
+  });
+
+  /** The flag exists to stop an empty list reading as "none attached"; it was never read. */
+  it('says so when the build cannot see probes at all', () => {
+    const blind = probeListEmpty({ ...attached, swdSupport: false });
+    expect(blind.detail).toContain('not evidence');
+    expect(blind.detail).not.toContain('No ST-Link found');
   });
 });

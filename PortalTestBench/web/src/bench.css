@@ -29,7 +29,7 @@
 .board-values { display: contents; }
 .board-value { position: relative; z-index: 1; display: grid; align-items: center; gap: var(--space-2); min-height: 46px; padding: var(--space-1) var(--space-2); border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-raised); }
 .board-value[data-kind='serial'] { grid-template-columns: minmax(104px, 128px) minmax(120px, 140px) auto; }
-.board-value[data-kind='settings'] { grid-template-columns: minmax(120px, 150px) minmax(88px, 104px) auto auto; }
+.board-value[data-kind='settings'] { grid-template-columns: minmax(120px, 150px) minmax(88px, 104px) auto auto auto; }
 .board-value[data-tone='warn'] { background: color-mix(in srgb, var(--warn) 5%, var(--surface-raised)); }
 .board-value[data-tone='error'] { background: color-mix(in srgb, var(--danger) 6%, var(--surface-raised)); }
 .board-value-copy { display: grid; min-width: 0; }
@@ -44,6 +44,11 @@
 .board-value-hint { display: grid; min-width: 0; }
 .board-value-field { display: grid; justify-items: center; gap: var(--space-0-5); }
 .board-value-caption { font-size: var(--text-2xs); }
+.board-value-lock { display: inline-grid; place-items: center; width: 26px; height: 26px; padding: 0; border: 1px solid var(--border); border-radius: var(--radius-sm); background: transparent; color: var(--text-faint); cursor: pointer; }
+.board-value-lock:hover:not(:disabled) { border-color: var(--text-faint); }
+.board-value-lock.is-on { border-color: var(--accent-soft-border); background: var(--accent-soft-bg); color: var(--accent); }
+.board-value-lock:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.board-value-lock:disabled { opacity: var(--disabled-opacity); cursor: default; }
 .manual-flash { position: relative; z-index: 1; }
 .manual-flash, .manual-flash > button { display: flex; }
 .manual-flash > button { justify-content: center; min-width: 150px; min-height: 40px; }
@@ -259,8 +264,8 @@
 .session-log-empty { margin: 0; color: var(--text-faint); }
 
 /* Below this the state word no longer fits beside both cards, the button and the three
-   switches, so the cards take a second row. Measured, not guessed: 1440 clips WAITING FOR MCU. */
-@media (max-width: 1540px) {
+   switches, so the cards take a second row. Measured, not guessed: 1440 clipped WAITING FOR MCU before the padlock added 34 px. */
+@media (max-width: 1580px) {
   .action-strip { grid-template-columns: minmax(0, 1fr) auto auto; }
   .board-values { display: flex; gap: var(--space-2); grid-column: 1 / -1; grid-row: 2; }
 }
@@ -274,7 +279,7 @@
   .board-values { flex-wrap: wrap; }
   .board-value { flex: 1 1 360px; min-width: 0; }
   .board-value[data-kind='serial'] { grid-template-columns: auto minmax(110px, 1fr) auto; }
-  .board-value[data-kind='settings'] { grid-template-columns: auto minmax(80px, 1fr) auto auto; }
+  .board-value[data-kind='settings'] { grid-template-columns: auto minmax(80px, 1fr) auto auto auto; }
   .quick-fields { grid-column: auto; }
   .quick-fields h3, .procedure-progress-track { grid-column: 1; }
 }

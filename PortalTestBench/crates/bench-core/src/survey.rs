@@ -116,6 +116,34 @@ pub fn paired_vcom_port(survey: &Survey, probe_identifier: &str) -> Result<Strin
     }
 }
 
+/// The identity of what is attached, as a set two scans can be compared by.
+///
+/// Deliberately narrower than the survey itself. A `product` string the OS spells differently
+/// between two enumerations, or a probe list that comes back in another order, is not a replug
+/// and must not be reported as one -- a bench that announced a hardware change every second
+/// would train the operator to ignore the one time it mattered. What counts is *which devices
+/// are there*: a port by its device name and USB serial, a probe by the selector it is opened
+/// with.
+///
+/// `swd_support` is compile-time and deliberately absent: it cannot change while the process
+/// runs, so including it would only add a constant to every comparison.
+pub fn identity_set(survey: &Survey) -> Vec<String> {
+    let mut lines = Vec::with_capacity(survey.ports.len() + survey.probes.len());
+    for port in &survey.ports {
+        lines.push(format!(
+            "port\u{1f}{}\u{1f}{}",
+            port.name,
+            port.serial_number.as_deref().unwrap_or("")
+        ));
+    }
+    for probe in &survey.probes {
+        lines.push(format!("probe\u{1f}{}", probe.identifier));
+    }
+    lines.sort_unstable();
+    lines.dedup();
+    lines
+}
+
 /// Everything this machine offers a bench right now.
 pub fn survey() -> Survey {
     Survey {
@@ -412,6 +440,59 @@ mod tests {
                 .unwrap_err()
                 .contains("refusing to guess")
         );
+    }
+
+    /// Two scans of the same machine compare equal even when the OS spells them differently.
+    ///
+    /// This is what stops the bench announcing a hardware change every second: the identity set
+    /// is what the worker diffs, and if it moved on `product` churn or on probe-list order, the
+    /// page would re-fetch forever and the rescan log line would cry wolf.
+    #[test]
+    fn identity_set_ignores_product_churn_and_probe_order() {
+        let first = pairing_survey(vec![
+            PortEntry {
+                name: "/dev/cu.usbmodem5103".into(),
+                kind: "usb".into(),
+                product: Some("STM32 STLink".into()),
+                serial_number: Some("PROBE123".into()),
+            },
+            PortEntry {
+                name: "/dev/cu.usbserial-B003ASAG".into(),
+                kind: "usb".into(),
+                product: Some("FT232R USB UART".into()),
+                serial_number: Some("B003ASAG".into()),
+            },
+        ]);
+        let mut second = pairing_survey(vec![
+            PortEntry {
+                name: "/dev/cu.usbserial-B003ASAG".into(),
+                kind: "usb".into(),
+                // The same adapter, named differently by a second enumeration.
+                product: Some("USB Serial".into()),
+                serial_number: Some("B003ASAG".into()),
+            },
+            PortEntry {
+                name: "/dev/cu.usbmodem5103".into(),
+                kind: "usb".into(),
+                product: None,
+                serial_number: Some("PROBE123".into()),
+            },
+        ]);
+        second.probes.push(second.probes[0].clone());
+        assert_eq!(identity_set(&first), identity_set(&second));
+    }
+
+    /// And the case the whole mechanism exists for: a probe appearing is a change.
+    #[test]
+    fn a_probe_appearing_changes_the_identity_set() {
+        let before = Survey {
+            ports: Vec::new(),
+            probes: Vec::new(),
+            swd_support: true,
+        };
+        let after = pairing_survey(Vec::new());
+        assert_ne!(identity_set(&before), identity_set(&after));
+        assert_eq!(identity_set(&after), vec!["probe\u{1f}0483:374b:PROBE123"]);
     }
 
     #[test]

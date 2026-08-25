@@ -4,13 +4,13 @@
 //! bundle and the small serialisable snapshot consumed by the page and HTTP API.
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::time::{Duration, Instant};
 
 use portal_swd::artefacts::{Origin, Selection};
 use portal_swd::{
     Action, BootFault, DeviceReport, DeviceSettings, Discovery, IdentityState, Input, Machine,
-    Pass, Presence, Rig, RigError, RigErrorKind, Sequence, SettingsSource, Step, Timing,
+    Pass, Presence, Release, Rig, RigError, RigErrorKind, Sequence, SettingsSource, Step, Timing,
 };
 
 /// The production bootloader deliberately listens for an RS485 update for three seconds before
@@ -65,6 +65,11 @@ pub struct FlashSnapshot {
     pub boot_state: String,
     pub boot_detail: String,
     pub needs_replug: bool,
+    /// How many times a simulated board has been restarted since the bench started, and `None`
+    /// on hardware, where the count is what the operator watches rather than something the rig
+    /// reports. Published because "how many times did it restart" is the question this pass was
+    /// answering wrongly, and a number beats counting homing cycles across the room.
+    pub simulated_starts: Option<u32>,
     pub mcu: Option<McuSnapshot>,
 }
 
@@ -95,13 +100,25 @@ pub struct FlashController {
     last_present: bool,
     identity_read_after_ms: u64,
     fixture: Option<Arc<AtomicBool>>,
+    /// The simulated rig's restart count, so a test can hold a pass to exactly one.
+    starts: Option<Arc<AtomicU32>>,
     simulated: bool,
     probe_selector: String,
 }
 
 impl FlashController {
     pub fn new(simulated: bool) -> Self {
-        let discovery = portal_swd::discover();
+        Self::new_in(portal_swd::discover(), simulated)
+    }
+
+    /// The same, over a discovery that was resolved somewhere other than this repository.
+    ///
+    /// `portal_swd::discover()` walks the tree the binary was compiled in, which is right for the
+    /// bench and impossible for a test: a pass cannot be driven without artefacts to load, and a
+    /// test that depended on somebody having built the firmware first would pass or fail for
+    /// reasons that have nothing to do with it. `artefacts::discover_in` already resolves a tree
+    /// anywhere, so this simply lets the caller say which.
+    pub fn new_in(discovery: Discovery, simulated: bool) -> Self {
         let selection = Selection {
             bootloader: discovery.bootloader().map(|a| a.id.clone()),
             application: discovery.application().map(|a| a.id.clone()),
@@ -109,22 +126,19 @@ impl FlashController {
         let probe_selector = if simulated {
             "sim".to_string()
         } else {
-            let probes = portal_swd::list_probes();
-            if probes.len() == 1 {
-                probes[0].id.clone()
-            } else {
-                String::new()
-            }
+            adopt_selector("", &portal_swd::list_probes()).unwrap_or_default()
         };
-        let (rig, fixture): (Box<dyn Rig>, Option<Arc<AtomicBool>>) = if simulated {
+        type SimHandles = (Box<dyn Rig>, Option<Arc<AtomicBool>>, Option<Arc<AtomicU32>>);
+        let (rig, fixture, starts): SimHandles = if simulated {
             let rig = portal_swd::SimRig::new();
-            let fixture = rig.fixture();
-            (Box::new(rig), Some(fixture))
+            let (fixture, starts) = (rig.fixture(), rig.starts());
+            (Box::new(rig), Some(fixture), Some(starts))
         } else {
             (
                 Box::new(portal_swd::ProbeRsRig::new(
                     (!probe_selector.is_empty()).then(|| probe_selector.clone()),
                 )),
+                None,
                 None,
             )
         };
@@ -139,6 +153,7 @@ impl FlashController {
             last_present: false,
             identity_read_after_ms: 0,
             fixture,
+            starts,
             simulated,
             probe_selector,
         };
@@ -151,6 +166,13 @@ impl FlashController {
         &self.snapshot
     }
 
+    fn refresh_start_count(&mut self) {
+        self.snapshot.simulated_starts = self
+            .starts
+            .as_ref()
+            .map(|starts| starts.load(Ordering::Relaxed));
+    }
+
     pub fn probe_selector(&self) -> &str {
         &self.probe_selector
     }
@@ -161,12 +183,7 @@ impl FlashController {
         let selector = if self.simulated {
             "sim".to_string()
         } else if selector.is_empty() {
-            let probes = portal_swd::list_probes();
-            if probes.len() == 1 {
-                probes[0].id.clone()
-            } else {
-                String::new()
-            }
+            adopt_selector("", &portal_swd::list_probes()).unwrap_or_default()
         } else {
             selector
         };
@@ -238,7 +255,14 @@ impl FlashController {
     }
 
     pub fn rescan(&mut self) {
-        self.discovery = portal_swd::discover();
+        // Rescan the tree this controller was built over, rather than asking where the firmware
+        // is all over again. For the bench the two are the same path; the difference is that a
+        // controller pointed somewhere else by `new_in` stays pointed there instead of quietly
+        // reverting to the repository on the first rescan.
+        self.discovery = match self.discovery.root.as_deref() {
+            Some(root) => portal_swd::artefacts::discover_in(root),
+            None => portal_swd::discover(),
+        };
         if self
             .selection
             .bootloader
@@ -263,8 +287,8 @@ impl FlashController {
             {
                 self.probe_selector.clear();
             }
-            if self.probe_selector.is_empty() && probes.len() == 1 {
-                self.probe_selector = probes[0].id.clone();
+            if let Some(adopted) = adopt_selector(&self.probe_selector, &probes) {
+                self.probe_selector = adopted;
             }
             self.rig.close();
             self.rig = Box::new(portal_swd::ProbeRsRig::new(
@@ -286,6 +310,7 @@ impl FlashController {
     }
 
     pub fn tick(&mut self, now_ms: u64, page_heartbeat: bool, auto_enabled: bool) -> Option<Pass> {
+        self.refresh_start_count();
         if page_heartbeat {
             self.apply_machine(now_ms, Input::Heartbeat);
         }
@@ -662,18 +687,26 @@ impl FlashController {
             .as_ref()
             .and_then(|mcu| mcu.provision_serial)
             .ok_or_else(|| "the board has no valid provisioning identity".to_string())?;
+        // Restarting is the point here: the application reads its settings once, at boot, so a
+        // write the board never restarts to pick up has changed nothing it can act on.
         let report = self
             .rig
-            .write_persistent(serial, settings, false, &mut |step, done, total| {
-                progress(
-                    &step.to_string(),
-                    if total == 0 {
-                        0.0
-                    } else {
-                        done as f64 / total as f64
-                    },
-                );
-            })
+            .write_persistent(
+                serial,
+                settings,
+                false,
+                Release::Run,
+                &mut |step, done, total| {
+                    progress(
+                        &step.to_string(),
+                        if total == 0 {
+                            0.0
+                        } else {
+                            done as f64 / total as f64
+                        },
+                    );
+                },
+            )
             .map_err(|error| error.to_string())?;
         self.read_device();
         Ok(format!(
@@ -815,15 +848,19 @@ impl FlashController {
         progress: &mut dyn FnMut(&str, f64),
     ) -> Result<String, portal_swd::RigError> {
         let state = &mut self.snapshot;
-        let report = self.rig.flash(bundle, &mut |step: Step, done, total| {
-            state.step = step.to_string();
-            state.progress = if total == 0 {
-                0.0
-            } else {
-                done as f64 / total as f64
-            };
-            progress(&state.step, state.progress);
-        })?;
+        // Nothing follows this write, so the pass ends here and the board starts here: one
+        // restart, as with the provisioning path, just reached a shorter way.
+        let report = self
+            .rig
+            .flash(bundle, Release::Run, &mut |step: Step, done, total| {
+                state.step = step.to_string();
+                state.progress = if total == 0 {
+                    0.0
+                } else {
+                    done as f64 / total as f64
+                };
+                progress(&state.step, state.progress);
+            })?;
         let verified = format!("verified {}", short_hash(&report.readback_sha256));
 
         // Bootloader-only programming has nothing to enter or observe.
@@ -878,6 +915,23 @@ impl FlashController {
         }
     }
 
+    /// Put a board back on its feet after a stage that released it halted.
+    ///
+    /// Between the first `Release::Halt` and the pass's own restart the core is stopped, so a
+    /// failure in that window would otherwise hand the operator a board that is simply dead —
+    /// no motion, no VCOM, nothing on the wire — with an error message about something else
+    /// entirely. Best effort by definition; if the restart fails too, both failures are named,
+    /// because "the flash failed" and "and it is still stopped" are different things to do next.
+    fn restart_after_failure(&mut self, error: RigError) -> RigError {
+        match self.rig.reset_and_run() {
+            Ok(()) => error,
+            Err(restart) => RigError::new(
+                error.kind,
+                format!("{error}; the board was also left halted: {restart}"),
+            ),
+        }
+    }
+
     fn flash_provision_and_boot(
         &mut self,
         bundle: &portal_swd::ImageBundle,
@@ -886,18 +940,28 @@ impl FlashController {
         allow_identity_override: bool,
         progress: &mut dyn FnMut(&str, f64),
     ) -> Result<String, RigError> {
+        // Both writing stages release *halted*, so the application does not start between them.
+        // The board comes up once, below, running firmware and durable records that are both
+        // already in place -- rather than starting on the firmware, being stopped again for the
+        // identity write, and starting a second time. On a module that homes its prisms at
+        // startup, each of those starts is ten seconds of motion the operator has to watch.
         let report = {
             let state = &mut self.snapshot;
-            self.rig.flash(bundle, &mut |step: Step, done, total| {
-                state.step = step.to_string();
-                state.progress = if total == 0 {
-                    0.0
-                } else {
-                    done as f64 / total as f64
-                };
-                progress(&state.step, state.progress);
-            })?
+            self.rig
+                .flash(bundle, Release::Halt, &mut |step: Step, done, total| {
+                    state.step = step.to_string();
+                    state.progress = if total == 0 {
+                        0.0
+                    } else {
+                        done as f64 / total as f64
+                    };
+                    progress(&state.step, state.progress);
+                })
         };
+        // From here to the restart the core is stopped, so every exit has to go back through
+        // `restart_after_failure` or the board is left dead in the fixture.
+        let report = report.map_err(|error| self.restart_after_failure(error))?;
+
         self.snapshot.step = "identity".into();
         progress("identity", 1.0);
         let persistent = {
@@ -906,6 +970,7 @@ impl FlashController {
                 serial,
                 settings,
                 allow_identity_override,
+                Release::Halt,
                 &mut |step: Step, done, total| {
                     state.step = step.to_string();
                     progress(
@@ -917,8 +982,9 @@ impl FlashController {
                         },
                     );
                 },
-            )?
+            )
         };
+        let persistent = persistent.map_err(|error| self.restart_after_failure(error))?;
         let verified = format!(
             "verified firmware {}; identity {} serial {}; settings {} at {} mA",
             short_hash(&report.readback_sha256),
@@ -937,10 +1003,19 @@ impl FlashController {
         );
 
         if bundle.run_check.vtor == 0 {
-            return Err(RigError::new(
+            return Err(self.restart_after_failure(RigError::new(
                 RigErrorKind::BadBundle,
                 "provisioning requires an application image",
-            ));
+            )));
+        }
+
+        // The one restart of the pass, and the pass does not pass until it has happened.
+        self.snapshot.step = "reset-run".into();
+        progress("reset-run", 1.0);
+        if let Err(error) = self.rig.reset_and_run() {
+            self.snapshot.boot_state = "not-running".into();
+            self.snapshot.boot_detail = error.to_string();
+            return Err(error);
         }
         self.snapshot.step = "boot-check".into();
         progress("boot-check", 1.0);
@@ -1013,6 +1088,7 @@ impl FlashController {
         if ok {
             self.read_device();
         }
+        self.refresh_start_count();
         ok
     }
 
@@ -1048,44 +1124,6 @@ impl FlashController {
         Ok("application started and remained stable".into())
     }
 
-    /// Restart the board and prove the application came back.
-    ///
-    /// A programming pass already resets on its way out — `flash` and `write_persistent` each end
-    /// in `reset_session_and_run`. That is a property of how the rig lets go, though, not a
-    /// promise the pass makes: it moves whenever the programming sequence is rearranged, and it is
-    /// absent entirely from any pass that did not program. A manual flash promises the operator a
-    /// board restarted into what was just written, so the restart is performed here as its own
-    /// step, named in `step` and reported whether or not it worked.
-    pub fn reboot_and_verify(&mut self) -> Result<String, String> {
-        // A bundle that will not load cannot say where the application starts, but the bank is
-        // fixed by the linker script and the bootloader alike, so the reset is still worth doing.
-        let vtor = self
-            .discovery
-            .load(&self.selection)
-            .map(|bundle| bundle.run_check.vtor)
-            .ok()
-            .filter(|vtor| *vtor != 0)
-            .unwrap_or(portal_swd::addr::APP_BASE);
-        self.snapshot.step = "reset-run".into();
-        self.snapshot.boot_state = "checking".into();
-        self.snapshot.boot_detail.clear();
-        match self
-            .rig
-            .reset_and_run()
-            .and_then(|()| self.observe_boot(vtor))
-        {
-            Ok(detail) => {
-                self.snapshot.detail = detail.clone();
-                Ok(detail)
-            }
-            Err(error) => {
-                self.snapshot.boot_state = "not-running".into();
-                self.snapshot.boot_detail = error.to_string();
-                Err(error.to_string())
-            }
-        }
-    }
-
     fn finish_boot_action(
         &mut self,
         label: &str,
@@ -1112,11 +1150,35 @@ impl FlashController {
     }
 
     fn open_probe(&mut self) {
-        if !self.simulated && self.probe_selector.is_empty() && portal_swd::list_probes().len() > 1
-        {
-            self.snapshot.probe_connected = false;
-            self.snapshot.detail = "multiple ST-Links found; choose the fixture probe".into();
-            return;
+        if !self.simulated && self.probe_selector.is_empty() {
+            // The refusal below already had to enumerate, so adopting rides along for free -- and
+            // this is the path that used to leave a bench running all day without knowing which
+            // probe it was running on. A bench started before its fixture is plugged in resolves
+            // no selector, `ProbeRsRig::new(None)` then opens "the first probe", and flashing
+            // works: the SWD side self-heals and nothing says otherwise. But `/probe/selected`
+            // stays empty, so the page cannot mark the row chosen, `ProbeInfo::serial` (which is
+            // the selector) stays empty, and `paired_vcom_port` can never match -- so the
+            // post-flash VCOM handover fails for the whole of its five-second deadline.
+            //
+            // Nothing open is disturbed by rebuilding the rig here: this runs from `new_in`, from
+            // `select_probe` and `rescan` (which both close first), and from `tick` only while
+            // `probe_connected` is already false.
+            let attached = portal_swd::list_probes();
+            if attached.len() > 1 {
+                self.snapshot.probe_connected = false;
+                self.snapshot.detail = "multiple ST-Links found; choose the fixture probe".into();
+                return;
+            }
+            if let Some(adopted) = adopt_selector(&self.probe_selector, &attached) {
+                self.probe_selector = adopted;
+                // Rebuild the owner around the selector rather than leaving a `None` rig that
+                // happens to open the same device: the selector is what the rig reports as its
+                // identity, and both the VCOM pairing and the page's list need it.
+                self.rig.close();
+                self.rig = Box::new(portal_swd::ProbeRsRig::new(Some(
+                    self.probe_selector.clone(),
+                )));
+            }
         }
         match self.rig.open() {
             Ok(info) => {
@@ -1167,6 +1229,25 @@ impl FlashController {
         if !self.snapshot.busy {
             self.snapshot.phase = self.machine.phase().to_string();
         }
+    }
+}
+
+/// Which probe an unselected fixture should adopt.
+///
+/// Empty in, empty out unless there is exactly one probe attached. Guessing which ST-Link on a
+/// bench is the fixture is exactly the kind of helpfulness that flashes the wrong board, and a
+/// selection already made is never second-guessed.
+///
+/// Stated once, as a plain function, for two reasons: the constructor, the operator's picker, a
+/// rescan and the reopen path all have to apply the *same* rule, and this way the rule can be
+/// tested with no probe attached.
+fn adopt_selector(current: &str, attached: &[portal_swd::ProbeDescriptor]) -> Option<String> {
+    if !current.is_empty() {
+        return None;
+    }
+    match attached {
+        [only] => Some(only.id.clone()),
+        _ => None,
     }
 }
 
@@ -1236,6 +1317,121 @@ fn mcu_snapshot(report: DeviceReport) -> McuSnapshot {
 mod tests {
     use super::*;
 
+    fn descriptor(id: &str) -> portal_swd::ProbeDescriptor {
+        portal_swd::ProbeDescriptor {
+            id: id.into(),
+            name: "STLink V2-1".into(),
+            serial: Some(id.rsplit(':').next().unwrap().into()),
+            vendor_id: 0x0483,
+            product_id: 0x374b,
+            kind: "ST-LINK".into(),
+        }
+    }
+
+    /// The hardware-free core of the fix: an unselected fixture adopts the only probe there is,
+    /// and never picks between two.
+    ///
+    /// The bug this closes was invisible because the fixture recovered anyway. A bench started
+    /// before its ST-Link was plugged in resolved no selector; `ProbeRsRig::new(None)` then opened
+    /// "the first probe" and flashing worked all day — while the page's probe list sat empty
+    /// beside a badge reading "connected", and the post-flash VCOM handover could never pair,
+    /// because both need a selector and the selector was resolved once, at construction, and
+    /// never again.
+    #[test]
+    fn an_unselected_fixture_adopts_the_only_probe_and_never_guesses_between_two() {
+        let one = [descriptor("0483:374b:PROBE123")];
+        let two = [
+            descriptor("0483:374b:PROBE123"),
+            descriptor("0483:374b:OTHER456"),
+        ];
+
+        assert_eq!(adopt_selector("", &[]), None, "nothing attached, nothing to adopt");
+        assert_eq!(
+            adopt_selector("", &one),
+            Some("0483:374b:PROBE123".to_string()),
+            "one probe and no choice made: adopt it"
+        );
+        assert_eq!(
+            adopt_selector("", &two),
+            None,
+            "two probes and no choice made: refuse to guess which one is the fixture"
+        );
+        assert_eq!(
+            adopt_selector("0483:374b:PROBE123", &two),
+            None,
+            "a choice already made is never second-guessed"
+        );
+    }
+
+    /// A firmware tree with a *built* bootloader beside a built application, in the layout
+    /// `discover_in` expects. Built rather than the committed reference, because provisioning
+    /// refuses the reference image and would never reach a pass.
+    fn firmware_tree(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("portal-bench-{name}"));
+        let _ = std::fs::remove_dir_all(&dir);
+
+        let mut application = vec![0u8; 60_000];
+        application[0..4].copy_from_slice(&0x2000_9000u32.to_le_bytes());
+        application[4..8]
+            .copy_from_slice(&(portal_swd::addr::APP_BASE + 0x241).to_le_bytes());
+        let app = dir.join("PortalFW/.pio/build/application_bank_optical");
+        std::fs::create_dir_all(&app).unwrap();
+        std::fs::write(app.join("firmware.bin"), application).unwrap();
+
+        let boot = dir.join("PortalBootloader/.pio/build/bootloader");
+        std::fs::create_dir_all(&boot).unwrap();
+        std::fs::write(boot.join("firmware.bin"), vec![0xA5; 19_568]).unwrap();
+        dir
+    }
+
+    /// The pass restarts the board once, and the call order is what decides that.
+    ///
+    /// `portal-swd` holds the rule that a halted release does not start the application; this
+    /// holds the thing that can silently undo it — the sequence in `flash_provision_and_boot`.
+    /// Release either stage to run instead of halted and every assertion below still passes
+    /// except the count, which is exactly how this went unnoticed: an extra restart leaves a
+    /// board that is running the right image, so nothing downstream looks wrong. The operator saw
+    /// it because the module homes its prisms on startup and did it three times.
+    #[test]
+    fn a_provisioning_pass_restarts_the_board_exactly_once() {
+        let root = firmware_tree("restarts-once");
+        let mut controller =
+            FlashController::new_in(portal_swd::artefacts::discover_in(&root), true);
+        assert_eq!(controller.snapshot().scope, "full", "both regions selected");
+
+        controller.set_sim_present(true);
+        let _ = controller.tick(0, false, false);
+        let _ = controller.tick(500, false, false);
+        assert!(controller.snapshot().mcu.is_some(), "identity was read");
+        assert_eq!(
+            controller.snapshot().simulated_starts,
+            Some(0),
+            "nothing has restarted the board yet"
+        );
+
+        let passed = controller.provision(
+            1_000,
+            7,
+            DeviceSettings::default(),
+            false,
+            false,
+            &mut |_, _| {},
+        );
+        assert!(passed, "{}", controller.snapshot().last_outcome);
+        assert_eq!(
+            controller.snapshot().boot_state,
+            "running",
+            "and it came back up: {}",
+            controller.snapshot().boot_detail
+        );
+        assert_eq!(
+            controller.snapshot().simulated_starts,
+            Some(1),
+            "firmware and durable records are written with the core halted, so the board starts \
+             once, at the end, running everything that was written"
+        );
+    }
+
     #[test]
     fn simulated_fixture_presence_populates_the_same_probe_and_mcu_snapshot() {
         let mut controller = FlashController::new(true);
@@ -1263,6 +1459,10 @@ mod tests {
 
         let _ = controller.tick(1_500, false, false);
         assert!(controller.snapshot().probe_connected);
+        // The reopen above runs `open_probe`, which is now also where an empty selector is
+        // resolved against what is attached. Simulation must never reach that: a machine with a
+        // real ST-Link plugged in while the bench is simulating must not have it adopted.
+        assert_eq!(controller.probe_selector(), "sim");
     }
 
     #[test]

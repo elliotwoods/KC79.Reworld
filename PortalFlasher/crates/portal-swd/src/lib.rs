@@ -44,8 +44,8 @@ pub use persistent::{
 #[cfg(feature = "probe")]
 pub use probe::{ProbeDescriptor, ProbeRsRig, list_probes};
 pub use rig::{
-    BootFault, BootReport, FlashReport, PersistentWriteReport, Presence, ProbeInfo, Rig, RigError,
-    RigErrorKind, RunCheckFault, RunCheckReport, SimRig, Step, Trigger,
+    BootFault, BootReport, FlashReport, PersistentWriteReport, Presence, ProbeInfo, Release, Rig,
+    RigError, RigErrorKind, RunCheckFault, RunCheckReport, SimRig, Step, Trigger,
 };
 
 /// Fixed addresses on the STM32G070, verified against the CMSIS device header

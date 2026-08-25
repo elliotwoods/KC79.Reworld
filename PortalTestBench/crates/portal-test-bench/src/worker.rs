@@ -102,6 +102,48 @@ pub struct Shared {
     pub requests: Mutex<Vec<Request>>,
     /// Filled in by the worker when a `Run` request could not start.
     pub last_start_error: Mutex<Option<String>>,
+    /// What is plugged into this machine, as the worker last enumerated it.
+    pub survey: Mutex<SurveyMirror>,
+}
+
+/// The hardware survey the worker publishes, and the generation the page watches.
+///
+/// One document rather than two, deliberately: ports and probes have to come from the *same*
+/// enumeration, because a serial port is identified as the selected probe's VCOM by matching USB
+/// serials across the two halves. Two independent reads could disagree across a replug and pair
+/// the bench to an unrelated adapter.
+#[derive(Default)]
+pub struct SurveyMirror {
+    /// `None` until the worker's first scan.
+    ///
+    /// Unreachable over HTTP in practice -- `Worker::new` fills it before the host binds -- but
+    /// it is the honest initial value, and it keeps `bench_core::Survey` free of a `Default` that
+    /// would claim `swd_support: false`. That claim is the one thing the type exists to refuse:
+    /// an empty list plus no capability flag reads as "nothing attached", which is a different
+    /// and much more misleading statement than "this build cannot see probes".
+    pub survey: Option<bench_core::Survey>,
+    /// Bumped when the set of attached devices moves, and on every operator rescan. Mirrors
+    /// `/setup/ports_generation`, so a page that saw a bump can tell whether the document it is
+    /// holding already includes it.
+    pub generation: i64,
+    /// Worker-clock milliseconds at which this scan was taken.
+    pub scanned_at_ms: u64,
+}
+
+/// Why a survey is being taken, which decides what may skip it and what it announces.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SurveyRefresh {
+    /// The idle poll. Skipped while the fixture is active and rate-limited to
+    /// [`SURVEY_PERIOD_MS`]; bumps the generation only if the identity set actually moved.
+    Idle,
+    /// Something needs an answer about *now* -- a VCOM attach in flight, whose interface may have
+    /// enumerated microseconds ago. Ignores both the cadence and the fixture lock. Still bumps
+    /// only on a change.
+    Immediate,
+    /// An operator (or an agent) asked for a rescan. Enumerates and bumps unconditionally, so
+    /// every open page re-reads the document even when the hardware turned out to be identical --
+    /// a rescan that visibly does nothing is indistinguishable from one that failed.
+    Announce,
 }
 
 #[derive(Clone, Debug, serde::Serialize)]
@@ -163,6 +205,16 @@ pub struct Worker {
     flash: FlashController,
     flash_selection_seen: (String, String),
     probe_selection_seen: String,
+    /// What is plugged into this machine, as this worker last saw it.
+    ///
+    /// The worker owns every enumeration for the same reason it owns the link: `bench_core::survey()`
+    /// is a blocking IOKit and USB walk, and the thread that owns the probe is the only one that
+    /// may make it. An HTTP handler that enumerated for itself would both stall the async runtime
+    /// and race this thread over the probe.
+    survey: bench_core::Survey,
+    survey_identity: Vec<String>,
+    survey_generation: i64,
+    next_survey_ms: u64,
     flash_heartbeat_seen: i64,
     flash_was_armed: bool,
     /// A successful SWD flash should hand straight over to the probe's VCOM. Windows can take a
@@ -196,6 +248,13 @@ pub struct Worker {
 const HEARTBEAT_STALE_MS: u64 = 5_000;
 const VCOM_ATTACH_TIMEOUT_MS: u64 = 5_000;
 const VCOM_ATTACH_RETRY_MS: u64 = 250;
+
+/// How often an idle bench re-reads what is plugged into it.
+///
+/// Far below the latency of a human plugging a fixture in, and far above the cost of the walk
+/// itself, so a probe appears "immediately" while an idle bench spends a fraction of one 20 ms
+/// tick per second on it.
+const SURVEY_PERIOD_MS: u64 = 1_000;
 
 struct AutoVcom {
     deadline_ms: u64,
@@ -244,6 +303,17 @@ impl Worker {
         let _ = bus.set_text(params.probe.selected, flash.probe_selector());
         *shared.flash.lock().unwrap() = initial.clone();
         *shared.artefacts.lock().unwrap() = flash.artefacts_json();
+        // Start the generation at 1, not 0. The schema default of 0 then means "the worker has
+        // not published yet", and the page seeing it move to 1 as the first bus snapshot arrives
+        // guarantees exactly one fetch after connect, with no special case for the first render.
+        let survey = bench_core::survey();
+        let survey_identity = bench_core::identity_set(&survey);
+        *shared.survey.lock().unwrap() = SurveyMirror {
+            survey: Some(survey.clone()),
+            generation: 1,
+            scanned_at_ms: 0,
+        };
+        let _ = bus.set(params.setup_ports_generation, Value::I64(1));
         let mut provision_snapshot = ProvisionSnapshot::default();
         if let Some(repository) = provisioning.as_mut() {
             match repository.health().and_then(|()| repository.next_serial()) {
@@ -284,6 +354,10 @@ impl Worker {
             telemetry_cursor: 0,
             flash_selection_seen: (initial.boot_id.clone(), initial.app_id.clone()),
             probe_selection_seen: flash.probe_selector().to_string(),
+            survey,
+            survey_identity,
+            survey_generation: 1,
+            next_survey_ms: SURVEY_PERIOD_MS,
             flash_heartbeat_seen: 0,
             flash_was_armed: false,
             auto_vcom: None,
@@ -340,6 +414,7 @@ impl Worker {
 
             self.sync_flash_selection(now);
             self.sync_probe_selection(now);
+            self.refresh_survey(now, SurveyRefresh::Idle);
             if let Some(id) = self.sim_module_present {
                 self.flash.set_sim_present(schema::get_bool(&self.bus, id));
             }
@@ -367,6 +442,9 @@ impl Worker {
             {
                 self.run_flash(now, pass, true);
             }
+            // After the tick, not before: the adoption happens inside `flash.tick` when
+            // `open_probe` resolves an empty selector against a probe that has just appeared.
+            self.publish_probe_selection();
             self.sync_provision_device(now);
             let armed = self.flash.snapshot().armed;
             if self.flash_was_armed && !armed && auto_enabled {
@@ -669,20 +747,10 @@ impl Worker {
             "read_device" => {
                 let _ = self.flash.read_device();
             }
-            "rescan_firmware" => self.rescan_setup(now),
-            "rescan" => {
-                self.rescan_setup(now);
-                let survey = bench_core::survey();
-                self.bench.note(
-                    now,
-                    bench_core::LOG_LEVEL_STATUS,
-                    format!(
-                        "rescan: {} serial ports, {} debug probes",
-                        survey.ports.len(),
-                        survey.probes.len()
-                    ),
-                );
-            }
+            // Both front doors do the same thing. The log line that used to live only on this
+            // one is now inside `rescan_setup`, so a rescan says what it found however it was
+            // asked for.
+            "rescan_firmware" | "rescan" => self.rescan_setup(now),
             other => self.bench.note(
                 now,
                 bench_core::LOG_LEVEL_WARNING,
@@ -894,9 +962,17 @@ impl Worker {
         if now < pending.next_attempt_ms {
             return;
         }
+        // Copied out before the survey below, which needs `&mut self`.
+        let deadline_ms = pending.deadline_ms;
+        let last_error = pending.last_error.clone();
 
-        let survey = bench_core::survey();
-        match bench_core::survey::paired_vcom_port(&survey, self.flash.probe_selector()) {
+        // Forced, and placed after the retry gate above so `VCOM_ATTACH_RETRY_MS` still bounds
+        // how often it enumerates: the probe's VCOM interface may have appeared microseconds ago,
+        // which the one-second idle poll would miss for most of a five-second deadline.
+        self.refresh_survey(now, SurveyRefresh::Immediate);
+        let paired =
+            bench_core::survey::paired_vcom_port(&self.survey, self.flash.probe_selector());
+        match paired {
             Ok(endpoint) => {
                 self.auto_vcom = None;
                 let _ = self.bus.set(
@@ -915,11 +991,11 @@ impl Worker {
                     self.cue("lost");
                 }
             }
-            Err(error) if now >= pending.deadline_ms => {
-                let detail = if error == pending.last_error {
+            Err(error) if now >= deadline_ms => {
+                let detail = if error == last_error {
                     error
                 } else {
-                    format!("{error}; previous check: {}", pending.last_error)
+                    format!("{error}; previous check: {last_error}")
                 };
                 self.auto_vcom = None;
                 self.bench.note(
@@ -1074,6 +1150,61 @@ impl Worker {
         }
     }
 
+    /// Re-read what is plugged into this machine, and say so if it moved.
+    ///
+    /// The single enumeration site in the process. It is here, on the thread that owns the probe,
+    /// rather than in the HTTP handler that serves the answer -- see the note on [`Shared::survey`].
+    ///
+    /// Gated on [`Self::setup_is_locked`] for [`SurveyRefresh::Idle`], which is the same rule that
+    /// already greys out the Rescan button: while a pass is running or auto-flash is armed, the
+    /// list stops updating. That is the intended reading of "not while the fixture is active", and
+    /// an operator who needs it sooner still has Rescan, which forces.
+    fn refresh_survey(&mut self, now: u64, mode: SurveyRefresh) {
+        if mode == SurveyRefresh::Idle && (now < self.next_survey_ms || self.setup_is_locked()) {
+            return;
+        }
+        self.next_survey_ms = now.saturating_add(SURVEY_PERIOD_MS);
+        let survey = bench_core::survey();
+        let identity = bench_core::identity_set(&survey);
+        let changed = identity != self.survey_identity;
+        self.survey_identity = identity;
+        self.survey = survey.clone();
+        if changed || mode == SurveyRefresh::Announce {
+            self.survey_generation = self.survey_generation.saturating_add(1);
+            let _ = self.bus.set(
+                self.params.setup_ports_generation,
+                Value::I64(self.survey_generation),
+            );
+        }
+        *self.shared.survey.lock().unwrap() = SurveyMirror {
+            survey: Some(survey),
+            generation: self.survey_generation,
+            scanned_at_ms: now,
+        };
+    }
+
+    /// Carry a probe selection the fixture resolved on its own up to the page.
+    ///
+    /// [`Self::sync_probe_selection`] carries the operator's intent *down* and is edge-triggered on
+    /// the bus; this carries the controller's own resolution *up* and is edge-triggered on the
+    /// controller. They cannot fight: both settle `probe_selection_seen` to
+    /// `flash.probe_selector()`, so once either has run, the bus, the mirror and the controller all
+    /// read the same string and neither sees an edge.
+    ///
+    /// Without this, a bench started before its fixture was plugged in adopts the probe internally
+    /// and never tells anybody: `/probe/selected` stays empty, so the page cannot show the row as
+    /// chosen and `paired_vcom_port` has nothing to match.
+    fn publish_probe_selection(&mut self) {
+        let resolved = self.flash.probe_selector().to_string();
+        if resolved == self.probe_selection_seen {
+            return;
+        }
+        self.probe_selection_seen = resolved;
+        let _ = self
+            .bus
+            .set_text(self.params.probe.selected, &self.probe_selection_seen);
+    }
+
     fn rescan_setup(&mut self, now: u64) {
         if self.setup_is_locked() {
             self.bench.note(
@@ -1099,6 +1230,25 @@ impl Worker {
         let _ = self
             .bus
             .set_text(self.params.probe.selected, &self.probe_selection_seen);
+        // Announce even when nothing moved: a rescan whose result is invisible is
+        // indistinguishable from one that failed. This is also what refreshes the page after a
+        // rescan issued by `ptb` or by an agent over `/api/bench/command`, which no callback
+        // wired into one button could have reached.
+        self.refresh_survey(now, SurveyRefresh::Announce);
+        self.bench.note(
+            now,
+            bench_core::LOG_LEVEL_STATUS,
+            format!(
+                "rescan: {} serial ports, {} debug probes; probe {}",
+                self.survey.ports.len(),
+                self.survey.probes.len(),
+                if self.probe_selection_seen.is_empty() {
+                    "unselected"
+                } else {
+                    &self.probe_selection_seen
+                },
+            ),
+        );
     }
 
     /// SWD owns reset while a pass runs. Save both communication lanes, close them, and restore
@@ -1127,14 +1277,33 @@ impl Worker {
             self.params.provision.serial_to_provision,
             Value::I64(i64::from(serial)),
         );
-        let _ = self.bus.set(
-            self.params.provision.current_ma,
-            Value::I32(i32::from(mcu.operating_current_ma)),
-        );
-        let _ = self.bus.set(
-            self.params.provision.recovery_enabled,
-            Value::Bool(mcu.full_current_home_recovery),
-        );
+        // The entered settings follow the board unless the operator locked them: a locked pair is
+        // what a batch gets, whatever each board arrived with. Say so in the log each time, so a
+        // board flashed with values it did not carry is explained by the line above the pass.
+        let settings_locked = schema::get_bool(&self.bus, self.params.provision.settings_locked);
+        if settings_locked {
+            self.bench.note(
+                now,
+                bench_core::LOG_LEVEL_STATUS,
+                format!(
+                    "device {}: module settings locked; keeping {} mA / recovery {} over the board's {} mA / recovery {}",
+                    short_uid(&mcu.uid),
+                    schema::get_i32(&self.bus, self.params.provision.current_ma),
+                    if schema::get_bool(&self.bus, self.params.provision.recovery_enabled) { "on" } else { "off" },
+                    mcu.operating_current_ma,
+                    if mcu.full_current_home_recovery { "on" } else { "off" },
+                ),
+            );
+        } else {
+            let _ = self.bus.set(
+                self.params.provision.current_ma,
+                Value::I32(i32::from(mcu.operating_current_ma)),
+            );
+            let _ = self.bus.set(
+                self.params.provision.recovery_enabled,
+                Value::Bool(mcu.full_current_home_recovery),
+            );
+        }
         if let Some(repository) = self.provisioning.as_mut() {
             let evidence = DeviceEvidence {
                 uid: mcu.uid.clone(),
@@ -1440,32 +1609,6 @@ impl Worker {
             },
             self.flash.snapshot().last_outcome.clone(),
         );
-        // The board is restarted before the pass is called done, so that what the operator is told
-        // started is what a fresh reset actually produced. A board waiting to be replugged is the
-        // one exception: its option bytes reload on power, and SWD reset cannot stand in for that.
-        let rebooted = if ok && !automatic && pass == Pass::Flash && !needs_replug {
-            match self.flash.reboot_and_verify() {
-                Ok(detail) => {
-                    self.bench.note(
-                        now,
-                        bench_core::LOG_LEVEL_STATUS,
-                        format!("restarted after flash: {detail}"),
-                    );
-                    true
-                }
-                Err(error) => {
-                    self.bench.note(
-                        now,
-                        bench_core::LOG_LEVEL_ERROR,
-                        format!("flash verified, but the board did not restart: {error}"),
-                    );
-                    false
-                }
-            }
-        } else {
-            true
-        };
-        let ok = ok && rebooted;
         self.cue(if ok { "pass" } else { "fail" });
 
         if let Some(reservation) = reservation {
@@ -2254,7 +2397,21 @@ impl Worker {
             .bus
             .set(p.probe.target_present, Value::Bool(snapshot.target_present));
         let _ = self.bus.set_text(p.probe.name, &snapshot.probe_name);
-        let _ = self.bus.set_text(p.probe.serial, &snapshot.probe_serial);
+        // The probe's *USB* serial, from the survey, not what the rig reports.
+        //
+        // `ProbeRsRig::open` returns the selector it was opened with, so `probe_serial` is a
+        // `vid:pid:serial` triple at best and empty when the rig opened "the first probe". The
+        // survey has the device's own serial number, and that is the string the operator reads
+        // off the label on the ST-Link. Fall back to what the rig said rather than blanking it:
+        // an unlisted probe that is nonetheless open should still say something.
+        let usb_serial = self
+            .survey
+            .probes
+            .iter()
+            .find(|probe| probe.identifier == self.probe_selection_seen)
+            .and_then(|probe| probe.serial_number.as_deref())
+            .unwrap_or(&snapshot.probe_serial);
+        let _ = self.bus.set_text(p.probe.serial, usb_serial);
         let _ = self
             .bus
             .set_text(p.probe.firmware, &snapshot.probe_firmware);

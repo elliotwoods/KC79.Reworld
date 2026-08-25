@@ -21,7 +21,7 @@ use bench_core::transport::Op;
 use bench_core::transport::direct::SurveyConfig;
 use bench_core::transport::{Channel, LineEnding, MotionProfile, RawSignal};
 
-use crate::worker::{Request, Shared};
+use crate::worker::{Request, Shared, SurveyMirror};
 
 pub fn routes(shared: Arc<Shared>) -> Router {
     Router::new()
@@ -89,8 +89,37 @@ async fn state(State(shared): State<Arc<Shared>>) -> impl IntoResponse {
     }))
 }
 
-async fn ports() -> impl IntoResponse {
-    Json(bench_core::survey())
+/// What is plugged into this machine, as the worker last saw it.
+///
+/// A mirror read, not an enumeration -- see this module's contract above. `bench_core::survey()`
+/// is a blocking IOKit and USB walk: on a tokio worker thread it stalls unrelated requests, and it
+/// races the one thread that owns the probe. `generation` is the same counter published on
+/// `/setup/ports_generation`, so a page that saw a bump can tell whether this answer already
+/// includes it.
+async fn ports(State(shared): State<Arc<Shared>>) -> impl IntoResponse {
+    match ports_body(&shared.survey.lock().unwrap()) {
+        Some(body) => Json(body).into_response(),
+        // Unreachable in a running process: `Worker::new` fills the mirror before the host binds.
+        // Said out loud anyway, because "the worker has not scanned yet" and "nothing is attached"
+        // are different claims and a page that cannot tell them apart draws the wrong empty state.
+        None => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({ "error": "the bench worker has not surveyed yet" })),
+        )
+            .into_response(),
+    }
+}
+
+/// The document, split out so it can be tested without a runtime or a bench.
+fn ports_body(mirror: &SurveyMirror) -> Option<serde_json::Value> {
+    let survey = mirror.survey.as_ref()?;
+    Some(serde_json::json!({
+        "ports": survey.ports,
+        "probes": survey.probes,
+        "swd_support": survey.swd_support,
+        "generation": mirror.generation,
+        "scanned_at_ms": mirror.scanned_at_ms,
+    }))
 }
 
 async fn firmware(State(shared): State<Arc<Shared>>) -> impl IntoResponse {
@@ -645,6 +674,42 @@ fn kind_from_name(name: &str) -> Option<bench_core::transport::LinkKind> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The route answers from the worker's mirror, and says so plainly when it has none.
+    ///
+    /// The distinction is the whole point of the `Option`: "the worker has not scanned yet" and
+    /// "nothing is attached" would otherwise render as the same empty list, and the page would
+    /// draw "No ST-Link found" over a bench that had not looked.
+    #[test]
+    fn ports_answers_from_the_mirror_and_says_so_when_it_has_none() {
+        assert!(ports_body(&SurveyMirror::default()).is_none());
+
+        let mirror = SurveyMirror {
+            survey: Some(bench_core::Survey {
+                ports: vec![bench_core::PortEntry {
+                    name: "/dev/cu.usbmodem5103".into(),
+                    kind: "usb".into(),
+                    product: Some("STM32 STLink".into()),
+                    serial_number: Some("PROBE123".into()),
+                }],
+                probes: vec![bench_core::ProbeEntry {
+                    identifier: "0483:374b:PROBE123".into(),
+                    name: Some("STLink V2-1".into()),
+                    serial_number: Some("PROBE123".into()),
+                    kind: "ST-LINK".into(),
+                }],
+                swd_support: true,
+            }),
+            generation: 7,
+            scanned_at_ms: 1_234,
+        };
+        let body = ports_body(&mirror).expect("a filled mirror answers");
+        // Both halves of one survey, so a port can be matched to the probe that owns it.
+        assert_eq!(body["ports"][0]["serial_number"], "PROBE123");
+        assert_eq!(body["probes"][0]["identifier"], "0483:374b:PROBE123");
+        assert_eq!(body["swd_support"], true);
+        assert_eq!(body["generation"], 7);
+    }
 
     #[test]
     fn transport_names_on_the_wire_match_the_ones_the_schema_declares() {

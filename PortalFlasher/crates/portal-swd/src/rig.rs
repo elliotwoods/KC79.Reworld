@@ -11,7 +11,7 @@
 //! that follows, see that it is not.
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 use crate::addr;
 use crate::bits;
@@ -218,6 +218,32 @@ impl core::fmt::Display for Step {
     }
 }
 
+/// What a programming step does with the core once it has finished writing.
+///
+/// A pass that programs firmware *and* durable records is two probe sessions, and each one used to
+/// end by resetting the part and letting it go. The board therefore started its application once
+/// per session — twice for a provisioning pass, and a third time if the caller then restarted it
+/// deliberately — and on this product each start runs a homing routine, so the operator watched
+/// the prisms home, stop, and home again. The intermediate starts were a property of how the rig
+/// let go, not steps anybody asked for.
+///
+/// Naming it makes the restart the caller's decision instead of a side effect of session
+/// lifetimes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Release {
+    /// Reset the part and let the application run. The final step of a sequence does this, and it
+    /// is the only thing that restarts the board.
+    Run,
+    /// Leave the core halted so a following step can write more without the application having
+    /// started and stopped in between.
+    ///
+    /// The watchdog stays frozen and the part stays stopped until something attaches again, so a
+    /// sequence that releases this way **must** still reach a [`Release::Run`] or an explicit
+    /// [`Rig::reset_and_run`] — including down its failure path, or a board is left dead in the
+    /// fixture with nothing on screen saying why.
+    Halt,
+}
+
 /// Evidence from a completed flash pass. Every field is here because the log should be able to
 /// answer "what exactly did you put on that board" without the board.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -405,19 +431,28 @@ pub trait Rig: Send {
     /// exactly the situation it is most useful.
     fn read_device(&mut self) -> Result<crate::device::DeviceImage, RigError>;
 
+    /// Program the firmware partition and verify it by readback.
+    ///
+    /// `release` decides whether the board starts afterwards. A pass that has nothing further to
+    /// write passes [`Release::Run`]; one that goes on to write identity or settings passes
+    /// [`Release::Halt`], so the application starts once, at the end, running what was written.
     fn flash(
         &mut self,
         bundle: &ImageBundle,
+        release: Release,
         progress: &mut Progress<'_>,
     ) -> Result<FlashReport, RigError>;
 
     /// Append identity and journal settings. A conflicting/corrupt identity is changed only when
     /// `allow_identity_override` records an operator's explicit resolution.
+    ///
+    /// `release` means what it does on [`Rig::flash`].
     fn write_persistent(
         &mut self,
         serial: u32,
         settings: DeviceSettings,
         allow_identity_override: bool,
+        release: Release,
         progress: &mut Progress<'_>,
     ) -> Result<PersistentWriteReport, RigError>;
 
@@ -491,6 +526,13 @@ pub struct SimRig {
     faults: Vec<Fault>,
     /// Set once a flash pass has completed, so the run-check has something true to say.
     programmed: bool,
+    /// How many times this rig has released the core to run the application.
+    ///
+    /// Shared for the same reason `present` is, and counted because "how many times did the board
+    /// restart" is the property a sequence of programming steps is easiest to get wrong and
+    /// hardest to see: every intermediate restart still ends in a board that is running, so
+    /// nothing downstream looks wrong. It is a number, so a test can hold it to exactly one.
+    starts: Arc<AtomicU32>,
 }
 
 impl Default for SimRig {
@@ -512,6 +554,7 @@ impl SimRig {
             opened: false,
             faults: Vec::new(),
             programmed: false,
+            starts: Arc::new(AtomicU32::new(0)),
         }
     }
 
@@ -519,6 +562,18 @@ impl SimRig {
     /// thread owns the rig.
     pub fn fixture(&self) -> Arc<AtomicBool> {
         Arc::clone(&self.present)
+    }
+
+    /// A handle on the restart count, readable while the worker thread owns the rig.
+    pub fn starts(&self) -> Arc<AtomicU32> {
+        Arc::clone(&self.starts)
+    }
+
+    /// Reset the modelled part and let it run — the one thing that restarts a board, counted.
+    fn release_to_run(&mut self) {
+        self.dhcsr = 0;
+        self.vtor = if self.programmed { addr::APP_BASE } else { 0 };
+        self.starts.fetch_add(1, Ordering::Relaxed);
     }
 
     pub fn set_present(&self, present: bool) {
@@ -621,6 +676,7 @@ impl Rig for SimRig {
     fn flash(
         &mut self,
         bundle: &ImageBundle,
+        release: Release,
         progress: &mut Progress<'_>,
     ) -> Result<FlashReport, RigError> {
         if !self.opened {
@@ -741,10 +797,16 @@ impl Rig for SimRig {
         }
         progress(Step::Readback, total, total);
 
-        progress(Step::ResetRun, 0, 1);
         self.programmed = true;
-        self.vtor = addr::APP_BASE;
-        self.dhcsr = 0;
+        match release {
+            Release::Run => {
+                progress(Step::ResetRun, 0, 1);
+                self.release_to_run();
+            }
+            // Halted, and staying that way: the caller has more to write, and the modelled part
+            // must not run the application in between any more than the real one does.
+            Release::Halt => self.dhcsr = bits::DHCSR_S_HALT,
+        }
 
         Ok(FlashReport {
             idcode: bits::DEV_ID_STM32G07X,
@@ -771,6 +833,7 @@ impl Rig for SimRig {
         serial: u32,
         mut settings: DeviceSettings,
         allow_identity_override: bool,
+        release: Release,
         progress: &mut Progress<'_>,
     ) -> Result<PersistentWriteReport, RigError> {
         use crate::persistent::{
@@ -874,6 +937,13 @@ impl Rig for SimRig {
             settings_written = true;
             progress(Step::Settings, 1, 1);
         }
+        // The real rig attaches under reset for this and releases on the way out, whether or not
+        // it ended up writing anything. Model both, or the restart count the sim reports would be
+        // lower than the one the operator watches.
+        match release {
+            Release::Run => self.release_to_run(),
+            Release::Halt => self.dhcsr = bits::DHCSR_S_HALT,
+        }
         Ok(PersistentWriteReport {
             serial,
             settings,
@@ -892,8 +962,7 @@ impl Rig for SimRig {
                 "no target in the fixture",
             ));
         }
-        self.dhcsr = 0;
-        self.vtor = if self.programmed { addr::APP_BASE } else { 0 };
+        self.release_to_run();
         Ok(())
     }
 
@@ -944,11 +1013,30 @@ impl Rig for SimRig {
 
 #[cfg(test)]
 mod tests {
-    use super::{BootFault, BootReport, DeviceSettings, Rig, RigErrorKind, SimRig};
+    use super::{BootFault, BootReport, DeviceSettings, Release, Rig, RigErrorKind, SimRig};
+    use std::sync::atomic::Ordering;
 
     const APP_VTOR: u32 = 0x0800_8000;
     const DHCSR_HALT: u32 = 1 << 17;
     const DHCSR_RESET_ST: u32 = 1 << 25;
+
+    /// A bundle that passes `validate`, so a pass over it reaches the release rather than being
+    /// refused before the probe is touched. Shaped like the flasher's `synthetic_bundle`.
+    fn flashable_bundle() -> crate::image::ImageBundle {
+        use crate::addr;
+        use crate::image::{OptionBytePolicy, Provenance, Region, RegionName, RunCheckSpec};
+
+        let mut application = vec![0u8; 60_000];
+        application[0..4].copy_from_slice(&0x2000_9000u32.to_le_bytes());
+        application[4..8].copy_from_slice(&(addr::APP_BASE + 0x241).to_le_bytes());
+        crate::image::ImageBundle {
+            bootloader: Region::new(RegionName::Bootloader, addr::FLASH_BASE, vec![0xA5; 22_708]),
+            application: Region::new(RegionName::Application, addr::APP_BASE, application),
+            option_bytes: OptionBytePolicy::default(),
+            run_check: RunCheckSpec::default(),
+            provenance: Provenance::Synthetic,
+        }
+    }
 
     #[test]
     fn boot_report_accepts_running_application() {
@@ -993,7 +1081,7 @@ mod tests {
         let settings = DeviceSettings::default();
         let mut progress = |_, _, _| {};
         let first = rig
-            .write_persistent(41, settings, false, &mut progress)
+            .write_persistent(41, settings, false, Release::Run, &mut progress)
             .unwrap();
         assert!(first.identity_written);
         assert!(first.settings_written);
@@ -1002,14 +1090,75 @@ mod tests {
         assert_eq!(report.settings.record.settings, settings);
 
         let conflict = rig
-            .write_persistent(42, settings, false, &mut progress)
+            .write_persistent(42, settings, false, Release::Run, &mut progress)
             .unwrap_err();
         assert_eq!(conflict.kind, RigErrorKind::IdentityConflict);
-        rig.write_persistent(42, settings, true, &mut progress)
+        rig.write_persistent(42, settings, true, Release::Run, &mut progress)
             .unwrap();
         assert_eq!(
             rig.read_device().unwrap().analyse().identity.serial(),
             Some(42)
         );
+    }
+
+    /// A provisioning pass restarts the board once, not once per session.
+    ///
+    /// The bug this holds shut was visible from across the room: this product homes its prisms on
+    /// startup, so every restart is ten seconds of motion. Programming firmware and then writing
+    /// the identity journal are two probe sessions, each of which used to reset and let go, so the
+    /// board homed, stopped mid-travel, and homed again — and with a deliberate restart on the end
+    /// of the pass, a third time.
+    ///
+    /// Nothing downstream noticed, which is why it needs a test rather than an assertion: every
+    /// intermediate restart still leaves a board that is running the right image, so the pass
+    /// passed, the readback matched and the boot check was true.
+    #[test]
+    fn a_two_stage_pass_starts_the_application_exactly_once() {
+        let bundle = flashable_bundle();
+        let settings = DeviceSettings::default();
+        let mut progress = |_, _, _| {};
+
+        let mut rig = SimRig::new();
+        let starts = rig.starts();
+        rig.fixture().store(true, Ordering::Relaxed);
+        rig.open().unwrap();
+
+        rig.flash(&bundle, Release::Halt, &mut progress).unwrap();
+        assert_eq!(
+            starts.load(Ordering::Relaxed),
+            0,
+            "a halted release must not start the application"
+        );
+        assert!(
+            rig.boot_check(0).unwrap().dhcsr_first & super::bits::DHCSR_S_HALT != 0,
+            "the part is halted between the stages of a pass, not running"
+        );
+
+        rig.write_persistent(7, settings, false, Release::Halt, &mut progress)
+            .unwrap();
+        assert_eq!(
+            starts.load(Ordering::Relaxed),
+            0,
+            "nor may the durable-record write, whether or not it wrote anything"
+        );
+
+        rig.reset_and_run().unwrap();
+        assert_eq!(
+            starts.load(Ordering::Relaxed),
+            1,
+            "the board starts once, at the end, running everything that was written"
+        );
+
+        // And the shape that produced the complaint, kept here so the number has a comparison:
+        // released to run at every stage, the same pass starts the board three times.
+        let mut old = SimRig::new();
+        let old_starts = old.starts();
+        old.fixture().store(true, Ordering::Relaxed);
+        old.open().unwrap();
+        old.flash(&bundle, Release::Run, &mut progress).unwrap();
+        old.write_persistent(7, settings, false, Release::Run, &mut progress)
+            .unwrap();
+        old.reset_and_run().unwrap();
+        assert_eq!(old_starts.load(Ordering::Relaxed), 3);
     }
 }

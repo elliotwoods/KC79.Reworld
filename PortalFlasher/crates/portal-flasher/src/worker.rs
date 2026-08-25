@@ -20,8 +20,8 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use av_gui_bus::{Bus, Value};
 use portal_swd::{
-    Action, Cue, ImageBundle, Input, Machine, Millis, Pass, Presence, Rig, RigError, RigErrorKind,
-    Step, Timing,
+    Action, Cue, ImageBundle, Input, Machine, Millis, Pass, Presence, Release, Rig, RigError,
+    RigErrorKind, Step, Timing,
 };
 
 use crate::device_api::{DeviceJson, DeviceState};
@@ -370,7 +370,8 @@ impl Worker {
         let _ = self.bus.set(self.params.busy, Value::Bool(true));
         self.emit_cue(Cue::Busy);
         let mut progress = self.progress_sink();
-        let outcome = self.rig.flash(&bundle, &mut progress);
+        // This rig writes firmware and nothing else, so the pass ends here and the board starts.
+        let outcome = self.rig.flash(&bundle, Release::Run, &mut progress);
         drop(progress);
         let _ = self.bus.set(self.params.busy, Value::Bool(false));
         let reached = self.reached_step();
@@ -642,7 +643,7 @@ impl Worker {
                 let mut progress = self.progress_sink();
                 let outcome = self
                     .rig
-                    .flash(&bundle, &mut progress)
+                    .flash(&bundle, Release::Run, &mut progress)
                     .map(|report| report.readback_sha256);
                 drop(progress);
                 outcome

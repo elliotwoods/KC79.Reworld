@@ -19,7 +19,7 @@ pub mod threshold;
 pub mod transport;
 pub mod verdict;
 
-pub use survey::{PortEntry, ProbeEntry, Survey, event_json, open_link, survey};
+pub use survey::{PortEntry, ProbeEntry, Survey, event_json, identity_set, open_link, survey};
 
 /// The report profile this build writes.
 ///

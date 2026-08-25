@@ -36,6 +36,53 @@ export function soundFor(cue: Cue): SoundAction {
   }
 }
 
+export interface ProbeListView {
+  /** False until a survey has actually been read. An empty list before that means nothing. */
+  loaded: boolean;
+  /** Non-empty when the last survey request failed. */
+  error: string;
+  /** `/probe/connected` — the worker has an ST-Link open right now. */
+  probeConnected: boolean;
+  /** `/probe/name` — what it calls that probe. */
+  probeName: string;
+  /** `swd_support` from the survey: whether this build can see probes at all. */
+  swdSupport: boolean;
+}
+
+/**
+ * What the ST-Link list says when it is empty.
+ *
+ * Its one job is never to contradict the badge beside it. It used to read "No ST-Link found.
+ * Connect the fixture probe and rescan." while the same header said "connected", the band below
+ * said "MCU connected", and flashing worked — because the badge was a live parameter and the list
+ * was a fetch taken once, before the fixture was plugged in.
+ *
+ * Four different absences, four different sentences. An empty state that gives one answer to all
+ * of them is how a stale list came to be read as a fact about the hardware.
+ */
+export function probeListEmpty(v: ProbeListView): { title?: string; detail: string } {
+  if (!v.loaded && !v.error) return { detail: 'Reading what is attached…' };
+  if (v.error) {
+    return {
+      title: 'The bench could not be asked',
+      detail: `${v.error}. The list below is the last answer it gave, which may be out of date.`,
+    };
+  }
+  if (v.probeConnected) {
+    return {
+      title: 'Open, but not listed',
+      detail: `The bench has ${v.probeName || 'a probe'} open and is using it. It was not in the last scan of attached hardware — rescan to name it.`,
+    };
+  }
+  if (!v.swdSupport) {
+    return {
+      title: 'This build cannot see probes',
+      detail: 'SWD support is not compiled in, so an empty list is not evidence that no ST-Link is attached.',
+    };
+  }
+  return { detail: 'No ST-Link found. Connect the fixture probe and rescan.' };
+}
+
 /** What the verdict band shows. Never blank, never ambiguous. */
 export interface Tile {
   /** The single word (or short phrase) that is the current answer. */
@@ -296,6 +343,8 @@ export interface SettingsView {
   boardRecovery: boolean;
   currentMa: number;
   recovery: boolean;
+  /** `/provision/settings/locked`: the entered pair is kept when a board is connected. */
+  locked: boolean;
 }
 
 /** "150 mA · recovery on" — the one spelling of a settings pair, shared by the card and the panel. */
@@ -360,9 +409,10 @@ export function settingsState(v: SettingsView): BoardValue {
   if (v.pending) return { word: 'pending', detail: 'board: replug to verify', hint: 'Written with the serial. Unplug and replug the board to verify what it holds.', tone: 'warn', changed: false };
   if (!v.boardPresent) return { word: 'no board', detail, hint: 'No MCU is answering the probe.', tone: 'idle', changed: false };
   if (!read) return { word: 'no board', detail, hint: 'A board is attached but its settings have not been read yet.', tone: 'idle', changed: false };
-  if (changed) return { word: 'changed', detail, hint: 'Differs from what the board holds. The next flash — or Write to board in the Flash tab — stores these values.', tone: 'warn', changed };
-  if (v.source === 'defaults') return { word: 'defaults', detail, hint: 'The board has no settings journal and runs firmware defaults; the next flash writes one.', tone: 'idle', changed: false };
-  return { word: 'on board', detail, hint: 'The entered settings are what the board holds.', tone: 'ok', changed: false };
+  const kept = v.locked ? ' Locked: these values are kept when the next board is connected.' : '';
+  if (changed) return { word: 'changed', detail, hint: `Differs from what the board holds. The next flash — or Write to board in the Flash tab — stores these values.${kept}`, tone: 'warn', changed };
+  if (v.source === 'defaults') return { word: 'defaults', detail, hint: `The board has no settings journal and runs firmware defaults; the next flash writes one.${kept}`, tone: 'idle', changed: false };
+  return { word: 'on board', detail, hint: `The entered settings are what the board holds.${kept}`, tone: 'ok', changed: false };
 }
 
 /** One flashable image, as `/api/bench/firmware` lists it. */

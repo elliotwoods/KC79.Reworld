@@ -6,7 +6,8 @@ import { SystemSounds } from '@auroravision/av-gui/calibration';
 import { mount, useParam, useSchema } from '@auroravision/av-gui/runtime';
 import '@auroravision/av-gui/styles.css';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { type BoardValue, type Cue, type FirmwareItem, type LinkView, type SerialView, type SettingsView, connectBlocker, firmwareRow, linkBlocker, serialState, settingsState, settingsSummary, soundFor } from './bench-model';
+import { type BoardValue, type Cue, type FirmwareItem, type LinkView, type SerialView, type SettingsView, connectBlocker, firmwareRow, linkBlocker, probeListEmpty, serialState, settingsState, settingsSummary, soundFor } from './bench-model';
+import { loadSurvey, loadSurveyForGeneration, subscribeSurvey, surveySnapshot, type ProbeChoice } from './bench-survey';
 import { SessionLog } from './bench-log';
 import { MotionGraphs, MotionPilot } from './motion';
 import { InspectTab } from './inspect';
@@ -42,6 +43,7 @@ function useSettingsView(): SettingsView {
     boardRecovery: useBool('/provision/settings/on_board_recovery'),
     currentMa: useNumber('/provision/settings/current_ma'),
     recovery: useBool('/provision/settings/recovery_enabled'),
+    locked: useBool('/provision/settings/locked'),
   };
 }
 
@@ -100,55 +102,23 @@ function HardwareBand() {
   </section>;
 }
 
-interface ProbeChoice { identifier: string; name?: string; serial_number?: string; kind: string }
-interface PortChoice { name: string; kind: string; product?: string; serial_number?: string }
 interface Artefact extends FirmwareItem { label: string; fits: boolean }
 interface MissingArtefact { label: string; path: string; hint: string }
 
 /**
- * `GET /api/bench/ports`, fetched once for the whole page.
+ * The shared hardware survey, re-read whenever the worker says it moved.
  *
- * Two pickers read it — the Flash tab's ST-Link list and the Test tab's endpoint list — and
- * they must agree, because pairing a probe to its VCOM port is done by matching the USB serial
- * number across the two halves of the same survey. Two independent fetches could disagree by a
- * replug, and the store also spares an IOKit enumeration per mount.
- *
- * Module scope rather than context: there is one bench, one machine and one answer.
+ * The document and the reasons it is one document live in `bench-survey.ts`. All this adds is the
+ * subscription: `/setup/ports_generation` is bumped by the worker only when the set of attached
+ * devices actually changes, or when somebody rescans — so this re-fetches exactly when there is
+ * something new to fetch, including on the first render, and never otherwise.
  */
-interface PortSurvey { ports: PortChoice[]; probes: ProbeChoice[]; swd_support: boolean }
-let surveyValue: PortSurvey = { ports: [], probes: [], swd_support: false };
-let surveyLoading = false;
-let surveyInFlight: Promise<void> | null = null;
-const surveyListeners = new Set<() => void>();
-
-function loadSurvey(): Promise<void> {
-  if (surveyInFlight) return surveyInFlight;
-  surveyLoading = true;
-  surveyListeners.forEach((listener) => listener());
-  surveyInFlight = (async () => {
-    try {
-      const response = await fetch('/api/bench/ports', { cache: 'no-store' });
-      if (response.ok) surveyValue = await response.json();
-    } catch {
-      // The host may be restarting; the explicit refresh and the next mount retry.
-    } finally {
-      surveyLoading = false;
-      surveyInFlight = null;
-      surveyListeners.forEach((listener) => listener());
-    }
-  })();
-  return surveyInFlight;
-}
-
 function usePortSurvey() {
   const [, bump] = useState(0);
-  useEffect(() => {
-    const listener = () => bump((n) => n + 1);
-    surveyListeners.add(listener);
-    void loadSurvey();
-    return () => { surveyListeners.delete(listener); };
-  }, []);
-  return { ports: surveyValue.ports, probes: surveyValue.probes, loading: surveyLoading, refresh: loadSurvey };
+  const generation = useNumber('/setup/ports_generation');
+  useEffect(() => subscribeSurvey(() => bump((n) => n + 1)), []);
+  useEffect(() => { loadSurveyForGeneration(generation); }, [generation]);
+  return { ...surveySnapshot(), refresh: loadSurvey };
 }
 
 function ChoiceRow({ selected, disabled = false, title, detail, badges, onClick }: { selected: boolean; disabled?: boolean; title: string; detail: string; badges?: ReactNode; onClick: () => void }) {
@@ -170,19 +140,19 @@ function SetupPicker() {
   const flashBusy = useBool('/flash/busy');
   const runBusy = useBool('/run/busy');
   const scope = useText('/flash/scope');
-  const { probes, loading: surveying, refresh } = usePortSurvey();
+  const probeName = useText('/probe/name');
+  const generation = useNumber('/setup/ports_generation');
+  const { probes, swd_support: swdSupport, loaded, loading: surveying, error } = usePortSurvey();
   const [items, setItems] = useState<Artefact[]>([]);
   const [missing, setMissing] = useState<MissingArtefact[]>([]);
   const [root, setRoot] = useState('');
   const [loadingFirmware, setLoadingFirmware] = useState(false);
   const loading = loadingFirmware || surveying;
+  // Firmware only: the survey refreshes itself off the generation.
   const load = async () => {
     setLoadingFirmware(true);
     try {
-      const [firmwareResponse] = await Promise.all([
-        fetch('/api/bench/firmware', { cache: 'no-store' }),
-        refresh(),
-      ]);
+      const firmwareResponse = await fetch('/api/bench/firmware', { cache: 'no-store' });
       if (firmwareResponse.ok) {
         const firmware = await firmwareResponse.json();
         setItems(firmware.found ?? []);
@@ -195,16 +165,17 @@ function SetupPicker() {
       setLoadingFirmware(false);
     }
   };
-  useEffect(() => { void load(); }, []);
-  const probeChoices = simulated
+  // A rescan re-reads the build tree as well as the hardware, and it announces on the generation
+  // whether or not anything moved — so this covers both front doors, and an agent's rescan too.
+  useEffect(() => { void load(); }, [generation]);
+  const probeChoices: ProbeChoice[] = simulated
     ? [{ identifier: 'sim', name: 'SimRig', serial_number: 'SIM', kind: 'simulation' }]
     : probes;
   const selectedProbeMissing = !!probe.value && !probeChoices.some((item) => item.identifier === probe.value);
   const setupLocked = armed || flashBusy || runBusy;
-  const doRescan = () => {
-    rescan.set((rescan.value ?? 0) + 1);
-    window.setTimeout(() => void load(), 150);
-  };
+  // Just the counter bump. The worker answers it by rescanning and announcing on the generation,
+  // which is what refreshes this page — so there is nothing to time out and race any more.
+  const doRescan = () => rescan.set((rescan.value ?? 0) + 1);
   return <div className="setup-picker">
     <div className="setup-picker-toolbar">
       <div><strong>Fixture setup</strong><small>Choose hardware first, then the image banks to program.</small></div>
@@ -213,7 +184,7 @@ function SetupPicker() {
     <div className="setup-picker-columns">
       <section className="setup-choice-group" aria-label="Probe selection">
         <header><span><b>1</b> ST-Link probe</span><Badge tone={connected ? 'ok' : 'offline'}>{connected ? 'connected' : 'not connected'}</Badge></header>
-        {probeChoices.length === 0 ? <EmptyState inline detail="No ST-Link found. Connect the fixture probe and rescan." /> :
+        {probeChoices.length === 0 ? <EmptyState inline {...probeListEmpty({ loaded, error, probeConnected: connected, probeName, swdSupport })} /> :
           <div className="choice-list" role="listbox" aria-label="ST-Link probes">{probeChoices.map((item) =>
             <ChoiceRow key={item.identifier} selected={probe.value === item.identifier} disabled={setupLocked} title={item.name || item.identifier} detail={[item.kind, item.serial_number || item.identifier].filter(Boolean).join(' · ')} onClick={() => probe.set(item.identifier)} />
           )}</div>}
@@ -266,11 +237,12 @@ function ManualFlashButton() {
  * what was entered, the small line is what the board holds, the badge is the relation — three
  * facts, none repeated. The tint follows the badge tone, so a card that needs attention looks it.
  */
-function BoardValueCard({ kind, title, hint, state, children }: { kind: 'serial' | 'settings'; title: string; hint: string; state: BoardValue; children: ReactNode }) {
+function BoardValueCard({ kind, title, hint, state, trailing, children }: { kind: 'serial' | 'settings'; title: string; hint: string; state: BoardValue; trailing?: ReactNode; children: ReactNode }) {
   return <div className="board-value" data-kind={kind} data-tone={state.tone} role="group" aria-label={title}>
     <span className="board-value-copy" title={hint}><span className="label-caps">{title}</span><small>{state.detail}</small></span>
     {children}
     <Badge tone={state.tone} title={state.hint}>{state.word}</Badge>
+    {trailing}
   </div>;
 }
 
@@ -278,6 +250,16 @@ const SERIAL_HINT = 'The serial to provision: written to the protected identity 
 const SETTINGS_HINT = 'Stored in the module\'s flash settings journal, written with the serial on the next flash.';
 const CURRENT_HINT = 'Operating current: the motor driver current the module runs at, 50–250 mA.';
 const RECOVERY_HINT = 'Full-current home recovery: if a home fails for a motion reason at the stored current, retry it once at 250 mA — and if that succeeds, promote the stored current to 250 mA.';
+const LOCK_HINT = 'Lock: keep the entered settings when a board is connected, instead of replacing them with what that board holds. Set a value once, lock it, and every flash writes it. Read from board is disabled while locked.';
+
+/** The padlock at the right of the settings card. Locked, the entered pair survives a board insertion. */
+function SettingsLock() {
+  const p = useParam<boolean>('/provision/settings/locked');
+  const on = !!p.value;
+  return <button type="button" className={`board-value-lock${on ? ' is-on' : ''}`} aria-pressed={on} aria-label={on ? 'Unlock module settings' : 'Lock module settings'} title={LOCK_HINT} disabled={!p.decl} onClick={() => p.set(!on)}>
+    <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><rect x="3" y="7.5" width="10" height="6.5" rx="1.5" fill="currentColor" /><path d={on ? 'M5 7.5V5a3 3 0 0 1 6 0v2.5' : 'M5 7.5V5a3 3 0 0 1 6 0'} fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></svg>
+  </button>;
+}
 
 function SerialNumberCard() {
   const state = serialState(useSerialView());
@@ -291,7 +273,7 @@ function SerialNumberCard() {
 // aria-label, so the caption under it is for the eye only.
 function ModuleSettingsCard() {
   const state = settingsState(useSettingsView());
-  return <BoardValueCard kind="settings" title="Module Settings" hint={SETTINGS_HINT} state={state}>
+  return <BoardValueCard kind="settings" title="Module Settings" hint={SETTINGS_HINT} state={state} trailing={<SettingsLock />}>
     <span className="board-value-hint" title={CURRENT_HINT}><NumberField path="/provision/settings/current_ma" /></span>
     <span className="board-value-field" title={RECOVERY_HINT}><Toggle path="/provision/settings/recovery_enabled" /><span className="label-caps board-value-caption" aria-hidden="true">recovery</span></span>
   </BoardValueCard>;
@@ -361,7 +343,8 @@ function ProvisionPanel() {
   const serial = serialState(useSerialView());
   const settingsView = useSettingsView();
   const settings = settingsState(settingsView);
-  const settingsWhy = settingsView.boardPresent ? null : 'no MCU is answering';
+  const settingsWhy = !settingsView.boardPresent ? 'no MCU is answering' : null;
+  const readWhy = settingsView.locked ? 'Module Settings are locked; unlock them to read into them' : settingsWhy;
   const [query, setQuery] = useState('');
   const [history, setHistory] = useState<ProvisionActionRow[]>([]);
   useEffect(() => {
@@ -382,7 +365,7 @@ function ProvisionPanel() {
     {pending && <Banner tone="warn">Remove and reconnect this board. Its pending UID, serial, and firmware will be verified without another flash.</Banner>}
     <div className="provision-grid">
       <section className="provision-fields"><header><strong>Serial allocation</strong><small>The Serial Number above is the number printed on the PCB.</small></header><Row label="Next available serial number"><NumberField path="/provision/next_serial" /></Row><Fact label="On-board serial number" value={existing > 0 ? String(existing) : 'none'} /><Fact label="Identity status" value={identity || 'unknown'} tone={identity === 'corrupt' || identity === 'foreign-uid' ? 'error' : undefined} /><Fact label="Reservation" value={reservation || 'none'} /><div className="button-row"><Action path="/actions/keep_onboard_serial" why={existing <= 0 ? 'no valid on-board serial' : null}>Keep on-board serial</Action><Action path="/actions/use_pcb_serial" variant="danger">Use entered serial number</Action></div></section>
-      <section className="provision-fields"><header><strong>Module settings</strong><small>Edit them in the Module Settings card above; they are written with the serial on the next flash. Read from board discards your edits.</small></header><Fact label="On board" value={settings.detail.replace(/^board: /, '')} /><Fact label="Entered" value={settingsSummary(settingsView.currentMa, settingsView.recovery)} tone={settings.changed ? 'warn' : undefined} /><Fact label="Settings source" value={source === 'flash' ? 'settings journal' : 'firmware defaults'} /><div className="button-row"><Action path="/actions/read_settings" why={settingsWhy}>Read from board</Action><Action path="/actions/write_settings" variant="primary" why={settingsWhy}>Write to board</Action></div></section>
+      <section className="provision-fields"><header><strong>Module settings</strong><small>Edit them in the Module Settings card above; they are written with the serial on the next flash. Read from board discards your edits; the padlock on the card keeps them across boards.</small></header><Fact label="On board" value={settings.detail.replace(/^board: /, '')} /><Fact label="Entered" value={settingsSummary(settingsView.currentMa, settingsView.recovery)} tone={settings.changed ? 'warn' : undefined} /><Fact label="Settings source" value={source === 'flash' ? 'settings journal' : 'firmware defaults'} /><div className="button-row"><Action path="/actions/read_settings" why={readWhy}>Read from board</Action><Action path="/actions/write_settings" variant="primary" why={settingsWhy}>Write to board</Action></div></section>
     </div>
     <div className="provision-history"><header><strong>Provisioning history</strong><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search serial, UID, action…" aria-label="Search provisioning history" /></header>{history.length === 0 ? <small>No matching actions.</small> : <div className="history-list">{history.slice(0, 30).map((item) => <div key={item.id}><code>{item.serial ?? '—'}</code><span><strong>{item.action}</strong><small>{item.uid ? `…${item.uid.slice(-8)} · ` : ''}{item.detail || item.outcome}</small></span><Badge tone={item.outcome === 'failed' ? 'error' : item.outcome === 'ok' ? 'ok' : 'idle'}>{item.outcome}</Badge></div>)}</div>}</div>
   </section>;
