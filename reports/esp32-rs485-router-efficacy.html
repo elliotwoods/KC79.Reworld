@@ -1,0 +1,635 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Engineering assessment of transparent, topology-aware, and aggregating ESP32 RS485 repeater architectures for KC79 Reworld.">
+  <title>ESP32 RS485 Router Efficacy — KC79 Reworld</title>
+  <style>
+    :root {
+      --ink: #17211f;
+      --muted: #5d6c68;
+      --paper: #f4f2eb;
+      --panel: #fffdf8;
+      --line: #d8d6cd;
+      --green: #0d7557;
+      --green-soft: #dcefe8;
+      --lime: #b9dc69;
+      --amber: #bd6a1b;
+      --amber-soft: #f5e5d1;
+      --red: #ae3f36;
+      --blue: #2e667e;
+      --shadow: 0 18px 48px rgba(30, 45, 40, .09);
+      --radius: 18px;
+    }
+
+    * { box-sizing: border-box; }
+
+    html {
+      scroll-behavior: smooth;
+      background: var(--paper);
+    }
+
+    body {
+      margin: 0;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 85% 6%, rgba(185, 220, 105, .18), transparent 25rem),
+        linear-gradient(180deg, #f7f5ef 0, var(--paper) 36rem);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.55;
+      font-variant-numeric: tabular-nums;
+    }
+
+    a { color: var(--green); text-underline-offset: 3px; }
+    a:hover { color: #084c39; }
+
+    .page {
+      width: min(1180px, calc(100% - 40px));
+      margin: 0 auto;
+    }
+
+    .hero {
+      padding: 72px 0 34px;
+      display: grid;
+      grid-template-columns: minmax(0, 1.55fr) minmax(280px, .75fr);
+      gap: 54px;
+      align-items: end;
+    }
+
+    .eyebrow {
+      margin: 0 0 16px;
+      color: var(--green);
+      font-size: .76rem;
+      font-weight: 800;
+      letter-spacing: .16em;
+      text-transform: uppercase;
+    }
+
+    h1, h2, h3 {
+      margin-top: 0;
+      line-height: 1.08;
+      letter-spacing: -.035em;
+    }
+
+    h1 {
+      max-width: 820px;
+      margin-bottom: 22px;
+      font-size: clamp(2.7rem, 7vw, 6.4rem);
+      font-weight: 760;
+    }
+
+    h2 { margin-bottom: 18px; font-size: clamp(1.8rem, 3.5vw, 3.2rem); }
+    h3 { margin-bottom: 10px; font-size: 1.18rem; letter-spacing: -.02em; }
+
+    .lede {
+      max-width: 760px;
+      margin: 0;
+      color: #384742;
+      font-size: clamp(1.08rem, 2vw, 1.38rem);
+    }
+
+    .hero-meta {
+      padding: 23px;
+      border: 1px solid rgba(13, 117, 87, .18);
+      border-radius: var(--radius);
+      background: rgba(255, 253, 248, .76);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(10px);
+    }
+
+    .hero-meta dl { margin: 0; }
+    .hero-meta div { padding: 10px 0; border-bottom: 1px solid var(--line); }
+    .hero-meta div:first-child { padding-top: 0; }
+    .hero-meta div:last-child { padding-bottom: 0; border-bottom: 0; }
+    dt { color: var(--muted); font-size: .75rem; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }
+    dd { margin: 3px 0 0; font-weight: 680; }
+
+    .toolbar {
+      position: sticky;
+      z-index: 20;
+      top: 0;
+      margin-bottom: 32px;
+      border-top: 1px solid rgba(216, 214, 205, .7);
+      border-bottom: 1px solid rgba(216, 214, 205, .85);
+      background: rgba(244, 242, 235, .88);
+      backdrop-filter: blur(14px);
+    }
+
+    .toolbar-inner {
+      min-height: 58px;
+      display: flex;
+      gap: 18px;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    nav { display: flex; gap: 5px; overflow-x: auto; scrollbar-width: none; }
+    nav::-webkit-scrollbar { display: none; }
+    nav a {
+      padding: 8px 10px;
+      border-radius: 999px;
+      color: #43524d;
+      font-size: .82rem;
+      font-weight: 700;
+      text-decoration: none;
+      white-space: nowrap;
+    }
+    nav a:hover { background: var(--green-soft); color: var(--green); }
+
+    button {
+      flex: 0 0 auto;
+      padding: 9px 13px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      color: var(--ink);
+      background: var(--panel);
+      font: inherit;
+      font-size: .78rem;
+      font-weight: 750;
+      cursor: pointer;
+    }
+    button:hover { border-color: var(--green); color: var(--green); }
+
+    main { padding-bottom: 80px; }
+    section { scroll-margin-top: 84px; margin: 0 0 76px; }
+
+    .verdict {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0;
+      overflow: hidden;
+      border: 1px solid #bcd4ca;
+      border-radius: 24px;
+      background: var(--panel);
+      box-shadow: var(--shadow);
+    }
+
+    .verdict-main { padding: clamp(28px, 5vw, 52px); background: var(--green); color: white; }
+    .verdict-main .eyebrow { color: var(--lime); }
+    .verdict-main h2 { max-width: 520px; }
+    .verdict-main p { max-width: 600px; margin-bottom: 0; color: rgba(255,255,255,.82); font-size: 1.08rem; }
+
+    .verdict-list { display: grid; align-content: center; padding: clamp(24px, 4vw, 46px); }
+    .verdict-item { display: grid; grid-template-columns: 27px 1fr; gap: 11px; padding: 14px 0; border-bottom: 1px solid var(--line); }
+    .verdict-item:last-child { border: 0; }
+    .check, .cross {
+      width: 22px;
+      height: 22px;
+      display: grid;
+      place-items: center;
+      margin-top: 1px;
+      border-radius: 50%;
+      font-size: .75rem;
+      font-weight: 900;
+    }
+    .check { color: var(--green); background: var(--green-soft); }
+    .cross { color: var(--red); background: #f5dedb; }
+    .verdict-item p { margin: 2px 0 0; color: var(--muted); font-size: .9rem; }
+
+    .kpis {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 14px;
+      margin-top: 14px;
+    }
+
+    .kpi {
+      min-height: 150px;
+      padding: 22px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--panel);
+    }
+    .kpi strong { display: block; margin: 10px 0 3px; font-size: clamp(2rem, 4vw, 3.4rem); line-height: 1; letter-spacing: -.06em; }
+    .kpi small { color: var(--muted); }
+    .kpi .tag { color: var(--green); font-size: .7rem; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
+
+    .section-head {
+      display: grid;
+      grid-template-columns: minmax(260px, .8fr) minmax(320px, 1.2fr);
+      gap: 48px;
+      align-items: end;
+      margin-bottom: 26px;
+    }
+    .section-head p { max-width: 670px; margin: 0; color: var(--muted); }
+
+    .topology {
+      padding: 26px;
+      overflow-x: auto;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--panel);
+    }
+
+    .route {
+      min-width: 880px;
+      display: grid;
+      grid-template-columns: 100px 44px 140px 44px 145px 44px 180px 44px 130px;
+      align-items: center;
+      justify-content: center;
+    }
+    .node {
+      min-height: 82px;
+      display: grid;
+      place-items: center;
+      padding: 13px;
+      border: 1px solid var(--line);
+      border-radius: 13px;
+      background: white;
+      text-align: center;
+      font-size: .82rem;
+      font-weight: 750;
+    }
+    .node small { display: block; margin-top: 4px; color: var(--muted); font-weight: 550; }
+    .node.focus { border-color: var(--green); background: var(--green-soft); }
+    .arrow { color: var(--green); text-align: center; font-size: 1.4rem; }
+    .fanout { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; }
+    .fanout span { padding: 9px 4px; border-radius: 8px; background: #edf0ed; text-align: center; font-size: .72rem; font-weight: 750; }
+
+    .formula {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 1px;
+      overflow: hidden;
+      margin-top: 14px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: var(--line);
+    }
+    .formula div { padding: 17px; background: #faf8f2; }
+    .formula b { display: block; margin-bottom: 3px; color: var(--green); }
+    .formula span { color: var(--muted); font-size: .83rem; }
+
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+    .panel { padding: clamp(22px, 3vw, 32px); border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); }
+    .panel > p { color: var(--muted); }
+
+    .bars { margin-top: 28px; }
+    .bar-row { display: grid; grid-template-columns: 74px 1fr 78px; gap: 12px; align-items: center; margin: 15px 0; }
+    .bar-label { color: var(--muted); font-size: .79rem; font-weight: 700; }
+    .bar-track { height: 18px; overflow: hidden; border-radius: 999px; background: #e8e7e1; }
+    .bar-fill { height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--green), #45a681); }
+    .bar-fill.amber { background: linear-gradient(90deg, var(--amber), #dc9d53); }
+    .bar-value { text-align: right; font-size: .84rem; font-weight: 800; }
+
+    .traffic-viz { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; align-items: end; min-height: 245px; margin-top: 20px; }
+    .traffic-col { display: grid; grid-template-rows: 1fr auto; gap: 12px; height: 220px; }
+    .traffic-bar { align-self: end; display: grid; place-items: center; min-height: 34px; border-radius: 12px 12px 5px 5px; color: white; background: var(--blue); font-weight: 850; }
+    .traffic-bar.smart { background: var(--green); }
+    .traffic-caption { text-align: center; color: var(--muted); font-size: .82rem; }
+
+    .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); }
+    table { width: 100%; border-collapse: collapse; font-size: .89rem; }
+    th, td { padding: 15px 17px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+    th { color: #4e5e59; background: #eeeee8; font-size: .72rem; letter-spacing: .06em; text-transform: uppercase; }
+    tr:last-child td { border-bottom: 0; }
+    td:first-child { font-weight: 740; }
+    .best { color: var(--green); font-weight: 800; }
+    .low { color: var(--red); }
+
+    .rating { white-space: nowrap; }
+    .rating i { display: inline-block; width: 7px; height: 7px; margin-right: 3px; border-radius: 50%; background: #d1d2cc; }
+    .rating.r1 i:nth-child(-n+1), .rating.r2 i:nth-child(-n+2), .rating.r3 i:nth-child(-n+3), .rating.r4 i:nth-child(-n+4), .rating.r5 i:nth-child(-n+5) { background: var(--green); }
+
+    .callout {
+      margin-top: 18px;
+      padding: 18px 20px;
+      border-left: 4px solid var(--amber);
+      border-radius: 0 12px 12px 0;
+      color: #61441f;
+      background: var(--amber-soft);
+    }
+
+    .decision {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 14px;
+    }
+    .decision-card { position: relative; padding: 25px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); }
+    .decision-card.recommended { border: 2px solid var(--green); }
+    .decision-card .badge { display: inline-block; padding: 5px 8px; border-radius: 999px; color: var(--green); background: var(--green-soft); font-size: .68rem; font-weight: 850; letter-spacing: .07em; text-transform: uppercase; }
+    .decision-card ul { padding-left: 19px; color: var(--muted); font-size: .88rem; }
+    .decision-card .outcome { padding-top: 15px; border-top: 1px solid var(--line); color: var(--ink); font-weight: 750; }
+
+    .ranked { counter-reset: priority; display: grid; gap: 10px; }
+    .rank {
+      counter-increment: priority;
+      display: grid;
+      grid-template-columns: 46px minmax(0, 1fr) auto;
+      gap: 17px;
+      align-items: center;
+      padding: 19px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: var(--panel);
+    }
+    .rank::before { content: counter(priority, decimal-leading-zero); color: var(--green); font-size: 1.35rem; font-weight: 850; }
+    .rank p { margin: 3px 0 0; color: var(--muted); font-size: .86rem; }
+    .impact { padding: 6px 9px; border-radius: 999px; color: var(--green); background: var(--green-soft); font-size: .69rem; font-weight: 850; text-transform: uppercase; }
+
+    .assumptions { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px 26px; padding: 24px; border-radius: var(--radius); background: #e9e8e1; }
+    .assumption { display: grid; grid-template-columns: 18px 1fr; gap: 10px; color: #485650; font-size: .88rem; }
+    .assumption::before { content: "✓"; color: var(--green); font-weight: 900; }
+
+    details { border-bottom: 1px solid var(--line); }
+    summary { padding: 16px 0; font-weight: 760; cursor: pointer; }
+    details p { margin: -2px 0 18px; color: var(--muted); }
+
+    footer { padding: 34px 0 58px; border-top: 1px solid var(--line); color: var(--muted); font-size: .78rem; }
+    .footer-inner { display: flex; gap: 25px; justify-content: space-between; }
+    .sources { max-width: 820px; }
+    .sources a { margin-right: 12px; }
+
+    @media (max-width: 900px) {
+      .hero, .section-head { grid-template-columns: 1fr; gap: 25px; }
+      .hero { padding-top: 48px; }
+      .verdict, .grid-2 { grid-template-columns: 1fr; }
+      .kpis { grid-template-columns: repeat(2, 1fr); }
+      .decision { grid-template-columns: 1fr; }
+    }
+
+    @media (max-width: 620px) {
+      .page { width: min(100% - 24px, 1180px); }
+      .toolbar-inner { min-height: 52px; }
+      nav a { font-size: .75rem; }
+      .print-button { display: none; }
+      .kpis, .formula, .assumptions { grid-template-columns: 1fr; }
+      .rank { grid-template-columns: 38px 1fr; }
+      .rank .impact { grid-column: 2; justify-self: start; }
+      th, td { padding: 12px; }
+      .footer-inner { display: block; }
+    }
+
+    @media print {
+      :root { --paper: white; --panel: white; --shadow: none; }
+      body { background: white; font-size: 10pt; }
+      .page { width: 100%; max-width: none; }
+      .hero { padding-top: 20px; }
+      h1 { font-size: 40pt; }
+      h2 { font-size: 23pt; }
+      .toolbar { display: none; }
+      section { margin-bottom: 34px; break-inside: avoid; }
+      .verdict, .panel, .table-wrap, .decision-card, .rank, .topology { box-shadow: none; break-inside: avoid; }
+      .verdict-main { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+      a { color: var(--ink); text-decoration: none; }
+      a[href^="http"]::after { content: " (" attr(href) ")"; font-size: 7pt; overflow-wrap: anywhere; }
+    }
+  </style>
+</head>
+<body>
+  <header class="page hero">
+    <div>
+      <p class="eyebrow">KC79 Reworld · Engineering assessment</p>
+      <h1>How smart should the ESP32 router be?</h1>
+      <p class="lede">A quantitative comparison of transparent repeating, topology-aware switching, aggregate transactions, faster inner buses, and additional outer channels.</p>
+    </div>
+    <aside class="hero-meta" aria-label="Report metadata">
+      <dl>
+        <div><dt>Topology assessed</dt><dd>54 Portals / outer channel</dd></div>
+        <div><dt>Physical layout</dt><dd>6 repeaters × 9 Portals</dd></div>
+        <div><dt>Dominant workload</dt><dd>Continuous keyframe motion</dd></div>
+        <div><dt>Report date</dt><dd>24 August 2026</dd></div>
+      </dl>
+    </aside>
+  </header>
+
+  <div class="toolbar">
+    <div class="page toolbar-inner">
+      <nav aria-label="Report sections">
+        <a href="#verdict">Verdict</a>
+        <a href="#capacity">Capacity</a>
+        <a href="#architectures">Options</a>
+        <a href="#aggregation">Aggregation</a>
+        <a href="#recommendation">Recommendation</a>
+      </nav>
+      <button class="print-button" type="button" onclick="window.print()">Print / save PDF</button>
+    </div>
+  </div>
+
+  <main class="page">
+    <section id="verdict">
+      <div class="verdict">
+        <div class="verdict-main">
+          <p class="eyebrow">Executive verdict</p>
+          <h2>Make it frame-aware and topology-aware. Stop before it becomes a full motion proxy.</h2>
+          <p>Smart filtering creates a large reliability gain inside each branch, but it cannot increase the shared outer bus capacity. The immediate performance bottleneck is the Router’s fixed broadcast pacing—not the lack of an aggregate move protocol.</p>
+        </div>
+        <div class="verdict-list">
+          <div class="verdict-item"><span class="check">✓</span><div><strong>Buffer and forward complete frames</strong><p>One DE transition per frame; bounded queues and observable failures.</p></div></div>
+          <div class="verdict-item"><span class="check">✓</span><div><strong>Filter by the learned nine-ID range</strong><p>Approximately 6× less traffic on each inner network.</p></div></div>
+          <div class="verdict-item"><span class="check">✓</span><div><strong>Align keyframe batches to nine Portals</strong><p>One packet maps cleanly to one repeater branch.</p></div></div>
+          <div class="verdict-item"><span class="cross">×</span><div><strong>Do not replace keyframes with aggregate moves</strong><p>The current keyframe format already carries the same grouped data.</p></div></div>
+        </div>
+      </div>
+
+      <div class="kpis" aria-label="Headline predictions">
+        <article class="kpi"><span class="tag">Current practical rate</span><strong>≈1.4 Hz</strong><small>With six 100 ms waits per update</small></article>
+        <article class="kpi"><span class="tag">After pacing fix</span><strong>6–7.5 Hz</strong><small>Predicted stable full-system range</small></article>
+        <article class="kpi"><span class="tag">Inner traffic</span><strong>−83%</strong><small>After nine-ID keyframe filtering</small></article>
+        <article class="kpi"><span class="tag">Outer capacity gain</span><strong>0%</strong><small>From switching alone</small></article>
+      </div>
+    </section>
+
+    <section id="capacity">
+      <div class="section-head">
+        <div><p class="eyebrow">01 · Network model</p><h2>The outer bus sets the ceiling</h2></div>
+        <p>All six repeaters share the same WaveShare-facing RS485 channel. No downstream routing decision can avoid transmitting the motion payload once on this outer link.</p>
+      </div>
+
+      <div class="topology" aria-label="Network topology diagram">
+        <div class="route">
+          <div class="node">PC<small>Router / RouterRS</small></div><div class="arrow">→</div>
+          <div class="node">Ethernet<small>TCP transport</small></div><div class="arrow">→</div>
+          <div class="node">WaveShare<small>115200 maximum</small></div><div class="arrow">→</div>
+          <div class="node focus">Outer RS485<small>6 repeaters · shared bottleneck</small></div><div class="arrow">→</div>
+          <div class="fanout" aria-label="Six repeater branches"><span>R1<br>1–9</span><span>R2<br>10–18</span><span>R3<br>19–27</span><span>R4<br>28–36</span><span>R5<br>37–45</span><span>R6<br>46–54</span></div>
+        </div>
+      </div>
+
+      <div class="formula">
+        <div><b>11,520 bytes/s</b><span>115200 baud ÷ 10 wire bits per 8N1 byte</span></div>
+        <div><b>≈1.38 kB/update</b><span>Six worst-case nine-Portal position+velocity packets</span></div>
+        <div><b>≈120 ms/update</b><span>Absolute wire airtime before guards, processing, or replies</span></div>
+      </div>
+
+      <div class="grid-2" style="margin-top:18px">
+        <article class="panel">
+          <h3>Maximum update rate by post-packet gap</h3>
+          <p>The current 100 ms default dominates transmission time. The predicted useful region is a bench-qualified 2–5 ms.</p>
+          <div class="bars" aria-label="Update rate chart">
+            <div class="bar-row"><span class="bar-label">100 ms</span><div class="bar-track"><div class="bar-fill amber" style="width:17%"></div></div><span class="bar-value">1.4 Hz</span></div>
+            <div class="bar-row"><span class="bar-label">10 ms</span><div class="bar-track"><div class="bar-fill" style="width:67%"></div></div><span class="bar-value">5.6 Hz</span></div>
+            <div class="bar-row"><span class="bar-label">5 ms</span><div class="bar-track"><div class="bar-fill" style="width:80%"></div></div><span class="bar-value">6.7 Hz</span></div>
+            <div class="bar-row"><span class="bar-label">2 ms</span><div class="bar-track"><div class="bar-fill" style="width:91%"></div></div><span class="bar-value">7.6 Hz</span></div>
+            <div class="bar-row"><span class="bar-label">0 ms</span><div class="bar-track"><div class="bar-fill" style="width:100%"></div></div><span class="bar-value">8.3 Hz*</span></div>
+          </div>
+          <p style="font-size:.74rem">*Theoretical saturation point; unsuitable as a production target without proven gateway buffering.</p>
+        </article>
+
+        <article class="panel">
+          <h3>Traffic seen by one inner branch</h3>
+          <p>A topology-aware repeater forwards one relevant keyframe block instead of all six. Outer traffic remains identical.</p>
+          <div class="traffic-viz" aria-label="Inner traffic comparison chart">
+            <div class="traffic-col"><div class="traffic-bar" style="height:100%">≈1,380 B</div><div class="traffic-caption"><strong>Transparent hub</strong><br>all six blocks</div></div>
+            <div class="traffic-col"><div class="traffic-bar smart" style="height:17%">≈230 B</div><div class="traffic-caption"><strong>Smart router</strong><br>local block only</div></div>
+          </div>
+        </article>
+      </div>
+
+      <div class="callout"><strong>Likely current failure mode:</strong> the configured 2 Hz producer can create keyframes faster than the current ≈720 ms queue can drain them. Since newer frames remove older unsent keyframes, later ID groups may receive updates unevenly rather than the whole system simply settling at 1.4 Hz.</div>
+    </section>
+
+    <section id="architectures">
+      <div class="section-head">
+        <div><p class="eyebrow">02 · Architecture comparison</p><h2>Where complexity pays back</h2></div>
+        <p>The useful boundary is between a topology-aware frame router and a transactional motion proxy. The first improves containment and headroom; the second duplicates existing behavior.</p>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Architecture</th><th>Outer throughput</th><th>Inner traffic</th><th>Reliability</th><th>Complexity</th><th>Assessment</th></tr></thead>
+          <tbody>
+            <tr><td>Current byte bridge</td><td>No gain</td><td>100%</td><td><span class="rating r2" aria-label="2 of 5"><i></i><i></i><i></i><i></i><i></i></span></td><td>Low</td><td class="low">Do not optimize pacing against this implementation</td></tr>
+            <tr><td>Frame-buffered bridge</td><td>No gain</td><td>100%</td><td><span class="rating r4" aria-label="4 of 5"><i></i><i></i><i></i><i></i><i></i></span></td><td>Low–medium</td><td>Minimum recommended upgrade</td></tr>
+            <tr><td>Topology-aware router</td><td>No gain</td><td class="best">≈17%</td><td><span class="rating r5" aria-label="5 of 5"><i></i><i></i><i></i><i></i><i></i></span></td><td>Medium</td><td class="best">Recommended end state</td></tr>
+            <tr><td>Aggregate motion proxy</td><td>Under 10% likely gain</td><td>Low</td><td><span class="rating r3" aria-label="3 of 5"><i></i><i></i><i></i><i></i><i></i></span></td><td>High</td><td>Keyframes already solve this problem</td></tr>
+            <tr><td>Aggregate feedback proxy</td><td>2–4× polling gain</td><td>Controlled</td><td><span class="rating r4" aria-label="4 of 5"><i></i><i></i><i></i><i></i><i></i></span></td><td>Medium–high</td><td>Useful only if feedback becomes frequent</td></tr>
+            <tr><td>More outer channels</td><td class="best">Linear gain</td><td>Lower</td><td><span class="rating r5" aria-label="5 of 5"><i></i><i></i><i></i><i></i><i></i></span></td><td>Hardware cost</td><td>Only direct route to much higher raw capacity</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="grid-2" style="margin-top:18px">
+        <article class="panel">
+          <p class="eyebrow">Current byte bridge</p>
+          <h3>Little sustained-throughput margin</h3>
+          <p>Every byte performs a blocking UART flush and two direction-control changes. At equal input and output baud, software overhead makes the outgoing side slightly slower than the incoming side.</p>
+          <div class="bars">
+            <div class="bar-row"><span class="bar-label">Predicted</span><div class="bar-track"><div class="bar-fill amber" style="width:75%"></div></div><span class="bar-value">60–90%</span></div>
+          </div>
+          <p style="font-size:.8rem">Prediction: continuous forwarding becomes unstable somewhere below full wire saturation, depending on UART buffer size and ESP32 framework overhead.</p>
+        </article>
+        <article class="panel">
+          <p class="eyebrow">Frame router</p>
+          <h3>Bounded behavior near wire rate</h3>
+          <p>Complete-frame queues allow each outgoing UART to operate efficiently. DE is asserted once, the full buffer is written, and the transmitter returns to receive mode after the final stop bit.</p>
+          <div class="bars">
+            <div class="bar-row"><span class="bar-label">Predicted</span><div class="bar-track"><div class="bar-fill" style="width:97%"></div></div><span class="bar-value">≈95%+</span></div>
+          </div>
+          <p style="font-size:.8rem">The cost is store-and-forward delay: ≈1–2 ms for a short command and ≈20 ms for a full nine-Portal keyframe at 115200.</p>
+        </article>
+      </div>
+    </section>
+
+    <section id="aggregation">
+      <div class="section-head">
+        <div><p class="eyebrow">03 · Two-stage protocols</p><h2>Aggregate feedback, not movement</h2></div>
+        <p>Movement payload dominates its frame; grouping saves little. Feedback polling contains many request/reply turnarounds and can exploit six inner buses operating in parallel.</p>
+      </div>
+
+      <div class="decision">
+        <article class="decision-card">
+          <span class="badge">Existing</span>
+          <h3 style="margin-top:16px">Keyframe movement</h3>
+          <ul><li>Nine positions and velocities per aligned batch</li><li>No per-Portal ACK traffic</li><li>Stale frames already collated</li><li>Approximately 225–230 B per group</li></ul>
+          <p class="outcome">Keep and optimize</p>
+        </article>
+        <article class="decision-card">
+          <span class="badge">Low return</span>
+          <h3 style="margin-top:16px">Repeater-owned group move</h3>
+          <ul><li>Carries essentially the same motion values</li><li>Likely under 10% byte reduction</li><li>Adds proxy ACK and partial-failure semantics</li><li>Does not solve cross-branch timing by itself</li></ul>
+          <p class="outcome">Do not implement</p>
+        </article>
+        <article class="decision-card recommended">
+          <span class="badge">Conditional opportunity</span>
+          <h3 style="margin-top:16px">Aggregate position snapshot</h3>
+          <ul><li>Six branches collect nine replies in parallel</li><li>Six outer replies instead of 54</li><li>Predicted 130–250 ms sweep</li><li>Approximately 2–4× faster than direct polling</li></ul>
+          <p class="outcome">Add only when feedback demand justifies it</p>
+        </article>
+      </div>
+
+      <div class="panel" style="margin-top:18px">
+        <h3>Synchronization is a different problem</h3>
+        <p>A group protocol does not make six sequential outer packets arrive simultaneously. With current batches, the last branch can receive its update roughly 100–120 ms after the first. If tighter visual synchronization is required, timestamped future execution is more effective: transmit all six frames early and apply them against a shared future time.</p>
+        <div class="formula">
+          <div><b>≈100–120 ms</b><span>Possible first-to-last branch receipt skew</span></div>
+          <div><b>A few milliseconds</b><span>Potential execution skew with synchronized timestamps</span></div>
+          <div><b>New requirement</b><span>Clock synchronization and defined late-frame behavior</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="baud">
+      <div class="section-head">
+        <div><p class="eyebrow">04 · Inner baud</p><h2>Useful headroom, unchanged ceiling</h2></div>
+        <p>The ESP32 UARTs may use different baud rates. The WaveShare-facing side stays at its documented 115200 while the isolated Portal-facing side can be bench-tested at higher rates.</p>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Inner baud</th><th>Nine-Portal frame airtime</th><th>Outer update ceiling</th><th>Polling effect</th><th>Qualification</th></tr></thead>
+          <tbody>
+            <tr><td>115200</td><td>≈20 ms</td><td>≈8.3 Hz theoretical</td><td>Baseline</td><td class="best">Lowest deployment risk</td></tr>
+            <tr><td>230400</td><td>≈10 ms</td><td>Unchanged</td><td>≈2× faster inner collection</td><td>Cable and clock bench test</td></tr>
+            <tr><td>460800</td><td>≈5 ms</td><td>Unchanged</td><td>≈4× faster inner collection</td><td>Full electrical and soak qualification</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="callout"><strong>Firmware-update constraint:</strong> the field Portal bootloader operates at 115200. A faster application bus requires the repeater to recognize update mode, change the inner UART to 115200, and restore the application rate afterward.</div>
+    </section>
+
+    <section id="recommendation">
+      <div class="section-head">
+        <div><p class="eyebrow">05 · Recommendation</p><h2>Highest-return sequence</h2></div>
+        <p>This sequence captures nearly all available benefit without making the repeater responsible for motion semantics or Portal transaction state.</p>
+      </div>
+
+      <div class="ranked">
+        <article class="rank"><div><strong>Frame-buffer the ESP32 bridge</strong><p>COBS-sized queues, one DE cycle per frame, overflow counters, and deterministic recovery.</p></div><span class="impact">Essential</span></article>
+        <article class="rank"><div><strong>Batch nine Portals and reduce broadcast pacing</strong><p>Bench 5, 2, 1, and 0 ms; expect a stable production region around 2–5 ms.</p></div><span class="impact">Largest speed gain</span></article>
+        <article class="rank"><div><strong>Discover and filter the local nine-ID range</strong><p>Forward matching unicasts and intersecting keyframes; remain transparent until discovery succeeds.</p></div><span class="impact">6× inner relief</span></article>
+        <article class="rank"><div><strong>Keep the inner bus at 115200 for the first release</strong><p>Test 230400/460800 only after routing and firmware-update switching are stable.</p></div><span class="impact">Risk control</span></article>
+        <article class="rank"><div><strong>Add outer channels if more than 6–8 Hz is required</strong><p>Capacity scales approximately linearly as repeaters per WaveShare channel decrease.</p></div><span class="impact">True scaling</span></article>
+      </div>
+
+      <div class="panel" style="margin-top:18px">
+        <h3>Predicted production outcome</h3>
+        <div class="formula">
+          <div><b>2 Hz indefinitely</b><span>Configured rate with substantial queue and response margin</span></div>
+          <div><b>6–7.5 Hz maximum</b><span>Likely full-system position+velocity range at 115200</span></div>
+          <div><b>≈17% inner load</b><span>Each branch receives only its own keyframe block</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="assumptions">
+      <div class="section-head">
+        <div><p class="eyebrow">06 · Boundaries</p><h2>Assumptions and confidence</h2></div>
+        <p>Values are engineering predictions derived from wire format and baud-rate airtime. They should be confirmed with captures from the production WaveShare, cable plant, ESP32 board, and Portal firmware.</p>
+      </div>
+      <div class="assumptions">
+        <div class="assumption">Six repeaters and 54 globally unique Portals share each outer RS485 channel.</div>
+        <div class="assumption">Each repeater’s nine Portal IDs form a discoverable contiguous range.</div>
+        <div class="assumption">Position+velocity keyframes are the performance-critical traffic.</div>
+        <div class="assumption">RS485 uses 115200, 8 data bits, no parity, and one stop bit.</div>
+        <div class="assumption">Nine-entry worst-case keyframes occupy approximately 225–230 wire bytes.</div>
+        <div class="assumption">The first production router keeps both UARTs at 115200.</div>
+      </div>
+
+      <div class="panel" style="margin-top:18px">
+        <details open><summary>What should be measured on the bench?</summary><p>Outer and inner byte counts; frame loss; CRC/COBS errors; ESP32 UART overruns; WaveShare TCP-to-UART backlog; queue high-water marks; first-to-last branch latency; direction-control timing; and full-system update completion at each candidate broadcast gap.</p></details>
+        <details><summary>Why not simply try an unsupported WaveShare baud?</summary><p>The manufacturer specifies 300–115200 for this model. Even if an undocumented setting worked, it would create an unsupported dependency in the shared bottleneck. A faster inner UART is isolated from the WaveShare and therefore the safer experiment.</p></details>
+        <details><summary>When would a more complicated router become justified?</summary><p>When position/status feedback must run frequently during motion, when timestamped synchronized execution is required, or when the repeater must autonomously continue motion during loss of the PC connection. Those are additional product capabilities, not simple bandwidth optimizations.</p></details>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="page footer-inner">
+      <div class="sources"><strong>Primary hardware sources:</strong><br><a href="https://www.waveshare.com/product/iot-communication/wired-comm-converter/2-ch-rs485-to-eth-b.htm">WaveShare 2-CH RS485 TO ETH</a><a href="https://www.analog.com/en/products/max3362.html">Analog Devices MAX3362</a><a href="https://docs.espressif.com/projects/esp-idf/en/v5.0/esp32c3/api-reference/peripherals/uart.html">ESP32-C3 UART</a><a href="https://www.st.com/resource/en/datasheet/stm32g070cb.pdf">STM32G070</a></div>
+      <div>KC79 Reworld<br>ESP32 routing assessment</div>
+    </div>
+  </footer>
+</body>
+</html>

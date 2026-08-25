@@ -5,11 +5,13 @@ two prisms, talks a MessagePack-over-COBS protocol on RS485, and is field-updata
 bootloader.
 
 This file is about **building things** — the firmware, the bench, and the package that carries both.
-For the wire protocol read [`Protocol.md`](Protocol.md); for what each project *is*, read its own
-README.
+For the wire protocol, V1/V2/V3 topology, and repeater commissioning read
+[`Protocol.md`](Protocol.md); for what each project *is*, read its own README. Repeater-specific
+build/recovery instructions and field evidence live in [`RS485Repeater/`](RS485Repeater/README.md).
 
 ```
 node tools/build-firmware.mjs        # PCB v6 + v4 applications, and the bootloader
+~/.platformio/penv/bin/pio run -d RS485Repeater  # ESP32-C3 RS485 repeater
 node PortalTestBench/tools/build.mjs # the bench that flashes them
 node tools/package.mjs               # both, wrapped up for a machine that has neither
 ```
@@ -25,6 +27,7 @@ builds the bench, and **Package: distributable** does the whole chain in the one
 |---|---|
 | [`PortalFW/`](PortalFW) | The application firmware. PlatformIO + Arduino, links at `0x08006000` |
 | [`PortalBootloader/`](PortalBootloader/README.md) | The RS485 field-update bootloader. PlatformIO + STM32Cube, `0x08000000`, 24 kB |
+| [`RS485Repeater/`](RS485Repeater/README.md) | The Reworld V3 ESP32-C3 frame router between the shared outer bus and a nine-Portal branch. PlatformIO + Arduino |
 | [`PortalTestBench/`](PortalTestBench/AGENTS.md) | One module on a bench: flash it, drive it, watch it, record it. Rust + a React page |
 | [`PortalFlasher/`](PortalFlasher/AGENTS.md) | The production SWD rig for virgin boards. Shares `portal-swd` with the bench |
 | [`RouterRS/`](RouterRS/README.md) | The host-side router (Rust). [`Router/`](Router) is the C++ original |

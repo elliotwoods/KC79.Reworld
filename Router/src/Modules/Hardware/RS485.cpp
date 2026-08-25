@@ -119,6 +119,9 @@ namespace Modules {
 	void
 		RS485::deserialise(const nlohmann::json& json)
 	{
+		// Reworld V3 opts into a 5 ms value in each RS485 connection object.
+		// If absent, retain the 100 ms V1/V2-compatible default.
+		Utils::deserialize(json, this->parameters.gapBetweenBroadcastSends_ms);
 		this->openSerial(json);
 		this->initilialisation.settings = json;
 		this->initilialisation.lastConnectionAttempt = chrono::system_clock::now();

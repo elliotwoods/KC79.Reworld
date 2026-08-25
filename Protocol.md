@@ -176,6 +176,169 @@ A separate, physically distinct link — not RS485, not COBS, not
 MessagePack — chains the boards together only to hand out sequential
 addresses at power-on; see §9.
 
+### Installation topology versions
+
+The original diagram above remains the topology for active **Reworld V1 and
+V2** installations. Each Router Column talks directly to one Portal bus;
+there is no ESP32 repeater, IDs begin at 1 on each Column, keyframe batches
+default to 8, and the historical post-broadcast gap defaults to 100 ms.
+Those defaults remain supported.
+
+**Reworld V3** inserts six ESP32 repeaters between one shared outer RS485
+channel and six isolated nine-Portal branches. IDs are globally unique on
+that outer channel:
+
+```mermaid
+flowchart LR
+    Host["Router / RouterRS\naddress 0"] --> Gateway["WaveShare\nTCP to RS485\n115200 8N1"]
+    Gateway --> Outer["Shared outer RS485 bus"]
+    Outer --> R1["Repeater 1"] --> B1["Portals 1-9"]
+    Outer --> R2["Repeater 2"] --> B2["Portals 10-18"]
+    Outer --> R3["Repeater 3"] --> B3["Portals 19-27"]
+    Outer --> R4["Repeater 4"] --> B4["Portals 28-36"]
+    Outer --> R5["Repeater 5"] --> B5["Portals 37-45"]
+    Outer --> R6["Repeater 6"] --> B6["Portals 46-54"]
+```
+
+Each repeater calls the shared host-facing connection **side 1** and its
+local Portal branch **side 2**. It stores a complete zero-delimited COBS
+frame before forwarding it, so one frame uses one driver-enable interval.
+Frames and queues are bounded: incomplete, oversized, or queue-overflowed
+traffic is discarded as a complete unit and exposed in USB diagnostics;
+partial commands are never forwarded.
+
+The V3 design uses the same A/B polarity on both repeater sides, so the
+production firmware is built with both ESP32 UARTs uninverted. Repeater
+v2.1.6 temporarily inverted side 1 to compensate for one field/bench wiring
+orientation. Do not infer electrical polarity from an adapter's A/B labels:
+vendors use conflicting A/B conventions. Verify it with a known-good frame or
+at the transceiver pins. Software inversion is a diagnostic or an explicitly
+documented installation override, not a substitute for proving the wiring.
+
+At boot the repeater is transparent. A valid inner reply `[0, source, ...]`
+teaches it which contiguous nine-ID block is local. It then forwards only
+matching outer unicasts and keyframes whose `startIndex`/`values` interval
+intersects that block. Unknown or malformed message types are fail-open,
+and all inner replies continue toward the host. A valid inner reply from a
+different block indicates an addressing or wiring conflict, disables
+filtering, and leaves the unit transparent until reboot or the USB
+`relearn` command.
+
+V3 must opt into batches of nine and the bench-qualified broadcast gap in
+its Router configuration. V1/V2 configurations should not add these
+overrides. Both Router implementations accept the same settings:
+
+```json
+{
+  "Installation": {
+    "messaging": {
+      "Keyframe batch size": 9
+    },
+    "columns": [
+      {
+        "Count X": 6,
+        "Count Y": 9,
+        "rs485": {
+          "deviceType": "TCP",
+          "address": "192.168.1.201",
+          "port": 4196,
+          "Gap between broadcast sends [ms]": 5
+        }
+      }
+    ]
+  }
+}
+```
+
+`Count X` and `Count Y` must reflect the actual V3 image layout while their
+product remains 54; the values above illustrate a 6 by 9 layout. Start at
+5 ms in production. Values of 2, 1, and 0 ms are qualification settings,
+not defaults, and require a full WaveShare/cable/54-Portal soak test.
+
+The ESP32's independent USB CDC port accepts `status`, `version`,
+`reset-counters`, and `relearn`. `status` reports the learned range, routing
+mode, filtered counts, parse failures, UART errors, incomplete/oversized
+frames, queue depths/high-water marks/drops, and transmission errors. A
+healthy V3 branch is `filtered`, shows its assigned range, and retains zero
+error/drop counters.
+
+### Operating and commissioning a V3 repeater
+
+The repeater is a frame router, not a transparent electrical amplifier. Its
+fixed wire settings and pin names are:
+
+| | Side 1 — shared host bus | Side 2 — local Portal branch |
+|---|---|---|
+| UART | ESP32-C3 UART0 | ESP32-C3 UART1 |
+| Format | 115200 baud, 8N1 | 115200 baud, 8N1 |
+| MAX3362 `RO` → ESP RX | GPIO20 | GPIO6 |
+| ESP TX → MAX3362 `DI` | GPIO21 | GPIO4 |
+| tied `DE`/`RE#` | GPIO7 | GPIO5 |
+| production inversion | off | off |
+
+The tied `DE`/`RE#` signal is LOW while receiving and HIGH while
+transmitting. The receiver output floats while transmitting, so firmware
+biases each ESP RX pin to that UART's physical idle level. Each direction has
+a four-frame queue, frames are limited to 8192 bytes, and an unterminated
+stream is discarded after 2 ms idle. `reset-counters` preserves the learned
+range; `relearn` clears it and returns routing to transparent mode.
+
+Use this commissioning order:
+
+1. Identify every serial device by USB VID/PID/serial or by a harmless
+   identity query. Device paths and macOS `/dev/cu.usbmodem*` suffixes can
+   change after every reconnect.
+2. Disable local echo on the USB-RS485 adapter. Echoed request bytes are not a
+   repeater or Portal reply.
+3. Confirm the adapter uses automatic half-duplex direction control. The
+   Router transports do not toggle a DE pin; an adapter that requires manual
+   RTS direction must be configured to do that itself or is not compatible.
+4. Query repeater USB `version`, verify v2.2.0 or later, 115200 baud, and the
+   intended `side1.inverted`/`side2.inverted` values. Run `reset-counters`.
+5. Send one known-good, non-motion frame at 115200/8N1 and wait for its reply
+   before sending another. Do not begin with a burst discovery: a burst can
+   fill the four-frame queue and obscure the electrical result.
+6. Poll each expected local ID. A healthy branch learns the correct nine-ID
+   block, returns one complete reply per request, leaves both queues empty,
+   and records zero UART, incomplete, oversized, parse, queue-drop, topology,
+   and TX errors.
+7. Only after the branch passes should the full outer bus, nine-frame batches,
+   5 ms production gap, and six-repeater/54-Portal soak be tested.
+
+On the bench used for the 2026-08-24 investigation, the three simultaneously
+attached serial functions looked like this. These paths are examples, not
+stable configuration values:
+
+| Example path | USB identity | Purpose / harmless identity query |
+|---|---|---|
+| `/dev/cu.usbserial-AR9366BD` | FTDI FT232R, serial `AR9366BD` | USB-RS485 wire transport; no text console |
+| `/dev/cu.usbmodem21203` | ST-Link V2-1 VCOM | direct Portal ASCII serial; `v` prints the Portal version |
+| `/dev/cu.usbmodem21401` | Espressif USB Serial/JTAG | repeater USB console; `version` returns JSON |
+
+Never treat the programmer board's Portal VCOM as the USB-RS485 adapter. The
+Portal VCOM bypasses the repeater and is useful for proving that a Portal
+application or mechanical routine fails independently of RS485, but it does
+not exercise either repeater side.
+
+If valid frames do not arrive, separate UART-format diagnosis from electrical
+diagnosis. All production participants use 115200/8N1: the repeater and
+RouterRS select it explicitly, while PortalFW and legacy Router use their
+UART libraries' 8N1 defaults. Check A−B and common-mode voltage at the actual
+side-1 MAX3362 pins, not only at a connector; then check MAX3362 `RO` at ESP
+GPIO20. During host transmission, tied `DE`/`RE#` must remain LOW. A clean
+A−B waveform with malformed `RO` localises the fault to the MAX3362, enable,
+or reference path. Clean `RO` with ESP UART errors localises it to ESP pin/UART
+configuration. Neither normal nor inverted UART polarity producing a complete
+frame is evidence against a simple A/B swap.
+
+RS485 is differential but still has a permitted common-mode range. Provide the
+designed signal reference unless both sides are intentionally galvanically
+isolated; removing a ground conductor is not by itself a valid polarity or
+noise fix. Scope or continuity-check both conductors, termination/bias, and
+the reference before changing firmware. Session-specific captures, hashes,
+and the unresolved 2026-08-24 bench result belong in
+`RS485Repeater/FIELD_REPORT_2026-08-24.md`, not in the protocol contract.
+
 ---
 
 ## 3. Commands & replies: the message vocabulary
@@ -511,14 +674,16 @@ from §3).
 ## 7. Physical & electrical layer
 
 **RS485** is a differential, multi-drop serial bus: two wires per pair
-(commonly labelled **A** and **B**), plus a shared ground, connecting every
-node on the bus. Being differential (the signal is the *voltage difference*
-between A and B, not either wire's voltage relative to ground) makes it far
-more resistant to electrical noise over long cable runs than a single-ended
-bus like plain UART/RS232. Because all nodes share the same pair of wires,
-RS485 is **half-duplex**: only one node may drive (transmit on) the bus at
-any instant, or the signals collide. A bus like this is normally
-**daisy-chained** node-to-node and terminated with a resistor at each
+(commonly labelled **A** and **B**) plus the installation's designed signal
+reference, connecting every node on the bus. Being differential (the signal
+is the *voltage difference* between A and B) makes it far more resistant to
+electrical noise over long cable runs than a single-ended bus like plain
+UART/RS232, but each receiver still requires A and B to remain inside its
+permitted common-mode range. A shared reference is therefore required unless
+the transceiver link is intentionally galvanically isolated. Because all
+nodes share the same pair of wires, RS485 is **half-duplex**: only one node may
+drive (transmit on) the bus at any instant, or the signals collide. A bus like
+this is normally **daisy-chained** node-to-node and terminated with a resistor at each
 physical end of the cable run to prevent signal reflections; this project's
 own bench-test notes call for "A/B/GND in a daisy-chain with proper
 termination at the bus ends" — this is a physical/installation concern, not
@@ -528,12 +693,13 @@ Underneath RS485 sits a plain **UART** (Universal Asynchronous
 Receiver/Transmitter — the same kind of serial hardware used for RS232 or a
 USB-serial adapter). Both ends run at:
 
-- **Baud rate:** 115,200 (`Router/src/SerialDevices/Serial.h:5`,
-  `PortalFW/src/Modules/RS485.cpp:58`)
-- **Framing:** 8 data bits, no parity, 1 stop bit ("**8N1**") — the default
-  for `HardwareSerial`/`ofSerial`; neither codebase configures parity or
-  stop bits explicitly. No parity means single-bit-flip corruption is not
-  detected at the UART level at all (see §11).
+- **Baud rate:** 115,200 (`Router/src/SerialDevices/IDevice.h`,
+  `RouterRS/crates/router-link/src/rs485/device.rs`,
+  `PortalFW/src/Modules/RS485.cpp`, and `RS485Repeater/src/main.cpp`)
+- **Framing:** 8 data bits, no parity, 1 stop bit ("**8N1**"). RouterRS and
+  the repeater select every field explicitly; PortalFW and legacy Router use
+  their UART libraries' 8N1 defaults. No parity means single-bit-flip
+  corruption is not detected at the UART level at all (see §11).
 
 Because RS485 is half-duplex, each Portal must actively switch its
 transceiver between "transmit" and "receive" mode — it cannot listen while
@@ -559,7 +725,10 @@ direct-serial transport (`Router/src/SerialDevices/Serial.cpp`) nor the TCP
 gateway transport (§8) toggles a direction pin. This means the USB↔RS485
 adapter (direct-serial case) or the physical RS485↔Ethernet gateway box
 (TCP case) is relied upon to manage the electrical turnaround itself,
-transparently to the application.
+transparently to the application. Local echo must be disabled for normal
+operation; otherwise the host can misclassify its own request bytes as an
+incoming response. Static RTS/DTR levels are not a portable replacement for
+automatic direction control.
 
 ### Pin summary (Portal board, STM32G070RBT6)
 
@@ -692,13 +861,21 @@ envelope/COBS framing as everything else, but with three special
 2-character **magic-word** bodies and a distinct upload-frame body shape.
 None of this traffic expects an ACK.
 
+On Reworld V3, repeaters deliberately do not filter or reinterpret this
+traffic. `"FW!KC79"`, `"FW"`, `"ER"`, `"RU"`, and every upload-frame map
+are forwarded to all six branches exactly as received. Both repeater UARTs
+remain at the bootloader's 115200 baud, so the Router's existing update
+procedure is unchanged and updates all Portals on the shared outer channel.
+Use the firmware updater's own pacing values; the normal 5 ms V3 broadcast
+gap does not override a packet's explicit firmware-update wait.
+
 ```mermaid
 sequenceDiagram
     participant R as Router
     participant All as All Portals (broadcast)
 
     loop ~5s, every 100ms
-        R->>All: "FW"  (announce — apps reboot into their bootloader)
+        R->>All: "FW!KC79"  (long announce — apps reboot into their bootloader)
     end
     R->>All: "ER"  (erase application flash)
     loop ~5s, every 100ms, while erase completes
@@ -716,7 +893,8 @@ MessagePack `fixstr` body:
 
 | Word | Bytes | Meaning |
 |---|---|---|
-| `"FW"` | `A2 46 57` | Announce — the running application resets into its bootloader (`NVIC_SystemReset()` after a short log message, `PortalFW/src/Modules/RS485.cpp:265-279`). The bootloader itself also treats this word as "reset upload progress," so it's re-sent throughout erase/upload to keep every board — whether already in the bootloader or not — in a known state. |
+| `"FW!KC79"` | `A7 46 57 21 4B 43 37 39` | Long announce — a running application resets into its bootloader. |
+| `"FW"` | `A2 46 57` | Short announce — resets upload progress in the field bootloader after applications have entered it. |
 | `"ER"` | `A2 45 52` | Erase application flash (bootloader-only; the application doesn't act on this word). |
 | `"RU"` | `A2 52 55` | Run the newly-flashed application. |
 
@@ -794,6 +972,7 @@ class itself on both sides.
 | Router serial/TCP transport abstraction | `Router/src/SerialDevices/IDevice.h`, `Serial.cpp`/`.h`, `TCP.cpp`/`.h` |
 | Router COBS codec | `Router/src/cobs-c/` |
 | Router firmware upload | `Router/src/Modules/Hardware/FWUpdate.cpp`, `MassFWUdpdate.cpp`, `Utils.cpp` (checksum) |
+| Reworld V3 ESP32 frame router | `RS485Repeater/src/main.cpp`, `RS485Repeater/lib/BridgeCore/src/BridgeCore.*` |
 | Firmware top-level loop | `PortalFW/src/main.cpp` |
 | Firmware command handlers | `PortalFW/src/Modules/App.cpp` |
 | **Firmware `RS485` class** — framing, dispatch, DE-pin control | `PortalFW/src/Modules/RS485.cpp`, `.h` |
