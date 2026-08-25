@@ -37,6 +37,9 @@
 .board-value-copy small { overflow: hidden; color: var(--text-secondary); font-size: var(--text-2xs); text-overflow: ellipsis; white-space: nowrap; }
 .board-value .param-control { min-width: 0; }
 .board-value .num { height: 38px; border-color: var(--border); background: var(--surface); box-shadow: none; }
+/* The reset / save-as-default column beside it is sized by this one variable (av-gui `styles.css`),
+   so the two squares stay as tall as the 38px box rather than the framework's 26px token. */
+.board-value .param-control { --param-defaults-h: 38px; }
 .board-value .digits, .board-value .num-input { font-size: 18px; font-weight: var(--weight-semibold); }
 .board-value-hint { display: grid; min-width: 0; }
 .board-value-field { display: grid; justify-items: center; gap: var(--space-0-5); }
