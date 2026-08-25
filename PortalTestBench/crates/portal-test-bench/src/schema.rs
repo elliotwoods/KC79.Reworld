@@ -38,7 +38,11 @@ pub const TRANSPORTS: &[(u32, &str)] = &[
 ];
 
 pub const SERIAL_DIALECTS: &[(u32, &str)] = &[(0, "none"), (1, "vcp"), (2, "bench-ascii")];
-pub const RS485_TRANSPORTS: &[(u32, &str)] = &[(0, "none"), (1, "rs485-serial"), (2, "rs485-tcp")];
+// `sim` lives on this lane, not the serial one: the simulated module is `SimBus` behind an
+// ordinary `Rs485Link`, so it speaks the addressed protocol. The page hides the variant unless
+// the bench was started with `--simulate`.
+pub const RS485_TRANSPORTS: &[(u32, &str)] =
+    &[(0, "none"), (1, "rs485-serial"), (2, "rs485-tcp"), (3, "sim")];
 pub const CHANNELS: &[(u32, &str)] = &[(0, "serial"), (1, "rs485")];
 pub const LINE_ENDINGS: &[(u32, &str)] = &[(0, "none"), (1, "cr"), (2, "lf"), (3, "crlf")];
 

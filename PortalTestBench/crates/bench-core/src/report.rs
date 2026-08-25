@@ -113,13 +113,27 @@ impl Report {
         }));
     }
 
-    pub fn plan_start(&mut self, run_id: &str, plan: &crate::plan::Plan, origin: &str) {
+    /// `transport` is not decoration.
+    ///
+    /// `TransportRequirement::Rs485` accepts the simulated link, so "which wire was this run
+    /// actually on" cannot be inferred from the plan's requirement -- and a `sim` verdict read
+    /// months later as a statement about hardware is the worst thing this file could allow.
+    /// It also separates a `vcp` run from a `bench-ascii` one, which was never recoverable here
+    /// either.
+    pub fn plan_start(
+        &mut self,
+        run_id: &str,
+        plan: &crate::plan::Plan,
+        origin: &str,
+        transport: &str,
+    ) {
         self.line(serde_json::json!({
             "type": "plan_start",
             "run_id": run_id,
             "plan": plan.name,
             "kind": format!("{:?}", plan.kind).to_lowercase(),
             "origin": origin,
+            "transport": transport,
             "limits": {
                 "max_duration_s": plan.limits.max_duration_s,
                 "stall_guard_usteps_per_s": plan.limits.stall_guard_usteps_per_s,

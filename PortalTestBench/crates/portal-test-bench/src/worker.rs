@@ -180,6 +180,13 @@ pub struct Worker {
     simulated: bool,
     next_serial_seen: u32,
     field_update_job: Option<FieldUpdateJob>,
+    /// The RS485 target this worker last wrote to the bus, and the last value it read back.
+    ///
+    /// `/rs485/target` is one parameter serving two directions -- the operator's intent and the
+    /// bench's actual selection -- so it has to be edge-triggered in both. Publishing it every
+    /// tick made it read-only in practice: `Bench::connect` seeds `selected_target`, and the
+    /// mirror then overwrote any typed address within 20 ms, before Select could be pressed.
+    rs485_target_seen: Option<i8>,
 }
 
 /// How long a page may go quiet before it counts as gone.
@@ -286,6 +293,7 @@ impl Worker {
             simulated,
             next_serial_seen,
             field_update_job: None,
+            rs485_target_seen: None,
         }
     }
 
@@ -316,12 +324,14 @@ impl Worker {
         for (index, (_, id)) in self.params.actions.iter().enumerate() {
             self.action_seen[index] = schema::get_i64(&self.bus, *id);
         }
+        self.open_simulated_link();
 
         loop {
             let now = self.now_ms();
             self.handle_actions(now);
             self.handle_requests(now);
             self.sync_next_serial(now);
+            self.sync_rs485_target(now);
 
             self.sync_flash_selection(now);
             self.sync_probe_selection(now);
@@ -775,6 +785,7 @@ impl Worker {
                 match schema::get_u32(&self.bus, self.params.rs485.desired) {
                     1 => Some(LinkKind::Rs485Serial),
                     2 => Some(LinkKind::Rs485Tcp),
+                    3 => Some(LinkKind::Sim),
                     _ => None,
                 },
                 schema::get_text(&self.bus, self.params.rs485.endpoint),
@@ -801,6 +812,52 @@ impl Worker {
                 let _ = self.bench.select_rs485_target(target);
             }
             self.cue("connected");
+        }
+    }
+
+    /// Bring `--simulate` up already connected.
+    ///
+    /// A simulated bench whose Test tab is greyed out is a demonstration of nothing, and asking
+    /// the operator to pick a transport for a module that does not exist is ceremony. There is
+    /// no hardware to be wrong about here -- the link is `SimBus`, in this process -- so the one
+    /// honest starting state is open.
+    fn open_simulated_link(&mut self) {
+        if !self.simulated {
+            return;
+        }
+        let now = self.now_ms();
+        let _ = self.bus.set(
+            self.params.rs485.desired,
+            Value::Enum(rs485_transport_value(Some(LinkKind::Sim))),
+        );
+        let _ = self.bus.set(
+            self.params.motion.route,
+            Value::Enum(by_name(schema::CHANNELS, "rs485")),
+        );
+        self.connect_from(Channel::Rs485, now);
+    }
+
+    /// Apply a Target address the operator typed.
+    ///
+    /// The field is intent, and intent is worth honouring the moment it is expressed -- pressing
+    /// Select afterwards is a second confirmation of something already decided. The explicit
+    /// action stays, because it is the agent's path over `POST /api/bench/command` and `ptb`, and
+    /// because re-selecting the *same* target is a meaningful request (it resets the observed DUT
+    /// state). Only a *change* reaches here.
+    fn sync_rs485_target(&mut self, now: u64) {
+        let bus_value = schema::get_i32(&self.bus, self.params.rs485_target) as i8;
+        let Some(requested) = target_to_apply(bus_value, self.rs485_target_seen) else {
+            return;
+        };
+        // Adopt the value before acting on it, so a refusal is reported once rather than on
+        // every one of the fifty ticks a second that follow.
+        self.rs485_target_seen = Some(requested);
+        if !self.bench.state().channels.rs485.link.connected {
+            return;
+        }
+        if let Err(error) = self.bench.select_rs485_target(requested) {
+            let _ = self.bus.set_text(self.params.rs485.detail, &error);
+            self.bench.note(now, bench_core::LOG_LEVEL_WARNING, error);
         }
     }
 
@@ -1936,8 +1993,12 @@ impl Worker {
             .collect::<Vec<_>>()
             .join(", ");
         text(self.params.rs485_discovered, &discovered);
-        if let Some(target) = state.channels.rs485.selected_target {
+        if let Some(target) = target_to_publish(
+            state.channels.rs485.selected_target,
+            self.rs485_target_seen,
+        ) {
             set(self.params.rs485_target, Value::I32(i32::from(target)));
+            self.rs485_target_seen = Some(target);
         }
         let stats = &state.channels.rs485.diagnostics;
         set(self.params.rs485_stats.tx, Value::I64(stats.tx as i64));
@@ -2303,10 +2364,31 @@ fn serial_transport_value(kind: Option<LinkKind>) -> u32 {
     }
 }
 
+/// The bench's RS485 selection, when it is news to the bus.
+///
+/// Half of the edge-triggering described on `rs485_target_seen`, and the half that was missing:
+/// `publish` used to write this parameter on every one of the fifty ticks a second, so
+/// `Bench::connect` seeding `selected_target` made the Target address field impossible to edit.
+/// Any value the operator committed was overwritten within 20 ms, before Select could be
+/// pressed — a field that looked like an input and behaved like a read-out.
+fn target_to_publish(selected: Option<i8>, published: Option<i8>) -> Option<i8> {
+    selected.filter(|target| Some(*target) != published)
+}
+
+/// The operator's typed target, when it is news to the worker.
+///
+/// The other half. Intent is worth honouring as soon as it is expressed; without this the only
+/// way to change target would be the explicit action, and re-reading an unchanged field every
+/// tick would re-select — and so reset the observed DUT — fifty times a second.
+fn target_to_apply(requested: i8, seen: Option<i8>) -> Option<i8> {
+    (seen != Some(requested)).then_some(requested)
+}
+
 fn rs485_transport_value(kind: Option<LinkKind>) -> u32 {
     match kind {
         Some(LinkKind::Rs485Serial) => 1,
         Some(LinkKind::Rs485Tcp) => 2,
+        Some(LinkKind::Sim) => 3,
         _ => 0,
     }
 }
@@ -2470,6 +2552,38 @@ mod tests {
         let count = sorted.len();
         sorted.dedup();
         assert_eq!(sorted.len(), count, "duplicate action names");
+    }
+
+    /// The Target address field has to survive being both an input and a read-out.
+    ///
+    /// This walks the sequence that used to break it. The failure was not subtle in effect --
+    /// the address could not be changed at all while connected -- but it was invisible in code:
+    /// one unconditional `bus.set` in a publish loop, fighting a `NumberField` at 50 Hz.
+    #[test]
+    fn a_typed_rs485_target_is_not_overwritten_by_the_bench_that_seeded_it() {
+        // Fresh worker, nothing connected: the default on the bus is news, but there is no
+        // selection to publish.
+        let mut seen: Option<i8> = None;
+        assert_eq!(target_to_publish(None, seen), None);
+        assert_eq!(target_to_apply(1, seen), Some(1));
+        seen = Some(1);
+
+        // Connect seeds `selected_target`, which the bus already agrees with -- so no write,
+        // and therefore nothing to fight.
+        assert_eq!(target_to_publish(Some(1), seen), None);
+
+        // The operator types 5. It applies once, and the publish that follows must not undo it.
+        assert_eq!(target_to_apply(5, seen), Some(5));
+        seen = Some(5);
+        assert_eq!(target_to_publish(Some(5), seen), None);
+        // Every subsequent tick, for as long as the link is up.
+        assert_eq!(target_to_apply(5, seen), None);
+        assert_eq!(target_to_publish(Some(5), seen), None);
+
+        // Discovery selecting a different module *is* news, and must reach the field.
+        assert_eq!(target_to_publish(Some(3), seen), Some(3));
+        seen = Some(3);
+        assert_eq!(target_to_apply(3, seen), None);
     }
 
     #[test]

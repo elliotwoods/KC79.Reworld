@@ -109,9 +109,30 @@
 .flash-action-groups .button-row > span, .flash-action-groups .button-row button { flex: 1; }
 .secondary-operations, .button-row { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-2); }
 
-.test-route { display: grid; grid-template-columns: minmax(0, 1fr) minmax(180px, auto) auto; align-items: center; gap: var(--space-3); padding: var(--space-3); border: 1px solid var(--accent); border-radius: var(--radius-md); background: var(--surface-sunken); }
-.test-route > div { display: grid; }
-.test-route small { color: var(--text-secondary); }
+/* The link controls, first on the Test tab. Accent border because every disabled control below
+   is waiting on this one panel; it should read as the thing to look at. */
+.link-section { display: grid; gap: var(--space-2); }
+.link-section > .panel { border-color: var(--accent); }
+.link-choices { display: grid; grid-template-columns: minmax(200px, .8fr) minmax(0, 1.2fr); align-items: start; gap: var(--space-3); }
+/* Facts are label-left/value-right pairs. Given the whole panel width they stretch into two
+   words at opposite ends of a 1900px line, which is not a pair. Cap the column instead. */
+.link-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 260px)); justify-content: start; gap: var(--space-2) var(--space-4); }
+.endpoint-picker { display: grid; gap: var(--space-1); min-width: 0; }
+.endpoint-picker > header { display: flex; align-items: baseline; gap: var(--space-2); }
+.endpoint-picker > header .endpoint-tools { margin-left: auto; }
+/* Denser than the Flash tab's probe list, and capped. macOS names every USB serial device
+   twice (cu./tty.), so six rows for three devices is the normal case rather than the crowded
+   one -- at the flasher's row height that alone was taller than the rest of the panel. */
+.endpoint-picker .choice-list { max-height: 132px; gap: 0; }
+.endpoint-picker .choice-row { padding: 3px var(--space-2); }
+.endpoint-picker .choice-copy strong { font-weight: var(--weight-regular); }
+.endpoint-picker .choice-copy small { font-size: var(--text-2xs); }
+.endpoint-tools { display: flex; gap: var(--space-2); }
+.text-button { padding: 0; border: 0; background: none; color: var(--text-secondary); font-size: var(--text-2xs); text-decoration: underline; cursor: pointer; }
+.text-button:hover:not(:disabled) { color: var(--text); }
+.text-button:disabled { cursor: default; opacity: .55; }
+.other-route { display: flex; align-items: center; gap: var(--space-2); margin-top: var(--space-2); padding-top: var(--space-2); border-top: 1px solid var(--border); color: var(--text-faint); font-size: var(--text-2xs); }
+.other-route small { color: var(--text-secondary); }
 
 .procedure-list { display: grid; gap: var(--space-1); }
 .procedure-row { display: grid; grid-template-columns: minmax(180px, 1fr) auto auto; align-items: center; gap: var(--space-2); padding: var(--space-2); border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-sunken); }
@@ -151,10 +172,12 @@
 .raw-signal-panel .banner { margin-bottom: var(--space-3); }
 .raw-fields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(140px, .35fr); align-items: end; gap: var(--space-3); margin-bottom: var(--space-3); }
 
-.transport-grid, .motion-section, .evidence-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); }
+.motion-section, .evidence-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); }
 .link-state { display: flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-2); color: var(--text-secondary); font-size: var(--text-xs); }
-.target-row { display: grid; grid-template-columns: 1fr auto; gap: var(--space-2); align-items: end; }
-.rs485-evidence { margin-top: var(--space-2); padding-top: var(--space-2); border-top: 1px solid var(--border); }
+/* The address is three digits at most. Left it to fill the row and it read as a text field
+   spanning the panel, which is not what a 1-127 number is. */
+.target-row { display: grid; grid-template-columns: minmax(0, 220px) auto; justify-content: start; gap: var(--space-2); align-items: end; margin-top: var(--space-2); }
+.rs485-evidence { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 260px)); justify-content: start; gap: var(--space-1) var(--space-4); margin-top: var(--space-2); padding-top: var(--space-2); border-top: 1px solid var(--border); }
 
 .pilot-grid { display: grid; grid-template-columns: minmax(220px, .9fr) 1.1fr; gap: var(--space-3); }
 .pilot { width: 100%; height: 220px; touch-action: none; cursor: crosshair; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-sunken); }
@@ -224,10 +247,10 @@
 .session-log-empty { margin: 0; color: var(--text-faint); }
 
 @media (max-width: 900px) {
-  .hardware-band, .transport-grid, .motion-section, .evidence-grid, .setup-picker-columns, .provision-grid, .inspect-grid { grid-template-columns: 1fr; }
+  .hardware-band, .motion-section, .evidence-grid, .setup-picker-columns, .provision-grid, .inspect-grid { grid-template-columns: 1fr; }
   .hardware-facts { grid-template-columns: repeat(3, minmax(130px, 1fr)); }
   .pilot-grid { grid-template-columns: 1fr; }
-  .test-route, .procedure-row, .procedure-progress, .quick-command-groups, .quick-fields, .raw-fields, .flash-action-groups, .homing-summary { grid-template-columns: 1fr; }
+  .link-choices, .procedure-row, .procedure-progress, .quick-command-groups, .quick-fields, .raw-fields, .flash-action-groups, .homing-summary { grid-template-columns: 1fr; }
   .action-strip { grid-template-columns: minmax(280px, 1fr) auto auto; }
   .action-state { grid-column: 1 / -1; }
   .serial-number-control { min-width: 0; }

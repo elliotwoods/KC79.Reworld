@@ -75,8 +75,11 @@ pub enum LinkKind {
 impl LinkKind {
     pub fn channel(self) -> Channel {
         match self {
-            LinkKind::Vcp | LinkKind::BenchAscii | LinkKind::Sim => Channel::Serial,
-            LinkKind::Rs485Serial | LinkKind::Rs485Tcp => Channel::Rs485,
+            LinkKind::Vcp | LinkKind::BenchAscii => Channel::Serial,
+            // The simulator speaks the RS485 protocol -- it is `router_link::sim::SimBus` behind
+            // an ordinary `Rs485Link` -- so it belongs to that lane. `Plan::validate` already
+            // groups it with the addressed transports for the same reason.
+            LinkKind::Rs485Serial | LinkKind::Rs485Tcp | LinkKind::Sim => Channel::Rs485,
         }
     }
 
