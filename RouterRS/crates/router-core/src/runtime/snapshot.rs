@@ -54,6 +54,9 @@ pub struct ColumnSnapshot {
     pub portals: Vec<PortalSnapshot>,
     pub scheduled_poll_enabled: bool,
     pub scheduled_poll_period_s: f32,
+    /// The RS485 repeaters that have answered on this bus. Empty on a V1/V2
+    /// installation, which has none, and on a V3 bus nobody has queried yet.
+    pub repeaters: Vec<crate::model::repeater::RepeaterRecord>,
 }
 
 #[derive(Debug, Clone, Default)]

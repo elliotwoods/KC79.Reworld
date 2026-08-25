@@ -16,36 +16,45 @@
 .hardware-facts .fact { display: grid; align-content: center; gap: 0; }
 .hardware-facts .fact-value { font-size: var(--text-xs); line-height: var(--leading-tight); text-align: left; }
 
-.action-strip { position: relative; isolation: isolate; display: grid; grid-template-columns: minmax(150px, 1fr) minmax(320px, auto) auto auto; align-items: center; gap: var(--space-2); min-height: 58px; overflow: hidden; padding: var(--space-1) var(--space-2) var(--space-1) var(--space-3); border-left: 4px solid var(--warn); background: var(--surface-sunken); }
+.action-strip { position: relative; isolation: isolate; display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto auto; align-items: center; gap: var(--space-2); min-height: 58px; overflow: hidden; padding: var(--space-1) var(--space-2) var(--space-1) var(--space-3); border-left: 4px solid var(--warn); background: var(--surface-sunken); }
 .action-strip.is-ready { border-color: var(--ok); }
 .action-strip.is-busy { border-color: var(--accent); }
 .action-progress { position: absolute; z-index: 0; inset: 0 auto 0 0; background: color-mix(in srgb, var(--accent) 22%, transparent); transition: width 120ms linear; }
 .action-state { position: relative; z-index: 1; display: flex; align-items: baseline; gap: var(--space-2); min-width: 0; }
-.action-state strong { letter-spacing: var(--tracking-label); white-space: nowrap; }
+.action-state strong { min-width: 0; overflow: hidden; letter-spacing: var(--tracking-label); text-overflow: ellipsis; white-space: nowrap; }
 .action-state span { overflow: hidden; color: var(--text-secondary); text-overflow: ellipsis; white-space: nowrap; }
-.serial-number-control { position: relative; z-index: 1; display: grid; grid-template-columns: auto minmax(120px, 160px) auto; align-items: center; gap: var(--space-2); min-width: 320px; min-height: 46px; padding: var(--space-1) var(--space-2); border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-raised); }
-.serial-number-control.is-different { background: color-mix(in srgb, var(--warn) 5%, var(--surface-raised)); }
-.serial-number-control.is-error { background: color-mix(in srgb, var(--danger) 6%, var(--surface-raised)); }
-.serial-number-copy { display: grid; min-width: 108px; }
-.serial-number-copy .label-caps { color: var(--text); font-size: var(--text-sm); font-weight: var(--weight-semibold); }
-.serial-number-copy small { overflow: hidden; max-width: 150px; color: var(--text-secondary); font-size: var(--text-2xs); text-overflow: ellipsis; white-space: nowrap; }
-.serial-number-control .param-control { min-width: 0; }
-.serial-number-control .num { height: 38px; border-color: var(--border); background: var(--surface); box-shadow: none; }
-.serial-number-control .digits, .serial-number-control .num-input { font-size: 18px; font-weight: var(--weight-semibold); }
+/* The two "entered value against the board" cards: the serial, and the in-flash settings that go
+   to the board in the same pass. One row beside the state word from ~1400px; their own row below
+   that. `display: contents` keeps the wrapper out of the grid until it is needed as a row. */
+.board-values { display: contents; }
+.board-value { position: relative; z-index: 1; display: grid; align-items: center; gap: var(--space-2); min-height: 46px; padding: var(--space-1) var(--space-2); border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-raised); }
+.board-value[data-kind='serial'] { grid-template-columns: minmax(104px, 128px) minmax(120px, 140px) auto; }
+.board-value[data-kind='settings'] { grid-template-columns: minmax(120px, 150px) minmax(88px, 104px) auto auto; }
+.board-value[data-tone='warn'] { background: color-mix(in srgb, var(--warn) 5%, var(--surface-raised)); }
+.board-value[data-tone='error'] { background: color-mix(in srgb, var(--danger) 6%, var(--surface-raised)); }
+.board-value-copy { display: grid; min-width: 0; }
+.board-value-copy .label-caps { color: var(--text); font-size: var(--text-sm); font-weight: var(--weight-semibold); }
+.board-value-copy small { overflow: hidden; color: var(--text-secondary); font-size: var(--text-2xs); text-overflow: ellipsis; white-space: nowrap; }
+.board-value .param-control { min-width: 0; }
+.board-value .num { height: 38px; border-color: var(--border); background: var(--surface); box-shadow: none; }
+.board-value .digits, .board-value .num-input { font-size: 18px; font-weight: var(--weight-semibold); }
+.board-value-hint { display: grid; min-width: 0; }
+.board-value-field { display: grid; justify-items: center; gap: var(--space-0-5); }
+.board-value-caption { font-size: var(--text-2xs); }
 .manual-flash { position: relative; z-index: 1; }
 .manual-flash, .manual-flash > button { display: flex; }
 .manual-flash > button { justify-content: center; min-width: 150px; min-height: 40px; }
 .auto-flash { position: relative; z-index: 1; display: flex; align-items: center; gap: var(--space-2); min-height: 42px; padding: var(--space-1) var(--space-2); border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-raised); }
 .auto-flash.is-armed { border-color: var(--accent); }
-.auto-flash > span { display: flex; align-items: baseline; gap: var(--space-1); white-space: nowrap; }
 .auto-flash small { color: var(--accent); }
-.sound-toggle, .force-toggle { display: inline-grid; place-items: center; height: 30px; padding: 0; border: 1px solid transparent; border-radius: var(--radius-sm); background: transparent; color: var(--text); cursor: pointer; line-height: 1; }
-.sound-toggle { width: 30px; font-size: 17px; }
-.force-toggle { padding: 0 var(--space-1-5); color: var(--text-secondary); font-size: var(--text-xs); font-weight: var(--weight-semibold); }
-.sound-toggle:hover, .force-toggle:hover { border-color: var(--border); background: var(--surface-sunken); }
-.force-toggle.is-active { border-color: var(--warn); background: color-mix(in srgb, var(--warn) 14%, transparent); color: var(--warn); }
-.sound-toggle:focus-visible, .force-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-.force-toggle:disabled { cursor: not-allowed; opacity: .55; }
+/* Three labelled switches: Auto flash, Force, Sound. The text is a click target like a form
+   label; the switch itself is the keyboard one. */
+.strip-switch { display: inline-flex; align-items: center; gap: var(--space-1-5); white-space: nowrap; }
+.strip-switch + .strip-switch { padding-left: var(--space-2); border-left: 1px solid var(--border); }
+.strip-switch.is-disabled { opacity: var(--disabled-opacity); pointer-events: none; }
+.strip-switch-label { display: inline-flex; align-items: baseline; gap: var(--space-1); cursor: pointer; font-size: var(--text-xs); font-weight: var(--weight-semibold); color: var(--text-secondary); user-select: none; }
+.strip-switch-label strong { color: var(--text); font-size: var(--text-md); }
+.strip-switch .param-control { min-width: 0; }
 
 .fact { display: flex; justify-content: space-between; gap: var(--space-3); padding: var(--space-0-5) 0; min-width: 0; font-variant-numeric: tabular-nums; }
 .fact-label { color: var(--text-secondary); white-space: nowrap; }
@@ -246,14 +255,23 @@
 .session-log-line[data-tone='error'] .session-log-message { color: var(--danger); font-weight: var(--weight-semibold); }
 .session-log-empty { margin: 0; color: var(--text-faint); }
 
+/* Below this the state word no longer fits beside both cards, the button and the three
+   switches, so the cards take a second row. Measured, not guessed: 1440 clips WAITING FOR MCU. */
+@media (max-width: 1540px) {
+  .action-strip { grid-template-columns: minmax(0, 1fr) auto auto; }
+  .board-values { display: flex; gap: var(--space-2); grid-column: 1 / -1; grid-row: 2; }
+}
+
 @media (max-width: 900px) {
   .hardware-band, .motion-section, .evidence-grid, .setup-picker-columns, .provision-grid, .inspect-grid { grid-template-columns: 1fr; }
   .hardware-facts { grid-template-columns: repeat(3, minmax(130px, 1fr)); }
   .pilot-grid { grid-template-columns: 1fr; }
   .link-choices, .procedure-row, .procedure-progress, .quick-command-groups, .quick-fields, .raw-fields, .flash-action-groups, .homing-summary { grid-template-columns: 1fr; }
-  .action-strip { grid-template-columns: minmax(280px, 1fr) auto auto; }
-  .action-state { grid-column: 1 / -1; }
-  .serial-number-control { min-width: 0; }
+  /* Cards fill the row here, so the slack must go to the number field and not to the badge. */
+  .board-values { flex-wrap: wrap; }
+  .board-value { flex: 1 1 360px; min-width: 0; }
+  .board-value[data-kind='serial'] { grid-template-columns: auto minmax(110px, 1fr) auto; }
+  .board-value[data-kind='settings'] { grid-template-columns: auto minmax(80px, 1fr) auto auto; }
   .quick-fields { grid-column: auto; }
   .quick-fields h3, .procedure-progress-track { grid-column: 1; }
 }
@@ -262,7 +280,8 @@
   .direct-bar, .inspect-fields { grid-template-columns: 1fr; }
   .action-strip { grid-template-columns: minmax(0, 1fr) auto; }
   .action-state { grid-column: 1 / -1; }
-  .serial-number-control { grid-column: 1 / -1; grid-template-columns: auto minmax(110px, 1fr) auto; width: 100%; }
+  .board-values { grid-row: auto; }
+  .board-value { flex-basis: 100%; }
   .manual-flash, .manual-flash > button { width: 100%; }
   .manual-flash > button { min-width: 0; }
   .hardware-facts, .firmware-banks { grid-template-columns: 1fr; }

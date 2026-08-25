@@ -243,3 +243,101 @@ checking the wiring.
 The final software verification rerun passed all 10 native BridgeCore tests
 and the ESP32-C3 release build. This build check was not uploaded; the tested
 normal-polarity v2.2.0 field image remains installed.
+
+## Resolution — 2026-08-25
+
+**The fault was the USB-RS485 adapter, not the wiring, the polarity, or any
+electrical property of the differential pair.** FTDI FT232R serial `AR9366BD`
+does not provide automatic half-duplex direction control: its transceiver
+driver-enable follows RTS, so with RTS at any static level it never drives the
+bus at all. Every measurement in the sections above was taken through an
+adapter that was not transmitting.
+
+This section was produced on a different computer and a different ESP32-C3 from
+the one above, with the same `AR9366BD` adapter. The failure reproduced exactly
+— zero side-1 RX bytes and exactly five active-RX UART errors for five frames —
+which is what identified the adapter as the only constant.
+
+### Why the earlier audit missed it
+
+The UART-format audit tested "all four static RTS/DTR level combinations" and
+concluded those control lines were "not selecting a working adapter direction
+mode". That conclusion is right and the inference from it was wrong: an
+RTS-controlled adapter cannot be driven by a static level in any of the four
+combinations, because driver-enable must be asserted for the duration of each
+transmission and released after it. The test that distinguishes the two cases
+is a *dynamic* toggle, not a static level.
+
+### Evidence
+
+Three independent results, all with the production normal-polarity v2.2.0
+image and unchanged wiring:
+
+1. **Byte-pattern asymmetry.** Twenty bytes of each pattern into side 1 through
+   `AR9366BD`: `0x00`, `0x55` and `0xAA` each produced 0 RX bytes and 1 UART
+   error, while `0xFF` — the pattern that holds the line at mark for nine of
+   every ten bit times — produced 40 RX bytes and 20 decoded frames. Reception
+   only worked when the line barely had to be driven to space. **This also rules
+   out reversed polarity**, which would give the opposite asymmetry: `0xFF`
+   failing and `0x00` partially decoding.
+
+2. **Only a dynamic RTS toggle moved data.** Five valid frames, four modes:
+
+   | mode | side-1 rx bytes | frames | uart errors |
+   |---|---:|---:|---:|
+   | RTS static low | 0 | 0 | 5 |
+   | RTS static high | 0 | 0 | 5 |
+   | RTS raised per transmission | 126 | 14 | 9 |
+   | RTS lowered per transmission | 0 | 0 | 5 |
+
+   The byte and frame counts under the working mode are wrong because userspace
+   RTS toggling over USB has millisecond jitter, so driver-enable asserts and
+   releases late; the switching edges are received as extra bytes. That confirms
+   the mechanism rather than providing a usable transport.
+
+3. **A second adapter passed immediately.** FTDI FT232R serial `B003AHF1`
+   (a different vendor's board, same chip) in the same wiring position, with no
+   other change: 45 of 45 RX bytes, 5 of 5 frames decoded, and zero incomplete,
+   oversized, queue-drop, parse, UART and transmission errors. Repeated three
+   times. Every byte pattern above also decoded 20 of 20 with zero UART errors.
+
+### Consequences
+
+- `AR9366BD` must not be used with Router, RouterRS or PortalTestBench. None of
+  them toggles adapter driver-enable, by design, so no host-side change makes
+  this adapter work. Either replace it or program the FT232R's CBUS pin to
+  `TXDEN` so direction control is hardware-timed.
+- The 2026-08-24 electrical remediation advice above — check polarity, both
+  conductors, common reference, termination and bias at the side-1 MAX3362 pins
+  — was not the fault here and did not need to be carried out.
+- The Portal home-switch findings in this report are unaffected: they were taken
+  over the direct ST-Link VCOM path, which does not involve RS485 or either
+  adapter.
+
+### Repeater identity
+
+The ESP32-C3 used for this section (Espressif USB serial/JTAG MAC
+`f8:5b:1b:ed:8d:a4`) was found running an application built against ESP-IDF
+v4.4.7 and dated 2024-03-05 — an Arduino-ESP32 2.0.x image predating the JSON
+diagnostics console, which is why it answered no console command. Its full 4 MB
+flash was captured before replacement:
+
+- Recovered pre-existing 4 MB flash readback:
+  `e17080d5d1f563c7da9ab6cf518069bceb0aef48b9446c251c736e08070c2265`
+
+Production v2.2.0 (build `8799276081d5-dirty`, normal polarity on both sides)
+was then built and uploaded, and verified live: `version` reports 2.2.0 at
+115200 with `side1_inverted` and `side2_inverted` both false.
+
+**A board whose console is silent is not necessarily faulty — check the flashed
+image before drawing any conclusion from missing diagnostics.** The 1 Hz LED
+heartbeat on GPIO10 distinguishes a running bridge from a dead one without
+opening a port.
+
+### Not yet done
+
+Side 2 was left connected to the Portal branch throughout, and the repeater
+stayed in `transparent` mode because no valid inner reply ever taught it a
+local range. Addressed polling of IDs 1–9, the learned-range and filtering
+checks, and the V3 batch/gap/54-Portal soak all remain outstanding on a
+`B003AHF1`-class adapter.

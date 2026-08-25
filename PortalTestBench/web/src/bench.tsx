@@ -6,7 +6,7 @@ import { SystemSounds } from '@auroravision/av-gui/calibration';
 import { mount, useParam, useSchema } from '@auroravision/av-gui/runtime';
 import '@auroravision/av-gui/styles.css';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { type Cue, type LinkView, connectBlocker, linkBlocker, soundFor } from './bench-model';
+import { type BoardValue, type Cue, type FirmwareItem, type LinkView, type SerialView, type SettingsView, connectBlocker, firmwareRow, linkBlocker, serialState, settingsState, settingsSummary, soundFor } from './bench-model';
 import { SessionLog } from './bench-log';
 import { MotionGraphs, MotionPilot } from './motion';
 import { InspectTab } from './inspect';
@@ -18,6 +18,32 @@ function useEnumName(path: string): string {
 const useText = (path: string) => useParam<string>(path).value ?? '';
 const useNumber = (path: string) => useParam<number>(path).value ?? 0;
 const useBool = (path: string) => !!useParam<boolean>(path).value;
+
+/** The reads behind the SERIAL NUMBER card, shared with the provisioning panel so the two cannot disagree. */
+function useSerialView(): SerialView {
+  return {
+    dbOk: useBool('/provision/database_ok'),
+    boardPresent: useBool('/probe/target_present'),
+    identity: useText('/provision/identity_state'),
+    boardSerial: useNumber('/provision/on_board_serial'),
+    entered: useNumber('/provision/serial_to_provision'),
+    pending: useBool('/provision/pending_replug'),
+  };
+}
+
+/** The reads behind the MODULE SETTINGS card, likewise. */
+function useSettingsView(): SettingsView {
+  return {
+    boardPresent: useBool('/probe/target_present'),
+    identity: useText('/provision/identity_state'),
+    pending: useBool('/provision/pending_replug'),
+    source: useText('/provision/settings/source'),
+    boardCurrentMa: useNumber('/provision/settings/on_board_current_ma'),
+    boardRecovery: useBool('/provision/settings/on_board_recovery'),
+    currentMa: useNumber('/provision/settings/current_ma'),
+    recovery: useBool('/provision/settings/recovery_enabled'),
+  };
+}
 
 function Action({ path, children, why, variant, className }: { path: string; children: ReactNode; why?: string | null; variant?: 'default' | 'primary' | 'danger' | 'quiet'; className?: string }) {
   const p = useParam<number>(path);
@@ -76,7 +102,7 @@ function HardwareBand() {
 
 interface ProbeChoice { identifier: string; name?: string; serial_number?: string; kind: string }
 interface PortChoice { name: string; kind: string; product?: string; serial_number?: string }
-interface Artefact { id: string; label: string; region: 'bootloader' | 'application'; origin: string; bytes: number; fits: boolean }
+interface Artefact extends FirmwareItem { label: string; fits: boolean }
 interface MissingArtefact { label: string; path: string; hint: string }
 
 /**
@@ -202,10 +228,11 @@ function SetupPicker() {
             const selection = region === 'bootloader' ? boot : app;
             const regionItems = items.filter((item) => item.region === region);
             return <section key={region} className="firmware-bank" aria-label={`${region} bank`}>
-              <strong>{region === 'bootloader' ? 'Bootloader' : 'Application'}</strong>
+              <strong>{region === 'bootloader' ? 'PortalBootloader' : 'PortalFW Application'}</strong>
               {regionItems.length === 0 ? <small>No {region} image found.</small> : <div className="choice-list" role="listbox" aria-label={`${region} firmware`}>{regionItems.map((item) => {
                 const selected = selection.value === item.id;
-                return <ChoiceRow key={item.id} selected={selected} disabled={!item.fits || setupLocked} title={item.label} detail={`${item.origin} · ${(item.bytes / 1024).toFixed(1)} kB`} badges={!item.fits ? <Badge tone="error">too large</Badge> : undefined} onClick={() => selection.set(selected ? '' : item.id)} />;
+                const row = firmwareRow(item);
+                return <ChoiceRow key={item.id} selected={selected} disabled={!item.fits || setupLocked} title={row.title} detail={row.detail} badges={!item.fits ? <Badge tone="error">too large</Badge> : undefined} onClick={() => selection.set(selected ? '' : item.id)} />;
               })}</div>}
             </section>;
           })}</div>}
@@ -231,31 +258,60 @@ function ManualFlashButton() {
     if (now < confirmUntil) { action.set((action.value ?? 0) + 1); setConfirmUntil(0); }
     else { setConfirmUntil(now + 5000); window.setTimeout(() => setConfirmUntil((v) => v <= Date.now() ? 0 : v), 5100); }
   };
-  return <span className="manual-flash" title={why ?? 'Press twice within five seconds'}><Button variant={confirmUntil > Date.now() ? 'danger' : 'primary'} disabled={!!why || !action.decl} onClick={click}>{confirmUntil > Date.now() ? 'Confirm flash' : 'Flash / Provision now'}</Button></span>;
+  return <span className="manual-flash" title={why ?? 'Press twice within five seconds. Always programs and restarts the board, even if it already carries this image.'}><Button variant={confirmUntil > Date.now() ? 'danger' : 'primary'} disabled={!!why || !action.decl} onClick={click}>{confirmUntil > Date.now() ? 'Confirm flash' : 'Flash / Provision now'}</Button></span>;
 }
 
-function SerialNumberControl() {
-  const requested = useNumber('/provision/serial_to_provision');
-  const existing = useNumber('/provision/on_board_serial');
-  const identity = useText('/provision/identity_state');
-  const dbOk = useBool('/provision/database_ok');
-  const pending = useBool('/provision/pending_replug');
-  const differs = existing > 0 && requested !== existing;
-  const detail = pending
-    ? 'reserved; waiting for replug'
-    : differs
-      ? `on-board serial: ${existing}`
-      : existing > 0
-        ? 'matches on-board serial'
-        : identity === 'blank'
-          ? 'new board'
-          : identity || 'identity unknown';
-  return <div className={`serial-number-control${differs ? ' is-different' : ''}${!dbOk ? ' is-error' : ''}`}>
-    <span className="serial-number-copy"><span className="label-caps">Serial Number</span><small>{detail}</small></span>
-    <NumberField path="/provision/serial_to_provision" />
-    <Badge tone={!dbOk ? 'error' : pending || differs ? 'warn' : existing > 0 ? 'ok' : 'idle'}>{!dbOk ? 'DB offline' : pending ? 'pending' : differs ? 'review' : existing > 0 ? 'existing' : 'new'}</Badge>
+/**
+ * One card in the action strip: an entered value held against what the board holds. The field is
+ * what was entered, the small line is what the board holds, the badge is the relation — three
+ * facts, none repeated. The tint follows the badge tone, so a card that needs attention looks it.
+ */
+function BoardValueCard({ kind, title, hint, state, children }: { kind: 'serial' | 'settings'; title: string; hint: string; state: BoardValue; children: ReactNode }) {
+  return <div className="board-value" data-kind={kind} data-tone={state.tone} role="group" aria-label={title}>
+    <span className="board-value-copy" title={hint}><span className="label-caps">{title}</span><small>{state.detail}</small></span>
+    {children}
+    <Badge tone={state.tone} title={state.hint}>{state.word}</Badge>
   </div>;
 }
+
+const SERIAL_HINT = 'The serial to provision: written to the protected identity page on the next flash. Durable, and separate from the 1–127 RS485 address.';
+const SETTINGS_HINT = 'Stored in the module\'s flash settings journal, written with the serial on the next flash.';
+const CURRENT_HINT = 'Operating current: the motor driver current the module runs at, 50–250 mA.';
+const RECOVERY_HINT = 'Full-current home recovery: if a home fails for a motion reason at the stored current, retry it once at 250 mA — and if that succeeds, promote the stored current to 250 mA.';
+
+function SerialNumberCard() {
+  const state = serialState(useSerialView());
+  return <BoardValueCard kind="serial" title="Serial Number" hint={SERIAL_HINT} state={state}>
+    <span className="board-value-hint" title={SERIAL_HINT}><NumberField path="/provision/serial_to_provision" /></span>
+  </BoardValueCard>;
+}
+
+// The in-flash settings go to the board in the same pass as the serial, which is why they sit
+// beside it. "mA" is the field's own unit suffix; the toggle already carries its full name as an
+// aria-label, so the caption under it is for the eye only.
+function ModuleSettingsCard() {
+  const state = settingsState(useSettingsView());
+  return <BoardValueCard kind="settings" title="Module Settings" hint={SETTINGS_HINT} state={state}>
+    <span className="board-value-hint" title={CURRENT_HINT}><NumberField path="/provision/settings/current_ma" /></span>
+    <span className="board-value-field" title={RECOVERY_HINT}><Toggle path="/provision/settings/recovery_enabled" /><span className="label-caps board-value-caption" aria-hidden="true">recovery</span></span>
+  </BoardValueCard>;
+}
+
+/**
+ * A labelled switch in the action strip. The text toggles too, as a form label would — but a real
+ * `<label>` cannot be used: `ResettableControl` renders its reset button before the switch, so a
+ * label would activate the reset instead of the switch.
+ */
+function StripSwitch({ label, hint, disabled, onToggle, children }: { label: ReactNode; hint: string; disabled?: boolean; onToggle: () => void; children: ReactNode }) {
+  return <span className={`strip-switch${disabled ? ' is-disabled' : ''}`} title={hint} aria-disabled={disabled || undefined}>
+    <span className="strip-switch-label" onClick={disabled ? undefined : onToggle}>{label}</span>
+    {children}
+  </span>;
+}
+
+const AUTO_FLASH_HINT = 'Arm the fixture: every board inserted is flashed and provisioned without pressing anything. While armed, Flash / Provision now is disabled.';
+const FORCE_HINT = 'Auto-flash only: program even when the board already carries the selected image. A manual flash always programs.';
+const SOUND_HINT = 'Bench sounds: a board connecting or dropping, a run starting, pass, fail and abort.';
 
 function FlashActionStrip({ soundEnabled, onSoundEnabledChange }: { soundEnabled: boolean; onSoundEnabledChange: (enabled: boolean) => void }) {
   const probe = useBool('/probe/connected');
@@ -263,8 +319,8 @@ function FlashActionStrip({ soundEnabled, onSoundEnabledChange }: { soundEnabled
   const flashBusy = useBool('/flash/busy');
   const runBusy = useBool('/run/busy');
   const armed = useBool('/flash/armed');
+  const autoEnabled = useParam<boolean>('/flash/auto_enabled');
   const forceWrite = useParam<boolean>('/flash/force_write');
-  const autoFlash = useParam<boolean>('/flash/auto_enabled');
   const flashStep = useText('/flash/step');
   const flashPhase = useText('/flash/phase');
   const flashProgress = useNumber('/flash/progress');
@@ -275,17 +331,20 @@ function FlashActionStrip({ soundEnabled, onSoundEnabledChange }: { soundEnabled
   const progress = Math.max(0, Math.min(1, flashBusy ? flashProgress : runProgress));
   const detail = (flashBusy ? flashStep || flashPhase : runStep || runPhase) || 'Starting';
   const state = busy ? 'WORKING' : target ? 'READY' : probe ? 'WAITING FOR MCU' : 'WAITING FOR ST-LINK';
-  const toggleForceWrite = () => {
-    const enabled = !forceWrite.value;
-    if (enabled && !autoFlash.value) autoFlash.set(true);
-    forceWrite.set(enabled);
-  };
+  // Force belongs to auto-flash alone, and must not reach over and enable it: arming the rig is
+  // what disables "Flash / Provision now", so a toggle meant to make flashing more thorough used
+  // to take the manual button away. Manual passes program unconditionally and ignore this.
+  const toggleForceWrite = () => forceWrite.set(!forceWrite.value);
   return <section className={`action-strip ${busy ? 'is-busy' : target ? 'is-ready' : 'is-waiting'}`} data-av-surface="test-runner">
     {busy && <span className="action-progress" style={{ width: `${Math.round(progress * 100)}%` }} />}
     <div className="action-state"><strong>{state}</strong>{busy && <span>{detail} · {Math.round(progress * 100)}%</span>}</div>
-    <SerialNumberControl />
+    <div className="board-values"><SerialNumberCard /><ModuleSettingsCard /></div>
     <ManualFlashButton />
-    <div className={`auto-flash${armed ? ' is-armed' : ''}`}><span><strong>Auto flash</strong>{armed && <small>Armed</small>}</span><button type="button" className="sound-toggle" aria-label={soundEnabled ? 'Disable auto-flash sounds' : 'Enable auto-flash sounds'} aria-pressed={soundEnabled} title={soundEnabled ? 'Sound on' : 'Sound off'} onClick={() => onSoundEnabledChange(!soundEnabled)}><span aria-hidden="true">{soundEnabled ? '🔊' : '🔇'}</span></button><button type="button" className={`force-toggle${forceWrite.value ? ' is-active' : ''}`} aria-label={forceWrite.value ? 'Disable forced firmware writes' : 'Force firmware writes even when the image matches'} aria-pressed={!!forceWrite.value} title="Bypass the matching-firmware skip" disabled={!forceWrite.decl || (!forceWrite.value && !autoFlash.decl) || flashBusy} onClick={toggleForceWrite}>Force</button><Toggle path="/flash/auto_enabled" /></div>
+    <div className={`auto-flash${armed ? ' is-armed' : ''}`}>
+      <StripSwitch label={<><strong>Auto flash</strong>{armed && <small>Armed</small>}</>} hint={AUTO_FLASH_HINT} onToggle={() => autoEnabled.set(!autoEnabled.value)}><Toggle path="/flash/auto_enabled" /></StripSwitch>
+      <StripSwitch label="Force" hint={FORCE_HINT} disabled={!forceWrite.decl || flashBusy} onToggle={toggleForceWrite}><Toggle path="/flash/force_write" /></StripSwitch>
+      <StripSwitch label="Sound" hint={SOUND_HINT} onToggle={() => onSoundEnabledChange(!soundEnabled)}><button type="button" className={`toggle${soundEnabled ? ' is-on' : ''}`} role="switch" aria-checked={soundEnabled} aria-label={soundEnabled ? 'Disable bench sounds' : 'Enable bench sounds'} onClick={() => onSoundEnabledChange(!soundEnabled)}><span className="toggle-knob" /></button></StripSwitch>
+    </div>
   </section>;
 }
 
@@ -299,6 +358,10 @@ function ProvisionPanel() {
   const pending = useBool('/provision/pending_replug');
   const reservation = useText('/provision/reservation');
   const source = useText('/provision/settings/source');
+  const serial = serialState(useSerialView());
+  const settingsView = useSettingsView();
+  const settings = settingsState(settingsView);
+  const settingsWhy = settingsView.boardPresent ? null : 'no MCU is answering';
   const [query, setQuery] = useState('');
   const [history, setHistory] = useState<ProvisionActionRow[]>([]);
   useEffect(() => {
@@ -314,12 +377,12 @@ function ProvisionPanel() {
     return () => { active = false; window.clearInterval(id); };
   }, [query]);
   return <section className="provision-panel" aria-label="Board provisioning">
-    <header><div><strong>Board provisioning</strong><small>Serial identity is durable and separate from the 1–127 RS485 address.</small></div><Badge tone={!dbOk ? 'error' : pending ? 'warn' : existing > 0 ? 'ok' : 'idle'}>{!dbOk ? 'database unavailable' : pending ? 'waiting for replug' : identity}</Badge></header>
+    <header><div><strong>Board provisioning</strong><small>Serial identity is durable and separate from the 1–127 RS485 address.</small></div><Badge tone={serial.tone}>{serial.word}</Badge></header>
     {!dbOk && <Banner tone="error">Provisioning is blocked: {dbError || 'the local database is unavailable'}. Diagnostics and tests remain usable.</Banner>}
     {pending && <Banner tone="warn">Remove and reconnect this board. Its pending UID, serial, and firmware will be verified without another flash.</Banner>}
     <div className="provision-grid">
-      <section className="provision-fields"><header><strong>Serial allocation</strong><small>The Serial Number above is the number printed on the PCB.</small></header><Row label="Next available serial number"><NumberField path="/provision/next_serial" /></Row><Fact label="On-board serial number" value={existing > 0 ? String(existing) : 'none'} /><Fact label="Identity status" value={identity || 'unknown'} tone={identity === 'corrupt' || identity === 'conflicted' ? 'error' : undefined} /><Fact label="Reservation" value={reservation || 'none'} /><div className="button-row"><Action path="/actions/keep_onboard_serial" why={existing <= 0 ? 'no valid on-board serial' : null}>Keep on-board serial</Action><Action path="/actions/use_pcb_serial" variant="danger">Use entered serial number</Action></div></section>
-      <section className="provision-fields"><header><strong>Module flash settings</strong><small>Written to the persistent settings journal.</small></header><Row label="Operating current [mA]"><NumberField path="/provision/settings/current_ma" /></Row><Row label="Full-current home recovery"><Toggle path="/provision/settings/recovery_enabled" /></Row><Fact label="Settings source" value={source || 'defaults'} /><div className="button-row"><Action path="/actions/read_settings">Read from board</Action><Action path="/actions/write_settings" variant="primary">Write to board</Action></div></section>
+      <section className="provision-fields"><header><strong>Serial allocation</strong><small>The Serial Number above is the number printed on the PCB.</small></header><Row label="Next available serial number"><NumberField path="/provision/next_serial" /></Row><Fact label="On-board serial number" value={existing > 0 ? String(existing) : 'none'} /><Fact label="Identity status" value={identity || 'unknown'} tone={identity === 'corrupt' || identity === 'foreign-uid' ? 'error' : undefined} /><Fact label="Reservation" value={reservation || 'none'} /><div className="button-row"><Action path="/actions/keep_onboard_serial" why={existing <= 0 ? 'no valid on-board serial' : null}>Keep on-board serial</Action><Action path="/actions/use_pcb_serial" variant="danger">Use entered serial number</Action></div></section>
+      <section className="provision-fields"><header><strong>Module settings</strong><small>Edit them in the Module Settings card above; they are written with the serial on the next flash. Read from board discards your edits.</small></header><Fact label="On board" value={settings.detail.replace(/^board: /, '')} /><Fact label="Entered" value={settingsSummary(settingsView.currentMa, settingsView.recovery)} tone={settings.changed ? 'warn' : undefined} /><Fact label="Settings source" value={source === 'flash' ? 'settings journal' : 'firmware defaults'} /><div className="button-row"><Action path="/actions/read_settings" why={settingsWhy}>Read from board</Action><Action path="/actions/write_settings" variant="primary" why={settingsWhy}>Write to board</Action></div></section>
     </div>
     <div className="provision-history"><header><strong>Provisioning history</strong><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search serial, UID, action…" aria-label="Search provisioning history" /></header>{history.length === 0 ? <small>No matching actions.</small> : <div className="history-list">{history.slice(0, 30).map((item) => <div key={item.id}><code>{item.serial ?? '—'}</code><span><strong>{item.action}</strong><small>{item.uid ? `…${item.uid.slice(-8)} · ` : ''}{item.detail || item.outcome}</small></span><Badge tone={item.outcome === 'failed' ? 'error' : item.outcome === 'ok' ? 'ok' : 'idle'}>{item.outcome}</Badge></div>)}</div>}</div>
   </section>;

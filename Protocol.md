@@ -43,9 +43,11 @@ Jargon is defined the first time it's used and again in the
 8. [RS485 over Ethernet (the TCP gateway)](#8-rs485-over-ethernet-the-tcp-gateway)
 9. [The ID daisy-chain](#9-the-id-daisy-chain)
 10. [Firmware update / bootloader protocol](#10-firmware-update--bootloader-protocol)
-11. [Known limitations](#11-known-limitations)
-12. [Source map](#12-source-map)
-13. [Glossary](#glossary)
+11. [The repeater control plane](#11-the-repeater-control-plane)
+12. [Repeater firmware update (OTA)](#12-repeater-firmware-update-ota)
+13. [Known limitations](#13-known-limitations)
+14. [Source map](#14-source-map)
+15. [Glossary](#glossary)
 
 **Appendix:** [OSC & REST control surfaces](#appendix-a-osc--rest-control-surfaces)
 
@@ -932,7 +934,207 @@ the source `.bin` are trimmed before upload by default.
 
 ---
 
-## 11. Known limitations
+## 11. The repeater control plane
+
+Everything in §1–§10 treats the V3 repeaters as invisible: they relay frames and
+have no address of their own. This section adds a second, disjoint plane on the
+same wire so a repeater can be queried, configured and diagnosed from the host,
+without any change to how Portal traffic behaves.
+
+```text
+host     -> repeater : [0, 0,    {"rq": {"a": <addr>, "q": "<verb>", "v": <payload>}}]
+repeater -> host     : [0, addr, {"rr": {"a": <addr>, "q": "<verb>", "ok": <bool>, "v": <payload>}}]
+```
+
+### Why the envelope target is 0
+
+The obvious design gives each repeater a negative address in the envelope's
+`target` field, where Portal IDs are always positive. It decodes correctly
+everywhere — but it is the wrong choice, for one reason found by tracing what a
+repeater running **v2.2.0** does with such a frame.
+
+`FrameRouter::shouldForward` has exactly one unconditional filter: a side-1 frame
+whose `target` is `0` is dropped before the routing mode is even consulted. An
+*unrecognised* target instead falls through to a fail-open `return true`. So an
+un-updated repeater would relay every repeater-plane frame onto its nine-Portal
+branch — harmless for a 30-byte status query, ruinous for a 300 kB firmware image
+being unicast to a different repeater on the same shared bus.
+
+Carrying the repeater address in the **body** and leaving the envelope target at
+`0` inverts that: a v2.2.0 repeater counts the frame as `filteredHostFrames` and
+never touches its branch, with no firmware deployed first. Portals and the frozen
+STM32 bootloader never see these frames at all, so an OTA chunk never exercises
+the bootloader's 64-byte COBS decode buffer.
+
+### Addresses
+
+| `a` | Meaning |
+|---|---|
+| `-2` | every repeater (`REPEATER_ALL`) |
+| `-3` … `-8` | repeaters 1 … 6 |
+| `bin(6)` | one repeater by MAC, regardless of its index |
+
+Repeater *N* serves Portal IDs `9(N-1)+1 … 9(N-1)+9`. The values can never collide
+with a Portal ID (always positive), with `BROADCAST` (`-1`), or with `HOST` (`0`).
+
+A repeater's index lives in NVS and is **not** derived from its learned range. A
+repeater whose branch is dead never learns a range, and that is precisely when
+remote access matters most, so MAC addressing is the escape hatch. An
+unprovisioned unit answers as `-2` and identifies itself by the MAC in its status
+payload.
+
+**Any verb that solicits a reply is unicast-only**, enforced in firmware: six
+repeaters answering one broadcast would collide on a half-duplex multidrop bus.
+Only `snap-start`, `ota-data`, `ota-boot` and `ota-abort` may be broadcast.
+
+### Verbs
+
+| Verb | Payload | Reply |
+|---|---|---|
+| `status` | — | full health map (below) |
+| `relearn` | — | ack; clears the persisted range too |
+| `reset-counters` | — | ack; preserves the learned range |
+| `reboot` | — | ack, then resets after 250 ms |
+| `set-index` | `int` 0–6 | ack; usually MAC-addressed |
+| `snap-start` | `int` collect ms (optional) | none — broadcast |
+| `snap-read` | — | the branch's stored replies, then a summary |
+| `ota-*` | see §12 | see §12 |
+
+The `status` payload reports `proto` (control-plane version), `ver`, `build`,
+`mac`, `idx`, `mode`, `range`, per-side counters under `s1`/`s2`, filter counts
+under `flt`, plane counters under `plane`, a monotonic `ev` event counter, and a
+`health` map carrying `rst` (reset reason), `boots`, `unhealthy`, `heap`, `up`
+(64-bit uptime — `millis()` wraps every 49.7 days and this installation runs for
+months) and `cd` (a core dump is waiting in flash).
+
+`proto` is the capability gate. A host must read it before using the snapshot or
+OTA verbs, and must degrade **per repeater** — falling back to unicast polling for
+that one nine-ID block — rather than fleet-wide.
+
+`ev` increments on every state change worth knowing about, so a host that only
+samples occasionally can tell it missed something between polls instead of seeing
+a steady picture.
+
+### Aggregate position snapshot
+
+The one two-stage protocol `reports/esp32-rs485-router-efficacy.html` endorses.
+
+1. The host broadcasts `snap-start`. All six repeaters begin polling their own nine
+   Portals with `{"p": nil}` — the branches are electrically isolated, so those
+   sweeps genuinely run in parallel.
+2. The host then unicasts `snap-read` to each repeater in turn.
+3. Each answers by relaying its stored Portal replies **verbatim**, followed by one
+   summary frame carrying `start`, `count`, a `mask` of which IDs answered, and the
+   measured sweep time.
+
+Relaying raw frames rather than repacking them costs about a hundred extra bytes
+per branch and buys two things: the host needs no new parser, since each relayed
+frame reaches the same per-Portal path a directly-polled reply does, and PortalFW's
+own `[…, seq, crc16]` trailer survives end to end instead of being discarded and
+replaced with nothing.
+
+The host stays the single arbiter of the bus throughout. An earlier design gave
+each repeater a fixed time slot; that was dropped because the host has no way to
+stay quiet during one — `gap_after_last_rx_ms` is 5 ms and it knows nothing about
+snapshots — and because a store-and-forward write can block a repeater's loop for
+tens of milliseconds, skewing its idea of when its slot started.
+
+Budget: about 60 ms of parallel collection plus six reads of roughly 28 ms each,
+so **≈220 ms** for 54 Portals against ≈540 ms for 54 unicast polls — about 2.4×.
+
+During a sweep the repeater claims **only** the reply to the poll currently
+outstanding. A log message, a late reply from an earlier sweep, or a duplicate is
+relayed upstream as usual, so the repeater does not go blind to branch faults for
+the length of every sweep. A reply that arrives after the collect window is
+forwarded *and* its ID appears as missing in the mask; a host reconciler must
+tolerate seeing both.
+
+---
+
+## 12. Repeater firmware update (OTA)
+
+Structurally unlike §10, because the receiver is better. The Portal bootloader
+requires strictly sequential offsets and cannot report a loss, so the host
+compensates with blind repetition. A repeater records which chunks it actually
+received, so the host sends the image once and repairs exactly the gaps.
+
+No repartition is needed. The deployed units already carry Arduino's stock
+`default.csv` — `app0`/`app1` of 0x140000 each plus `otadata` — and a v3.0.0 image
+is about 24% of one slot. Once v3.0.0 is installed over USB one time, every later
+update is in-band.
+
+### Sequence
+
+| Step | Address | Notes |
+|---|---|---|
+| `ota-begin` | unicast | `{"size", "chunk", "session", "sha"}`. **Acknowledged.** |
+| `ota-data` | unicast or broadcast | `[session, index, bin(data), crc16]`. Unacknowledged. |
+| `ota-map` | unicast | replies with the raw received-chunk bitmap |
+| `ota-data` | unicast | repair pass for the gaps the bitmap named |
+| `ota-end` | unicast | SHA-256 check by read-back, then commit |
+| `ota-boot` | unicast or broadcast | reboot into the new slot |
+| `ota-confirm` | unicast | optional; accelerates the pending-verify decision |
+| `ota-abort` | unicast or broadcast | abandons a session and resumes relaying at once |
+
+**`ota-begin` must be acknowledged before anything is streamed.** It erases the
+slot, and `CONFIG_UART_ISR_IN_IRAM` is not set in the pinned framework — which
+ships as prebuilt static libraries, so it cannot be enabled. The UART RX ISR lives
+in flash and cannot run while the cache is disabled for an erase. Against a 128-byte
+FIFO (11.1 ms at 115200) and a 30–45 ms sector erase, inbound bytes are lost for
+hundreds of milliseconds. Answering only after the erase returns puts that loss
+inside a window the host is already waiting in.
+
+**Every chunk carries the session**, not just `ota-begin`: otherwise a repeater that
+missed the end of transfer A would write transfer B's chunks into A's half-populated
+slot and fail verification for a reason nobody could see.
+
+**The bitmap is sent raw**, not as run-lengths — a fixed 78 bytes for a 617-chunk
+image, where a worst-case alternating gap pattern would make run-lengths 1.6 kB on
+a bus where every other repeater has to buffer them. The host computes the runs.
+
+**Chunk 0 goes first in every pass**, including repair, so the receiver's first
+write into a freshly erased slot always carries the image header.
+
+**Relaying is paused for the duration of a session**, and resumes automatically
+after 30 seconds of silence. The control plane keeps working while paused — that is
+what lets a paused repeater be told to resume — but an abandoned session that left
+the bridge down forever would mean a ladder.
+
+Rolling unicast is the default; broadcast is an operator-gated maintenance mode,
+because it pauses all six bridges at once and blacks out the whole installation.
+
+**Timing, honestly:** 315,904 bytes plus framing is about 340 kB on the wire, so
+**≈33 s per repeater** at 115200 — roughly 3.5 minutes for a rolling fleet update,
+or 45–90 s for a broadcast pass with repair. Do not schedule a 45-second window.
+
+### Rollback
+
+The repeater keys its rollback decision on **local evidence of malfunction**, never
+on the absence of evidence of health, and the sketch overrides Arduino's weak
+`verifyRollbackLater()` so the decision belongs to the application rather than to
+`initArduino()`.
+
+- **Boot-loop detection.** An NVS counter increments each boot and clears once the
+  application has run 30 s. At three, the image rolls back.
+- **Positive functional evidence.** Frames received and decoded on the shared bus
+  prove the UART, transceiver, DE line, COBS decoder and parser all work; the image
+  is marked valid immediately.
+- **Silence is benign.** A quiet bus for 30 s also marks it valid.
+- `ota-confirm` only accelerates this. It is never required.
+
+A host-confirms-or-reverts gate was rejected: a rack that powers up before the show
+PC would revert **every morning**, and because `esp_ota_begin` returns
+`ESP_ERR_OTA_ROLLBACK_INVALID_STATE` while an image is still pending verification,
+a stuck gate would also lock out the very update that fixed it.
+
+Note `esp_ota_mark_app_invalid_rollback_and_reboot()` can fail with
+`ESP_ERR_OTA_ROLLBACK_FAILED` when the other slot holds nothing bootable — the state
+an aborted update leaves behind. The firmware handles that branch by continuing to
+run and surfacing it in `status` rather than assuming the revert took effect.
+
+---
+
+## 13. Known limitations
 
 This section is intentionally brief — the full analysis, proposed fixes,
 and a bench-test plan live in
@@ -958,7 +1160,7 @@ discrepancies between this document and the code.
 
 ---
 
-## 12. Source map
+## 14. Source map
 
 This is the bottom of the zoom: every file that actually implements what's
 described above, from the highest-level entry points down to the `RS485`

@@ -519,6 +519,19 @@ namespace Modules {
 			}
 			failedAnywhere = true;
 		}
+
+		// Park the shared threshold DAC deterministically. One RC-filtered PWM feeds both
+		// comparators, and the success path inside fastHomeRoutine leaves it at whichever axis
+		// homed LAST -- so axis A's comparator was left reading at axis B's threshold (247 in
+		// the incident). Park at the lower of the two calibrated thresholds -- the compromise
+		// PORTING.md item 8 specifies -- or the fleet default if either axis is uncalibrated.
+		{
+			const int tA = app->motionControlA->getOpticalThreshold();
+			const int tB = app->motionControlB->getOpticalThreshold();
+			uint8_t park = HOMESWITCHOPTICAL_DEFAULT_THRESHOLD;
+			if(tA > 0 && tB > 0) park = (uint8_t) (tA < tB ? tA : tB);
+			HomeSwitch::setThreshold(park);
+		}
 #else
 		if(app->motionControlA->measureBacklashRoutine(settings).report()) {
 			if(settings.stopAllRoutinesIfOneFails) {

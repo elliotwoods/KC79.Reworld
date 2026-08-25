@@ -387,9 +387,11 @@ pub fn declare(builder: &mut SchemaBuilder, simulated: bool) -> Result<(), Strin
     )?;
     check(
         builder
+            // Auto-flash only. A manual pass programs unconditionally, so this cannot make one
+            // more thorough and its absence cannot make one skip -- see `may_skip_flash`.
             .param("/flash/force_write")
             .bool(false)
-            .label("Force firmware write")
+            .label("Force firmware write (auto-flash)")
             .register(),
     )?;
     check(
@@ -528,6 +530,9 @@ pub fn declare(builder: &mut SchemaBuilder, simulated: bool) -> Result<(), Strin
             .i64(1)
             .range(1.0, u32::MAX as f64 - 1.0)
             .label("Serial Number")
+            // The declared default is a placeholder, not a value anyone wants back: a reset
+            // control beside every real serial offered to set it to 1.
+            .no_reset()
             .register(),
     )?;
     check(
@@ -567,7 +572,8 @@ pub fn declare(builder: &mut SchemaBuilder, simulated: bool) -> Result<(), Strin
             .param("/provision/settings/current_ma")
             .i32(150)
             .range(50.0, 250.0)
-            .label("Operating current [mA]")
+            .label("Operating current")
+            .unit_label("mA")
             .register(),
     )?;
     check(
@@ -582,6 +588,25 @@ pub fn declare(builder: &mut SchemaBuilder, simulated: bool) -> Result<(), Strin
             .param("/provision/settings/source")
             .text("defaults")
             .label("Settings source")
+            .read_only()
+            .register(),
+    )?;
+    // What the board's journal holds, so a page can diff the editable pair above against it.
+    // 0 mA is outside the declared range and means "no board", as `on_board_serial` 0 does.
+    check(
+        builder
+            .param("/provision/settings/on_board_current_ma")
+            .i32(0)
+            .label("On-board operating current")
+            .unit_label("mA")
+            .read_only()
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/provision/settings/on_board_recovery")
+            .bool(false)
+            .label("On-board full-current home recovery")
             .read_only()
             .register(),
     )?;
@@ -1238,6 +1263,8 @@ pub struct ProvisionParams {
     pub current_ma: ParamId,
     pub recovery_enabled: ParamId,
     pub settings_source: ParamId,
+    pub on_board_current_ma: ParamId,
+    pub on_board_recovery: ParamId,
 }
 
 pub struct ProbeParams {
@@ -1443,6 +1470,8 @@ impl Params {
                 current_ma: id("/provision/settings/current_ma")?,
                 recovery_enabled: id("/provision/settings/recovery_enabled")?,
                 settings_source: id("/provision/settings/source")?,
+                on_board_current_ma: id("/provision/settings/on_board_current_ma")?,
+                on_board_recovery: id("/provision/settings/on_board_recovery")?,
             },
             probe: ProbeParams {
                 selected: id("/probe/selected")?,

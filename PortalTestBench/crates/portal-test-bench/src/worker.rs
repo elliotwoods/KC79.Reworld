@@ -209,6 +209,11 @@ struct PendingProvision {
     expected_version: String,
     application_sha256: String,
     deadline_ms: Option<u64>,
+    /// Which kind of pass raised this. An automatic pass is a production rig moving a tray of
+    /// boards, where an application channel that never speaks is a defect and the board must be
+    /// held back. A manual pass is an engineer at a desk, where the same silence usually means
+    /// VCOM is carrying the human menu and nothing is plugged into RS485 — not a bad board.
+    automatic: bool,
 }
 
 struct FieldUpdateJob {
@@ -1357,15 +1362,18 @@ impl Worker {
                 let _ = bus.set(progress_id, Value::F64(displayed_progress));
             };
             if let Some(reservation) = reservation.as_ref() {
-                let mcu = self.flash.snapshot().mcu.as_ref();
+                let snapshot = self.flash.snapshot().clone();
+                let mcu = snapshot.mcu.as_ref();
                 let selected = self.flash.selected_application_sha256().unwrap_or_default();
                 let force_write = schema::get_bool(&self.bus, self.params.flash.force_write);
-                let already_matches = !force_write
-                    && mcu.is_some_and(|mcu| {
-                        mcu.provision_serial == Some(reservation.serial)
-                            && !selected.is_empty()
-                            && mcu.application_sha256 == selected
-                    });
+                let already_matches = may_skip_flash(
+                    automatic,
+                    force_write,
+                    mcu.and_then(|mcu| mcu.provision_serial),
+                    reservation.serial,
+                    mcu.map_or("", |mcu| mcu.application_sha256.as_str()),
+                    &selected,
+                );
                 if already_matches {
                     self.flash.verified_skip(
                         now,
@@ -1377,11 +1385,21 @@ impl Worker {
                         ),
                     )
                 } else {
-                    if force_write {
+                    if force_write && automatic {
                         self.bench.note(
                             now,
                             bench_core::LOG_LEVEL_STATUS,
                             "force write enabled; programming even if firmware already matches",
+                        );
+                    }
+                    if !automatic {
+                        // Say it before the pass rather than after, so that a manual flash of an
+                        // image the board already carries cannot be mistaken for the skip this
+                        // used to answer with.
+                        self.bench.note(
+                            now,
+                            bench_core::LOG_LEVEL_STATUS,
+                            "manual flash: programming the selected images and restarting the board, whatever it already holds",
                         );
                     }
                     let settings = portal_swd::DeviceSettings {
@@ -1422,6 +1440,32 @@ impl Worker {
             },
             self.flash.snapshot().last_outcome.clone(),
         );
+        // The board is restarted before the pass is called done, so that what the operator is told
+        // started is what a fresh reset actually produced. A board waiting to be replugged is the
+        // one exception: its option bytes reload on power, and SWD reset cannot stand in for that.
+        let rebooted = if ok && !automatic && pass == Pass::Flash && !needs_replug {
+            match self.flash.reboot_and_verify() {
+                Ok(detail) => {
+                    self.bench.note(
+                        now,
+                        bench_core::LOG_LEVEL_STATUS,
+                        format!("restarted after flash: {detail}"),
+                    );
+                    true
+                }
+                Err(error) => {
+                    self.bench.note(
+                        now,
+                        bench_core::LOG_LEVEL_ERROR,
+                        format!("flash verified, but the board did not restart: {error}"),
+                    );
+                    false
+                }
+            }
+        } else {
+            true
+        };
+        let ok = ok && rebooted;
         self.cue(if ok { "pass" } else { "fail" });
 
         if let Some(reservation) = reservation {
@@ -1434,6 +1478,7 @@ impl Worker {
                     expected_version: mcu.firmware.clone(),
                     application_sha256: mcu.application_sha256.clone(),
                     deadline_ms: (!needs_replug).then_some(self.now_ms() + 12_000),
+                    automatic,
                 });
             } else if let Some(repository) = self.provisioning.as_mut() {
                 let _ = repository.mark_failed(
@@ -1634,18 +1679,38 @@ impl Worker {
         }
         if pending.deadline_ms.is_some_and(|deadline| now >= deadline) {
             let pending = self.pending_provision.take().unwrap();
-            let detail = "application channel did not confirm the expected serial and firmware";
-            if let Some(repository) = self.provisioning.as_mut() {
-                let _ = repository.mark_failed(pending.serial, &pending.uid, detail);
-                let _ = repository.record_action(
-                    Some(pending.serial),
-                    Some(&pending.uid),
-                    "application-channel-timeout",
-                    "failed",
-                    detail,
+            if pending.automatic {
+                let detail = "application channel did not confirm the expected serial and firmware";
+                if let Some(repository) = self.provisioning.as_mut() {
+                    let _ = repository.mark_failed(pending.serial, &pending.uid, detail);
+                    let _ = repository.record_action(
+                        Some(pending.serial),
+                        Some(&pending.uid),
+                        "application-channel-timeout",
+                        "failed",
+                        detail,
+                    );
+                }
+                self.bench.note(now, bench_core::LOG_LEVEL_ERROR, detail);
+            } else {
+                // The flash itself was verified by readback and by a boot check over SWD before
+                // this ever ran, so the board is not failed by a channel that stayed quiet. Say
+                // what was and was not established, and leave the reservation open.
+                let detail = format!(
+                    "flash verified over SWD; no application channel reported serial {} within 12 s — connect RS485 to confirm it on the wire (VCOM carries the human menu)",
+                    pending.serial
                 );
+                if let Some(repository) = self.provisioning.as_mut() {
+                    let _ = repository.record_action(
+                        Some(pending.serial),
+                        Some(&pending.uid),
+                        "application-channel-unconfirmed",
+                        "pending-application",
+                        &detail,
+                    );
+                }
+                self.bench.note(now, bench_core::LOG_LEVEL_WARNING, detail);
             }
-            self.bench.note(now, bench_core::LOG_LEVEL_ERROR, detail);
             self.refresh_provision_snapshot();
         }
     }
@@ -2233,6 +2298,22 @@ impl Worker {
         let _ = self
             .bus
             .set_text(p.provision.settings_source, &provision.settings_source);
+        // What the board itself holds, so the page can diff the editable pair against it. Taken
+        // from the flash snapshot rather than `ProvisionSnapshot`, which rebuilds from `Default`
+        // (150 mA, recovery on) and so cannot say "no board": 0 mA is outside the 50–250 range
+        // and reads as absence to any bus consumer, the way `on_board_serial` 0 already does.
+        let (board_ma, board_recovery) = snapshot.mcu.as_ref().map_or((0, false), |mcu| {
+            (
+                i32::from(mcu.operating_current_ma),
+                mcu.full_current_home_recovery,
+            )
+        });
+        let _ = self
+            .bus
+            .set(p.provision.on_board_current_ma, Value::I32(board_ma));
+        let _ = self
+            .bus
+            .set(p.provision.on_board_recovery, Value::Bool(board_recovery));
         *self.shared.flash.lock().unwrap() = snapshot.clone();
     }
 
@@ -2489,6 +2570,33 @@ fn verdict_value(name: &str) -> u32 {
     by_name(schema::VERDICTS, name)
 }
 
+/// Whether a flash pass may be answered by a verified skip instead of programming the board.
+///
+/// **Only an automatic pass may skip.** Auto-flash exists to move a tray of boards through a
+/// fixture, and re-programming one that already carries the selected image buys nothing. A manual
+/// pass is the opposite kind of event: an operator pressing "Flash now" and confirming it is
+/// asking for *this board to be written*, and answering that with a hash comparison leaves the
+/// board unprogrammed and unrestarted while the pass cue sounds — from the outside,
+/// indistinguishable from a flash that happened. It is also unfalsifiable in the one case that
+/// matters most, a rebuilt image whose bytes did not change but whose provenance did.
+///
+/// `force_write` remains the auto path's escape hatch. It is not the manual path's, because the
+/// manual path no longer needs one.
+fn may_skip_flash(
+    automatic: bool,
+    force_write: bool,
+    on_board_serial: Option<u32>,
+    reserved_serial: u32,
+    on_board_application_sha256: &str,
+    selected_application_sha256: &str,
+) -> bool {
+    automatic
+        && !force_write
+        && on_board_serial == Some(reserved_serial)
+        && !selected_application_sha256.is_empty()
+        && on_board_application_sha256 == selected_application_sha256
+}
+
 /// Convert each rig sub-step's local 0..1 fraction into one operation-wide timeline.
 ///
 /// Some phases are optional, so entering a later phase may jump over an unused segment. The
@@ -2552,6 +2660,45 @@ mod tests {
         let count = sorted.len();
         sorted.dedup();
         assert_eq!(sorted.len(), count, "duplicate action names");
+    }
+
+    /// A manual flash programs the board. There is no state of the world in which it does not.
+    ///
+    /// The skip is a real optimisation for a tray of boards going through a fixture, and it stays
+    /// — but it answered manual passes too, and a manual pass it answered produced the pass cue,
+    /// `verified skip: ... already has selected firmware`, an unwritten board and no restart. The
+    /// operator's only escape was the Force toggle, which enabled auto-flash, which armed the rig,
+    /// which disabled the manual button. Both halves of that trap are gone; this holds the half
+    /// that lives here.
+    #[test]
+    fn a_manual_flash_never_answers_itself_with_a_verified_skip() {
+        const SHA: &str = "06455f0c3a8390272994431c053e05e0470a6b6a0080ce7d2547837ae2ebb7f5";
+
+        // The exact situation on the bench: serial 7, carrying the selected image already.
+        assert!(
+            may_skip_flash(true, false, Some(7), 7, SHA, SHA),
+            "an automatic pass over a matching board still skips"
+        );
+        assert!(
+            !may_skip_flash(false, false, Some(7), 7, SHA, SHA),
+            "a manual pass over the same board must program it"
+        );
+
+        // Force is the auto path's bypass and remains so.
+        assert!(!may_skip_flash(true, true, Some(7), 7, SHA, SHA));
+        assert!(!may_skip_flash(false, true, Some(7), 7, SHA, SHA));
+
+        // The auto skip's own preconditions are unchanged: same serial, and an image to compare.
+        assert!(!may_skip_flash(true, false, Some(8), 7, SHA, SHA), "serial");
+        assert!(!may_skip_flash(true, false, None, 7, SHA, SHA), "no serial");
+        assert!(
+            !may_skip_flash(true, false, Some(7), 7, SHA, "other"),
+            "different image"
+        );
+        assert!(
+            !may_skip_flash(true, false, Some(7), 7, "", ""),
+            "an unreadable pair of hashes is not a match"
+        );
     }
 
     /// The Target address field has to survive being both an input and a read-out.

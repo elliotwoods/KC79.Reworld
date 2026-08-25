@@ -177,8 +177,12 @@ Bench results (side A rig, 189,696 µsteps/rev):
    its own dip depth and background, hence its own calibrated T. Therefore:
    * home the axes **serially** (Routines::calibrate already does), each
      setting its own T during its routine;
-   * afterwards park the DAC at a compromise (e.g. `min(T_A, T_B)`), and
-     treat the live sensor state as valid only near a freshly-set T.
+   * afterwards park the DAC at a compromise — **now implemented**:
+     `Routines::calibrate` parks it at `min(T_A, T_B)` (default 235 if either
+     axis is uncalibrated) after both axes home. Previously the success path
+     left it at whichever axis homed *last*, so one axis's comparator was read
+     at the other's threshold; treat the live sensor state as valid only near a
+     freshly-set T regardless.
    Anything that needs both axes' flags simultaneously (the unimplemented
    "live homing") would need per-axis DACs — out of scope.
 
@@ -193,6 +197,23 @@ Bench results (side A rig, 189,696 µsteps/rev):
    attempt recalibrates) and restores the default threshold. The dispatch
    layer's `tryCount` retry loop (same as `"home"`) then gives the
    calibrate-fresh attempt for free.
+
+11. **The census (`homeSwitchCensusRoutine`, operator `:n`) is
+   position-fragile** — it reports correctly from a clean position well before
+   the flag but has been observed to miss a present flag when started at/near
+   the home datum (home parks *off* the flag). It is the trusted instrument for
+   *choosing* a threshold by hand, but do **not** build an automatic pass/fail
+   gate on it until this is fixed: a per-`T_op` "exactly one segment per
+   revolution" verification was written and pulled for exactly this reason. See
+   `HomeSwitchTest/reports/newring/THRESHOLD_STRATEGY.md`.
+
+12. **Threshold defence layer** — every `(T, W)` pair is screened against a
+   clean operating band (`MotionControl::opticalPointPlausible`,
+   `FASTHOME_T_OP_MIN/MAX`, `FASTHOME_W_MIN/MAX`) at persist, restore,
+   success-cache, the seeded width gate, and the cold `T_op` clamp. This is what
+   stops a smeared calibration (a high threshold with a ballooned width) from
+   being persisted or trusted. Full account:
+   `HomeSwitchTest/reports/newring/THRESHOLD_STRATEGY.md`.
 
 ## Differences vs the bench implementation (`bench_main.cpp fastHome`)
 

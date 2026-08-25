@@ -210,6 +210,208 @@ void test_out_of_topology_source_is_an_observable_conflict() {
     TEST_ASSERT_EQUAL_UINT64(1, router.stats().topologyConflicts);
 }
 
+// The repeater control plane addresses a repeater with envelope target 0, relying on
+// this drop so that a repeater running older firmware ignores control-plane traffic
+// instead of relaying it onto its Portal branch. That makes the behaviour
+// load-bearing in every routing mode, not just the filtered one.
+void test_host_addressed_frames_are_dropped_in_every_routing_mode() {
+    {
+        FrameRouter router; // transparent
+        TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(RoutingMode::Transparent), static_cast<uint8_t>(router.routingMode()));
+        ingest(router, Side::One, envelope(0, 0, 0xC3));
+        FrameView view;
+        TEST_ASSERT_FALSE(router.nextFrame(view));
+        TEST_ASSERT_EQUAL_UINT64(1, router.stats().filteredHostFrames);
+    }
+    {
+        FrameRouter router; // filtered
+        learn(router, 1);
+        ingest(router, Side::One, envelope(0, 0, 0xC3));
+        FrameView view;
+        TEST_ASSERT_FALSE(router.nextFrame(view));
+        TEST_ASSERT_EQUAL_UINT64(1, router.stats().filteredHostFrames);
+    }
+    {
+        FrameRouter router; // conflict
+        learn(router, 1);
+        learn(router, 10);
+        TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(RoutingMode::Conflict), static_cast<uint8_t>(router.routingMode()));
+        ingest(router, Side::One, envelope(0, 0, 0xC3));
+        FrameView view;
+        TEST_ASSERT_FALSE(router.nextFrame(view));
+        TEST_ASSERT_EQUAL_UINT64(1, router.stats().filteredHostFrames);
+    }
+}
+
+// PortalFW already emits `[target, source, body, seq, crc16]`. Every decoder in the
+// system tolerates the extra elements; nothing pinned that the repeater does too.
+void test_five_element_envelopes_are_inspected_normally() {
+    FrameRouter router;
+    learn(router, 1);
+
+    std::vector<uint8_t> raw{0x95};
+    appendInteger(raw, 20); // a target outside the learned 1..9 block
+    appendInteger(raw, 0);
+    raw.push_back(0xC0);
+    raw.push_back(0x07);             // seq
+    raw.insert(raw.end(), {0xCD, 0x29, 0xB1}); // crc16
+    ingest(router, Side::One, cobsFrame(raw));
+
+    FrameView view;
+    TEST_ASSERT_FALSE(router.nextFrame(view)); // parsed, and filtered as non-local
+    TEST_ASSERT_EQUAL_UINT64(1, router.stats().filteredUnicasts);
+    TEST_ASSERT_EQUAL_UINT64(0, router.stats().parseErrors);
+}
+
+void test_originated_frames_are_transmitted_ahead_of_relayed_traffic() {
+    FrameRouter router;
+    const auto relayed = envelope(5, 0);
+    ingest(router, Side::One, relayed);
+
+    const auto poll = envelope(3, 0);
+    TEST_ASSERT_TRUE(router.originate(Side::Two, poll.data(), poll.size()));
+    TEST_ASSERT_EQUAL_UINT32(1, router.originateDepth(Side::Two));
+
+    FrameView view;
+    TEST_ASSERT_TRUE(router.nextFrame(view));
+    TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(Side::None), static_cast<uint8_t>(view.source));
+    TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(Side::Two), static_cast<uint8_t>(view.destination));
+    TEST_ASSERT_EQUAL_UINT32(poll.size(), view.size);
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(poll.data(), view.data, poll.size());
+    router.completeOriginated(view.destination);
+    TEST_ASSERT_EQUAL_UINT64(1, router.stats().originatedFrames);
+
+    // The relayed frame is still queued and goes next, with its destination filled in.
+    TEST_ASSERT_TRUE(router.nextFrame(view));
+    TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(Side::One), static_cast<uint8_t>(view.source));
+    TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(Side::Two), static_cast<uint8_t>(view.destination));
+    router.completeTransmission(view.source);
+    TEST_ASSERT_EQUAL_UINT64(0, router.stats().txErrors);
+}
+
+void test_oversized_or_overflowing_originations_are_refused() {
+    FrameRouter router;
+    const std::vector<uint8_t> huge(repeater::MAX_ORIGINATED_FRAME_BYTES + 1, 0x01);
+    TEST_ASSERT_FALSE(router.originate(Side::Two, huge.data(), huge.size()));
+
+    const auto poll = envelope(3, 0);
+    for(size_t i = 0; i < repeater::ORIGINATE_QUEUE_DEPTH; ++i) {
+        TEST_ASSERT_TRUE(router.originate(Side::Two, poll.data(), poll.size()));
+    }
+    TEST_ASSERT_FALSE(router.originate(Side::Two, poll.data(), poll.size()));
+    TEST_ASSERT_EQUAL_UINT64(2, router.stats().originateDrops);
+}
+
+namespace {
+
+// Claims position replies from a nominated Portal, the way a snapshot sweep does.
+class PositionClaimer : public repeater::InnerReplyConsumer {
+public:
+    explicit PositionClaimer(int64_t wanted) : wanted_(wanted) { }
+
+    bool consumeInnerReply(const repeater::InnerFrameInfo& info, const uint8_t*, size_t) override {
+        if(info.target != 0 || !info.isPositionReply || info.source != wanted_) return false;
+        claimed++;
+        return true;
+    }
+
+    int claimed = 0;
+
+private:
+    int64_t wanted_;
+};
+
+// `[0, source, {"p": [1, 2, 3, 4]}]` — a Portal position reply.
+std::vector<uint8_t> positionReply(int source) {
+    std::vector<uint8_t> raw{0x93};
+    appendInteger(raw, 0);
+    appendInteger(raw, source);
+    raw.insert(raw.end(), {0x81, 0xA1, 'p', 0x94, 0x01, 0x02, 0x03, 0x04});
+    return cobsFrame(raw);
+}
+
+} // namespace
+
+void test_claimed_inner_replies_are_not_relayed_upstream() {
+    FrameRouter router;
+    PositionClaimer claimer(4);
+    router.setInnerReplyConsumer(&claimer);
+
+    ingest(router, Side::Two, positionReply(4));
+    FrameView view;
+    TEST_ASSERT_FALSE(router.nextFrame(view));
+    TEST_ASSERT_EQUAL_INT(1, claimer.claimed);
+    TEST_ASSERT_EQUAL_UINT64(1, router.stats().consumedInnerFrames);
+
+    // Range learning still happens for a claimed frame.
+    TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(RoutingMode::Filtered), static_cast<uint8_t>(router.routingMode()));
+    TEST_ASSERT_EQUAL_UINT8(1, router.localRangeStart());
+
+    // An unclaimed reply, and any non-position traffic, still reaches the host.
+    ingest(router, Side::Two, positionReply(5));
+    TEST_ASSERT_TRUE(pop(router, Side::Two));
+    ingest(router, Side::Two, envelope(0, 4, 0xC3));
+    TEST_ASSERT_TRUE(pop(router, Side::Two));
+    TEST_ASSERT_EQUAL_UINT64(1, router.stats().consumedInnerFrames);
+}
+
+void test_restored_range_accepts_only_legal_block_starts() {
+    for(uint8_t start : {1, 10, 19, 28, 37, 46}) {
+        FrameRouter router;
+        router.restoreLearnedRange(start);
+        TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(RoutingMode::Filtered), static_cast<uint8_t>(router.routingMode()));
+        TEST_ASSERT_EQUAL_UINT8(start, router.localRangeStart());
+        TEST_ASSERT_EQUAL_UINT8(start + 8, router.localRangeEnd());
+    }
+    for(uint8_t start : {0, 2, 9, 45, 55, 255}) {
+        FrameRouter router;
+        router.restoreLearnedRange(start);
+        TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(RoutingMode::Transparent), static_cast<uint8_t>(router.routingMode()));
+        TEST_ASSERT_EQUAL_UINT8(0, router.localRangeStart());
+    }
+}
+
+void test_maintenance_pause_stops_relaying_but_not_the_control_plane() {
+    class Claimer : public repeater::ControlFrameConsumer {
+    public:
+        bool consumeControlFrame(const uint8_t*, size_t) override {
+            seen++;
+            return true;
+        }
+        int seen = 0;
+    } claimer;
+
+    FrameRouter router;
+    router.setControlFrameConsumer(&claimer);
+    learn(router, 1);
+    router.setForwardingPaused(true);
+
+    FrameView view;
+    // Ordinary unicast traffic for this branch is dropped, not queued, so the
+    // update does not end with a burst of stale commands.
+    ingest(router, Side::One, envelope(3, 0));
+    TEST_ASSERT_FALSE(router.nextFrame(view));
+
+    // So is traffic that cannot be decoded at all, which is otherwise fail-open.
+    ingest(router, Side::One, cobsFrame({0x01}));
+    TEST_ASSERT_FALSE(router.nextFrame(view));
+
+    // And branch replies stop being relayed upstream.
+    ingest(router, Side::Two, envelope(0, 4, 0xC3));
+    TEST_ASSERT_FALSE(router.nextFrame(view));
+    TEST_ASSERT_EQUAL_UINT64(3, router.stats().pausedDrops);
+
+    // But a control frame still reaches the plane, which is what lets a paused
+    // repeater be told to resume.
+    ingest(router, Side::One, envelope(0, 0, 0xC3));
+    TEST_ASSERT_EQUAL_INT(1, claimer.seen);
+    TEST_ASSERT_EQUAL_UINT64(1, router.stats().controlFrames);
+
+    router.setForwardingPaused(false);
+    ingest(router, Side::One, envelope(3, 0));
+    TEST_ASSERT_TRUE(pop(router, Side::One));
+}
+
 int main(int, char**) {
     UNITY_BEGIN();
     RUN_TEST(test_complete_frames_are_stored_before_forwarding);
@@ -222,5 +424,12 @@ int main(int, char**) {
     RUN_TEST(test_outer_host_frames_do_not_enter_local_branch);
     RUN_TEST(test_conflicting_local_reply_disables_filtering_until_relearn);
     RUN_TEST(test_out_of_topology_source_is_an_observable_conflict);
+    RUN_TEST(test_host_addressed_frames_are_dropped_in_every_routing_mode);
+    RUN_TEST(test_five_element_envelopes_are_inspected_normally);
+    RUN_TEST(test_originated_frames_are_transmitted_ahead_of_relayed_traffic);
+    RUN_TEST(test_oversized_or_overflowing_originations_are_refused);
+    RUN_TEST(test_claimed_inner_replies_are_not_relayed_upstream);
+    RUN_TEST(test_restored_range_accepts_only_legal_block_starts);
+    RUN_TEST(test_maintenance_pause_stops_relaying_but_not_the_control_plane);
     return UNITY_END();
 }

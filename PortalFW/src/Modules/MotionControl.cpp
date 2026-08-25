@@ -2370,6 +2370,25 @@ namespace Modules {
 	#define FASTHOME_T_DEFAULT         235
 	// Flag width at T_DEFAULT, microsteps. A measured 275 and B 258 in the census above.
 	#define FASTHOME_W_DEFAULT         266
+
+	// ---- the clean operating band --------------------------------------------------------
+	// The census table above is a width-vs-threshold curve with three regimes: below ~225 the
+	// flag is a narrow sliver (W 48-53), from ~226 to ~246 it is a clean plateau (W 185-432),
+	// and at 250+ it smears into the surround (W jumps past 800). A (T, W) pair is trustworthy
+	// only inside that plateau -- and datum QUALITY, not just detection, collapses at the smear
+	// end (2x width, 2.5x backlash, 10x worse repeatability at the shoulder; see
+	// HomeSwitchTest/reports/newring). These bound the plateau, a couple of counts inside each
+	// measured knee. opticalPointPlausible() screens every (T, W) against them, at every point
+	// one can be adopted -- so the smeared T=247/W=881 record that cost a 150 s startup is
+	// refused when chosen, cached, persisted AND restored.
+	//
+	// Fleet constants: they assume the painted production optics. A materially different ring
+	// needs them re-derived from a fresh census. The per-axis warm cache still tightens the
+	// width gate to the axis's OWN measured width after its first success.
+	#define FASTHOME_T_OP_MIN          226
+	#define FASTHOME_T_OP_MAX          246
+	#define FASTHOME_W_MIN             120
+	#define FASTHOME_W_MAX             520
 	// Width gate for the first pass on a SEEDED run, as a fraction of W_DEFAULT. Much looser
 	// than the warm gate below, because W_DEFAULT is a fleet constant rather than this axis's
 	// own measurement -- the census spread across two axes was already 258 to 275, and paint
@@ -2390,14 +2409,26 @@ namespace Modules {
 	#define FASTHOME_BACKLASH_NEG_TOL  512    // directional optical hysteresis; clamp to zero
 	                                          // thermal drift outpace averaging
 
+	bool MotionControl::opticalPointPlausible(int thresholdT, Steps widthW) {
+		return thresholdT >= FASTHOME_T_OP_MIN && thresholdT <= FASTHOME_T_OP_MAX
+			&& widthW >= FASTHOME_W_MIN && widthW <= FASTHOME_W_MAX;
+	}
+
 	void MotionControl::restoreOpticalCalibration(uint8_t threshold, Steps width) {
 		// Flash values are only a starting point: fastHomeRoutine still verifies them with two
-		// complete lead/trail passes. Reject implausible but CRC-valid values here so settings
-		// corruption can never weaken the runtime gates.
-		if(threshold >= 16 && width >= FASTHOME_DEBOUNCE_MIN
-			&& width <= FASTHOME_32.coarseWidthMax) {
+		// complete lead/trail passes. But a pair OUTSIDE the clean band must not be trusted as
+		// warm at all: restoring a smear (the T=247/W=881 that cost a 150 s startup) makes the
+		// first warm pass judge good live measurements against a bad remembered width and reject
+		// them. An implausible record leaves the cache at 0, so the axis comes up as if
+		// uncalibrated, takes the seeded path, and the next successful home overwrites it.
+		if(opticalPointPlausible(threshold, width)) {
 			this->opticalThresholdCached = threshold;
 			this->opticalWidthCached = width;
+		} else {
+			char message[90];
+			sprintf(message, "ignoring implausible persisted calibration T=%d W=%d"
+				, (int) threshold, (int) width);
+			log(LogLevel::Warning, this->getName(), message);
 		}
 	}
 
@@ -3234,8 +3265,19 @@ namespace Modules {
 			if(usable < FASTHOME_MARGIN_MIN) return failContrast("insufficient optical contrast");
 
 			int T_op = C_flag + (int) round(FASTHOME_T_OP_FRACTION * (float) usable);
-			if(T_op <= C_flag) T_op = C_flag + 1;
-			if(T_op > T_cap) T_op = T_cap;
+
+			// Confine the operating point to the clean band, intersected with the measured safe
+			// ceiling T_cap: never in the smear (<= FASTHOME_T_OP_MAX and <= T_cap), never on
+			// the low-contrast sliver (>= FASTHOME_T_OP_MIN, and above the flag's own crossing).
+			// If the flag only resolves where those two windows do not overlap -- its crossing
+			// is already at or into the smear zone -- there is no honest operating point, and
+			// adopting one anyway is exactly how T=247/W=881 was born. Fail instead. This band,
+			// not FASTHOME_MARGIN_MIN, is the real guard on the operating point now.
+			const int opFloor = (C_flag + 1 > FASTHOME_T_OP_MIN) ? (C_flag + 1) : FASTHOME_T_OP_MIN;
+			const int opCeil  = (FASTHOME_T_OP_MAX < T_cap) ? FASTHOME_T_OP_MAX : T_cap;
+			if(opFloor > opCeil) return failContrast("no clean operating point below the smear");
+			if(T_op < opFloor) T_op = opFloor;
+			if(T_op > opCeil)  T_op = opCeil;
 
 			HomeSwitch::setThreshold((uint8_t) T_op);
 			HAL_Delay(FASTHOME_SETTLE_MS);
@@ -3390,11 +3432,14 @@ namespace Modules {
 				log(LogLevel::Error, moduleName, message);
 				return failUnstable("width drift from calibration");
 			}
-			if(seeded && (passWidth < FASTHOME_DEBOUNCE_MIN
-				|| passWidth > p->coarseWidthMax)) {
+			// Seeded: no per-axis width yet, so gate against the fleet clean band. This was the
+			// dead FASTHOME_SEED_WIDTH_LO/HI bracket -- computed and never read, so a smear at
+			// the seed threshold sailed through the absolute [8..4200]. The band is the same
+			// source of truth the persist and restore gates use.
+			if(seeded && !opticalPointPlausible((int) T, passWidth)) {
 				char message[90];
-				sprintf(message, "seed width gate: w=%d outside [%d..%d]"
-					, (int) passWidth, FASTHOME_DEBOUNCE_MIN, (int) p->coarseWidthMax);
+				sprintf(message, "seed width gate: w=%d outside band [%d..%d]"
+					, (int) passWidth, FASTHOME_W_MIN, FASTHOME_W_MAX);
 				log(LogLevel::Error, moduleName, message);
 				return failCommon("seed feature width implausible", true
 					, FastHomeFailure::FeatureTooWide);
@@ -3493,6 +3538,16 @@ namespace Modules {
 		this->homing.switchSize = width;
 		this->position -= home;
 		this->targetPosition = 0;
+		// Never cache a pair outside the clean band. The cold path clamps T_op and both paths
+		// gate the width, so this should be unreachable on a real success -- but the cache is
+		// what the warm gate and the persist path then trust, so a bad number here would poison
+		// both. Screen it; a failure here recalibrates cold next attempt.
+		if(!opticalPointPlausible((int) T, width)) {
+			char message[80];
+			sprintf(message, "operating point out of band after passes: T=%d W=%d"
+				, (int) T, (int) width);
+			return fail(message);
+		}
 		this->opticalThresholdCached = (int16_t) T;
 		// Cache the width this pass actually measured, not the one the run started with. On a
 		// seeded run that is the difference between carrying the fleet default around all

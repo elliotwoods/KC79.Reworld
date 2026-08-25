@@ -14,9 +14,12 @@ pub mod servers;
 /// pipeline and the servers. They are re-exported at their original paths so that every
 /// existing `router_core::rs485::…` / `::sim::…` / `::fw_update::…` reference keeps working;
 /// nothing in RouterRS had to change.
-pub use router_link::{fw_update, rs485, sim};
+pub use router_link::{fw_update, repeater_ota, rs485, sim};
 
 pub use glam::Vec2;
 pub use router_link as link;
+
+/// Repeaters per shared outer bus in the V3 topology.
+pub use router_proto::REPEATER_COUNT;
 pub use router_proto as proto;
 pub use router_report as report;

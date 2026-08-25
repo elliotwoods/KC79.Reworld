@@ -17,6 +17,27 @@ This directory is the ESP32-C3 Reworld V3 frame router. Before hardware work, re
 - The repeater learns its local contiguous nine-ID block from a valid side-2 reply. Unknown traffic
   is fail-open; a conflicting block puts it in conflict/transparent mode.
 
+## The repeater control plane (v3.0.0)
+
+- Repeater-plane frames use **envelope target 0** with the repeater address in the body. This is not
+  cosmetic. `shouldForward` drops side-1 `target == 0` unconditionally in every routing mode, so a
+  unit running v2.2.0 ignores control traffic; an unrecognised negative target would instead
+  fail-open and relay it — a 300 kB OTA image onto nine Portals. Do not "tidy" the address into the
+  envelope. The native test `test_host_addressed_frames_are_dropped_in_every_routing_mode` pins this.
+- A repeater-plane frame must never reach a Portal branch, on new or old firmware.
+- Any verb that solicits a reply is unicast-only. Six answers to one broadcast collide.
+- The repeater index lives in NVS and is **not** derived from the learned range: a unit with a dead
+  branch never learns one, which is exactly when it most needs to be addressable. MAC addressing is
+  the escape hatch and must keep working.
+- Rollback keys on local evidence of malfunction — a boot-loop counter, or positive proof that
+  frames decoded — never on host contact. A host-confirm gate would revert the fleet every morning a
+  rack powered up before the show PC, and `esp_ota_begin` refuses to run while an image is pending
+  verification, so it would also lock out the fix.
+- `ota-begin` erases the slot and must be acknowledged before the host streams. `CONFIG_UART_ISR_IN_IRAM`
+  is not set and cannot be, so the UART ISR cannot run during an erase and inbound bytes are lost.
+- Guard every `esp_ota_write_with_offset` against "no open session". Assertions are enabled in this
+  build and IDF asserts the partition was erased, so a stray chunk panics rather than erroring.
+
 ## Hardware and serial-port safety
 
 - Identify serial ports by USB VID/PID/serial or an identity query, never by a transient
@@ -62,7 +83,13 @@ do not choose the setting with fewer errors.
 ```sh
 ~/.platformio/penv/bin/pio test -d RS485Repeater -e native
 ~/.platformio/penv/bin/pio run -d RS485Repeater -e repeater
+cd RouterRS && cargo test -p router-proto -p router-link -p router-core
 ```
 
-All 10 native BridgeCore tests and the embedded release build must pass. Check the live USB
-`version` response after upload so the device's polarity agrees with `platformio.ini`.
+All four native suites (`test_bridge`, `test_control`, `test_ota`, `test_snapshot`) and the embedded
+release build must pass. Check the live USB `version` response after upload so the device's polarity
+agrees with `platformio.ini`.
+
+The control plane, OTA session and snapshot engine live in `lib/BridgeCore` behind injectable clocks
+and an injectable flash target specifically so they run in `[env:native]`. Keep them there: a state
+machine that only exists in `src/main.cpp` cannot be tested at all.

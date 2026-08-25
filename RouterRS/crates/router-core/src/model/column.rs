@@ -30,6 +30,8 @@ pub struct Column {
     // keyframe velocity state
     last_keyframe_time: Instant,
     last_keyframe_axes: Vec<Vec2>,
+    /// The RS485 repeaters on this bus, in V3. Empty in V1/V2, which have none.
+    pub repeaters: crate::model::repeater::RepeaterPlane,
 }
 
 pub struct ColumnSettings {
@@ -53,6 +55,7 @@ impl Column {
             last_poll_all: None,
             last_keyframe_time: Instant::now(),
             last_keyframe_axes: Vec::new(),
+            repeaters: Default::default(),
         };
         column.rebuild_portals();
         column
@@ -125,6 +128,11 @@ impl Column {
             return;
         }
         if envelope.source <= 0 {
+            // A repeater answers with a negative source. Everything else with a
+            // non-positive source is a frame the host has no use for.
+            if let Ok(Some(reply)) = router_proto::repeater::parse_reply(&envelope.body) {
+                self.repeaters.observe(&reply);
+            }
             return;
         }
         let col = self.index as u8;

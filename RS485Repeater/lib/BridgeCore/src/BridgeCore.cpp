@@ -3,183 +3,14 @@
 #include <cstring>
 #include <limits>
 
+#include "Wire.h"
+
 namespace repeater {
 namespace {
 
-bool cobsDecode(const uint8_t* encoded, size_t encodedSize, uint8_t* output,
-    size_t outputCapacity, size_t& outputSize) {
-    outputSize = 0;
-    size_t read = 0;
-    while(read < encodedSize) {
-        const uint8_t code = encoded[read++];
-        if(code == 0) return false;
-        const size_t copyCount = static_cast<size_t>(code - 1);
-        if(copyCount > encodedSize - read || copyCount > outputCapacity - outputSize) return false;
-        if(copyCount > 0) {
-            std::memcpy(output + outputSize, encoded + read, copyCount);
-            read += copyCount;
-            outputSize += copyCount;
-        }
-        if(code != 0xFF && read < encodedSize) {
-            if(outputSize >= outputCapacity) return false;
-            output[outputSize++] = 0;
-        }
-    }
-    return encodedSize > 0;
-}
-
-class MsgpackCursor {
-public:
-    MsgpackCursor(const uint8_t* data, size_t size) : data_(data), size_(size) { }
-
-    bool readArraySize(uint32_t& count) {
-        uint8_t marker;
-        if(!take(marker)) return false;
-        if((marker & 0xF0) == 0x90) {
-            count = marker & 0x0F;
-            return true;
-        }
-        if(marker == 0xDC) return readUnsignedWidth(2, count);
-        if(marker == 0xDD) return readUnsignedWidth(4, count);
-        return false;
-    }
-
-    bool readMapSize(uint32_t& count) {
-        uint8_t marker;
-        if(!take(marker)) return false;
-        if((marker & 0xF0) == 0x80) {
-            count = marker & 0x0F;
-            return true;
-        }
-        if(marker == 0xDE) return readUnsignedWidth(2, count);
-        if(marker == 0xDF) return readUnsignedWidth(4, count);
-        return false;
-    }
-
-    bool readInteger(int64_t& value) {
-        uint8_t marker;
-        if(!take(marker)) return false;
-        if(marker <= 0x7F) {
-            value = marker;
-            return true;
-        }
-        if(marker >= 0xE0) {
-            value = static_cast<int8_t>(marker);
-            return true;
-        }
-        uint64_t raw = 0;
-        switch(marker) {
-        case 0xCC: if(!readUnsigned(1, raw)) return false; value = static_cast<int64_t>(raw); return true;
-        case 0xCD: if(!readUnsigned(2, raw)) return false; value = static_cast<int64_t>(raw); return true;
-        case 0xCE: if(!readUnsigned(4, raw)) return false; value = static_cast<int64_t>(raw); return true;
-        case 0xCF:
-            if(!readUnsigned(8, raw) || raw > static_cast<uint64_t>(std::numeric_limits<int64_t>::max())) return false;
-            value = static_cast<int64_t>(raw);
-            return true;
-        case 0xD0: if(!readUnsigned(1, raw)) return false; value = static_cast<int8_t>(raw); return true;
-        case 0xD1: if(!readUnsigned(2, raw)) return false; value = static_cast<int16_t>(raw); return true;
-        case 0xD2: if(!readUnsigned(4, raw)) return false; value = static_cast<int32_t>(raw); return true;
-        case 0xD3: if(!readUnsigned(8, raw)) return false; value = static_cast<int64_t>(raw); return true;
-        default: return false;
-        }
-    }
-
-    bool readString(const uint8_t*& value, uint32_t& length) {
-        uint8_t marker;
-        if(!take(marker)) return false;
-        if((marker & 0xE0) == 0xA0) length = marker & 0x1F;
-        else if(marker == 0xD9) { if(!readUnsignedWidth(1, length)) return false; }
-        else if(marker == 0xDA) { if(!readUnsignedWidth(2, length)) return false; }
-        else if(marker == 0xDB) { if(!readUnsignedWidth(4, length)) return false; }
-        else return false;
-        if(length > size_ - offset_) return false;
-        value = data_ + offset_;
-        offset_ += length;
-        return true;
-    }
-
-    bool skipValue(uint8_t depth = 0) {
-        if(depth > 24 || offset_ >= size_) return false;
-        const uint8_t marker = data_[offset_++];
-        if(marker <= 0x7F || marker >= 0xE0 || marker == 0xC0 || marker == 0xC2 || marker == 0xC3) return true;
-        if((marker & 0xE0) == 0xA0) return skipBytes(marker & 0x1F);
-        if((marker & 0xF0) == 0x90) return skipMany(marker & 0x0F, depth);
-        if((marker & 0xF0) == 0x80) return skipMany((marker & 0x0F) * 2u, depth);
-
-        uint64_t length = 0;
-        switch(marker) {
-        case 0xC4: if(!readUnsigned(1, length)) return false; return skipBytes(length);
-        case 0xC5: if(!readUnsigned(2, length)) return false; return skipBytes(length);
-        case 0xC6: if(!readUnsigned(4, length)) return false; return skipBytes(length);
-        case 0xCA: return skipBytes(4);
-        case 0xCB: return skipBytes(8);
-        case 0xCC: case 0xD0: return skipBytes(1);
-        case 0xCD: case 0xD1: return skipBytes(2);
-        case 0xCE: case 0xD2: return skipBytes(4);
-        case 0xCF: case 0xD3: return skipBytes(8);
-        case 0xD4: return skipBytes(2);
-        case 0xD5: return skipBytes(3);
-        case 0xD6: return skipBytes(5);
-        case 0xD7: return skipBytes(9);
-        case 0xD8: return skipBytes(17);
-        case 0xD9: if(!readUnsigned(1, length)) return false; return skipBytes(length);
-        case 0xDA: if(!readUnsigned(2, length)) return false; return skipBytes(length);
-        case 0xDB: if(!readUnsigned(4, length)) return false; return skipBytes(length);
-        case 0xDC: if(!readUnsigned(2, length)) return false; return skipMany(length, depth);
-        case 0xDD: if(!readUnsigned(4, length)) return false; return skipMany(length, depth);
-        case 0xDE: if(!readUnsigned(2, length)) return false; return skipMany(length * 2u, depth);
-        case 0xDF: if(!readUnsigned(4, length)) return false; return skipMany(length * 2u, depth);
-        case 0xC7: if(!readUnsigned(1, length)) return false; return skipBytes(length + 1);
-        case 0xC8: if(!readUnsigned(2, length)) return false; return skipBytes(length + 1);
-        case 0xC9: if(!readUnsigned(4, length)) return false; return skipBytes(length + 1);
-        default: return false;
-        }
-    }
-
-private:
-    bool take(uint8_t& value) {
-        if(offset_ >= size_) return false;
-        value = data_[offset_++];
-        return true;
-    }
-
-    bool readUnsigned(size_t width, uint64_t& value) {
-        if(width > size_ - offset_) return false;
-        value = 0;
-        for(size_t i = 0; i < width; ++i) value = (value << 8) | data_[offset_++];
-        return true;
-    }
-
-    bool readUnsignedWidth(size_t width, uint32_t& value) {
-        uint64_t raw;
-        if(!readUnsigned(width, raw) || raw > std::numeric_limits<uint32_t>::max()) return false;
-        value = static_cast<uint32_t>(raw);
-        return true;
-    }
-
-    bool skipBytes(uint64_t count) {
-        if(count > size_ - offset_) return false;
-        offset_ += static_cast<size_t>(count);
-        return true;
-    }
-
-    bool skipMany(uint64_t count, uint8_t depth) {
-        if(count > size_) return false;
-        for(uint64_t i = 0; i < count; ++i) {
-            if(!skipValue(static_cast<uint8_t>(depth + 1))) return false;
-        }
-        return true;
-    }
-
-    const uint8_t* data_;
-    size_t size_;
-    size_t offset_ = 0;
-};
-
-bool stringEquals(const uint8_t* value, uint32_t length, const char* expected) {
-    const size_t expectedLength = std::strlen(expected);
-    return length == expectedLength && std::memcmp(value, expected, length) == 0;
-}
+using wire::cobsDecode;
+using wire::MsgpackCursor;
+using wire::stringEquals;
 
 bool inspectKeyframe(MsgpackCursor& cursor, uint64_t& start, uint64_t& count) {
     uint32_t fields;
@@ -274,11 +105,72 @@ void FrameRouter::expireIncomplete(uint32_t nowUs) {
     }
 }
 
+bool FrameRouter::destinationQuiet(Side destination) const {
+    const auto& acc = accumulator(destination);
+    return acc.size == 0 && !acc.discardingOversize;
+}
+
+bool FrameRouter::originate(Side destination, const uint8_t* data, size_t size) {
+    if(destination == Side::None || data == nullptr || size == 0) {
+        stats_.originateDrops++;
+        return false;
+    }
+    auto& q = originateQueue(destination);
+    if(size > MAX_ORIGINATED_FRAME_BYTES || q.count >= q.frames.size()) {
+        stats_.originateDrops++;
+        return false;
+    }
+    auto& frame = q.frames[(q.head + q.count) % q.frames.size()];
+    std::memcpy(frame.data.data(), data, size);
+    frame.size = size;
+    q.count++;
+    return true;
+}
+
+void FrameRouter::completeOriginated(Side destination, bool success) {
+    if(destination == Side::None) {
+        stats_.txErrors++;
+        return;
+    }
+    auto& q = originateQueue(destination);
+    if(q.count == 0) {
+        stats_.txErrors++;
+        return;
+    }
+    if(success) stats_.originatedFrames++;
+    else stats_.txErrors++;
+    q.head = (q.head + 1) % q.frames.size();
+    q.count--;
+    lastOriginated_ = destination;
+}
+
+size_t FrameRouter::originateDepth(Side destination) const {
+    return destination == Side::None ? 0 : originateQueue(destination).count;
+}
+
 bool FrameRouter::nextFrame(FrameView& view) {
+    // Locally originated frames go first. They are low-volume and time-critical
+    // (branch polls, control-plane and OTA replies) whereas relayed traffic is not,
+    // and the relay queues are deep enough to absorb the delay.
+    const auto originatedReady = [this](Side destination) {
+        return originateQueue(destination).count > 0 && destinationQuiet(destination);
+    };
+    Side originated = Side::None;
+    if(originatedReady(Side::One) && originatedReady(Side::Two)) {
+        originated = lastOriginated_ == Side::One ? Side::Two : Side::One;
+    }
+    else if(originatedReady(Side::One)) originated = Side::One;
+    else if(originatedReady(Side::Two)) originated = Side::Two;
+    if(originated != Side::None) {
+        const auto& q = originateQueue(originated);
+        const auto& frame = q.frames[q.head];
+        view = FrameView{Side::None, originated, frame.data.data(), frame.size};
+        return true;
+    }
+
     const auto available = [this](Side source) {
         const Side destination = source == Side::One ? Side::Two : Side::One;
-        return queue(source).count > 0 && accumulator(destination).size == 0
-            && !accumulator(destination).discardingOversize;
+        return queue(source).count > 0 && destinationQuiet(destination);
     };
     Side selected = Side::None;
     if(available(Side::One) && available(Side::Two)) selected = lastDequeued_ == Side::One ? Side::Two : Side::One;
@@ -288,7 +180,8 @@ bool FrameRouter::nextFrame(FrameView& view) {
 
     const auto& q = queue(selected);
     const auto& frame = q.frames[q.head];
-    view = FrameView{selected, frame.data.data(), frame.size};
+    const Side destination = selected == Side::One ? Side::Two : Side::One;
+    view = FrameView{selected, destination, frame.data.data(), frame.size};
     return true;
 }
 
@@ -318,14 +211,39 @@ bool FrameRouter::shouldForward(Side source, const uint8_t* data, size_t size) {
     if(!envelope.valid || envelope.parseError) stats_.parseErrors++;
     if(source == Side::Two) {
         if(envelope.valid) observeLocalReply(envelope);
+        // A local subsystem may claim a reply it solicited itself, so a snapshot
+        // sweep's own polls do not also surface upstream as loose replies.
+        if(envelope.valid && innerReplyConsumer_ != nullptr) {
+            const InnerFrameInfo info{envelope.target, envelope.source, envelope.isPositionReply};
+            if(innerReplyConsumer_->consumeInnerReply(info, data, size)) {
+                stats_.consumedInnerFrames++;
+                return false;
+            }
+        }
+        if(forwardingPaused_) {
+            stats_.pausedDrops++;
+            return false;
+        }
         return true;
+    }
+    if(envelope.valid && envelope.target == 0) {
+        // Either a repeater-plane frame for us, or another branch's reply leaking
+        // across the outer bus. Neither may enter the local branch. This is checked
+        // ahead of the pause so a paused repeater can still be told to resume.
+        if(controlFrameConsumer_ != nullptr && controlFrameConsumer_->consumeControlFrame(data, size)) {
+            stats_.controlFrames++;
+        }
+        else stats_.filteredHostFrames++;
+        return false;
+    }
+    // Ahead of the fail-open branch below: maintenance mode has to hold for
+    // undecodable traffic too, or a garbled frame would still reach the branch.
+    if(forwardingPaused_) {
+        stats_.pausedDrops++;
+        return false;
     }
     if(!envelope.valid) {
         return true;
-    }
-    if(envelope.target == 0) {
-        stats_.filteredHostFrames++;
-        return false;
     }
     if(routingMode_ != RoutingMode::Filtered) return true;
 
@@ -387,6 +305,12 @@ FrameRouter::EnvelopeInfo FrameRouter::inspectEnvelope(const uint8_t* data, size
                 return result;
             }
         }
+        else if(stringEquals(key, keyLength, "p")) {
+            // Both the `{"p": nil}` request and the `{"p": [...]}` reply carry this key;
+            // only the direction the caller sees distinguishes them.
+            result.isPositionReply = true;
+            if(!cursor.skipValue()) return result;
+        }
         else if(!cursor.skipValue()) return result;
     }
     result.valid = true;
@@ -420,6 +344,14 @@ void FrameRouter::relearn() {
     localRangeStart_ = 0;
 }
 
+void FrameRouter::restoreLearnedRange(uint8_t rangeStart) {
+    // Only the six legal block starts are accepted; anything else leaves the router
+    // transparent so a corrupt stored value cannot silently misroute a branch.
+    if(rangeStart == 0 || rangeStart > 46 || (rangeStart - 1) % 9 != 0) return;
+    localRangeStart_ = rangeStart;
+    routingMode_ = RoutingMode::Filtered;
+}
+
 void FrameRouter::resetStats() { stats_ = RouterStats{}; }
 
 size_t FrameRouter::queueDepth(Side source) const { return source == Side::None ? 0 : queue(source).count; }
@@ -438,6 +370,14 @@ FrameRouter::FrameQueue& FrameRouter::queue(Side source) {
 
 const FrameRouter::FrameQueue& FrameRouter::queue(Side source) const {
     return source == Side::One ? oneToTwoQueue_ : twoToOneQueue_;
+}
+
+FrameRouter::OriginateQueue& FrameRouter::originateQueue(Side destination) {
+    return destination == Side::One ? originateToOneQueue_ : originateToTwoQueue_;
+}
+
+const FrameRouter::OriginateQueue& FrameRouter::originateQueue(Side destination) const {
+    return destination == Side::One ? originateToOneQueue_ : originateToTwoQueue_;
 }
 
 DirectionStats& FrameRouter::direction(Side source) {

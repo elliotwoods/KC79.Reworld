@@ -13,6 +13,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use glam::vec2;
+use router_proto::repeater::{RepeaterTarget, RepeaterVerb};
 use router_report::Reporter;
 
 use crate::config::AppConfig;
@@ -655,6 +656,154 @@ fn handle_command(
                 crate::fw_update::run_application(&column.rs485, &params);
             });
         }
+        RepeaterStatus { col, repeater } => {
+            if let Some(column) = installation.column(col) {
+                // Status answers, so it is unicast per repeater. Asking all six at
+                // once would put six replies on the wire together.
+                let indices: Vec<u8> = match repeater {
+                    Some(index) => vec![index],
+                    None => (1..=router_proto::REPEATER_COUNT).collect(),
+                };
+                for index in indices {
+                    repeater_request(
+                        &column.rs485,
+                        RepeaterTarget::Index(index),
+                        RepeaterVerb::Status,
+                        None,
+                    );
+                }
+            }
+        }
+        RepeaterSetIndex { col, mac, index } => {
+            if let Some(column) = installation.column(col) {
+                // Addressed by MAC: the unit being provisioned has no index yet, or
+                // has the wrong one, which is exactly why this exists.
+                repeater_request(
+                    &column.rs485,
+                    RepeaterTarget::Mac(mac),
+                    RepeaterVerb::SetIndex,
+                    Some(router_proto::Value::from(index)),
+                );
+            }
+        }
+        RepeaterRelearn { col, repeater } => {
+            if let Some(column) = installation.column(col) {
+                repeater_request(
+                    &column.rs485,
+                    RepeaterTarget::Index(repeater),
+                    RepeaterVerb::Relearn,
+                    None,
+                );
+            }
+        }
+        RepeaterResetCounters { col, repeater } => {
+            if let Some(column) = installation.column(col) {
+                repeater_request(
+                    &column.rs485,
+                    RepeaterTarget::Index(repeater),
+                    RepeaterVerb::ResetCounters,
+                    None,
+                );
+            }
+        }
+        RepeaterReboot { col, repeater } => {
+            if let Some(column) = installation.column(col) {
+                repeater_request(
+                    &column.rs485,
+                    RepeaterTarget::Index(repeater),
+                    RepeaterVerb::Reboot,
+                    None,
+                );
+            }
+        }
+        RepeaterSnapshot { col } => {
+            if let Some(column) = installation.column(col) {
+                // One broadcast starts all six branch sweeps in parallel -- the
+                // branches are isolated, so they genuinely overlap. The host then
+                // reads them back one at a time, staying the sole bus arbiter.
+                repeater_request(
+                    &column.rs485,
+                    RepeaterTarget::All,
+                    RepeaterVerb::SnapshotStart,
+                    None,
+                );
+                for index in 1..=router_proto::REPEATER_COUNT {
+                    repeater_request(
+                        &column.rs485,
+                        RepeaterTarget::Index(index),
+                        RepeaterVerb::SnapshotRead,
+                        None,
+                    );
+                }
+            }
+        }
+        RepeaterOta { col, repeater, path } => match std::fs::read(&path) {
+            Ok(image) => {
+                let params = crate::repeater_ota::RepeaterOtaParams::default();
+                match crate::repeater_ota::RepeaterImage::new(image, params.chunk_bytes) {
+                    Ok(image) => {
+                        if let Some(column) = installation.column(col) {
+                            let indices: Vec<u8> = match repeater {
+                                Some(index) => vec![index],
+                                None => (1..=router_proto::REPEATER_COUNT).collect(),
+                            };
+                            let seconds = image.estimated_seconds(&params);
+                            for index in indices {
+                                let target = RepeaterTarget::Index(index);
+                                // begin is acknowledged, and nothing may be streamed
+                                // until it answers: the erase runs with the flash
+                                // cache off, so the UART ISR cannot run and inbound
+                                // bytes are lost while it does.
+                                crate::repeater_ota::begin(
+                                    &column.rs485,
+                                    &target,
+                                    &image,
+                                    &params,
+                                );
+                                crate::repeater_ota::send_chunks(
+                                    &column.rs485,
+                                    &target,
+                                    &image,
+                                    &params,
+                                    &crate::repeater_ota::all_indices(&image),
+                                );
+                                // Reads the received-chunk bitmap back. Repair of
+                                // whatever it reports missing is driven by the reply
+                                // handler, not queued blindly here.
+                                crate::repeater_ota::request_map(
+                                    &column.rs485,
+                                    &target,
+                                    &params,
+                                );
+                                crate::repeater_ota::end(&column.rs485, &target, &params);
+                            }
+                            reporter.emit(router_report::Event::Marker {
+                                label: format!(
+                                    "repeater OTA queued: column {col}, {} bytes, \
+                                     {} chunks, about {seconds:.0}s per repeater",
+                                    image.len(),
+                                    image.chunk_count()
+                                ),
+                            });
+                        }
+                    }
+                    Err(error) => eprintln!("repeater OTA refused: {error}"),
+                }
+            }
+            Err(e) => eprintln!("repeater OTA: cannot read {}: {e}", path.display()),
+        },
+        RepeaterOtaAbort { col, repeater } => {
+            if let Some(column) = installation.column(col) {
+                // Releases the paused bridge at once, instead of waiting out the
+                // repeater's 30-second inactivity timeout.
+                column.rs485.clear_outbox();
+                let target = match repeater {
+                    Some(index) => RepeaterTarget::Index(index),
+                    None => RepeaterTarget::All,
+                };
+                crate::repeater_ota::abort(&column.rs485, &target);
+            }
+        }
         SourceAdd { type_name } => {
             if let Some(source) = crate::image::sources::create_by_type_name(&type_name) {
                 renderer.add_source(source);
@@ -709,6 +858,28 @@ fn sync_config(app_config: &mut AppConfig, installation: &Installation, renderer
         }
     }
     app_config.renderer_sources = renderer.serialise_sources();
+}
+
+/// Queues one control-plane request. Never collateable and never given a collation
+/// address: the outbox keeps only the newest packet per (address, target), which
+/// would otherwise silently delete all but the last of a chunk stream.
+fn repeater_request(
+    rs485: &crate::rs485::Rs485,
+    target: RepeaterTarget,
+    verb: RepeaterVerb,
+    payload: Option<router_proto::Value>,
+) {
+    use crate::rs485::{Packet, Payload};
+    let needs_ack = verb.expects_reply();
+    rs485.transmit(Packet {
+        payload: Payload::Rendered(router_proto::repeater::request(&target, verb, payload)),
+        target: target.reply_source().unwrap_or(router_proto::HOST),
+        address: String::new(),
+        needs_ack,
+        collateable: false,
+        custom_wait_time_ms: if needs_ack { None } else { Some(0) },
+        on_sent: None,
+    });
 }
 
 fn for_columns(
@@ -868,6 +1039,7 @@ fn build_snapshot(
                 portals,
                 scheduled_poll_enabled: column.scheduled_poll_enabled,
                 scheduled_poll_period_s: column.scheduled_poll_period_s,
+                repeaters: column.repeaters.records().to_vec(),
             }
         })
         .collect();

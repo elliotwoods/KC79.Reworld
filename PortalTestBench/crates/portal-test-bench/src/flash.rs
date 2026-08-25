@@ -210,6 +210,9 @@ impl FlashController {
                     "origin": format!("{:?}", a.origin).to_lowercase(),
                     "bytes": a.bytes,
                     "modified": a.modified,
+                    "variant": a.variant,
+                    "hardware": a.hardware,
+                    "banner": a.banner,
                     "fits": a.fits(),
                     "selected": self.selection.bootloader.as_deref() == Some(&a.id)
                         || self.selection.application.as_deref() == Some(&a.id),
@@ -1043,6 +1046,44 @@ impl FlashController {
         );
         self.snapshot.needs_replug = false;
         Ok("application started and remained stable".into())
+    }
+
+    /// Restart the board and prove the application came back.
+    ///
+    /// A programming pass already resets on its way out — `flash` and `write_persistent` each end
+    /// in `reset_session_and_run`. That is a property of how the rig lets go, though, not a
+    /// promise the pass makes: it moves whenever the programming sequence is rearranged, and it is
+    /// absent entirely from any pass that did not program. A manual flash promises the operator a
+    /// board restarted into what was just written, so the restart is performed here as its own
+    /// step, named in `step` and reported whether or not it worked.
+    pub fn reboot_and_verify(&mut self) -> Result<String, String> {
+        // A bundle that will not load cannot say where the application starts, but the bank is
+        // fixed by the linker script and the bootloader alike, so the reset is still worth doing.
+        let vtor = self
+            .discovery
+            .load(&self.selection)
+            .map(|bundle| bundle.run_check.vtor)
+            .ok()
+            .filter(|vtor| *vtor != 0)
+            .unwrap_or(portal_swd::addr::APP_BASE);
+        self.snapshot.step = "reset-run".into();
+        self.snapshot.boot_state = "checking".into();
+        self.snapshot.boot_detail.clear();
+        match self
+            .rig
+            .reset_and_run()
+            .and_then(|()| self.observe_boot(vtor))
+        {
+            Ok(detail) => {
+                self.snapshot.detail = detail.clone();
+                Ok(detail)
+            }
+            Err(error) => {
+                self.snapshot.boot_state = "not-running".into();
+                self.snapshot.boot_detail = error.to_string();
+                Err(error.to_string())
+            }
+        }
     }
 
     fn finish_boot_action(

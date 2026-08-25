@@ -294,8 +294,23 @@ namespace Modules
 		return true;
 #else
 		if(!axis || axis->getOpticalThreshold() <= 0 || axis->getOpticalWidth() <= 0) return false;
+
+		// The last line of defence before flash. A successful fastHomeRoutine should only ever
+		// produce an in-band pair now, but nothing screened it before -- which is exactly how a
+		// smear reached flash and was trusted on the next boot.
+		if(!MotionControl::opticalPointPlausible(axis->getOpticalThreshold(), axis->getOpticalWidth())) {
+			char message[90];
+			sprintf(message, "refusing to persist implausible calibration T=%d W=%ld"
+				, axis->getOpticalThreshold(), (long) axis->getOpticalWidth());
+			log(LogLevel::Warning, "App", message);
+			return false;
+		}
+
 		PersistentStorage::Settings desired = this->persistentSettings;
-		desired.opticalCalibrationVersion = 1;
+		// Version 2: written by firmware that screens the (T, W) pair against the clean band.
+		// Bumping it means a pre-gate record does not dedup-match, so the first successful home
+		// under the new firmware re-earns the record cleanly.
+		desired.opticalCalibrationVersion = 2;
 		if(axis == this->motionControlA) {
 			if(desired.opticalCalibrationVersion == this->persistentSettings.opticalCalibrationVersion
 				&& this->persistentSettings.axisACalibrationValid

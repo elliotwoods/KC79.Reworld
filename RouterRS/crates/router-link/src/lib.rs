@@ -10,5 +10,6 @@
 //! change here makes every measurement taken with a different value incomparable.
 
 pub mod fw_update;
+pub mod repeater_ota;
 pub mod rs485;
 pub mod sim;

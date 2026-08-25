@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { type BenchView, type LinkView, connectBlocker, enumName, linkBlocker, soundFor, thresholdTone, verdictTile, whyDisabled } from './bench-model';
+import { type BenchView, type FirmwareItem, type LinkView, type SerialView, type SettingsView, connectBlocker, enumName, firmwareRow, linkBlocker, serialState, settingsState, settingsSummary, soundFor, thresholdTone, verdictTile, whyDisabled } from './bench-model';
 
 const ready: BenchView = {
   connected: true,
@@ -216,5 +216,166 @@ describe('linkBlocker', () => {
     for (const state of states) {
       expect(linkBlocker(state)?.length ?? 0).toBeGreaterThan(20);
     }
+  });
+});
+
+describe('serialState', () => {
+  const board: SerialView = { dbOk: true, boardPresent: true, identity: 'existing-on-board', boardSerial: 73001, entered: 73001, pending: false };
+  const every: SerialView[] = [
+    board,
+    { ...board, entered: 73002 },
+    { ...board, dbOk: false, entered: 73002 },
+    { ...board, pending: true },
+    { ...board, boardPresent: false, identity: 'unknown', boardSerial: 0 },
+    { ...board, identity: 'unknown', boardSerial: 0 },
+    { ...board, identity: 'corrupt', boardSerial: 0 },
+    { ...board, identity: 'foreign-uid' },
+    { ...board, identity: 'blank', boardSerial: 0, entered: 42 },
+  ];
+
+  it('never returns a blank word or detail, and the detail never repeats the badge', () => {
+    for (const state of every) {
+      const value = serialState(state);
+      expect(value.word.length).toBeGreaterThan(0);
+      expect(value.detail.length).toBeGreaterThan(0);
+      expect(value.detail.toLowerCase()).not.toContain(value.word.toLowerCase());
+      // The hover text is a sentence about what the state means, not the word again.
+      expect(value.hint.length).toBeGreaterThan(20);
+    }
+  });
+
+  it('reads ON BOARD when the entered serial is the one on the board', () => {
+    expect(serialState(board)).toMatchObject({ word: 'on board', detail: 'board: 73001', tone: 'ok', changed: false });
+  });
+
+  it('reads CHANGED when they differ, and the detail names the board serial', () => {
+    expect(serialState({ ...board, entered: 73002 })).toMatchObject({ word: 'changed', detail: 'board: 73001', tone: 'warn', changed: true });
+  });
+
+  it('reads FRESH on a blank board and does not call it changed', () => {
+    const value = serialState({ ...board, identity: 'blank', boardSerial: 0, entered: 42 });
+    expect(value.word).toBe('fresh');
+    expect(value.tone).toBe('idle');
+    expect(value.changed).toBe(false);
+  });
+
+  it('outranks everything with DB OFFLINE but still says what the board holds', () => {
+    const value = serialState({ ...board, dbOk: false, entered: 73002 });
+    expect(value.word).toBe('DB offline');
+    expect(value.tone).toBe('error');
+    expect(value.detail).toBe('board: 73001');
+  });
+
+  it('reads PENDING after a flash until the replug', () => {
+    expect(serialState({ ...board, pending: true, entered: 73002 })).toMatchObject({ word: 'pending', tone: 'warn' });
+  });
+
+  it('says NO BOARD rather than FRESH when nothing is connected', () => {
+    const value = serialState({ ...board, boardPresent: false, identity: 'unknown', boardSerial: 0 });
+    expect(value.word).toBe('no board');
+    expect(value.changed).toBe(false);
+  });
+
+  // The worker refuses both without an explicit override; the old card showed a green
+  // "existing" for a foreign-UID board whose record serial happened to match.
+  it('flags a foreign or corrupt identity for review even when the numbers agree', () => {
+    expect(serialState({ ...board, identity: 'foreign-uid' })).toMatchObject({ word: 'review', tone: 'warn' });
+    expect(serialState({ ...board, identity: 'corrupt', boardSerial: 0 })).toMatchObject({ word: 'review', tone: 'warn' });
+  });
+
+  it('distinguishes on board, changed and fresh rather than showing one idle badge', () => {
+    const words = [serialState(board).word, serialState({ ...board, entered: 1 }).word, serialState({ ...board, identity: 'blank', boardSerial: 0 }).word];
+    expect(new Set(words).size).toBe(3);
+  });
+});
+
+describe('settingsState', () => {
+  const stored: SettingsView = { boardPresent: true, identity: 'existing-on-board', pending: false, source: 'flash', boardCurrentMa: 150, boardRecovery: true, currentMa: 150, recovery: true };
+  const every: SettingsView[] = [
+    stored,
+    { ...stored, currentMa: 200 },
+    { ...stored, recovery: false },
+    { ...stored, source: 'defaults' },
+    { ...stored, source: 'defaults', currentMa: 200 },
+    { ...stored, pending: true },
+    { ...stored, boardPresent: false, identity: 'unknown', boardCurrentMa: 0, boardRecovery: false },
+  ];
+
+  it('reads ON BOARD when both values match the journal', () => {
+    expect(settingsState(stored)).toMatchObject({ word: 'on board', detail: 'board: 150 mA · recovery on', tone: 'ok', changed: false });
+  });
+
+  it('reads CHANGED when either value differs', () => {
+    expect(settingsState({ ...stored, currentMa: 200 })).toMatchObject({ word: 'changed', tone: 'warn', changed: true, detail: 'board: 150 mA · recovery on' });
+    expect(settingsState({ ...stored, recovery: false })).toMatchObject({ word: 'changed', changed: true });
+  });
+
+  it('reads DEFAULTS when the board has no journal and the entry is the firmware default', () => {
+    expect(settingsState({ ...stored, source: 'defaults' })).toMatchObject({ word: 'defaults', detail: 'board: no settings stored', tone: 'idle', changed: false });
+  });
+
+  it('reads CHANGED, not DEFAULTS, when the board has no journal and the entry differs', () => {
+    expect(settingsState({ ...stored, source: 'defaults', currentMa: 200 })).toMatchObject({ word: 'changed', detail: 'board: no settings stored' });
+  });
+
+  // The worker publishes 0 mA / off when there is no MCU; that must not read as an edit.
+  it('says NO BOARD rather than DEFAULTS when nothing is connected', () => {
+    const value = settingsState({ ...stored, boardPresent: false, identity: 'unknown', boardCurrentMa: 0, boardRecovery: false });
+    expect(value.word).toBe('no board');
+    expect(value.changed).toBe(false);
+  });
+
+  it('reads PENDING until the replug', () => {
+    expect(settingsState({ ...stored, pending: true, currentMa: 200 })).toMatchObject({ word: 'pending', tone: 'warn' });
+  });
+
+  it('never returns a blank word or detail, and the detail never repeats the badge', () => {
+    for (const state of every) {
+      const value = settingsState(state);
+      expect(value.word.length).toBeGreaterThan(0);
+      expect(value.detail.length).toBeGreaterThan(0);
+      expect(value.detail.toLowerCase()).not.toContain(value.word.toLowerCase());
+      // The hover text is a sentence about what the state means, not the word again.
+      expect(value.hint.length).toBeGreaterThan(20);
+    }
+  });
+});
+
+describe('settingsSummary', () => {
+  it('spells a settings pair one way, for the card and the panel alike', () => {
+    expect(settingsSummary(150, true)).toBe('150 mA · recovery on');
+    expect(settingsSummary(250, false)).toBe('250 mA · recovery off');
+  });
+});
+
+describe('firmwareRow', () => {
+  const optical: FirmwareItem = { id: 'portalfw:application_bank_optical', region: 'application', origin: 'built', bytes: 98196, modified: 1787646875, variant: 'optical', hardware: 'PCB v6', banner: 'Portal v2026-08-25_17.34 8799276+' };
+  const built: FirmwareItem = { id: 'portalbootloader:bootloader', region: 'bootloader', origin: 'built', bytes: 19568, modified: 1787647255, banner: 'Bootloader v5' };
+  const reference: FirmwareItem = { id: 'reference:BootloaderRS485-2023-08-26.bin', region: 'bootloader', origin: 'reference', bytes: 22708, modified: 1787142932, banner: 'Bootloader v4' };
+
+  it('names the PCB in the title and the build in the detail, without repeating the product', () => {
+    const row = firmwareRow(optical);
+    expect(row.title).toBe('Optical · PCB v6');
+    expect(row.detail).toContain('v2026-08-25_17.34 8799276+');
+    expect(row.detail).not.toContain('Portal v');
+    expect(row.detail).toContain('built ');
+    expect(row.detail).toContain('95.9 kB');
+  });
+
+  it('names a built bootloader by its banner and a reference image by its file, not its mtime', () => {
+    expect(firmwareRow(built)).toMatchObject({ title: 'Built from source' });
+    expect(firmwareRow(built).detail).toContain('v5');
+    const ref = firmwareRow(reference);
+    expect(ref.title).toBe('Reference image');
+    expect(ref.detail).toContain('BootloaderRS485-2023-08-26.bin');
+    expect(ref.detail).toContain('v4');
+    expect(ref.detail).not.toContain('built ');
+  });
+
+  it('still lists an image whose banner could not be read', () => {
+    const row = firmwareRow({ ...optical, banner: null });
+    expect(row.detail).toContain('95.9 kB');
+    expect(row.detail).not.toContain('null');
+    expect(row.detail).not.toContain('undefined');
   });
 });

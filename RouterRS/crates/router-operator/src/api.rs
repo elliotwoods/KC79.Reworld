@@ -24,6 +24,7 @@ pub fn routes(shared: Arc<Shared>) -> Router {
         .route("/api/router/command", post(command))
         .route("/api/router/firmware", get(firmware_list).post(firmware_upload))
         .route("/api/router/firmware/flash", post(firmware_flash))
+        .route("/api/router/repeaters", get(repeaters_list).post(repeaters_command))
         .route("/api/router/files", get(files_list))
         .with_state(shared)
 }
@@ -123,6 +124,138 @@ async fn firmware_flash(
         }
         FirmwareOp::Erase { col } => shared.queue(Command::FwErase { col }),
         FirmwareOp::Run { col } => shared.queue(Command::FwRun { col }),
+    }
+    Json(json!({ "ok": true }))
+}
+
+// ------------------------------------------------------------------ RS485 repeaters
+
+/// What every repeater on every bus last reported.
+///
+/// A repeater only appears here once it has answered, so an empty list means
+/// "nothing has been asked yet, or nothing answered" -- never "no repeaters".
+/// Send `{"op":"status"}` first.
+async fn repeaters_list(State(shared): State<Arc<Shared>>) -> Json<Json_> {
+    let snapshot = shared.snapshot.lock().unwrap().clone();
+    let columns: Vec<_> = snapshot
+        .columns
+        .iter()
+        .map(|column| {
+            let repeaters: Vec<_> = column
+                .repeaters
+                .iter()
+                .map(|record| {
+                    let status = &record.status;
+                    json!({
+                        "address": record.address,
+                        "index": record.index,
+                        "healthy": status.healthy(),
+                        "proto": status.proto_version,
+                        "version": status.version,
+                        "build": status.build,
+                        "mac": status.mac.map(|mac| mac
+                            .iter()
+                            .map(|byte| format!("{byte:02x}"))
+                            .collect::<Vec<_>>()
+                            .join(":")),
+                        "mode": status.routing_mode,
+                        "range": status.range.map(|(start, end)| [start, end]),
+                        "event_seq": status.event_seq,
+                        "queue_drops": status.queue_drops,
+                        "parse_errors": status.parse_errors,
+                        "conflicts": status.conflicts,
+                        "reset_reason": status.reset_reason,
+                        "boots": status.boots,
+                        "unhealthy_boots": status.unhealthy_boots,
+                        "min_free_heap": status.min_free_heap,
+                        "uptime_ms": status.uptime_ms,
+                        "core_dump": status.core_dump,
+                        "last_verb": record.last_verb.map(|verb| verb.as_str()),
+                        "last_ok": record.last_ok,
+                    })
+                })
+                .collect();
+            json!({ "col": column.index, "repeaters": repeaters })
+        })
+        .collect();
+    Json(json!({ "ok": true, "columns": columns }))
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "op", rename_all = "snake_case")]
+enum RepeaterOp {
+    /// Unicast per repeater. `repeater: null` queries all six, one at a time --
+    /// never as a broadcast, which would collide six replies on the wire.
+    Status { col: usize, repeater: Option<u8> },
+    /// Provisioning, addressed by MAC because the unit has no index yet.
+    SetIndex { col: usize, mac: String, index: u8 },
+    Relearn { col: usize, repeater: u8 },
+    ResetCounters { col: usize, repeater: u8 },
+    Reboot { col: usize, repeater: u8 },
+    /// One parallel sweep of all six branches, then six reads.
+    Snapshot { col: usize },
+    /// `repeater: null` rolls through all six in turn, which keeps five-sixths of
+    /// the installation relaying while each one updates.
+    Ota { col: usize, repeater: Option<u8>, path: String },
+    OtaAbort { col: usize, repeater: Option<u8> },
+}
+
+fn parse_mac(text: &str) -> Option<[u8; 6]> {
+    let cleaned: String = text.chars().filter(|c| c.is_ascii_hexdigit()).collect();
+    if cleaned.len() != 12 {
+        return None;
+    }
+    let mut mac = [0u8; 6];
+    for (index, byte) in mac.iter_mut().enumerate() {
+        *byte = u8::from_str_radix(&cleaned[index * 2..index * 2 + 2], 16).ok()?;
+    }
+    Some(mac)
+}
+
+async fn repeaters_command(
+    State(shared): State<Arc<Shared>>,
+    Json(request): Json<RepeaterOp>,
+) -> Json<Json_> {
+    const RANGE: std::ops::RangeInclusive<u8> = 1..=router_core::REPEATER_COUNT;
+    match request {
+        RepeaterOp::Status { col, repeater } => {
+            if let Some(index) = repeater {
+                if !RANGE.contains(&index) {
+                    return Json(json!({ "ok": false, "error": "repeater must be 1..=6" }));
+                }
+            }
+            shared.queue(Command::RepeaterStatus { col, repeater });
+        }
+        RepeaterOp::SetIndex { col, mac, index } => {
+            let Some(mac) = parse_mac(&mac) else {
+                return Json(json!({ "ok": false, "error": "mac must be 12 hex digits" }));
+            };
+            // 0 clears the index, so the accepted range is wider than for the rest.
+            if index > router_core::REPEATER_COUNT {
+                return Json(json!({ "ok": false, "error": "index must be 0..=6" }));
+            }
+            shared.queue(Command::RepeaterSetIndex { col, mac, index });
+        }
+        RepeaterOp::Relearn { col, repeater } => {
+            shared.queue(Command::RepeaterRelearn { col, repeater })
+        }
+        RepeaterOp::ResetCounters { col, repeater } => {
+            shared.queue(Command::RepeaterResetCounters { col, repeater })
+        }
+        RepeaterOp::Reboot { col, repeater } => {
+            shared.queue(Command::RepeaterReboot { col, repeater })
+        }
+        RepeaterOp::Snapshot { col } => shared.queue(Command::RepeaterSnapshot { col }),
+        RepeaterOp::Ota { col, repeater, path } => {
+            let path = std::path::PathBuf::from(path);
+            if !path.is_file() {
+                return Json(json!({ "ok": false, "error": "no such file" }));
+            }
+            shared.queue(Command::RepeaterOta { col, repeater, path });
+        }
+        RepeaterOp::OtaAbort { col, repeater } => {
+            shared.queue(Command::RepeaterOtaAbort { col, repeater })
+        }
     }
     Json(json!({ "ok": true }))
 }

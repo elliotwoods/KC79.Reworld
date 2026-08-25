@@ -137,3 +137,30 @@ unreliably — but it means an enclosed unit does not work. Fixing that is
 optical, not algorithmic: raise the reflector albedo until the flag's crossing
 is ≤ 230 measured **in the dark**, which gives a ~23-count band and makes the
 enclosure question irrelevant.
+
+## Firmware status (2026-08-25)
+
+This document is the host-side design. The production firmware
+(`PortalFW/src/Modules/MotionControl.cpp fastHomeRoutine`) implements it with these deliberate
+divergences, and adds a defence layer on top — see
+[`THRESHOLD_STRATEGY.md`](THRESHOLD_STRATEGY.md):
+
+- **Phase 2/3 substitution.** The firmware measures the flag's own crossing `C_flag` (a settled
+  probe) for `T_floor`, and uses the background-guard ceiling `T_cap` for `T_shoulder`, rather than
+  the width-vs-threshold band scan above. The band scan was structurally impossible on axis B
+  (whose flag resolves over too few counts to compute a band), so the operating point is
+  `T_op = C_flag + round(0.55·(T_cap − C_flag))`, then **clamped into the clean band**
+  `[FASTHOME_T_OP_MIN..FASTHOME_T_OP_MAX]`.
+- **`BAND_MIN = 6` → `FASTHOME_MARGIN_MIN = 2`.** Lowered so a marginal axis is run close to the
+  ceiling rather than refused — but the band clamp (T_op ≤ 246) is now the real guard, and an axis
+  whose flag only resolves in the smear zone fails fast (`"no clean operating point below the
+  smear"`).
+- **Phase 1 "exactly one span per revolution" is NOT implemented.** A verification lap was written
+  and pulled because the census primitive it needs (`homeSwitchCensusRoutine` / `:n`) is
+  position-fragile — it misses a present flag from some start positions. The one-flag-per-rev
+  guarantee is instead provided by the startup `cycleCheck` at the seed threshold, plus the band
+  clamp keeping T_op clear of the dither zone. See `THRESHOLD_STRATEGY.md` for the finding and the
+  fix path.
+- **The recalibration policy's ">25 % width drift" trigger** exists (`fastHomeRoutine` warm width
+  gate, `±35 %` of cached W), but note it trusts the *stored* width; the defence layer's plausibility
+  gate at restore is what stops a smeared stored width from poisoning it.

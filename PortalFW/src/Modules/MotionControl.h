@@ -316,6 +316,12 @@ namespace Modules {
 		Steps getOpticalWidth() const { return this->opticalWidthCached; }
 		void restoreOpticalCalibration(uint8_t threshold, Steps width);
 
+		// True iff a (threshold, width) pair sits in the clean operating band -- see the
+		// FASTHOME_T_OP_* / FASTHOME_W_* constants. The single source of truth for "is this
+		// operating point trustworthy". Static so the persist path (App) can screen a pair
+		// before it ever reaches flash.
+		static bool opticalPointPlausible(int thresholdT, Steps widthW);
+
 		// ---- optical front-end diagnostics -------------------------------------------------
 		// Neither of these moves the motor, so both are safe to call outside a routine. They
 		// exist because the sensor's world is not a constant: the reflection profile shifts

@@ -61,6 +61,15 @@ pub struct Artefact {
     pub modified: Option<u64>,
     /// The ELF beside it, when there is one. Needed later to resolve a liveness symbol.
     pub elf: Option<PathBuf>,
+    /// Which PCB an application bank was built for -- `optical` or `mechanical`. Data from
+    /// [`APPLICATION_ENVS`], never parsed back out of the label. `None` for a bootloader.
+    pub variant: Option<String>,
+    /// The hardware revision that variant targets, e.g. `PCB v6`. `None` for a bootloader.
+    pub hardware: Option<String>,
+    /// The version banner scraped out of the file's own bytes -- `Portal v2026-08-25_17.34
+    /// 8799276+`, `Bootloader v5` -- so a picker can name the build rather than the file.
+    /// `None` when the file has none or could not be read; the artefact is listed either way.
+    pub banner: Option<String>,
 }
 
 impl Artefact {
@@ -254,7 +263,7 @@ pub fn discover_in(root: &Path) -> Discovery {
     let mut missing = Vec::new();
 
     // ---- the application: one entry per PCB revision, see the module docs
-    for (env, label) in APPLICATION_ENVS {
+    for (env, label, variant, hardware) in APPLICATION_ENVS {
         let app_dir = root.join("PortalFW/.pio/build").join(env);
         let app_bin = app_dir.join("firmware.bin");
         match stat(&app_bin) {
@@ -263,10 +272,13 @@ pub fn discover_in(root: &Path) -> Discovery {
                 label: (*label).into(),
                 region: RegionName::Application,
                 origin: Origin::Built,
+                banner: banner_of(&app_bin),
                 path: app_bin,
                 bytes,
                 modified,
                 elf: exists(app_dir.join("firmware.elf")),
+                variant: Some((*variant).into()),
+                hardware: Some((*hardware).into()),
             }),
             None => missing.push(Missing {
                 label: (*label).into(),
@@ -285,10 +297,13 @@ pub fn discover_in(root: &Path) -> Discovery {
             label: "PortalBootloader (built)".into(),
             region: RegionName::Bootloader,
             origin: Origin::Built,
+            banner: banner_of(&boot_bin),
             path: boot_bin,
             bytes,
             modified,
             elf: exists(boot_dir.join("firmware.elf")),
+            variant: None,
+            hardware: None,
         }),
         None => missing.push(Missing {
             label: "PortalBootloader (built)".into(),
@@ -314,10 +329,13 @@ pub fn discover_in(root: &Path) -> Discovery {
             label: "Reference bootloader".into(),
             region: RegionName::Bootloader,
             origin: Origin::Reference,
+            banner: banner_of(&reference),
             path: reference,
             bytes,
             modified,
             elf: None,
+            variant: None,
+            hardware: None,
         });
     }
 
@@ -328,17 +346,21 @@ pub fn discover_in(root: &Path) -> Discovery {
     }
 }
 
-/// The two PCB revisions in production, and the env + label each one builds as. Kept as data so
-/// discovery and the module docs stay in sync with what `PortalFW/platformio.ini` actually
-/// defines.
-const APPLICATION_ENVS: &[(&str, &str)] = &[
+/// The two PCB revisions in production: the env each one builds as, its label, and the variant
+/// and hardware revision a picker can show on their own. Kept as data so discovery and the
+/// module docs stay in sync with what `PortalFW/platformio.ini` actually defines.
+const APPLICATION_ENVS: &[(&str, &str, &str, &str)] = &[
     (
         "application_bank_optical",
         "PortalFW application (optical, PCB v6)",
+        "optical",
+        "PCB v6",
     ),
     (
         "application_bank_mechanical",
         "PortalFW application (mechanical, PCB v4)",
+        "mechanical",
+        "PCB v4",
     ),
 ];
 
@@ -360,7 +382,7 @@ pub const REFUSED_APPLICATION_ENVS: &[(&str, &str)] = &[
 
 /// Whether a PlatformIO environment may supply the application region.
 pub fn env_supplies_application(env: &str) -> bool {
-    APPLICATION_ENVS.iter().any(|(name, _)| *name == env)
+    APPLICATION_ENVS.iter().any(|(name, ..)| *name == env)
 }
 
 fn stat(path: &Path) -> Option<(u64, Option<u64>)> {
@@ -378,6 +400,14 @@ fn stat(path: &Path) -> Option<(u64, Option<u64>)> {
 
 fn exists(path: PathBuf) -> Option<PathBuf> {
     path.is_file().then_some(path)
+}
+
+/// The version banner in a file's bytes, if it has one. The files are tens of kilobytes and
+/// discovery runs on a rescan, so reading them whole is cheaper than being clever.
+fn banner_of(path: &Path) -> Option<String> {
+    std::fs::read(path)
+        .ok()
+        .and_then(|bytes| crate::device::first_banner(&bytes))
 }
 
 /// The most recently modified `.bin` in a directory. More than one reference image is expected

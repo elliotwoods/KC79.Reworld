@@ -16,10 +16,12 @@ pub mod constants;
 pub mod envelope;
 pub mod error;
 pub mod fw;
+pub mod repeater;
 pub mod replies;
 pub mod value;
 
 pub use cobs::{cobs_decode, cobs_encode, encode_frame, FrameAccumulator};
 pub use envelope::{decode_envelope, encode_envelope, encode_envelope_fix8, Envelope, BROADCAST, HOST};
 pub use error::ProtoError;
+pub use repeater::{repeater_address, repeater_index, RepeaterTarget, RepeaterVerb, REPEATER_ALL, REPEATER_COUNT};
 pub use rmpv::Value;

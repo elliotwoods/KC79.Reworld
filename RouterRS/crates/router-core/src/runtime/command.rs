@@ -86,6 +86,23 @@ pub enum Command {
     FwErase { col: Option<usize> },
     FwRun { col: Option<usize> },
 
+    // RS485 repeater control plane (V3 only; V1/V2 buses have no repeaters).
+    // `repeater: None` addresses every repeater, which is only legal for verbs
+    // that answer nothing -- the firmware refuses the rest on the broadcast
+    // address, because six simultaneous replies on a half-duplex bus collide.
+    RepeaterStatus { col: usize, repeater: Option<u8> },
+    RepeaterSetIndex { col: usize, mac: [u8; 6], index: u8 },
+    RepeaterRelearn { col: usize, repeater: u8 },
+    RepeaterResetCounters { col: usize, repeater: u8 },
+    RepeaterReboot { col: usize, repeater: u8 },
+    /// Starts a parallel branch sweep on every repeater, then reads each in turn.
+    RepeaterSnapshot { col: usize },
+    /// Uploads an image to one repeater, or rolls through all six when `None`.
+    /// Rolling unicast is the default because a broadcast pass pauses every bridge
+    /// at once and blacks out the whole installation for the duration.
+    RepeaterOta { col: usize, repeater: Option<u8>, path: std::path::PathBuf },
+    RepeaterOtaAbort { col: usize, repeater: Option<u8> },
+
     // image sources
     SourceAdd { type_name: String },
     SourceRemove { index: usize },

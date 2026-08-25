@@ -13,6 +13,21 @@ asserting the destination driver once for the whole frame. A 2 ms idle fallback 
 truncated stream, and oversized or queue-overflowed frames are dropped atomically rather than
 forwarded partially.
 
+Version 3.0.0 keeps all of that and adds a **control plane**: the repeater now has an address, can
+be queried and configured over RS485, can sweep its own branch for positions, and can be given new
+firmware in-band. See [`../Protocol.md`](../Protocol.md#11-the-repeater-control-plane) §11 and §12
+for the wire contract. Three changes to the existing bridge come with it:
+
+- `MAX_FRAME_BYTES` drops from 8192 to 2048 and `FRAME_QUEUE_DEPTH` rises from 4 to 16 — the same
+  total queue RAM, but the worst-case blocking write falls from 711 ms to 178 ms, and the queue
+  absorbs the keyframes that arrive while a branch sweep is running. The nine-entry keyframe batch
+  V3 uses measures 225 framed bytes and the largest configurable one (54 entries, full-range
+  positions and velocities) measures 1172, both pinned by a `router-proto` test so a future change
+  that would overflow the limit fails there rather than silently dropping frames in the field.
+- The learned nine-ID range is persisted to NVS and restored at boot, so a cold start no longer
+  fails open and floods the branch with all 54 unicasts until an inner reply happens to arrive.
+- The loop task subscribes to the 5 s task watchdog, which the Arduino core leaves off.
+
 For Reworld V3, side 1 is the shared host/WaveShare bus and side 2 is one local nine-Portal branch.
 The router starts transparent, learns its local contiguous nine-ID range from the first valid
 inner reply, and then filters non-local unicasts and non-intersecting keyframes. Unknown broadcasts
@@ -96,6 +111,15 @@ USB CDC is independent of both RS485 UARTs. Open `/dev/cu.usbmodem*` at 115200 a
 - `version`
 - `reset-counters`
 - `relearn`
+- `index` — report the provisioned repeater index and MAC
+- `set-index N` — set it to 1..6, or 0 to unprovision
+- `ota-state` — running slot, session progress, whether relaying is paused
+- `rollback` — revert to the other slot and reboot
+
+The console deliberately stays a diagnostic surface: everything bulk goes over RS485. `set-index` is
+here because a repeater has to be given its identity at commissioning, before it has one to be
+addressed by, and `rollback` is here because that is the one operation you want available when the
+wire is exactly what is not working.
 
 Replies are single-line JSON. `side1` means UART0/GPIO20+21 and `side2` means UART1/GPIO6+4; each
 status object explicitly reports whether its RX/TX polarity is inverted. It also reports routing
@@ -110,6 +134,16 @@ transparent mode until a valid inner reply identifies the local nine-ID block.
 
 1. Disable local echo on the USB-RS485 adapter and confirm it provides automatic half-duplex
    direction control. Router/RouterRS do not toggle adapter DE through RTS.
+
+   **Prove that, do not assume it.** An adapter whose driver-enable follows RTS never drives the
+   bus at all under any static RTS/DTR level, so it presents as an electrical fault: edges but no
+   decodable byte, and every continuity, polarity and termination check passing. Send twenty bytes
+   each of `0x00`, `0x55` and `0xFF` and read side-1 counters. An adapter with working automatic
+   direction control decodes 20 of 20 for every pattern. An adapter without it decodes nothing
+   except under `0xFF`, which holds the line at mark nine bit times in ten — an asymmetry that is
+   diagnostic, and is the opposite way round from reversed polarity. Confirmed good: FT232R serial
+   `B003AHF1`. Confirmed unusable: FT232R serial `AR9366BD`. See the 2026-08-25 resolution in
+   [`FIELD_REPORT_2026-08-24.md`](FIELD_REPORT_2026-08-24.md).
 2. Query `version`, confirm the expected polarity flags, then run `reset-counters`.
 3. Send one known-good non-motion frame at 115200/8N1 and wait before sending another. Do not use a
    burst discovery as the first electrical test; it can fill the four-frame queue.
@@ -117,6 +151,28 @@ transparent mode until a valid inner reply identifies the local nine-ID block.
    the correct learned range, empty queues, and zero UART/incomplete/oversized/parse/drop/conflict/
    TX errors.
 5. Then test filtering and the full V3 batch/gap/54-Portal topology described in `Protocol.md`.
+6. Provision the identity: `set-index N` over USB, matching the nine-ID block this unit serves.
+   An unprovisioned unit is still reachable over the wire by MAC, and answers as address `-2`, but
+   it cannot be addressed by index until this is done.
+
+## Repeater OTA runbook
+
+The full contract is `../Protocol.md` §12. Operationally:
+
+1. **Back up the running 4 MB flash first** and record the SHA-256 in `artifacts/README.md`. This
+   applies to the USB install of v3.0.0; after that, the previous image lives in the other OTA slot.
+2. Install v3.0.0 over USB once, on every unit. v2.2.0 has no OTA, so the first rollout cannot be
+   in-band. This is also the only moment the partition table could be changed, should a factory
+   recovery slot ever be wanted.
+3. Read `status` from every repeater and confirm `proto` before using any OTA verb. A mixed fleet
+   degrades per repeater, not fleet-wide.
+4. Update **one repeater at a time** by default. Broadcast is faster but pauses all six bridges at
+   once and blacks out the whole installation.
+5. **Budget the time honestly:** about 33 s per repeater, so roughly 3.5 minutes for a rolling fleet
+   update, or 45–90 s for a broadcast pass including gap repair. Not a 45-second window.
+6. A new image resolves its own pending-verify state within about 30 seconds on local evidence. The
+   host never has to confirm it, and must not be relied on to — a rack that powers up before the
+   show PC would otherwise revert every morning.
 
 If neither normal nor inverted UART polarity produces a complete frame, do not keep changing baud
 or Portal firmware. Every production participant uses 115200/8N1. Measure A−B and common-mode
