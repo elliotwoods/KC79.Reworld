@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Base.h"
+#include "Arduino.h"
 
 #include <stdint.h>
 #include <stddef.h>
@@ -39,6 +40,36 @@ namespace Modules {
 		bool getForwardsActive() const;
 		bool getBackwardsActive() const;
 
+		// The comparator, read as one masked load from GPIOx->IDR.
+		//
+		// This is what the step ISR uses. Arduino digitalRead costs ~25-40 cycles here: it
+		// resolves the pin through digitalPinToPinName's bounds-checked flash table and then
+		// through get_GPIO_Port's, and at FLASH_LATENCY_2 those two lookups dominate the single
+		// bit it returns. The port and mask never change after setup, so they are resolved once
+		// and the ISR pays ~3 cycles. HomeSwitchTest/src/BenchMotion.cpp:49-55 has done exactly
+		// this on the bench rig since the optical work started, with the same reasoning; this
+		// brings it into the firmware.
+		//
+		// Active-high: the comparator output is push-pull and reads HIGH on the flag.
+		bool getRawActive() const {
+			return (this->sensorPort->IDR & this->sensorPinMask) != 0;
+		}
+
+		// Both latch inputs from one read.
+		//
+		// The optical switch is ONE sensor: forwards and backwards are the same pin and always
+		// agree. The step ISR latches them separately, so asking for them separately made it do
+		// the identical expensive read twice for one bit. This is the shape the ISR wants, and
+		// the mechanical switch -- which genuinely has two pins -- answers it honestly.
+		struct RawState {
+			bool forwards;
+			bool backwards;
+		};
+		RawState getRawState() const {
+			const bool active = this->getRawActive();
+			return RawState { active, active };
+		}
+
 		// For callers that need a direct (register-level) read of the sensor in
 		// an ISR, where Arduino digitalRead is too slow.
 		uint32_t getPinSensor() const { return config.pinSensor; }
@@ -48,5 +79,9 @@ namespace Modules {
 		static uint8_t getThreshold();
 	protected:
 		const Config config;
+
+		// Resolved once in the constructor; see getRawActive().
+		GPIO_TypeDef * sensorPort = nullptr;
+		uint32_t sensorPinMask = 0;
 	};
 }

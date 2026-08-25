@@ -6,7 +6,7 @@ import { SystemSounds } from '@auroravision/av-gui/calibration';
 import { mount, useParam, useSchema } from '@auroravision/av-gui/runtime';
 import '@auroravision/av-gui/styles.css';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { type Cue, soundFor } from './bench-model';
+import { type Cue, type LinkView, connectBlocker, linkBlocker, soundFor } from './bench-model';
 import { SessionLog } from './bench-log';
 import { MotionGraphs, MotionPilot } from './motion';
 import { InspectTab } from './inspect';
@@ -29,10 +29,19 @@ function Fact({ label, value, tone }: { label: string; value: ReactNode; tone?: 
   return <div className={`fact${tone ? ` is-${tone}` : ''}`}><span className="fact-label">{label}</span><span className="fact-value">{value}</span></div>;
 }
 
-function FriendlyEnum({ path, labels }: { path: string; labels: Record<string, string> }) {
+/**
+ * `hide` exists for one variant: `sim`.
+ *
+ * The enum has to carry it — the worker maps the bus value back to `LinkKind::Sim`, and a
+ * variant that is absent from the table silently becomes 0 — but a production bench must not
+ * offer a transport it cannot open. `schema.rs` states the rule for parameters ("the production
+ * schema never carries dead controls"); this is the same rule one level down, for a variant.
+ */
+function FriendlyEnum({ path, labels, hide }: { path: string; labels: Record<string, string>; hide?: string[] }) {
   const p = useParam<number>(path);
+  const variants = (p.decl?.variants ?? []).filter((v) => !hide?.includes(v.name));
   return <select className="friendly-select" value={p.value ?? 0} disabled={!p.decl || p.readOnly} onChange={(e) => p.set(Number(e.target.value))} aria-label={p.decl?.label ?? path}>
-    {(p.decl?.variants ?? []).map((v) => <option key={v.value} value={v.value}>{labels[v.name] ?? v.name}</option>)}
+    {variants.map((v) => <option key={v.value} value={v.value}>{labels[v.name] ?? v.name}</option>)}
   </select>;
 }
 
@@ -66,8 +75,55 @@ function HardwareBand() {
 }
 
 interface ProbeChoice { identifier: string; name?: string; serial_number?: string; kind: string }
+interface PortChoice { name: string; kind: string; product?: string; serial_number?: string }
 interface Artefact { id: string; label: string; region: 'bootloader' | 'application'; origin: string; bytes: number; fits: boolean }
 interface MissingArtefact { label: string; path: string; hint: string }
+
+/**
+ * `GET /api/bench/ports`, fetched once for the whole page.
+ *
+ * Two pickers read it — the Flash tab's ST-Link list and the Test tab's endpoint list — and
+ * they must agree, because pairing a probe to its VCOM port is done by matching the USB serial
+ * number across the two halves of the same survey. Two independent fetches could disagree by a
+ * replug, and the store also spares an IOKit enumeration per mount.
+ *
+ * Module scope rather than context: there is one bench, one machine and one answer.
+ */
+interface PortSurvey { ports: PortChoice[]; probes: ProbeChoice[]; swd_support: boolean }
+let surveyValue: PortSurvey = { ports: [], probes: [], swd_support: false };
+let surveyLoading = false;
+let surveyInFlight: Promise<void> | null = null;
+const surveyListeners = new Set<() => void>();
+
+function loadSurvey(): Promise<void> {
+  if (surveyInFlight) return surveyInFlight;
+  surveyLoading = true;
+  surveyListeners.forEach((listener) => listener());
+  surveyInFlight = (async () => {
+    try {
+      const response = await fetch('/api/bench/ports', { cache: 'no-store' });
+      if (response.ok) surveyValue = await response.json();
+    } catch {
+      // The host may be restarting; the explicit refresh and the next mount retry.
+    } finally {
+      surveyLoading = false;
+      surveyInFlight = null;
+      surveyListeners.forEach((listener) => listener());
+    }
+  })();
+  return surveyInFlight;
+}
+
+function usePortSurvey() {
+  const [, bump] = useState(0);
+  useEffect(() => {
+    const listener = () => bump((n) => n + 1);
+    surveyListeners.add(listener);
+    void loadSurvey();
+    return () => { surveyListeners.delete(listener); };
+  }, []);
+  return { ports: surveyValue.ports, probes: surveyValue.probes, loading: surveyLoading, refresh: loadSurvey };
+}
 
 function ChoiceRow({ selected, disabled = false, title, detail, badges, onClick }: { selected: boolean; disabled?: boolean; title: string; detail: string; badges?: ReactNode; onClick: () => void }) {
   return <button type="button" role="option" aria-selected={selected} data-selected={selected} data-disabled={disabled || undefined} className="choice-row" disabled={disabled} onClick={onClick}>
@@ -88,17 +144,18 @@ function SetupPicker() {
   const flashBusy = useBool('/flash/busy');
   const runBusy = useBool('/run/busy');
   const scope = useText('/flash/scope');
-  const [probes, setProbes] = useState<ProbeChoice[]>([]);
+  const { probes, loading: surveying, refresh } = usePortSurvey();
   const [items, setItems] = useState<Artefact[]>([]);
   const [missing, setMissing] = useState<MissingArtefact[]>([]);
   const [root, setRoot] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [loadingFirmware, setLoadingFirmware] = useState(false);
+  const loading = loadingFirmware || surveying;
   const load = async () => {
-    setLoading(true);
+    setLoadingFirmware(true);
     try {
-      const [firmwareResponse, portsResponse] = await Promise.all([
+      const [firmwareResponse] = await Promise.all([
         fetch('/api/bench/firmware', { cache: 'no-store' }),
-        fetch('/api/bench/ports', { cache: 'no-store' }),
+        refresh(),
       ]);
       if (firmwareResponse.ok) {
         const firmware = await firmwareResponse.json();
@@ -106,11 +163,10 @@ function SetupPicker() {
         setMissing(firmware.missing ?? []);
         setRoot(firmware.root ?? '');
       }
-      if (portsResponse.ok) setProbes((await portsResponse.json()).probes ?? []);
     } catch {
       // The host may be restarting; the explicit rescan and the next page load retry.
     } finally {
-      setLoading(false);
+      setLoadingFirmware(false);
     }
   };
   useEffect(() => { void load(); }, []);
@@ -366,7 +422,10 @@ function ProcedureRunner() {
     if (!connected) return `${route} is not connected`;
     const required = plan.requires?.transport;
     if (required === 'vcp' && observed !== 'vcp') return 'requires a production VCOM link';
-    if (required === 'rs485' && !observed.startsWith('rs485')) return 'requires an RS485 link';
+    // `sim` counts: it is the same `Rs485Link` over `SimBus`, and `TransportRequirement::accepts`
+    // says the same thing on the Rust side. The run is stamped `"transport": "sim"` in the
+    // report so it can never be read later as a statement about hardware.
+    if (required === 'rs485' && !observed.startsWith('rs485') && observed !== 'sim') return 'requires an RS485 link';
     if (required === 'bench-ascii' && observed !== 'bench-ascii') return 'requires the bench serial protocol';
     if (busy) return `${runningPlan || 'another procedure'} is running`;
     if (flashLocked) return 'flashing owns the fixture';
@@ -417,7 +476,9 @@ function QuickCommands() {
   const flashLocked = flashBusy || flashArmed;
   const kind = route === 'rs485' ? rs485Kind : serialKind;
   const rs485 = kind.startsWith('rs485') || kind === 'sim';
-  const vcom = kind === 'vcp' || kind === 'sim';
+  // Not `|| kind === 'sim'`: the threshold census is a VCOM-only routine that the simulator
+  // answers with a bare ACK and no samples, so enabling it there would be a button that lies.
+  const vcom = kind === 'vcp';
   const locked = runBusy || flashLocked;
   const why = (supported = true) => !connected ? `${route} is not connected` : locked ? 'the fixture is busy' : !supported ? `${kind} cannot express this command` : null;
   return <Panel title="Quick routines" right={<Badge tone={connected ? 'ok' : 'offline'}>{route} / {connected ? kind : 'down'}</Badge>}>
@@ -535,24 +596,147 @@ function RawSignalPanel() {
   </details>;
 }
 
-function TransportPanels() {
-  const serial = useBool('/serial/connected');
-  const rs485 = useBool('/rs485/connected');
-  return <section className="transport-grid" data-av-surface="transport">
-    <Panel title="Serial console">
-      <LinkState connected={serial} observed={useEnumName('/serial/observed')} detail={useText('/serial/detail')} />
-      <Row label="Protocol"><FriendlyEnum path="/serial/desired" labels={{ none: 'Choose protocol', vcp: 'Production serial console', 'bench-ascii': 'Bench firmware console' }} /></Row>
-      <Row label="Port"><TextField path="/serial/port" /></Row>
-      <div className="button-row"><Action path="/actions/connect_serial" why={serial ? 'already connected' : null}>Connect</Action><Action path="/actions/disconnect_serial" why={!serial ? 'not connected' : null}>Disconnect</Action><Action path="/actions/identify_serial" why={!serial ? 'not connected' : null}>Identify</Action></div>
+/** The gateways a Reworld install ships with. Typing them from memory is not a skill. */
+const GATEWAY_PRESETS = ['192.168.1.201:4196', '192.168.1.202:4196'];
+
+const SERIAL_LABELS = { none: 'Choose protocol', vcp: 'Production serial console', 'bench-ascii': 'Bench firmware console' };
+const RS485_LABELS = { none: 'Choose transport', 'rs485-serial': 'USB / serial adapter', 'rs485-tcp': 'Ethernet gateway', sim: 'Simulated module (no hardware)' };
+
+/**
+ * Where the link is, chosen rather than typed.
+ *
+ * The bench has always known the answer — `bench_core::survey()` reports every port with its
+ * USB product string and serial number, and `/api/bench/ports` has always served it — but the
+ * page asked the operator to type `COM15` or `/dev/tty.usbserial-A9K3` from memory. Two escape
+ * hatches survive, because the list is not always the answer: an Ethernet gateway is a
+ * `host:port` and not a device at all, and a port the OS declines to enumerate (a `socat` pty,
+ * for one) still has to be reachable.
+ */
+function EndpointPicker({ path, transport, probeSerial }: { path: string; transport: string; probeSerial: string }) {
+  const endpoint = useParam<string>(path);
+  const { ports, loading, refresh } = usePortSurvey();
+  const [manual, setManual] = useState(false);
+  const value = endpoint.value ?? '';
+  const gateway = transport === 'rs485-tcp';
+  const typing = manual || (!!value && !ports.some((port) => port.name === value));
+  const label = gateway ? 'Gateway address' : 'Port';
+  return <div className="endpoint-picker">
+    <header>
+      <span className="label-caps">{label}</span>
+      <span className="endpoint-tools">
+        {!gateway && <button type="button" className="text-button" onClick={() => setManual(!manual)}>{typing ? 'choose from list' : 'type manually'}</button>}
+        {!gateway && <button type="button" className="text-button" disabled={loading} onClick={() => void refresh()}>{loading ? 'scanning…' : 'refresh'}</button>}
+      </span>
+    </header>
+    {gateway ? <>
+      <TextField path={path} />
+      <div className="button-row">{GATEWAY_PRESETS.map((preset) =>
+        <Button key={preset} variant="quiet" disabled={!endpoint.decl} onClick={() => endpoint.set(preset)}>{preset}</Button>
+      )}</div>
+    </> : typing ? <TextField path={path} /> :
+      ports.length === 0 ? <EmptyState inline detail="No serial ports are attached. Connect the adapter and refresh, or type the device path." /> :
+      <div className="choice-list" role="listbox" aria-label="Serial ports">{ports.map((port) =>
+        <ChoiceRow key={port.name} selected={value === port.name} title={port.name}
+          detail={[port.product, port.serial_number, port.kind].filter(Boolean).join(' · ')}
+          // The same USB-serial rule `survey::paired_vcom_port` uses on the Rust side, so this
+          // badge and the post-flash auto-attach can never point at different ports.
+          badges={probeSerial && port.serial_number?.toLowerCase() === probeSerial.toLowerCase() ? <Badge tone="ok">probe VCOM</Badge> : undefined}
+          onClick={() => endpoint.set(value === port.name ? '' : port.name)} />
+      )}</div>}
+  </div>;
+}
+
+/** One line of "and the route you are not looking at is doing this". */
+function OtherRoute({ name, connected, observed, endpoint }: { name: string; connected: boolean; observed: string; endpoint: string }) {
+  return <footer className="other-route">
+    <span>Other route</span>
+    <Badge tone={connected ? 'ok' : 'offline'}>{name}</Badge>
+    <small>{connected ? `${observed}${endpoint ? ` on ${endpoint}` : ''}` : 'not connected'}</small>
+  </footer>;
+}
+
+/**
+ * The link, first on the page.
+ *
+ * Every actionable control below this is gated on one expression — is the *selected route*
+ * connected — and when it is not, the whole tab is grey. The controls that answer that were
+ * previously the fourth section down, under three panels of disabled buttons, which is a tab
+ * that looks broken rather than one that is waiting. So the route selector and the connection
+ * it selects are now the same control.
+ *
+ * Only the selected route's controls are drawn. Both lanes can still be open at once — that is
+ * a real and useful state, and `Op::Identify` on one says nothing about the other — so the
+ * other lane keeps a one-line summary here and its own item in the status bar.
+ */
+function LinkPanel() {
+  const route = useEnumName('/motion/route');
+  const rs485 = route === 'rs485';
+  // The page detects simulation the way the rest of this file does: by asking whether the
+  // `/sim/*` controls were declared at all, never by being told.
+  const simulated = !!useParam<boolean>('/sim/module_present').decl;
+  const { ports, probes } = usePortSurvey();
+  const probeSelected = useText('/probe/selected');
+  const probeSerial = probes.find((probe) => probe.identifier === probeSelected)?.serial_number ?? '';
+
+  const serialConnected = useBool('/serial/connected'), rs485Connected = useBool('/rs485/connected');
+  const serialObserved = useEnumName('/serial/observed'), rs485Observed = useEnumName('/rs485/observed');
+  const serialDesired = useEnumName('/serial/desired'), rs485Desired = useEnumName('/rs485/desired');
+  const serialPort = useText('/serial/port'), rs485Endpoint = useText('/rs485/endpoint');
+  const serialDetail = useText('/serial/detail'), rs485Detail = useText('/rs485/detail');
+
+  const view: LinkView = rs485
+    ? { route, connected: rs485Connected, desired: rs485Desired, endpoint: rs485Endpoint, detail: rs485Detail }
+    : { route, connected: serialConnected, desired: serialDesired, endpoint: serialPort, detail: serialDetail };
+  const observed = rs485 ? rs485Observed : serialObserved;
+  const connectWhy = connectBlocker(view);
+  const blocker = linkBlocker(view);
+  // `none` has nothing to address and `sim` addresses itself; rendering a port field for either
+  // would be a control that cannot be right.
+  const addressed = view.desired !== 'none' && view.desired !== 'sim';
+  const named = ports.find((port) => port.name === view.endpoint);
+
+  return <section className="link-section" data-av-surface="transport">
+    <Panel title="Link" right={<span className="panel-route-control"><span>Route</span><EnumSelect path="/motion/route" /></span>}>
+      <LinkState connected={view.connected} observed={observed} detail={view.detail} />
+      {observed === 'sim' && <Banner tone="warn">This is the simulated module, not hardware. Runs are real runs of the engine and the decoder, and are stamped <code>transport: sim</code> in the report — they are not evidence about a board.</Banner>}
+      {view.connected ? <div className="link-facts">
+        <Fact label={rs485 ? 'Transport' : 'Protocol'} value={observed} />
+        {addressed && <Fact label={rs485 ? 'Endpoint' : 'Port'} value={view.endpoint || '—'} />}
+        {named?.product && <Fact label="Device" value={named.product} />}
+      </div> : <div className="link-choices">
+        <Row label={rs485 ? 'Transport' : 'Protocol'}>
+          {rs485
+            ? <FriendlyEnum path="/rs485/desired" labels={RS485_LABELS} hide={simulated ? undefined : ['sim']} />
+            : <FriendlyEnum path="/serial/desired" labels={SERIAL_LABELS} />}
+        </Row>
+        {addressed && <EndpointPicker path={rs485 ? '/rs485/endpoint' : '/serial/port'} transport={view.desired} probeSerial={probeSerial} />}
+      </div>}
+
+      {rs485 && <div className="target-row">
+        <Row label="Target address" hint="1–127 · applied as you change it"><NumberField path="/rs485/target" /></Row>
+        <Action path="/actions/select_rs485_target" why={!rs485Connected ? 'RS485 is not connected' : null}>Re-select</Action>
+      </div>}
+
+      <div className="button-row">
+        {rs485 ? <>
+          <Action path="/actions/connect_rs485" variant="primary" why={connectWhy}>Connect</Action>
+          <Action path="/actions/disconnect_rs485" why={!rs485Connected ? 'not connected' : null}>Disconnect</Action>
+          <Action path="/actions/discover_rs485" why={!rs485Connected ? 'not connected' : null}>Discover</Action>
+          <Action path="/actions/identify_rs485" why={!rs485Connected ? 'not connected' : null}>Identify target</Action>
+        </> : <>
+          <Action path="/actions/connect_serial" variant="primary" why={connectWhy}>Connect</Action>
+          <Action path="/actions/disconnect_serial" why={!serialConnected ? 'not connected' : null}>Disconnect</Action>
+          <Action path="/actions/identify_serial" why={!serialConnected ? 'not connected' : null}>Identify</Action>
+        </>}
+      </div>
+
+      {rs485 && <div className="rs485-evidence"><Fact label="Discovered" value={useText('/rs485/discovered') || '—'} /><Fact label="ACKs / timeouts" value={`${useNumber('/rs485/stats/acks')} / ${useNumber('/rs485/stats/ack_timeouts')}`} /><Fact label="RX / TX" value={`${useNumber('/rs485/stats/rx')} / ${useNumber('/rs485/stats/tx')}`} /><Fact label="Decode / queued" value={`${useNumber('/rs485/stats/decode_errors')} / ${useNumber('/rs485/stats/outbox')}`} /></div>}
+
+      {rs485
+        ? <OtherRoute name="serial" connected={serialConnected} observed={serialObserved} endpoint={serialPort} />
+        : <OtherRoute name="RS485" connected={rs485Connected} observed={rs485Observed} endpoint={rs485Endpoint} />}
     </Panel>
-    <Panel title="RS485 bus">
-      <LinkState connected={rs485} observed={useEnumName('/rs485/observed')} detail={useText('/rs485/detail')} />
-      <Row label="Transport"><FriendlyEnum path="/rs485/desired" labels={{ none: 'Choose transport', 'rs485-serial': 'USB / serial adapter', 'rs485-tcp': 'Ethernet gateway' }} /></Row>
-      <Row label="Endpoint"><TextField path="/rs485/endpoint" /></Row>
-      <div className="target-row"><Row label="Target address"><NumberField path="/rs485/target" /></Row><Action path="/actions/select_rs485_target" why={!rs485 ? 'RS485 is not connected' : null}>Select</Action></div>
-      <div className="button-row"><Action path="/actions/connect_rs485" why={rs485 ? 'already connected' : null}>Connect</Action><Action path="/actions/disconnect_rs485" why={!rs485 ? 'not connected' : null}>Disconnect</Action><Action path="/actions/discover_rs485" why={!rs485 ? 'not connected' : null}>Discover</Action><Action path="/actions/identify_rs485" why={!rs485 ? 'not connected' : null}>Identify target</Action></div>
-      <div className="rs485-evidence"><Fact label="Discovered" value={useText('/rs485/discovered') || '—'} /><Fact label="ACKs / timeouts" value={`${useNumber('/rs485/stats/acks')} / ${useNumber('/rs485/stats/ack_timeouts')}`} /><Fact label="RX / TX" value={`${useNumber('/rs485/stats/rx')} / ${useNumber('/rs485/stats/tx')}`} /><Fact label="Decode / queued" value={`${useNumber('/rs485/stats/decode_errors')} / ${useNumber('/rs485/stats/outbox')}`} /></div>
-    </Panel>
+    {blocker && <Banner tone="info">{blocker}</Banner>}
   </section>;
 }
 
@@ -570,7 +754,7 @@ function MotionControl() {
   const usteps = useNumber('/dut/usteps_per_rev');
   const a = useNumber('/motion/a/rotations'), b = useNumber('/motion/b/rotations');
   return <section className="motion-section" data-av-surface="live-telemetry">
-    <Panel title="Motion control" right={<span className="panel-route-control"><span>Route</span><EnumSelect path="/motion/route" /></span>}>
+    <Panel title="Motion control" right={<Badge tone={connected ? 'ok' : 'offline'}>via {route}</Badge>}>
       <MotionPilot />
       <div className="axis-targets"><Fact label="A exact target" value={usteps ? `${Math.round(a * usteps).toLocaleString()} µsteps` : 'identify first'} /><Fact label="B exact target" value={usteps ? `${Math.round(-b * usteps).toLocaleString()} µsteps` : 'identify first'} /></div>
       <Action path="/actions/motion_push" variant="primary" className="push-motion" why={!connected ? `${route} is not connected` : !usteps ? 'identify or home first' : null}>Move axes</Action>
@@ -590,20 +774,11 @@ function Evidence() {
 }
 
 function TestTab() {
-  const route = useEnumName('/motion/route');
-  const serialConnected = useBool('/serial/connected');
-  const rs485Connected = useBool('/rs485/connected');
-  const connected = route === 'rs485' ? rs485Connected : serialConnected;
   return <>
-    <section className="test-route">
-      <div><span className="label-caps">Test route</span><strong>{route === 'rs485' ? 'RS485 addressed bus' : 'VCOM / serial'}</strong><small>Both links can stay connected; this selects where procedures and commands go.</small></div>
-      <EnumSelect path="/motion/route" />
-      <Badge tone={connected ? 'ok' : 'offline'}>{connected ? 'connected' : 'not connected'}</Badge>
-    </section>
+    <LinkPanel />
     <ProcedureRunner />
     <QuickCommands />
     <HomingDiagnostics />
-    <TransportPanels />
     <MotionControl />
     <RawSignalPanel />
     <Evidence />

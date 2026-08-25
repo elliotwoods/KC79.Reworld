@@ -41,6 +41,14 @@ pub struct SimConfig {
     /// Steps per second the simulated motors move at.
     pub motor_speed: f32,
     pub firmware_version: String,
+    /// Whether a broadcast (`target == -1`) draws replies.
+    ///
+    /// Off by default, which is the truth for a column: eighteen units answering one broadcast
+    /// collide on the wire, so the Router never asks them to. A bench driving a *single* module
+    /// is the opposite case -- `Op::Identify` is deliberately broadcast there, because the id of
+    /// a module on a desk is often exactly what is unknown -- and a lone unit answering is what
+    /// real hardware does. Turn it on only when `portal_count` is 1.
+    pub answer_broadcast: bool,
 }
 
 impl Default for SimConfig {
@@ -55,6 +63,7 @@ impl Default for SimConfig {
             corrupt_rate: 0.0,
             motor_speed: 30_000.0,
             firmware_version: "sim-1.0".into(),
+            answer_broadcast: false,
         }
     }
 }
@@ -222,7 +231,7 @@ impl SimBus {
 
             let reply = self.handle_for_portal(index, body, broadcast);
             if let Some(reply) = reply {
-                if !broadcast {
+                if !broadcast || self.config.answer_broadcast {
                     self.queue_reply(id, reply);
                 }
             }

@@ -39,10 +39,25 @@ pub enum TransportRequirement {
 }
 
 impl TransportRequirement {
+    /// `Sim` satisfies `Rs485`, and that is a deliberate trade.
+    ///
+    /// It is the same `Rs485Link`, the same `render`, the same COBS/msgpack frames and the same
+    /// decoder -- only the device underneath is `SimBus` instead of a port -- so a plan that
+    /// refused to run over it could not be developed or regression-tested without hardware, and
+    /// the offline path would rot.
+    ///
+    /// The risk this creates is the one this crate's notes call the most likely failure mode: a
+    /// green run over a bench that nothing constrains. It is answered by evidence, not by a
+    /// refusal -- `plan_start` stamps the transport into the report, so a `sim` run is
+    /// identifiable as one for as long as the NDJSON exists. **If that stamp is ever removed,
+    /// this arm has to go with it.**
     pub fn accepts(self, kind: LinkKind) -> bool {
         match self {
             Self::Vcp => kind == LinkKind::Vcp,
-            Self::Rs485 => matches!(kind, LinkKind::Rs485Serial | LinkKind::Rs485Tcp),
+            Self::Rs485 => matches!(
+                kind,
+                LinkKind::Rs485Serial | LinkKind::Rs485Tcp | LinkKind::Sim
+            ),
             Self::BenchAscii => kind == LinkKind::BenchAscii,
         }
     }

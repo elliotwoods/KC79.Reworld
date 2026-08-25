@@ -26,6 +26,7 @@ use crate::transport::{
     RawSignal,
 };
 use router_link::rs485::{Packet, Rs485};
+use router_link::sim::{SimBus, SimConfig};
 use router_proto::commands;
 use router_proto::replies::{MotionControlStatus, PortalReport, Reply, classify_reply};
 
@@ -34,6 +35,33 @@ use router_proto::replies::{MotionControlStatus, PortalReport, Reply, classify_r
 /// Ids are assigned over the ID daisy-chain, which a module on a desk usually has no neighbour
 /// for; 1 is what a lone module adopts.
 pub const DEFAULT_TARGET: i8 = 1;
+
+/// How long [`Link::open`] waits for the bus worker to report a live device.
+///
+/// `Rs485::open_from_settings` is fire-and-forget: it spawns a worker, and on failure only emits
+/// a `DeviceConnect` report event and retries every 20 s in the background. Returning `Ok` from
+/// that is a lie the operator pays for -- the panel reads "connected" for one tick and then goes
+/// quiet with an empty detail field. Both device paths resolve promptly (`TcpStream::
+/// connect_timeout`, then `serialport::open`), so a short bounded wait converts the silence into
+/// an error the panel can show. It is a wait for the *worker* to publish its flag, not for the
+/// connection itself.
+const OPEN_SETTLE_MS: u64 = 750;
+/// How often the settle window re-checks. Short enough that a good link opens without a visible
+/// pause.
+const OPEN_POLL_MS: u64 = 10;
+
+/// The simulated bus behind [`LinkKind::Sim`].
+///
+/// One portal, answering broadcasts. `portal_count: 1` is what a bench addresses, and
+/// `answer_broadcast` follows from it: [`Op::Identify`] is deliberately broadcast here, so a
+/// simulator that stayed silent on `-1` would connect and then never identify.
+fn sim_bus() -> SimBus {
+    SimBus::new(SimConfig {
+        portal_count: 1,
+        answer_broadcast: true,
+        ..Default::default()
+    })
+}
 
 pub struct Rs485Link {
     kind: LinkKind,
@@ -352,8 +380,27 @@ impl Link for Rs485Link {
     }
 
     fn open(&mut self) -> Result<LinkInfo, LinkError> {
-        self.bus.open_from_settings(self.settings());
+        if self.kind == LinkKind::Sim {
+            self.bus.open_device(Box::new(sim_bus()));
+        } else {
+            self.bus.open_from_settings(self.settings());
+        }
         self.opened = true;
+
+        // See `OPEN_SETTLE_MS`. A worker that never reports a live device is a failed open, and
+        // saying so here is what puts the reason on the operator's panel instead of only in the
+        // session file.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(OPEN_SETTLE_MS);
+        while !self.bus.is_connected() {
+            if std::time::Instant::now() >= deadline {
+                self.close();
+                return Err(LinkError::Io(format!(
+                    "nothing answered on {} within {OPEN_SETTLE_MS} ms",
+                    self.endpoint
+                )));
+            }
+            std::thread::sleep(std::time::Duration::from_millis(OPEN_POLL_MS));
+        }
         Ok(self.info())
     }
 
@@ -545,6 +592,54 @@ fn json_to_msgpack(value: &serde_json::Value) -> Result<router_proto::Value, Lin
 mod tests {
     use super::*;
     use router_proto::replies::{AppStatus, HealthStatus};
+
+    /// The simulated link is the whole offline story, so it has to reach `Identified` -- not
+    /// merely open. It exercises the production decoder end to end: `render` -> COBS/msgpack ->
+    /// `SimBus` -> `classify_reply` -> `events_from_report`. The one thing it proves that a
+    /// unit test of the decoder cannot is that `Op::Identify`'s **broadcast** draws a reply,
+    /// which is why `SimConfig::answer_broadcast` exists.
+    #[test]
+    fn the_simulated_link_opens_and_identifies_over_the_real_decoder() {
+        let mut link = crate::open_link(LinkKind::Sim, "ignored").unwrap();
+        let info = link.open().unwrap();
+        assert_eq!(info.kind, LinkKind::Sim);
+        assert!(link.is_open());
+
+        link.send(&Op::Identify).unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        let mut identified = None;
+        while identified.is_none() && std::time::Instant::now() < deadline {
+            for event in link.poll(0) {
+                if let LinkEvent::Identified { version, .. } = event {
+                    identified = version;
+                }
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        assert_eq!(
+            identified.as_deref(),
+            Some("sim-1.0"),
+            "the simulated module never identified"
+        );
+
+        link.close();
+        assert!(!link.is_open());
+    }
+
+    /// `Rs485::open_from_settings` is fire-and-forget and retries in the background, so an
+    /// `Ok` from `open()` used to mean nothing at all: the panel read "connected" for one tick
+    /// and then went quiet with an empty detail field. Port 1 on loopback is reserved and
+    /// refuses immediately.
+    #[test]
+    fn a_dead_endpoint_fails_to_open_rather_than_reporting_success() {
+        let mut link = crate::open_link(LinkKind::Rs485Tcp, "127.0.0.1:1").unwrap();
+        let error = link.open().expect_err("a dead endpoint must not open");
+        assert!(
+            error.to_string().contains("127.0.0.1:1"),
+            "the error must name the endpoint the operator typed: {error}"
+        );
+        assert!(!link.is_open());
+    }
 
     #[test]
     fn identify_broadcasts_because_a_bench_module_may_have_no_id_yet() {

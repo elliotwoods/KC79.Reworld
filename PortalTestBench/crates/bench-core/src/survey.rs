@@ -45,11 +45,30 @@ pub struct Survey {
     pub swd_support: bool,
 }
 
+/// One physical device, as macOS names it twice.
+///
+/// Every serial device on macOS is enumerated as both `/dev/cu.NAME` (the *callout* device) and
+/// `/dev/tty.NAME` (the dial-in device). They are the same hardware. The distinction matters:
+/// opening `tty.*` blocks until carrier detect, which for a USB CDC adapter may never assert,
+/// so the callout device is the one a bench wants. Anything else -- a Windows `COM7`, a Linux
+/// `/dev/ttyACM0` -- is returned unchanged and compares as itself.
+fn device_identity(name: &str) -> &str {
+    name.strip_prefix("/dev/cu.")
+        .or_else(|| name.strip_prefix("/dev/tty."))
+        .unwrap_or(name)
+}
+
 /// Find the VCOM port belonging to a selected debug probe.
 ///
 /// ST-Link exposes SWD and VCOM as separate USB interfaces carrying the same serial number.
 /// Matching that OS-reported identity is safe; choosing the first COM port is not, because a
 /// bench commonly also has an RS485 adapter attached.
+///
+/// The refusal to guess is deliberate and is kept. What it must not do is fire on a *false*
+/// ambiguity: on macOS the probe's VCOM always matches twice, `cu.` and `tty.`, so the plain
+/// count made post-flash auto-attach refuse on every Mac -- always, not occasionally. Collapsing
+/// the two names for one device first restores the check to the case it was written for: two
+/// genuinely different devices claiming one serial number, which is a fault worth stopping on.
 pub fn paired_vcom_port(survey: &Survey, probe_identifier: &str) -> Result<String, String> {
     let probe = survey
         .probes
@@ -72,14 +91,27 @@ pub fn paired_vcom_port(survey: &Survey, probe_identifier: &str) -> Result<Strin
                 .is_some_and(|candidate| candidate.eq_ignore_ascii_case(serial))
         })
         .collect::<Vec<_>>();
-    match matches.as_slice() {
-        [port] => Ok(port.name.clone()),
-        [] => Err(format!(
+    let mut devices = matches
+        .iter()
+        .map(|port| device_identity(&port.name))
+        .collect::<Vec<_>>();
+    devices.sort_unstable();
+    devices.dedup();
+    match (matches.as_slice(), devices.as_slice()) {
+        ([], _) => Err(format!(
             "no COM port reports the selected probe serial {serial}"
         )),
+        // One device, however many names the OS gave it. Prefer the callout node when it is
+        // among them; otherwise take the only name on offer.
+        (_, [_]) => Ok(matches
+            .iter()
+            .find(|port| port.name.starts_with("/dev/cu."))
+            .unwrap_or(&matches[0])
+            .name
+            .clone()),
         _ => Err(format!(
-            "{} COM ports report the selected probe serial {serial}; refusing to guess",
-            matches.len()
+            "{} devices report the selected probe serial {serial}; refusing to guess",
+            devices.len()
         )),
     }
 }
@@ -139,13 +171,19 @@ fn probes() -> Vec<ProbeEntry> {
 }
 
 /// Build a link of the given kind for an endpoint.
+///
+/// The simulated kind ignores `endpoint` and names itself, because there is nothing to address:
+/// it is `router_link::sim::SimBus` -- an in-process model of one module running the PortalFW
+/// protocol -- behind an ordinary [`Rs485Link`]. Everything downstream of the wire is therefore
+/// the production code path, which is the point: a bench that simulated its own decoder would
+/// prove nothing about the decoder.
 pub fn open_link(kind: LinkKind, endpoint: &str) -> Result<Box<dyn Link>, String> {
     Ok(match kind {
         LinkKind::Vcp | LinkKind::BenchAscii => Box::new(LineLink::serial(kind, endpoint)),
         LinkKind::Rs485Serial | LinkKind::Rs485Tcp => {
             Box::new(Rs485Link::new(kind, endpoint, DEFAULT_TARGET))
         }
-        LinkKind::Sim => return Err("the simulated link lands with the engine".into()),
+        LinkKind::Sim => Box::new(Rs485Link::new(kind, "simulated", DEFAULT_TARGET)),
     })
 }
 
@@ -324,6 +362,55 @@ mod tests {
         assert_eq!(
             paired_vcom_port(&survey, "0483:374b:PROBE123"),
             Ok("COM3".into())
+        );
+    }
+
+    /// The regression that made post-flash auto-attach refuse on every Mac: one ST-Link, two
+    /// names for its VCOM, counted as two candidates.
+    #[test]
+    fn macos_cu_and_tty_names_are_one_device_and_the_callout_node_wins() {
+        let survey = pairing_survey(vec![
+            PortEntry {
+                name: "/dev/tty.usbmodem5103".into(),
+                kind: "usb".into(),
+                product: Some("STM32 STLink".into()),
+                serial_number: Some("PROBE123".into()),
+            },
+            PortEntry {
+                name: "/dev/cu.usbmodem5103".into(),
+                kind: "usb".into(),
+                product: Some("STM32 STLink".into()),
+                serial_number: Some("PROBE123".into()),
+            },
+        ]);
+        assert_eq!(
+            paired_vcom_port(&survey, "0483:374b:PROBE123"),
+            Ok("/dev/cu.usbmodem5103".into())
+        );
+    }
+
+    /// Two genuinely different devices claiming one serial is still a refusal. Collapsing the
+    /// macOS pair must not have collapsed this.
+    #[test]
+    fn two_distinct_devices_sharing_a_serial_still_refuse_to_guess() {
+        let survey = pairing_survey(vec![
+            PortEntry {
+                name: "/dev/cu.usbmodem5103".into(),
+                kind: "usb".into(),
+                product: Some("STM32 STLink".into()),
+                serial_number: Some("PROBE123".into()),
+            },
+            PortEntry {
+                name: "/dev/cu.usbmodem9910".into(),
+                kind: "usb".into(),
+                product: Some("STM32 STLink".into()),
+                serial_number: Some("PROBE123".into()),
+            },
+        ]);
+        assert!(
+            paired_vcom_port(&survey, "0483:374b:PROBE123")
+                .unwrap_err()
+                .contains("refusing to guess")
         );
     }
 

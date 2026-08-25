@@ -419,11 +419,12 @@ mod tests {
     }
 
     #[test]
-    fn see_through_matches_cpp() {
-        // {"m": [MICROSTEPS_PER_PRISM_ROTATION/2, 0]}
+    fn see_through_is_half_a_rotation() {
+        // {"m": [MICROSTEPS_PER_PRISM_ROTATION/2, 0]} = [94852, 0]
+        // (The old C++ Router sent 94848, half of the truncated 189_696.)
         assert_eq!(
             hex(&dump_to_vec(&ActionKind::SeeThrough.body())),
-            "81 A1 6D 92 CE 00 01 72 80 00"
+            "81 A1 6D 92 CE 00 01 72 84 00"
         );
     }
 

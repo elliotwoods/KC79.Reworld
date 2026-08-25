@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { type BenchView, enumName, soundFor, thresholdTone, verdictTile, whyDisabled } from './bench-model';
+import { type BenchView, type LinkView, connectBlocker, enumName, linkBlocker, soundFor, thresholdTone, verdictTile, whyDisabled } from './bench-model';
 
 const ready: BenchView = {
   connected: true,
@@ -157,5 +157,64 @@ describe('soundFor', () => {
     expect(soundFor('lost')).toEqual({ kind: 'play', name: 'failure' });
     expect(soundFor('attention')).toEqual({ kind: 'play', name: 'failure' });
     expect(soundFor('none')).toEqual({ kind: 'none' });
+  });
+});
+
+describe('connectBlocker', () => {
+  const down: LinkView = { route: 'rs485', connected: false, desired: 'rs485-serial', endpoint: 'COM15', detail: '' };
+
+  it('refuses before a transport is chosen, and names the right noun per route', () => {
+    expect(connectBlocker({ ...down, desired: 'none' })).toBe('choose a transport first');
+    expect(connectBlocker({ ...down, route: 'serial', desired: 'none' })).toBe('choose a protocol first');
+  });
+
+  it('refuses an empty endpoint on transports that need one', () => {
+    expect(connectBlocker({ ...down, endpoint: '' })).toBe('choose an endpoint');
+    expect(connectBlocker({ ...down, route: 'serial', desired: 'vcp', endpoint: '' })).toBe('choose a port');
+  });
+
+  // The simulated module is in this process. Demanding a port for it would block Connect on a
+  // field that is deliberately not rendered.
+  it('lets a self-addressing transport connect with no endpoint', () => {
+    expect(connectBlocker({ ...down, desired: 'sim', endpoint: '' })).toBeNull();
+  });
+
+  it('allows a fully specified link, and refuses a second connect', () => {
+    expect(connectBlocker(down)).toBeNull();
+    expect(connectBlocker({ ...down, connected: true })).toBe('already connected');
+  });
+});
+
+describe('linkBlocker', () => {
+  const down: LinkView = { route: 'rs485', connected: false, desired: 'none', endpoint: '', detail: '' };
+
+  it('says nothing at all once the link is up', () => {
+    expect(linkBlocker({ ...down, connected: true })).toBeNull();
+  });
+
+  it('names the route, so switching route changes the sentence', () => {
+    expect(linkBlocker(down)).toContain('RS485');
+    expect(linkBlocker({ ...down, route: 'serial' })).toContain('serial');
+  });
+
+  // A concrete failure is a better answer than generic advice, and it only became reachable
+  // when Rs485Link::open stopped returning Ok for an endpoint nothing answered on.
+  it('prefers the last failure over the generic advice', () => {
+    const said = linkBlocker({ ...down, desired: 'rs485-tcp', endpoint: '127.0.0.1:1', detail: 'nothing answered on 127.0.0.1:1 within 750 ms' });
+    expect(said).toContain('nothing answered on 127.0.0.1:1');
+    expect(said).not.toContain('Pick a transport');
+  });
+
+  it('never returns a blank sentence in any not-connected state', () => {
+    const states: LinkView[] = [
+      down,
+      { ...down, desired: 'rs485-serial' },
+      { ...down, desired: 'rs485-serial', endpoint: 'COM15' },
+      { ...down, route: 'serial', desired: 'vcp', endpoint: 'COM3' },
+      { ...down, desired: 'sim' },
+    ];
+    for (const state of states) {
+      expect(linkBlocker(state)?.length ?? 0).toBeGreaterThan(20);
+    }
   });
 });

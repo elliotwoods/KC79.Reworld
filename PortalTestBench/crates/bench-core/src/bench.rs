@@ -350,7 +350,8 @@ impl Bench {
 
         self.runs += 1;
         let run_id = format!("r-{:04}", self.runs);
-        self.report.plan_start(&run_id, &plan, origin.name());
+        self.report
+            .plan_start(&run_id, &plan, origin.name(), context.transport.name());
         self.note(
             now_ms,
             crate::LOG_LEVEL_STATUS,
@@ -714,8 +715,16 @@ impl Bench {
                 usteps_per_rev,
                 banner,
             } => {
-                let dut = {
+                let (dut, changed) = {
                     let dut = &mut self.channel_state_mut(channel).dut;
+                    let before = (
+                        dut.present,
+                        dut.firmware,
+                        dut.version.clone(),
+                        dut.ratio,
+                        dut.usteps_per_rev,
+                        dut.banner.clone(),
+                    );
                     dut.present = true;
                     dut.firmware = firmware;
                     if version.is_some() {
@@ -730,14 +739,29 @@ impl Bench {
                         dut.usteps_per_rev = usteps_per_rev;
                     }
                     dut.banner = Some(banner.clone());
-                    dut.clone()
+                    let after = (
+                        dut.present,
+                        dut.firmware,
+                        dut.version.clone(),
+                        dut.ratio,
+                        dut.usteps_per_rev,
+                        dut.banner.clone(),
+                    );
+                    (dut.clone(), before != after)
                 };
-                self.report.dut_identity(&dut);
-                self.note(
-                    now_ms,
-                    crate::LOG_LEVEL_STATUS,
-                    format!("{} identified: {banner}", channel.name()),
-                );
+                // Every RS485 status poll carries `app.version`, so this event arrives on every
+                // poll for as long as the link is up -- several times a second. Announcing it
+                // each time buried the session log under one repeated line and turned
+                // `dut_identity` from a provenance record into a stream. Identity is news only
+                // when it changes; the poll itself is already evidence in the bus counters.
+                if changed {
+                    self.report.dut_identity(&dut);
+                    self.note(
+                        now_ms,
+                        crate::LOG_LEVEL_STATUS,
+                        format!("{} identified: {banner}", channel.name()),
+                    );
+                }
             }
             LinkEvent::Position {
                 axis,

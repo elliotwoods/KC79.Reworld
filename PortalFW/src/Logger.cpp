@@ -162,9 +162,9 @@ Logger::Logger()
 		,{
 			'y'
 			, {
-				"Measure cycle routine"
+				"Cycle check (both axes)"
 				, []() {
-					Modules::App::X().routines->measureCycle();
+					Modules::App::X().routines->cycleCheck();
 				}
 			}
 		}

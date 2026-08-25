@@ -194,3 +194,60 @@ export function whyDisabled(
 export function enumName(variants: ReadonlyArray<readonly [number, string]>, value: number): string {
   return variants.find(([discriminant]) => discriminant === value)?.[1] ?? 'unknown';
 }
+
+/** One communication lane, as the link controls see it. */
+export interface LinkView {
+  /** `serial` or `rs485` — the route commands are currently sent over. */
+  route: string;
+  connected: boolean;
+  /** The chosen protocol or transport, by name. `none` when nothing has been picked. */
+  desired: string;
+  /** The port or address. Empty when nothing has been chosen. */
+  endpoint: string;
+  /** `/{lane}/detail` — the last thing the link said about itself, failure included. */
+  detail: string;
+}
+
+/**
+ * Transports that address themselves.
+ *
+ * `sim` is `SimBus` in this process and `none` is not a transport at all; neither has an
+ * endpoint to type, and demanding one would block Connect on a field that should not exist.
+ */
+const ENDPOINTLESS = new Set(['none', 'sim']);
+
+/**
+ * Why **Connect** cannot be pressed, or `null` if it can.
+ *
+ * The reason this is a function and not an inline ternary: pressing Connect with no transport
+ * chosen used to be *allowed*, and the worker answered by writing "pick a serial transport
+ * first" into the session log. A button that is enabled, does nothing visible, and explains
+ * itself somewhere the operator is not looking is worse than a disabled one — the tooltip on a
+ * greyed button is on the pointer already.
+ */
+export function connectBlocker(v: LinkView): string | null {
+  if (v.connected) return 'already connected';
+  if (v.desired === 'none') return `choose a ${v.route === 'rs485' ? 'transport' : 'protocol'} first`;
+  if (!ENDPOINTLESS.has(v.desired) && !v.endpoint) {
+    return v.route === 'rs485' ? 'choose an endpoint' : 'choose a port';
+  }
+  return null;
+}
+
+/**
+ * The sentence under the link controls when the selected route is down, or `null` when it is up.
+ *
+ * Every actionable control in the Test tab is gated on this one route being connected, so the
+ * tab's resting state is a wall of greyed buttons. Saying why, once, at the top, is the
+ * difference between an instrument that is waiting and one that looks broken. A previous
+ * failure — which only reaches the page now that `Rs485Link::open` stopped reporting success
+ * unconditionally — outranks the generic advice: it is the more specific answer.
+ */
+export function linkBlocker(v: LinkView): string | null {
+  if (v.connected) return null;
+  const route = v.route === 'rs485' ? 'RS485' : 'serial';
+  const lead = `Nothing below can run until the ${route} link is open.`;
+  if (v.detail) return `${lead} Last attempt: ${v.detail}`;
+  const next = connectBlocker(v);
+  return next ? `${lead} Pick a transport and connect.` : `${lead} Press Connect.`;
+}

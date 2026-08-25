@@ -147,6 +147,9 @@ impl Discovery {
 /// `crates/portal-flasher` → up three → `KC79.Reworld`. Canonicalised with a fallback, so a tree
 /// that has been moved gives a wrong-looking path in a message rather than a panic.
 pub fn repo_root() -> PathBuf {
+    if let Some(root) = std::env::var_os("PORTAL_FIRMWARE_ROOT") {
+        return PathBuf::from(root);
+    }
     let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
     let root = manifest.join("..").join("..").join("..");
     root.canonicalize().unwrap_or(root)

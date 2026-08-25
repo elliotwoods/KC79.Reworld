@@ -39,47 +39,173 @@ namespace Modules {
 
 		log(LogLevel::Status, moduleName, "begin");
 
-		bool failedAnywhere = false;
-
 		app->motionControlA->stop();
 		app->motionControlB->stop();
 
-		if(this->measureCycle(settings).report()) {
-			if(settings.stopAllRoutinesIfOneFails) {
-				Exception(moduleName, "Fail on measureCycle");
-			}
-			failedAnywhere = true;
+		auto duration = [&]() {
+			char message[100];
+			sprintf(message, "Duration: %ds", (int) ((millis() - startTime) / 1000));
+			log(LogLevel::Status, moduleName, message);
+		};
+
+		// Check before calibrating, and stop here if the check fails.
+		//
+		// Calibration is the expensive half of startup -- on an axis whose flag cannot be found
+		// it spends minutes sweeping the threshold to 255 before saying so -- and every bit of
+		// that cost is wasted on a module that cannot turn its prisms. The check answers that
+		// question in seconds, for both axes at once.
+		//
+		// A failure stops the WHOLE routine, including the axis that passed. That is not
+		// giving up early on a good axis: the fault pattern the observer needs is on the idle
+		// LEDs, LEDs::update() does not run while a routine is blocking, and so the fastest way
+		// to say WHICH axis is bad is to stop being in a routine.
+		if(this->cycleCheck(settings).report()) {
+			duration();
+			return Exception(moduleName, "Fail on cycleCheck");
 		}
+
+		// Back to the ordinary routine blink for calibration -- the double rate belongs to the
+		// check, which is over.
+		App::setRoutineSignal(App::RoutineSignal::Normal);
 
 		if(this->calibrate(settings).report()) {
-			if(settings.stopAllRoutinesIfOneFails) {
-				return Exception(moduleName, "Fail on calibrate");
-			}
-			failedAnywhere = true;
+			duration();
+			return Exception(moduleName, "Fail on calibrate");
 		}
 
-		auto endTime = millis();
+		duration();
 
-		// Print the duration in seconds to 0.1s accuracy
-		{
-			char message[100];
-			sprintf(message, "Duration: %ds", (endTime - startTime) / 1000);
-			log(LogLevel::Status, moduleName, message);
-		}
-
-		// Move to zero position on both axes
+		// Move to zero position on both axes. Only now: calibrate() has just established what
+		// zero means, and commanding a move to it before that is a move to nowhere in
+		// particular -- on a module that has already failed, potentially a long one.
 		app->motionControlA->setTargetPosition(0);
 		app->motionControlB->setTargetPosition(0);
 
-		if(failedAnywhere) {
-			return Exception(moduleName, "Fail");
-		}
-		
 		log(LogLevel::Status, moduleName, "end");
 		return Exception::None();
 	}
 
 	//----------
+	// The fast check, on both axes at the same time.
+	//
+	// Simultaneously because there is no reason not to be: unlike calibration, this needs
+	// nothing per-axis from the shared threshold DAC -- it runs at the power-on threshold and
+	// asks about geometry, not optics. Both axes step and latch concurrently, which is what the
+	// module already does whenever it moves both prisms at once.
+	//
+	// Both axes must pass before either is calibrated. Calibration is serial and a failure
+	// abandons the whole routine, so calibrating A while B is still being checked would be
+	// paying for an axis we may be about to walk away from.
+	Exception
+	Routines::cycleCheck(const MotionControl::MeasureRoutineSettings & settings)
+	{
+		char moduleName[100];
+		sprintf(moduleName, "%s.cycleCheck", this->getName());
+
+		log(LogLevel::Status, moduleName, "begin");
+
+		app->motionControlA->stop();
+		app->motionControlB->stop();
+
+		// Double-rate blink for the duration of the check, so the short "is this module even
+		// turning" phase is distinguishable from the ordinary routine blink of everything
+		// else. Set here rather than in startup() so a check run on its own says the same
+		// thing; App::update() puts it back to Normal when the routine chain ends.
+		App::setRoutineSignal(App::RoutineSignal::Checking);
+
+		// Deliberately not seeded from settings.timeout_s: that 240 s is the ceiling the cold
+		// optical calibration needs, and this check is bounded by distance at about 27 s.
+		MotionControl::CycleCheckSettings checkSettings;
+
+		auto exceptionA = app->motionControlA->cycleCheckBegin(checkSettings);
+		auto exceptionB = app->motionControlB->cycleCheckBegin(checkSettings);
+
+		bool runningA = !exceptionA;
+		bool runningB = !exceptionB;
+		bool escaped = false;
+
+		while(runningA || runningB) {
+			if(runningA) {
+				runningA = app->motionControlA->cycleCheckUpdate();
+			}
+			if(runningB) {
+				runningB = app->motionControlB->cycleCheckUpdate();
+			}
+
+			HAL_Delay(1);
+
+			// Once per tick for the module, not once per axis -- it feeds the watchdog, drains
+			// the console and services RS485, and doing it twice per tick would double the
+			// console's command rate inside the routine.
+			if(App::updateFromRoutine()) {
+				escaped = true;
+				break;
+			}
+		}
+
+		auto resultA = app->motionControlA->cycleCheckEnd();
+		auto resultB = app->motionControlB->cycleCheckEnd();
+
+		// Both verdicts on one line, because "which axis" is the question being asked.
+		{
+			char message[110];
+			sprintf(message, "A: %s | B: %s"
+				, MotionControl::cycleCheckVerdictName(app->motionControlA->getCycleCheckVerdict())
+				, MotionControl::cycleCheckVerdictName(app->motionControlB->getCycleCheckVerdict()));
+			log(LogLevel::Status, moduleName, message);
+		}
+
+		if(escaped) {
+			return Exception::Escape(moduleName);
+		}
+
+		bool failedAnywhere = false;
+
+		// report() both before deciding: `||` would short-circuit, and an axis whose check
+		// never began would then silence the other axis's verdict.
+		{
+			const bool beginFailedA = exceptionA.report();
+			const bool checkFailedA = resultA.report();
+			if(beginFailedA || checkFailedA) {
+				if(settings.stopAllRoutinesIfOneFails) {
+					return Exception(moduleName, "Fail on A");
+				}
+				failedAnywhere = true;
+			}
+		}
+
+		{
+			const bool beginFailedB = exceptionB.report();
+			const bool checkFailedB = resultB.report();
+			if(beginFailedB || checkFailedB) {
+				if(settings.stopAllRoutinesIfOneFails) {
+					return Exception(moduleName, "Fail on B");
+				}
+				failedAnywhere = true;
+			}
+		}
+
+		if(failedAnywhere) {
+			return Exception(moduleName, "Fail");
+		}
+
+		log(LogLevel::Status, moduleName, "end");
+		return Exception::None();
+	}
+
+	//----------
+	// Both axes at once, and at full torque.
+	//
+	// Simultaneously, not one after the other, for two reasons. A module is jammed as a module:
+	// running A to completion and only then starting B doubles a sweep that is already minutes
+	// long, and it hides the case where freeing one axis disturbs the other. And the home-flag
+	// consistency each axis reports is only comparable between them if both were measured under
+	// the same supply and the same thermal load, which means at the same time.
+	//
+	// The shared MotorDriverSettings -- one VREF pin, one microstep pair, both axes -- is taken
+	// to its full-torque, full-step operating point HERE, once, before either axis begins. If
+	// each axis captured its own prior, axis B would capture axis A's override and restore the
+	// wrong current at the end.
 	Exception
 	Routines::unjam(const MotionControl::MeasureRoutineSettings & settings)
 	{
@@ -89,66 +215,141 @@ namespace Modules {
 
 		log(LogLevel::Status, moduleName, "begin");
 
+		auto startTime = millis();
+
 		app->motionControlA->stop();
 		app->motionControlB->stop();
 
-		bool failedAnywhere = false;
+		auto & driverSettings = *app->motorDriverSettings;
+		const auto priorCurrent = driverSettings.getCurrent();
+		const auto priorMicrostep = driverSettings.getMicrostepResolution();
 
-		if(app->motionControlA->unjamRoutine(settings).report()) {
-			if(settings.stopAllRoutinesIfOneFails) {
-				return Exception(moduleName, "Fail on unjam A");
-			}
-			failedAnywhere = true;
+		// Full torque, and full steps. Microstepping trades holding torque per step for
+		// smoothness, which is the wrong trade against a jam: what frees a stuck prism is the
+		// largest impulse the driver can make, delivered over and over.
+		driverSettings.setCurrent(MOTORDRIVERSETTINGS_MAX_CURRENT);
+		driverSettings.setMicrostepResolution(MotorDriverSettings::MicrostepResolution::_1);
+
+		{
+			char message[80];
+			sprintf(message, "full torque: %dmA, full steps"
+				, (int) (driverSettings.getCurrent() * 1000.0f));
+			log(LogLevel::Status, moduleName, message);
 		}
 
-		if(app->motionControlB->unjamRoutine(settings).report()) {
-			if(settings.stopAllRoutinesIfOneFails) {
-				return Exception(moduleName, "Fail on unjam B");
+		MotionControl::UnjamSettings unjamSettings;
+
+		auto exceptionA = app->motionControlA->unjamBegin(settings, unjamSettings);
+		auto exceptionB = app->motionControlB->unjamBegin(settings, unjamSettings);
+
+		bool runningA = !exceptionA;
+		bool runningB = !exceptionB;
+		bool escaped = false;
+
+		while(runningA || runningB) {
+			if(runningA) {
+				runningA = app->motionControlA->unjamUpdate();
 			}
-			failedAnywhere = true;
+			if(runningB) {
+				runningB = app->motionControlB->unjamUpdate();
+			}
+
+			// One tick for both axes. 2ms rather than the 20ms the previous routine used: the
+			// home flag is only about nine full steps wide at this speed, and a 20ms tick walks
+			// ten steps between looks. It is also the shortest tick the ramp survives -- see
+			// UnjamSettings::acceleration.
+			HAL_Delay(2);
+
+			// Called once per tick for the whole module, not once per axis: it feeds the
+			// watchdog, drains the console and services RS485, and doing that twice per tick
+			// would double the console's command rate inside the routine.
+			if(App::updateFromRoutine()) {
+				escaped = true;
+				break;
+			}
+		}
+
+		auto resultA = app->motionControlA->unjamEnd();
+		auto resultB = app->motionControlB->unjamEnd();
+
+		// Restore the shared operating point before reporting, so a module left by a failed
+		// sweep is still holding its normal current.
+		driverSettings.setMicrostepResolution(priorMicrostep);
+		driverSettings.setCurrent(priorCurrent);
+
+		// Any axis whose sweep ran has had its datum zeroed by unjamEnd (deliberately -- a sweep
+		// that drives through a jam cannot know where it finished) and this routine does NOT
+		// chain a home: freeing the mechanism and re-datuming it are separate decisions, and the
+		// operator may want to inspect the report first. Say so loudly, success or failure,
+		// because a host that still assumes the old datum-preserving unjam would otherwise carry
+		// on commanding absolute moves in an arbitrary frame. homeOK reads false in status until
+		// a home succeeds.
+		if(app->motionControlA->getUnjamReport().ran
+			|| app->motionControlB->getUnjamReport().ran) {
+			log(LogLevel::Warning, moduleName
+				, "home datum LOST on swept axes (position zeroed, homeOK=false); home before absolute moves");
+		}
+
+		// Report the two axes side by side. Whether the sweep freed anything is a judgement
+		// about these numbers, so they belong in the log next to each other rather than
+		// scattered through it.
+		{
+			const auto & reportA = app->motionControlA->getUnjamReport();
+			const auto & reportB = app->motionControlB->getUnjamReport();
+			char message[120];
+			sprintf(message, "A: %d sightings, gap %d..%d, worst %d | B: %d sightings, gap %d..%d, worst %d"
+				, (int) reportA.sightings
+				, (int) reportA.shortestGap
+				, (int) reportA.longestGap
+				, (int) reportA.worstDeviation
+				, (int) reportB.sightings
+				, (int) reportB.shortestGap
+				, (int) reportB.longestGap
+				, (int) reportB.worstDeviation);
+			log(LogLevel::Status, moduleName, message);
+		}
+
+		{
+			char message[100];
+			sprintf(message, "Duration: %ds", (int) ((millis() - startTime) / 1000));
+			log(LogLevel::Status, moduleName, message);
+		}
+
+		if(escaped) {
+			return Exception::Escape(moduleName);
+		}
+
+		bool failedAnywhere = false;
+
+		// report() both, then decide. `||` would short-circuit, and an axis whose sweep never
+		// began would then silence the OTHER axis's verdict -- which is the one result an
+		// operator staring at a jammed module actually needs.
+		{
+			const bool beginFailedA = exceptionA.report();
+			const bool sweepFailedA = resultA.report();
+			if(beginFailedA || sweepFailedA) {
+				if(settings.stopAllRoutinesIfOneFails) {
+					return Exception(moduleName, "Fail on unjam A");
+				}
+				failedAnywhere = true;
+			}
+		}
+
+		{
+			const bool beginFailedB = exceptionB.report();
+			const bool sweepFailedB = resultB.report();
+			if(beginFailedB || sweepFailedB) {
+				if(settings.stopAllRoutinesIfOneFails) {
+					return Exception(moduleName, "Fail on unjam B");
+				}
+				failedAnywhere = true;
+			}
 		}
 
 		if(failedAnywhere) {
 			return Exception(moduleName, "Fail");
 		}
-		
-		log(LogLevel::Status, moduleName, "end");
-		return Exception::None();
-	}
 
-	//----------
-	Exception
-	Routines::tuneCurrent(const MotionControl::MeasureRoutineSettings & settings)
-	{
-		// create moduleName
-		char moduleName[100];
-		sprintf(moduleName, "%s.tuneCurrent", this->getName());
-
-		log(LogLevel::Status, moduleName, "begin");
-
-		app->motionControlA->stop();
-		app->motionControlB->stop();
-
-		bool failedAnywhere = false;
-
-		if(app->motionControlA->tuneCurrentRoutine(settings).report()) {
-			if(settings.stopAllRoutinesIfOneFails) {
-				return Exception(moduleName, "Fail on tuneCurrent A");
-			}
-			failedAnywhere = true;
-		}
-
-		if(app->motionControlB->tuneCurrentRoutine(settings).report()) {
-			if(settings.stopAllRoutinesIfOneFails) {
-				return Exception(moduleName, "Fail on tuneCurrent B");
-			}
-			failedAnywhere = true;
-		}
-
-		if(failedAnywhere) {
-			return Exception(moduleName, "Fail");
-		}
-		
 		log(LogLevel::Status, moduleName, "end");
 		return Exception::None();
 	}
@@ -241,6 +442,10 @@ namespace Modules {
 	}
 #endif
 
+#ifdef HOME_SWITCH_LEGACY
+	// Mechanical (PCB v4) only. On the optical build fastHomeRoutine produces the datum, the
+	// flag width and the backlash in one pass, so this is dead weight in an application image
+	// that is already 98% full.
 	//----------
 	// Normal home first uses the module-wide persisted current. A single successful retry at the
 	// hardware limit promotes that shared current durably; a failed retry restores the prior value.
@@ -275,6 +480,8 @@ namespace Modules {
 			, "250 mA home recovery succeeded; promoted module current persistently");
 		return Exception::None();
 	}
+#endif
+
 
 	//----------
 	Exception
@@ -349,9 +556,17 @@ namespace Modules {
 	}
 
 	//----------
+	// On an optical board, homing IS calibration: fastHomeRoutine produces the datum, the flag
+	// width and the backlash in one pass, so there is nothing for a separate "home" to do that
+	// calibrate() does not already do better. This used to call the legacy MECHANICAL
+	// homeRoutine on a v6 board, which is what the 'h' key and the "home" command on the wire
+	// both reached.
 	Exception
 	Routines::home(const MotionControl::MeasureRoutineSettings & settings)
 	{
+#ifndef HOME_SWITCH_LEGACY
+		return this->calibrate(settings);
+#else
 		// create a moduleName
 		char moduleName[100];
 		sprintf(moduleName, "%s.home", this->getName());
@@ -382,42 +597,7 @@ namespace Modules {
 		
 		log(LogLevel::Status, moduleName, "end");
 		return Exception::None();
-	}
-
-	//----------
-	Exception
-	Routines::measureCycle(const MotionControl::MeasureRoutineSettings & settings)
-	{
-		// create a moduleName
-		char moduleName[100];
-		sprintf(moduleName, "%s.measureCycle", this->getName());
-
-		log(LogLevel::Status, moduleName, "begin");
-
-		app->motionControlA->stop();
-		app->motionControlB->stop();
-
-		bool failedAnywhere = false;
-
-		if(app->motionControlA->measureCycleRoutine(settings).report()) {
-			if(settings.stopAllRoutinesIfOneFails) {
-				return Exception(moduleName, "Fail on A");
-			}
-			failedAnywhere = true;
-		}
-		if(app->motionControlB->measureCycleRoutine(settings).report()) {
-			if(settings.stopAllRoutinesIfOneFails) {
-				return Exception(moduleName, "Fail on B");
-			}
-			failedAnywhere = true;
-		}
-
-		if(failedAnywhere) {
-			return Exception(moduleName, "Fail");
-		}
-		
-		log(LogLevel::Status, moduleName, "end");
-		return Exception::None();
+#endif
 	}
 
 	//----------

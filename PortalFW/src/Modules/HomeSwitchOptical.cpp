@@ -49,6 +49,13 @@ namespace Modules {
 		// Comparator output is push-pull, so no pull-up needed.
 		pinMode(this->config.pinSensor, INPUT);
 
+		// Resolve the port and mask once, for getRawActive()'s use inside the step ISR.
+		{
+			const PinName pinName = digitalPinToPinName(this->config.pinSensor);
+			this->sensorPort = get_GPIO_Port(STM_PORT(pinName));
+			this->sensorPinMask = STM_LL_GPIO_PIN(pinName);
+		}
+
 		HomeSwitchOptical::allHomeSwitches.insert(this);
 	}
 
@@ -92,14 +99,14 @@ namespace Modules {
 	bool
 	HomeSwitchOptical::getForwardsActive() const
 	{
-		return digitalRead(this->config.pinSensor) == HIGH;
+		return this->getRawActive();
 	}
 
 	//-----------
 	bool
 	HomeSwitchOptical::getBackwardsActive() const
 	{
-		return digitalRead(this->config.pinSensor) == HIGH;
+		return this->getRawActive();
 	}
 
 	//----------

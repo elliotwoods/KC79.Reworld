@@ -39,6 +39,30 @@ namespace Modules
 		this->persistentIdentity = PersistentStorage::readIdentity();
 		this->persistentSettings = PersistentStorage::readSettings();
 
+		// The persisted current can raise the operating current, never lower it.
+		//
+		// 250 mA is what a module runs at now (MOTORDRIVERSETTINGS_DEFAULT_CURRENT). Records
+		// written before that decision still ask for 150, and honouring them would leave
+		// exactly the boards that have been through provisioning running gentler than a virgin
+		// one -- and would quietly re-arm the current-recovery retry that this change exists to
+		// make unnecessary. Observed on the bench: a board came up "Operating Current: 150 mA
+		// (flash-b)" with the new default compiled in, because the record won.
+		//
+		// Clamped here rather than at the point of use so that the boot log, the RS485 settings
+		// report and the motor all agree about one number.
+		{
+			const uint16_t defaultMa =
+				(uint16_t) (MOTORDRIVERSETTINGS_DEFAULT_CURRENT * 1000.0f + 0.5f);
+			if(this->persistentSettings.operatingCurrentMa < defaultMa) {
+				char line[110];
+				sprintf(line, "Operating Current: raising persisted %u mA to %u mA\r\n"
+					, (unsigned int) this->persistentSettings.operatingCurrentMa
+					, (unsigned int) defaultMa);
+				Logger::X().printRaw(line);
+				this->persistentSettings.operatingCurrentMa = defaultMa;
+			}
+		}
+
 #ifndef GUI_DISABLED
 		this->gui = new GUI();
 		this->gui->setup();
@@ -129,6 +153,10 @@ namespace Modules
 		this->isInsideRoutine = false;
 		this->shouldEscapeFromRoutine = false;
 
+		// Out of the routine, so the next one starts from the neutral signal. LEDs::update()
+		// below owns the pins from here.
+		this->routineSignal = RoutineSignal::Normal;
+
 		// reset the indicator LED
 		digitalWrite(LED_INDICATOR, LOW);
 
@@ -165,6 +193,13 @@ namespace Modules
 	}
 
 	//---------
+	void
+	App::setRoutineSignal(RoutineSignal value)
+	{
+		App::instance->routineSignal = value;
+	}
+
+	//---------
 	bool
 	App::updateFromRoutine()
 	{
@@ -183,9 +218,13 @@ namespace Modules
 		// Feed the watchdog
 		LL_IWDG_ReloadCounter(IWDG);
 
-		// Alternate flashes
+		// Alternate flashes -- double rate while startup's check is running. See
+		// App::RoutineSignal.
 		{
-			auto state = (bool) (millis() % 500 < 250);
+			const uint32_t period = App::instance->routineSignal == RoutineSignal::Checking
+				? 250
+				: 500;
+			auto state = (bool) (millis() % period < period / 2);
 			digitalWrite(LED_INDICATOR, state ? HIGH : LOW);
 			digitalWrite(LED_HEARTBEAT, state ? LOW : HIGH);
 		}
