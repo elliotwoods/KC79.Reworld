@@ -42,6 +42,9 @@ namespace bltest {
 	/// How many pages have been erased, and how many double-words programmed.
 	uint32_t erasedPages();
 	uint32_t programmedWords();
+	/// Pretend the UART receive ring overran, to exercise the reporting path.
+	void setRingOverran();
+
 	/// Make the next erase of `page` fail, to exercise the flash-fault path.
 	void failEraseOf(uint32_t page);
 	/// Make the next program at `address` fail.

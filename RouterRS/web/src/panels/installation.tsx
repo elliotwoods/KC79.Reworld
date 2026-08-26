@@ -39,6 +39,7 @@ export function InstallationPanel() {
   const columns = Math.max(0, useNumber('/installation/arrangement/columns'));
   const rows = Math.max(1, useNumber('/installation/arrangement/rows'));
   const countX = Math.max(1, useNumber('/installation/arrangement/column_width'));
+  const panelHeight = Math.max(0, useNumber('/installation/arrangement/panel_height'));
   const flipped = useBool('/installation/arrangement/flipped');
   const pilotAll = useParam<number[]>('/installation/pilot_all');
 
@@ -96,6 +97,7 @@ export function InstallationPanel() {
               countX={countX}
               countY={rows}
               flipped={flipped}
+              panelHeight={panelHeight}
               cellPx={cellPx}
             />
           </div>

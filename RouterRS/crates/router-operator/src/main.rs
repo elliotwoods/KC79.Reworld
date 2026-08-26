@@ -31,6 +31,7 @@ use router_report::{ReportConfig, Reporter, ReporterHandle, SessionInfo};
 
 mod api;
 mod bridge;
+mod elf;
 mod schema;
 mod shared;
 

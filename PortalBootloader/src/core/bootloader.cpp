@@ -156,16 +156,27 @@ namespace bl {
 		// and splitting it is what lets frames keep arriving through it.
 		if(this->currentPhase == Phase::Erasing) {
 			if(this->upload.eraseStep()) {
+				const bool erased = !this->upload.eraseFailed();
 				this->currentPhase = Phase::Receiving;
 				this->noDeadline = false;
 				this->expiry = now + config::sessionSilence;
-				hw::logChar('e');
+				hw::logChar(erased ? 'e' : 'x');
+
+				// A bank that would not erase is reported, not glossed over. Answering `ok` here
+				// would send the host off to stream a whole image into flash that cannot take it,
+				// and the first sign of trouble would be a `verify` mismatch with no cause.
+				if(!erased) {
+					this->recentError = Error::Erase;
+				}
 
 				if(this->beginPending) {
 					this->beginPending = false;
 					if(this->beginRequest.replyAllowed) {
-						this->link.beginReply(this->beginRequest, "begin", 1);
-						this->link.fieldBool("ok", true);
+						this->link.beginReply(this->beginRequest, "begin", erased ? 1 : 2);
+						this->link.fieldBool("ok", erased);
+						if(!erased) {
+							this->link.fieldUint("err", code(Error::Erase));
+						}
 						this->link.endReply(this->beginRequest);
 					}
 				}
@@ -317,14 +328,19 @@ namespace bl {
 				this->replyError(command, "map", Error::BadParam);
 				break;
 			}
+			// The bin8 header carries one length byte, so a bitmap over 255 bytes cannot be sent
+			// in this shape. `begin` already refuses a chunk that small, but `map` accepts its
+			// own chunk override, so the same wall is checked here -- and refused rather than
+			// truncated. A truncated bitmap reads as "everything past here is missing", which
+			// sends a host round the repair loop for ever.
+			if(bytes > 255) {
+				this->replyError(command, "map", Error::BadParam);
+				break;
+			}
 			this->link.beginReply(command, "map", 3);
 			this->link.fieldUint("chunk", chunk);
 			this->link.fieldUint("len", length);
-			// The bin8 header carries one length byte, so a bitmap over 255 bytes could not be
-			// sent in this shape. A full bank at the smallest sensible chunk (8 bytes) would be
-			// 1,696 bytes; at the 128 the host uses it is 106. The cap keeps the reply well
-			// formed rather than truncated.
-			this->link.fieldBinary("map", bits, bytes > 255 ? 255 : (uint8_t) bytes);
+			this->link.fieldBinary("map", bits, (uint8_t) bytes);
 			this->link.endReply(command);
 			break;
 		}
@@ -375,7 +391,10 @@ namespace bl {
 			break;
 
 		default:
-			this->replyError(command, "status", Error::UnknownVerb);
+			// Answered as `?`, not as the name of some verb we do understand. A host that matches
+			// replies by verb -- which `fw_session` does -- would read a refusal labelled "status"
+			// as a status reply, which is a worse answer than the silence this replaced.
+			this->replyError(command, "?", Error::UnknownVerb);
 			break;
 		}
 
@@ -403,7 +422,7 @@ namespace bl {
 			appBase = config::appBaseLegacy;
 		}
 
-		const uint8_t fields = (uint8_t) (13 + (appBase != 0 ? 1 : 0));
+		const uint8_t fields = (uint8_t) (14 + (appBase != 0 ? 1 : 0));
 		this->link.beginReply(command, "status", fields);
 		this->link.fieldUint("v", config::protocolVersion);
 		this->link.fieldInt("id", this->myId);
@@ -422,6 +441,22 @@ namespace bl {
 		this->link.fieldUint("wp", this->upload.highWater());
 		this->link.fieldUint("n", this->upload.received());
 		this->link.fieldUint("err", code(this->recentError));
+		// Bit 0: a frame arrived longer than the window and was dropped. Bit 1: the UART receive
+		// ring overran. Both were already latched and both were thrown away, which meant the two
+		// explanations for "the upload keeps losing frames" -- frames too long for the window, or
+		// frames arriving faster than this board can drain them -- were the two things a host
+		// could not ask about.
+		//
+		// Accumulated rather than sampled, because `hw::ringOverran()` clears as it reads: asking
+		// twice would otherwise report the overrun to whichever `status` happened to land first
+		// and hide it from every one after.
+		if(this->link.overflowed()) {
+			this->dropFlags |= 1u;
+		}
+		if(hw::ringOverran()) {
+			this->dropFlags |= 2u;
+		}
+		this->link.fieldUint("drops", this->dropFlags);
 		if(appBase != 0) {
 			this->link.fieldMap("app", 2);
 			this->link.fieldUint("base", descriptor != nullptr ? descriptor->app_base : appBase);

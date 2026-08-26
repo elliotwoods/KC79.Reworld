@@ -166,6 +166,13 @@ namespace bl {
 		// fields. Awkward, and much smaller than the alternative of buffering a reply to measure
 		// it -- which in a 16 kB image is the kind of convenience that costs a feature elsewhere.
 
+		/// Whether a frame has been dropped for being longer than the window can hold.
+		///
+		/// Sticky once set; the window latches it and nothing clears it. Surfaced as bit 0 of
+		/// `status.drops`, which is the only way a host can tell "your frames are too big" from
+		/// the several other reasons a chunk might not have landed.
+		bool overflowed() const { return this->window.overflowed(); }
+
 		void beginReply(const Command & request, const char * verb, uint8_t fieldCount);
 		void fieldUint(const char * name, uint32_t value);
 		void fieldInt(const char * name, int8_t value);

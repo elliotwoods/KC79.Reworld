@@ -419,8 +419,17 @@ export function settingsState(v: SettingsView): BoardValue {
 export interface FirmwareItem {
   id: string;
   region: 'bootloader' | 'application';
-  /** `built` from this tree, or a committed `reference` image. */
+  /**
+   * `built` from this tree, a committed `reference` image, or one an operator `dropped` on the
+   * window. See `portal_swd::artefacts::Origin`.
+   */
   origin: string;
+  /**
+   * What to call it. For a built or reference image this is the product name and the bank header
+   * already says it, so `firmwareRow` ignores it; for a dropped one it is the operator's own
+   * filename, which is the only name that image has.
+   */
+  label?: string;
   bytes: number;
   /** File mtime, seconds since the epoch. */
   modified?: number | null;
@@ -442,49 +451,148 @@ export interface FirmwareItem {
  * its file instead.
  */
 export function firmwareRow(item: FirmwareItem): { title: string; detail: string } {
-  const title = item.variant && item.hardware
-    ? `${item.variant[0].toUpperCase()}${item.variant.slice(1)} · ${item.hardware}`
-    : item.origin === 'reference'
-      ? 'Reference image'
-      : 'Built from source';
+  // A dropped image is named by the file, because that is the only name it has and the operator
+  // chose it. It also cannot say which PCB variant it targets -- nothing in a `.bin` does -- so
+  // the descriptor's base does the work instead, and the row says which bootloader generation the
+  // image will run under rather than pretending to know the board.
+  const title = item.origin === 'dropped'
+    ? (item.label || 'Dropped file')
+    : item.variant && item.hardware
+      ? `${item.variant[0].toUpperCase()}${item.variant.slice(1)} · ${item.hardware}`
+      : item.origin === 'reference'
+        ? 'Reference image'
+        : 'Built from source';
   const version = item.banner?.replace(/^(Portal|Bootloader) /, '') ?? null;
   const when = item.origin === 'reference'
     ? item.id.replace(/^reference:/, '')
     : item.modified
-      ? `built ${new Date(item.modified * 1000).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}`
+      ? `${item.origin === 'dropped' ? 'dropped' : 'built'} ${new Date(item.modified * 1000).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}`
       : null;
   const size = `${(item.bytes / 1024).toFixed(1)} kB`;
   return { title, detail: [version, when, size].filter(Boolean).join(' · ') };
 }
 
+// ---------------------------------------------------------------- dropping firmware in
+
+/** One file's journey through the drop, as the overlay shows it. */
+export interface DropResult {
+  name: string;
+  /** `null` while it is still in flight. */
+  ok: boolean | null;
+  detail?: string;
+  region?: 'bootloader' | 'application';
+  banner?: string;
+  bytes?: number;
+  /** Whether the drop was an ELF, whose symbol table gives the run-check a liveness address. */
+  hasElf?: boolean;
+  fits?: boolean;
+}
+
+/** The largest thing that can be firmware for this part, ELF debug info included. Mirrors `MAX_DROP_BYTES`. */
+export const MAX_DROP_BYTES = 1024 * 1024;
+
+/**
+ * What the page can say about a file before uploading it.
+ *
+ * Deliberately thin. The host reads the bytes and gives the real answer, so anything checked here
+ * is a *second* rule that could disagree with it -- and a page that refused a file the bench would
+ * have accepted is worse than one that asked. So this covers only what the host cannot: it has no
+ * idea what the operator dragged until the body arrives, and sending eight hundred megabytes of
+ * video up a loopback socket to be told it is not firmware is a poor way to find out.
+ *
+ * Returns the refusal, or `null` to go ahead.
+ */
+export function dropVerdict(name: string, bytes: number): string | null {
+  const extension = name.slice(name.lastIndexOf('.')).toLowerCase();
+  if (extension !== '.bin' && extension !== '.elf') {
+    return `${name.split('.').pop() ?? 'that'} is not a firmware image — drop a .bin or a .elf`;
+  }
+  if (bytes === 0) return 'the file is empty';
+  if (bytes > MAX_DROP_BYTES) {
+    return `${Math.round(bytes / 1024)} kB is too large to be firmware for this part`;
+  }
+  return null;
+}
+
 // ---------------------------------------------------------------- leaving a bank out
 
-/** The head row of each bank's list: the choice not to write that bank at all. */
-export function omitLabel(region: 'bootloader' | 'application'): string {
-  return region === 'bootloader' ? 'No bootloader' : 'No application';
+/**
+ * The two head rows of each bank's list: the ways of not writing an image to it.
+ *
+ * There used to be one row, reading "No bootloader" / "No application", plus a switch further down
+ * the panel deciding what that meant. Two problems with that. It named the *selection* rather than
+ * the *outcome*, and the outcome is the part that matters — the same click either leaves the
+ * board's firmware alone or destroys it. And it put the two halves of one decision in two places,
+ * so choosing correctly meant looking somewhere else first.
+ *
+ * They are now two rows, sitting with the images as peers, because that is what they are: three
+ * or four things this bank could end up holding, one of which is nothing. The switch is gone —
+ * the rows *are* the switch, and two controls for one value is worse than either alone.
+ *
+ * **Why one policy is enough for both banks.** `Unselected` is a single global value in
+ * `portal_swd`, and `Unselected::Erase` writes the whole firmware partition in one window rather
+ * than one bank. That looks like an expressiveness problem for a per-bank control and is not: a
+ * selection with *both* banks empty is `LoadError::NothingSelected` and never runs, so at most one
+ * bank is ever actually left out of a pass that does anything. Making it per-bank would add no
+ * reachable behaviour and would rewrite `write_windows` in a crate PortalFlasher shares.
+ */
+export type OmitKind = 'keep' | 'erase';
+
+export function omitLabel(region: 'bootloader' | 'application', kind: OmitKind): string {
+  return kind === 'keep' ? `Keep existing ${region}` : `Erase ${region} bank`;
 }
 
 /**
- * What leaving this bank out will actually do, which depends entirely on the preserve toggle.
+ * The consequence, under the label that already said the action.
  *
- * Written as two different sentences rather than one hedged one: "left alone" and "erased" are
- * opposite outcomes for the same click, and an operator reading the row should not have to
- * cross-reference a switch elsewhere on the page to know which they are choosing.
+ * The keep arm names the read-back, because "keep" is a promise the pass actually proves — the rig
+ * reads the preserved span before programming and compares it after. The erase arm names the cost,
+ * and for the bootloader that cost is the board's ability to start at all.
  */
-export function omitDetail(region: 'bootloader' | 'application', preserve: boolean): string {
-  return preserve
-    ? `Do not write this bank — keep whatever the board already has`
-    : `Do not write this bank — the board's ${region} will be erased`;
+export function omitDetail(region: 'bootloader' | 'application', kind: OmitKind): string {
+  if (kind === 'keep') {
+    return 'Left untouched, and read back afterwards to prove it did not move';
+  }
+  return region === 'bootloader'
+    ? 'Wiped and not replaced — the board will not be able to boot'
+    : 'Wiped and not replaced — the board will have no application to run';
 }
 
-/** The banner shown when preserve is off and a bank has been left out. */
+// ---------------------------------------------------------------- picker order
+
+/**
+ * The order a bank's rows are shown in: dropped images first, newest first, then the build tree.
+ *
+ * A dropped file is the one the operator is holding in their head — they put it there seconds ago,
+ * and it is the reason they are looking at this list. Appending it below four `.pio` builds means
+ * the answer to "did that work?" is below the fold of a 260 px scroller. The build tree keeps the
+ * order discovery gave it, which is deliberate and already meaningful.
+ */
+export function sortFirmware<T extends FirmwareItem>(items: T[]): T[] {
+  const dropped = items.filter((item) => item.origin === 'dropped');
+  const rest = items.filter((item) => item.origin !== 'dropped');
+  dropped.sort((a, b) => (b.modified ?? 0) - (a.modified ?? 0) || a.id.localeCompare(b.id));
+  return [...dropped, ...rest];
+}
+
+/**
+ * The banner shown when a bank has been set to erase.
+ *
+ * The row that armed it is already red and already says what it does, so this is not there to
+ * inform — it is there because the row is one of six in a scrolling list and this is the only
+ * control on the page that can destroy working firmware. It states the recovery cost, which is the
+ * part a red border cannot.
+ *
+ * It no longer opens with "Preserve is off": that named a switch, and the switch is gone — the
+ * choice is now the row itself.
+ */
 export function eraseWarning(bootOmitted: boolean, appOmitted: boolean): string {
   if (bootOmitted && appOmitted) return 'Nothing is selected, so there is nothing to flash.';
   const bank = bootOmitted ? 'bootloader' : 'application';
   const consequence = bootOmitted
     ? ' The board will not be able to boot until a bootloader is written again.'
     : '';
-  return `Preserve is off: this pass will erase the board's ${bank} bank rather than keeping it.${consequence}`;
+  return `This pass will erase the board's ${bank} bank rather than keeping it.${consequence}`;
 }
 
 /** The manual flash button's label, so a one-bank pass cannot be pressed as if it were a full one. */

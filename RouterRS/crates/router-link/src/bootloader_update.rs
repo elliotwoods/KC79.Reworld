@@ -311,10 +311,16 @@ impl BootloaderUpdate {
             if !envelope.trailer.acceptable() || envelope.source != self.params.id {
                 continue;
             }
+            // A zero seq means the board did not echo one, not that it echoed the wrong
+            // one. `RS485::checkChecksum()` is what records the sequence number, and it
+            // returns without reading the trailer at all while `verifyChecksumEnabled` is
+            // false -- which it is on every board in the field -- so `lastRxSeq` stays 0
+            // and every reply carries 0. `next_seq()` never issues 0, so this cannot
+            // swallow a genuine echo.
             if envelope
                 .trailer
                 .seq()
-                .is_some_and(|seq| seq != pending.seq)
+                .is_some_and(|seq| seq != 0 && seq != pending.seq)
             {
                 continue;
             }

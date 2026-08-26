@@ -183,6 +183,13 @@ namespace hw {
 	}
 
 	//----------
+	bool ringOverran()
+	{
+		// The flag itself lives with the ISR that sets it, in SRAM. This is only the seam.
+		return target::ringOverran();
+	}
+
+	//----------
 	void ledToggle(Led led)
 	{
 		const uint32_t pin = (led == Led::Frame) ? 3u : 4u;

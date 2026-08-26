@@ -81,6 +81,15 @@ namespace hw {
 	/// call this from inside its loop, not around it.
 	void watchdogKick();
 
+	/// Whether the UART receive ring has overrun since this was last asked, clearing the flag.
+	///
+	/// Clear-on-read is the ISR's contract, not this one's: the caller is expected to latch the
+	/// answer somewhere that outlives a single question, because "did this board ever fall behind"
+	/// is the useful form of it. It is one of only two explanations for an upload that keeps
+	/// losing frames -- the other being a frame too long for the window -- and until it was
+	/// reported, neither could be asked about from the bus.
+	bool ringOverran();
+
 	// ---- Indicators ---------------------------------------------------------------------------
 
 	enum class Led : uint8_t { Frame = 0, Heartbeat = 1 };

@@ -99,11 +99,16 @@ namespace config {
 	// Long, because the host may be servicing 53 other boards in between.
 	constexpr uint32_t sessionSilence = 60000;
 
-	// Heartbeat LED periods, chosen so the three states are distinguishable across a rack:
+	// Heartbeat LED half-periods, chosen so the three states are distinguishable across a rack:
 	// a slow blink while idle, a fast one while receiving, a very fast one when there is nothing
 	// valid to run.
-	constexpr uint32_t heartbeatIdle = 100;
-	constexpr uint32_t heartbeatBusy = 500;
+	//
+	// The values used to say the opposite of that sentence -- idle blinked fastest and receiving
+	// slowest. Nothing had ever watched them, because this firmware had not run on a board; the
+	// comment describes the intent and the conventional reading, so the numbers were brought to
+	// it rather than the other way round.
+	constexpr uint32_t heartbeatIdle = 500;
+	constexpr uint32_t heartbeatBusy = 100;
 	constexpr uint32_t heartbeatNoApp = 50;
 
 	// ---- Sanity ----------------------------------------------------------------------------

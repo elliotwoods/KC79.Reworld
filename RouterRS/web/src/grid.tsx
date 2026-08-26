@@ -60,6 +60,8 @@ export interface WallProps {
   countX: number;
   countY: number;
   flipped: boolean;
+  /** Rows per panel; 0 when a column is one flat grid. See `portalCell`. */
+  panelHeight: number;
   /** Cell size in px, computed by the parent to fill the available width. */
   cellPx: number;
 }
@@ -71,7 +73,7 @@ export interface WallProps {
  * sampling drives the wall, a wash of the exact preview pixel this portal samples, so the
  * Renderer and the wall visibly agree. Click a cell to inspect that portal.
  */
-export function InstallationGrid({ columns, countX, countY, flipped, cellPx }: WallProps) {
+export function InstallationGrid({ columns, countX, countY, flipped, panelHeight, cellPx }: WallProps) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const pose = useRing('/tel/portals/pose');
   const link = useRing('/tel/portals/link');
@@ -123,7 +125,7 @@ export function InstallationGrid({ columns, countX, countY, flipped, cellPx }: W
 
       const base = offsets[col] ?? 0;
       for (let i = 0; i < countX * countY; i++) {
-        const { gx, gy } = gridCell(i, countX, countY, flipped);
+        const { gx, gy } = gridCell(i, countX, countY, flipped, panelHeight);
         const x = colX + gx * cellPx;
         const y = gy * cellPx;
         const ccx = x + cellPx / 2;
@@ -141,7 +143,7 @@ export function InstallationGrid({ columns, countX, countY, flipped, cellPx }: W
           wash = healthFill(state, pal);
         } else {
           if (previewRow) {
-            const pixel = previewIndex(col, i, countX, countY, flipped, previewW, countY);
+            const pixel = previewIndex(col, i, countX, countY, flipped, previewW, countY, panelHeight);
             if (pixel != null && previewRow.length >= (pixel + 1) * 3) {
               const r = Math.round(previewRow[pixel * 3]);
               const g = Math.round(previewRow[pixel * 3 + 1]);
@@ -267,6 +269,7 @@ export function InstallationGrid({ columns, countX, countY, flipped, cellPx }: W
       flipped,
       cellPx,
       WALL_SEP,
+      panelHeight,
     );
   };
 

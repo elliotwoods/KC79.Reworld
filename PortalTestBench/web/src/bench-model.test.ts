@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { type BenchView, type FirmwareItem, type LinkView, type SerialView, type SettingsView, connectBlocker, enumName, eraseWarning, firmwareRow, flashButtonLabel, linkBlocker, omitDetail, omitLabel, probeListEmpty, serialState, settingsState, settingsSummary, soundFor, thresholdTone, verdictTile, whyDisabled } from './bench-model';
+import { type BenchView, type FirmwareItem, type LinkView, type SerialView, type SettingsView, MAX_DROP_BYTES, connectBlocker, dropVerdict, enumName, eraseWarning, firmwareRow, flashButtonLabel, linkBlocker, omitDetail, omitLabel, probeListEmpty, sortFirmware, serialState, settingsState, settingsSummary, soundFor, thresholdTone, verdictTile, whyDisabled } from './bench-model';
 
 const ready: BenchView = {
   connected: true,
@@ -356,10 +356,72 @@ describe('settingsSummary', () => {
   });
 });
 
+describe('sortFirmware', () => {
+  const built = (id: string): FirmwareItem => ({ id, region: 'application', origin: 'built', bytes: 1, modified: 100 });
+  const dropped = (id: string, modified: number): FirmwareItem =>
+    ({ id, region: 'application', origin: 'dropped', label: id, bytes: 1, modified });
+
+  /**
+   * The row the operator just made is the reason they are looking at the list, and the bank's
+   * scroller is 260 px tall — appended below four `.pio` builds it lands below the fold.
+   */
+  it('puts dropped images first, newest first, and leaves the build tree in discovery order', () => {
+    const order = sortFirmware([built('a'), built('b'), dropped('old', 100), dropped('new', 200)]);
+    expect(order.map((item) => item.id)).toEqual(['new', 'old', 'a', 'b']);
+  });
+
+  it('breaks a same-second tie on the id rather than on argument order', () => {
+    const forwards = sortFirmware([dropped('z', 100), dropped('a', 100)]).map((i) => i.id);
+    const backwards = sortFirmware([dropped('a', 100), dropped('z', 100)]).map((i) => i.id);
+    expect(forwards).toEqual(backwards);
+  });
+});
+
+describe('dropVerdict', () => {
+  it('lets a .bin and a .elf through', () => {
+    expect(dropVerdict('firmware.bin', 60_000)).toBeNull();
+    expect(dropVerdict('firmware.elf', 158_788)).toBeNull();
+    expect(dropVerdict('FIRMWARE.BIN', 60_000)).toBeNull();
+  });
+
+  it('names the extension it got when it is not one of those', () => {
+    expect(dropVerdict('holiday.mp4', 60_000)).toContain('mp4');
+    expect(dropVerdict('firmware.hex', 60_000)).toContain('drop a .bin or a .elf');
+  });
+
+  /**
+   * The one thing the host genuinely cannot do for itself: it has no idea what was dragged until
+   * the body arrives, and sending eight hundred megabytes up a loopback socket to be told it is
+   * not firmware is a poor way to find out.
+   */
+  it('refuses something far too large before it is uploaded', () => {
+    expect(dropVerdict('firmware.bin', MAX_DROP_BYTES + 1)).toContain('too large');
+    expect(dropVerdict('firmware.bin', 0)).toContain('empty');
+  });
+});
+
 describe('firmwareRow', () => {
   const optical: FirmwareItem = { id: 'portalfw:application_bank_optical', region: 'application', origin: 'built', bytes: 98196, modified: 1787646875, variant: 'optical', hardware: 'PCB v6', banner: 'Portal v2026-08-25_17.34 8799276+' };
+  const dropped: FirmwareItem = { id: 'dropped:a1b2c3d4e5f6', region: 'application', origin: 'dropped', label: 'rc3 optical.bin', bytes: 98196, modified: 1787646875, banner: 'Portal v2026-08-25_17.34 8799276+' };
   const built: FirmwareItem = { id: 'portalbootloader:bootloader', region: 'bootloader', origin: 'built', bytes: 19568, modified: 1787647255, banner: 'Bootloader v5' };
   const reference: FirmwareItem = { id: 'reference:BootloaderRS485-2023-08-26.bin', region: 'bootloader', origin: 'reference', bytes: 22708, modified: 1787142932, banner: 'Bootloader v4' };
+
+  /**
+   * A dropped image is named by the file. It is the only name it has -- nothing in a `.bin` says
+   * which PCB it targets -- and it is the name the operator chose, so it is the one they will
+   * recognise in the picker a minute later.
+   */
+  it('names a dropped image by its file, and says when it arrived rather than when it was built', () => {
+    const row = firmwareRow(dropped);
+    expect(row.title).toBe('rc3 optical.bin');
+    expect(row.detail).toContain('dropped ');
+    expect(row.detail).not.toContain('built ');
+    expect(row.detail).toContain('95.9 kB');
+  });
+
+  it('falls back to a name rather than an empty title for a dropped image with no label', () => {
+    expect(firmwareRow({ ...dropped, label: undefined }).title).toBe('Dropped file');
+  });
 
   it('names the PCB in the title and the build in the detail, without repeating the product', () => {
     const row = firmwareRow(optical);
@@ -423,16 +485,21 @@ describe('the ST-Link list when it is empty', () => {
 
 describe('leaving a bank out', () => {
   it('names the choice per bank', () => {
-    expect(omitLabel('bootloader')).toBe('No bootloader');
-    expect(omitLabel('application')).toBe('No application');
+    // Each label names an outcome, not a selection. "No bootloader" named neither, and left the
+    // operator to find a switch elsewhere on the page before they could know what they had chosen.
+    expect(omitLabel('bootloader', 'keep')).toBe('Keep existing bootloader');
+    expect(omitLabel('bootloader', 'erase')).toBe('Erase bootloader bank');
+    expect(omitLabel('application', 'keep')).toBe('Keep existing application');
+    expect(omitLabel('application', 'erase')).toBe('Erase application bank');
   });
 
-  // The same click has opposite consequences depending on a switch elsewhere on the page, so the
-  // row has to say which one the operator is about to get rather than leaving them to look it up.
-  it('says what leaving a bank out will actually do, and the two answers are opposites', () => {
-    expect(omitDetail('application', true)).toContain('keep whatever the board already has');
-    expect(omitDetail('application', false)).toContain('erased');
-    expect(omitDetail('bootloader', false)).toContain("board's bootloader will be erased");
+  // Both are offered at once, side by side, precisely because they are opposites: the operator
+  // picks the outcome rather than picking "not this one" and then qualifying it.
+  it('says what each of the two does, and the two answers are opposites', () => {
+    expect(omitDetail('application', 'keep')).toContain('read back');
+    expect(omitDetail('bootloader', 'keep')).toContain('Left untouched');
+    expect(omitDetail('application', 'erase')).toContain('no application to run');
+    expect(omitDetail('bootloader', 'erase')).toContain('will not be able to boot');
   });
 
   it('warns about an erase, and says plainly when it costs the board its ability to boot', () => {

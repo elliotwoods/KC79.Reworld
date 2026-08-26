@@ -236,6 +236,14 @@ pub fn declare(builder: &mut SchemaBuilder, shape: &Shape, _simulated: bool) -> 
     )?;
     check(
         builder
+            .param("/installation/arrangement/panel_height")
+            .i32(0)
+            .range(0.0, 16.0)
+            .label("Panel height")
+            .register(),
+    )?;
+    check(
+        builder
             .param("/installation/arrangement/flipped")
             .bool(false)
             .label("Flipped")
@@ -705,6 +713,7 @@ pub struct Params {
     pub arrangement_columns: ParamId,
     pub arrangement_rows: ParamId,
     pub arrangement_column_width: ParamId,
+    pub arrangement_panel_height: ParamId,
     pub arrangement_flipped: ParamId,
     pub messaging_transmit: ParamId,
     pub messaging_period_s: ParamId,
@@ -879,6 +888,7 @@ impl Params {
             arrangement_columns: id("/installation/arrangement/columns")?,
             arrangement_rows: id("/installation/arrangement/rows")?,
             arrangement_column_width: id("/installation/arrangement/column_width")?,
+            arrangement_panel_height: id("/installation/arrangement/panel_height")?,
             arrangement_flipped: id("/installation/arrangement/flipped")?,
             messaging_transmit: id("/installation/messaging/transmit")?,
             messaging_period_s: id("/installation/messaging/period_s")?,

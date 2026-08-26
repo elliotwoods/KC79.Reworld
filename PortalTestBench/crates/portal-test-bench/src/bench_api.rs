@@ -14,7 +14,7 @@ use axum::extract::{Query, State};
 use axum::http::StatusCode;
 use axum::http::header;
 use axum::response::IntoResponse;
-use axum::routing::{get, post};
+use axum::routing::{delete, get, post};
 use axum::{Json, Router};
 use bench_core::bench::Origin;
 use bench_core::transport::Op;
@@ -33,6 +33,8 @@ pub fn routes(shared: Arc<Shared>) -> Router {
         .route("/api/bench/survey/export.json", get(export_survey_json))
         .route("/api/bench/survey/export.csv", get(export_survey_csv))
         .route("/api/bench/firmware", get(firmware))
+        .route("/api/bench/firmware/dropped", post(drop_firmware))
+        .route("/api/bench/firmware/dropped", delete(forget_firmware))
         .route("/api/bench/provision", get(provision))
         .route("/api/bench/provision/history", get(provision_history))
         .route("/api/bench/run", post(run))
@@ -124,6 +126,124 @@ fn ports_body(mirror: &SurveyMirror) -> Option<serde_json::Value> {
 
 async fn firmware(State(shared): State<Arc<Shared>>) -> impl IntoResponse {
     Json(shared.artefacts.lock().unwrap().clone())
+}
+
+/// The largest thing that can be a firmware image for this part, with room for an ELF.
+///
+/// The flat image can be at most the 128 kB of flash and is checked against the bank it is going
+/// into later; an unstripped ELF carrying debug info for the same code runs several times that --
+/// the committed reference bootloader is 22 kB of image inside a 155 kB ELF. One megabyte is
+/// generous for both and still refuses a video someone dragged onto the wrong window before any of
+/// it is held in memory to be classified.
+const MAX_DROP_BYTES: usize = 1024 * 1024;
+
+#[derive(serde::Deserialize)]
+struct DropQuery {
+    /// The operator's own filename, which becomes the row's name. Sanitised before use.
+    name: String,
+    /// `bootloader`, `application`, or absent for "work it out".
+    #[serde(default)]
+    bank: Option<String>,
+}
+
+/// Take firmware handed to the bench directly, rather than found by a scan.
+///
+/// The bytes are the body, not a path, and that is the whole design rather than an accident of
+/// HTTP: the same page runs in a WKWebView, in a WebView2 window and in a browser on another
+/// machine, and only one of those three could have handed over a path. Uploading the bytes is the
+/// one answer that works in all three, and it is also the one that works when the operator is not
+/// sitting at the bench.
+///
+/// This handler does the byte work -- flatten, classify, write -- because none of it touches
+/// hardware and because answering the drop immediately is what makes it feel like it landed. What
+/// it does not do is mutate the worker's `Discovery`; that is enqueued, and the page catches up on
+/// `/flash/artefacts_generation`.
+async fn drop_firmware(
+    State(shared): State<Arc<Shared>>,
+    Query(query): Query<DropQuery>,
+    body: axum::body::Bytes,
+) -> impl IntoResponse {
+    use portal_swd::staging::{Bank, StageError};
+
+    if body.is_empty() {
+        return refused(StatusCode::BAD_REQUEST, "the dropped file is empty");
+    }
+    if body.len() > MAX_DROP_BYTES {
+        return refused(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            &format!(
+                "{} kB is too large to be firmware for this part",
+                body.len() / 1024
+            ),
+        );
+    }
+    let bank = match query.bank.as_deref() {
+        None | Some("") | Some("auto") => Bank::Auto,
+        Some("bootloader") => Bank::Bootloader,
+        Some("application") => Bank::Application,
+        Some(other) => {
+            return refused(
+                StatusCode::BAD_REQUEST,
+                &format!("`{other}` is not a bank; use bootloader, application, or auto"),
+            );
+        }
+    };
+
+    // The same function `FlashController::new` resolves its staging directory from, called rather
+    // than carried on `Shared`: it reads the environment and nothing else, so two callers cannot
+    // drift, and a copy on the mirror would be a second answer to keep in step.
+    let dir = crate::dropped_dir();
+    match portal_swd::staging::stage(&dir, &query.name, &body, bank) {
+        Ok(artefact) => {
+            shared.push(Request::AdoptDropped {
+                id: artefact.id.clone(),
+                select: true,
+            });
+            (
+                StatusCode::OK,
+                Json(serde_json::json!({
+                    "ok": true,
+                    "id": artefact.id,
+                    "label": artefact.label,
+                    "region": artefact.region.as_str(),
+                    "banner": artefact.banner,
+                    "bytes": artefact.bytes,
+                    "base": artefact.base,
+                    "fits": artefact.fits(),
+                    "has_elf": artefact.elf.is_some(),
+                })),
+            )
+        }
+        // A refusal is the operator's answer, not an internal fault: 422 rather than 500, and the
+        // reason `classify` gave rather than a generic one. It is the whole value of the feature
+        // that "this is a no_bootloader build and would never run" arrives now instead of after a
+        // flash that verified.
+        Err(error @ StageError::Refused(_)) => {
+            refused(StatusCode::UNPROCESSABLE_ENTITY, &error.to_string())
+        }
+        Err(error) => refused(StatusCode::INTERNAL_SERVER_ERROR, &error.to_string()),
+    }
+}
+
+#[derive(serde::Deserialize)]
+struct ForgetQuery {
+    id: String,
+}
+
+/// Forget a staged image. The id is checked against the hash shape inside `staging::remove`.
+async fn forget_firmware(
+    State(shared): State<Arc<Shared>>,
+    Query(query): Query<ForgetQuery>,
+) -> impl IntoResponse {
+    shared.push(Request::ForgetDropped { id: query.id });
+    (StatusCode::OK, Json(serde_json::json!({ "ok": true })))
+}
+
+fn refused(status: StatusCode, error: &str) -> (StatusCode, Json<serde_json::Value>) {
+    (
+        status,
+        Json(serde_json::json!({ "ok": false, "error": error })),
+    )
 }
 
 async fn provision(State(shared): State<Arc<Shared>>) -> impl IntoResponse {

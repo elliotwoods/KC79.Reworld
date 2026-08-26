@@ -89,6 +89,23 @@ async fn firmware_upload(
     if body.len() > MAX_BYTES {
         return Json(json!({ "ok": false, "error": "file too large for a firmware image" }));
     }
+    // An ELF is flattened here rather than refused. Everything downstream takes the flat image
+    // `objcopy -O binary` produces, and a `.elf` is the same image with a symbol table around it --
+    // which is as likely to be the file somebody sends as the `.bin` is. It is stored under a
+    // `.bin` name because that is what it now contains, and because `firmware_list` lists `.bin`.
+    let (name, image) = if crate::elf::is_elf(&body) {
+        match crate::elf::flatten(&body) {
+            Ok((_, image)) => (
+                format!("{}.bin", name.trim_end_matches(".elf")),
+                std::borrow::Cow::Owned(image),
+            ),
+            Err(error) => {
+                return Json(json!({ "ok": false, "error": error.to_string() }));
+            }
+        }
+    } else {
+        (name, std::borrow::Cow::Borrowed(&body[..]))
+    };
     let Some(dir) = upload_dir() else {
         return Json(json!({ "ok": false, "error": "no per-user state directory" }));
     };
@@ -96,8 +113,8 @@ async fn firmware_upload(
         return Json(json!({ "ok": false, "error": error.to_string() }));
     }
     let path = dir.join(&name);
-    match std::fs::write(&path, &body) {
-        Ok(()) => Json(json!({ "ok": true, "path": path.display().to_string(), "bytes": body.len() })),
+    match std::fs::write(&path, &image) {
+        Ok(()) => Json(json!({ "ok": true, "path": path.display().to_string(), "bytes": image.len() })),
         Err(error) => Json(json!({ "ok": false, "error": error.to_string() })),
     }
 }
@@ -158,12 +175,12 @@ async fn repeaters_list(State(shared): State<Arc<Shared>>) -> Json<Json_> {
                             .map(|byte| format!("{byte:02x}"))
                             .collect::<Vec<_>>()
                             .join(":")),
-                        "mode": status.routing_mode,
+                        "block": status.block_state,
                         "range": status.range.map(|(start, end)| [start, end]),
                         "event_seq": status.event_seq,
                         "queue_drops": status.queue_drops,
                         "parse_errors": status.parse_errors,
-                        "conflicts": status.conflicts,
+                        "relayed_control": status.relayed_control,
                         "reset_reason": status.reset_reason,
                         "boots": status.boots,
                         "unhealthy_boots": status.unhealthy_boots,
@@ -299,6 +316,7 @@ async fn state(State(shared): State<Arc<Shared>>) -> Json<Json_> {
                 "index": column.index,
                 "count_x": column.count_x,
                 "count_y": column.count_y,
+                "panel_height": column.panel_height,
                 "flipped": column.flipped,
                 "connected": column.stats.connected,
                 "device": column.stats.device_description,
@@ -334,7 +352,8 @@ async fn state(State(shared): State<Arc<Shared>>) -> Json<Json_> {
             "columns": snap.arrangement.0,
             "rows": snap.arrangement.1,
             "column_width": snap.arrangement.2,
-            "flipped": snap.arrangement.3,
+            "panel_height": snap.arrangement.3,
+            "flipped": snap.arrangement.4,
         },
         "transmit_mode": snap.transmit_mode,
         "image_enabled": snap.image_enabled,

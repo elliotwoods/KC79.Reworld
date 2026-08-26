@@ -7,7 +7,7 @@
 
 using repeater::FrameRouter;
 using repeater::FrameView;
-using repeater::RoutingMode;
+using repeater::BlockState;
 using repeater::Side;
 
 namespace {
@@ -83,9 +83,10 @@ bool pop(FrameRouter& router, Side expectedSource) {
     return true;
 }
 
+/// Give the panel the block its provisioned index implies. Replaces the old helper that
+/// taught the router by replaying a branch reply -- traffic no longer teaches it anything.
 void learn(FrameRouter& router, uint8_t source) {
-    ingest(router, Side::Two, envelope(0, source, 0xC3));
-    TEST_ASSERT_TRUE(pop(router, Side::Two));
+    router.setLocalBlock(static_cast<uint8_t>(((source - 1) / 9) * 9 + 1));
 }
 
 } // namespace
@@ -128,41 +129,40 @@ void test_queue_is_bounded_and_observable() {
     TEST_ASSERT_EQUAL_UINT64(1, router.stats().oneToTwo.queueDrops);
 }
 
-void test_each_valid_reply_learns_its_nine_id_block() {
-    for(uint8_t block = 0; block < 6; ++block) {
+void test_the_local_block_comes_from_the_provisioned_index() {
+    for(uint8_t panel = 0; panel < 6; ++panel) {
         FrameRouter router;
-        const uint8_t source = static_cast<uint8_t>(block * 9 + 5);
-        learn(router, source);
-        TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(RoutingMode::Filtered), static_cast<uint8_t>(router.routingMode()));
-        TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(block * 9 + 1), router.localRangeStart());
-        TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(block * 9 + 9), router.localRangeEnd());
+        TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(BlockState::Unknown), static_cast<uint8_t>(router.blockState()));
+        router.setLocalBlock(static_cast<uint8_t>(panel * 9 + 1));
+        TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(BlockState::Assigned), static_cast<uint8_t>(router.blockState()));
+        TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(panel * 9 + 1), router.localRangeStart());
+        TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(panel * 9 + 9), router.localRangeEnd());
     }
 }
 
-void test_learned_router_filters_nonlocal_unicasts() {
+/// Panels are chained, so a unicast for a Portal on a panel further down the chain has
+/// no route to it except through this one. Dropping it -- which a star topology could
+/// afford, because every repeater heard the host directly -- strands everything below.
+void test_unicasts_for_downstream_panels_are_relayed() {
     FrameRouter router;
-    learn(router, 4);
+    learn(router, 4); // this panel serves 1..9
     ingest(router, Side::One, envelope(8, 0));
     TEST_ASSERT_TRUE(pop(router, Side::One));
-    ingest(router, Side::One, envelope(10, 0));
-    FrameView view;
-    TEST_ASSERT_FALSE(router.nextFrame(view));
-    TEST_ASSERT_EQUAL_UINT64(1, router.stats().filteredUnicasts);
+    ingest(router, Side::One, envelope(10, 0)); // panel 2
+    TEST_ASSERT_TRUE(pop(router, Side::One));
+    ingest(router, Side::One, envelope(54, 0)); // panel 6, the far end
+    TEST_ASSERT_TRUE(pop(router, Side::One));
 }
 
-void test_keyframes_are_filtered_by_interval_intersection() {
+/// Same argument for batched motion: a keyframe block addressed at panels below this one
+/// crosses this panel's bus on its way there.
+void test_keyframes_for_other_panels_are_relayed() {
     FrameRouter router;
-    learn(router, 12); // local 10..18
-    ingest(router, Side::One, keyframe(1, 9));
-    FrameView view;
-    TEST_ASSERT_FALSE(router.nextFrame(view));
-    ingest(router, Side::One, keyframe(9, 9));
-    TEST_ASSERT_TRUE(pop(router, Side::One));
-    ingest(router, Side::One, keyframe(10, 9));
-    TEST_ASSERT_TRUE(pop(router, Side::One));
-    ingest(router, Side::One, keyframe(19, 9));
-    TEST_ASSERT_FALSE(router.nextFrame(view));
-    TEST_ASSERT_EQUAL_UINT64(2, router.stats().filteredKeyframes);
+    learn(router, 12);
+    for(uint8_t start : {uint8_t{1}, uint8_t{9}, uint8_t{10}, uint8_t{19}, uint8_t{46}}) {
+        ingest(router, Side::One, keyframe(start, 9));
+        TEST_ASSERT_TRUE(pop(router, Side::One));
+    }
 }
 
 void test_unknown_and_firmware_broadcasts_fail_open() {
@@ -191,55 +191,81 @@ void test_outer_host_frames_do_not_enter_local_branch() {
     TEST_ASSERT_EQUAL_UINT64(1, router.stats().filteredHostFrames);
 }
 
-void test_conflicting_local_reply_disables_filtering_until_relearn() {
+/// A panel sees every downstream panel's replies crossing its own bus on the way up.
+/// Those must not touch its idea of which nine boards are its own -- inferring the block
+/// from traffic used to adopt whichever panel answered first, then call the next one a
+/// topology conflict.
+void test_transit_replies_from_other_panels_leave_the_block_alone() {
     FrameRouter router;
-    learn(router, 1);
-    learn(router, 10);
-    TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(RoutingMode::Conflict), static_cast<uint8_t>(router.routingMode()));
-    ingest(router, Side::One, envelope(54, 0));
-    TEST_ASSERT_TRUE(pop(router, Side::One));
-    router.relearn();
-    TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(RoutingMode::Transparent), static_cast<uint8_t>(router.routingMode()));
+    router.setLocalBlock(1);
+    for(uint8_t source : {uint8_t{12}, uint8_t{30}, uint8_t{54}, uint8_t{5}}) {
+        ingest(router, Side::Two, envelope(0, source, 0xC3));
+        TEST_ASSERT_TRUE(pop(router, Side::Two)); // relayed upstream, unread
+    }
+    TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(BlockState::Assigned), static_cast<uint8_t>(router.blockState()));
+    TEST_ASSERT_EQUAL_UINT8(1, router.localRangeStart());
+    TEST_ASSERT_EQUAL_UINT8(9, router.localRangeEnd());
 }
 
-void test_out_of_topology_source_is_an_observable_conflict() {
-    FrameRouter router;
-    learn(router, 1);
-    learn(router, 55);
-    TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(RoutingMode::Conflict), static_cast<uint8_t>(router.routingMode()));
-    TEST_ASSERT_EQUAL_UINT64(1, router.stats().topologyConflicts);
-}
 
-// The repeater control plane addresses a repeater with envelope target 0, relying on
-// this drop so that a repeater running older firmware ignores control-plane traffic
-// instead of relaying it onto its Portal branch. That makes the behaviour
-// load-bearing in every routing mode, not just the filtered one.
-void test_host_addressed_frames_are_dropped_in_every_routing_mode() {
-    {
-        FrameRouter router; // transparent
-        TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(RoutingMode::Transparent), static_cast<uint8_t>(router.routingMode()));
+/// A host-addressed frame that is not repeater-plane traffic is a Portal reply that has
+/// come the wrong way. It must never enter a branch, whether or not this panel knows its
+/// own block.
+///
+/// Control-plane frames are the opposite case and are covered below: they used to be
+/// dropped here too, which is what made every panel past the first unreachable.
+void test_stray_host_addressed_frames_never_enter_a_branch() {
+    for(bool assigned : {false, true}) {
+        FrameRouter router;
+        if(assigned) router.setLocalBlock(1);
         ingest(router, Side::One, envelope(0, 0, 0xC3));
         FrameView view;
         TEST_ASSERT_FALSE(router.nextFrame(view));
         TEST_ASSERT_EQUAL_UINT64(1, router.stats().filteredHostFrames);
     }
+}
+
+/// The change the chain forced: a request for a panel below this one is relayed rather
+/// than swallowed, and a broadcast is both acted on here and passed along.
+void test_control_frames_for_other_panels_are_relayed() {
+    class Router : public repeater::ControlFrameConsumer {
+    public:
+        explicit Router(repeater::ControlDisposition d) : disposition(d) { }
+        repeater::ControlDisposition consumeControlFrame(const uint8_t*, size_t) override {
+            seen++;
+            return disposition;
+        }
+        repeater::ControlDisposition disposition;
+        int seen = 0;
+    };
+
     {
-        FrameRouter router; // filtered
-        learn(router, 1);
+        Router consumer(repeater::ControlDisposition::Relay);
+        FrameRouter router;
+        router.setControlFrameConsumer(&consumer);
         ingest(router, Side::One, envelope(0, 0, 0xC3));
-        FrameView view;
-        TEST_ASSERT_FALSE(router.nextFrame(view));
-        TEST_ASSERT_EQUAL_UINT64(1, router.stats().filteredHostFrames);
+        TEST_ASSERT_TRUE(pop(router, Side::One));
+        TEST_ASSERT_EQUAL_INT(1, consumer.seen);
+        TEST_ASSERT_EQUAL_UINT64(1, router.stats().relayedControlFrames);
+        TEST_ASSERT_EQUAL_UINT64(0, router.stats().filteredHostFrames);
     }
     {
-        FrameRouter router; // conflict
-        learn(router, 1);
-        learn(router, 10);
-        TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(RoutingMode::Conflict), static_cast<uint8_t>(router.routingMode()));
+        Router consumer(repeater::ControlDisposition::ConsumedAndRelay);
+        FrameRouter router;
+        router.setControlFrameConsumer(&consumer);
+        ingest(router, Side::One, envelope(0, 0, 0xC3));
+        TEST_ASSERT_TRUE(pop(router, Side::One));
+        TEST_ASSERT_EQUAL_UINT64(1, router.stats().controlFrames);
+    }
+    {
+        // Addressed to this panel: acted on, and it stops here.
+        Router consumer(repeater::ControlDisposition::Consumed);
+        FrameRouter router;
+        router.setControlFrameConsumer(&consumer);
         ingest(router, Side::One, envelope(0, 0, 0xC3));
         FrameView view;
         TEST_ASSERT_FALSE(router.nextFrame(view));
-        TEST_ASSERT_EQUAL_UINT64(1, router.stats().filteredHostFrames);
+        TEST_ASSERT_EQUAL_UINT64(1, router.stats().controlFrames);
     }
 }
 
@@ -250,16 +276,14 @@ void test_five_element_envelopes_are_inspected_normally() {
     learn(router, 1);
 
     std::vector<uint8_t> raw{0x95};
-    appendInteger(raw, 20); // a target outside the learned 1..9 block
+    appendInteger(raw, 20); // a Portal on a panel further down the chain
     appendInteger(raw, 0);
     raw.push_back(0xC0);
     raw.push_back(0x07);             // seq
     raw.insert(raw.end(), {0xCD, 0x29, 0xB1}); // crc16
     ingest(router, Side::One, cobsFrame(raw));
 
-    FrameView view;
-    TEST_ASSERT_FALSE(router.nextFrame(view)); // parsed, and filtered as non-local
-    TEST_ASSERT_EQUAL_UINT64(1, router.stats().filteredUnicasts);
+    TEST_ASSERT_TRUE(pop(router, Side::One)); // parsed, and relayed down the chain
     TEST_ASSERT_EQUAL_UINT64(0, router.stats().parseErrors);
 }
 
@@ -343,10 +367,6 @@ void test_claimed_inner_replies_are_not_relayed_upstream() {
     TEST_ASSERT_EQUAL_INT(1, claimer.claimed);
     TEST_ASSERT_EQUAL_UINT64(1, router.stats().consumedInnerFrames);
 
-    // Range learning still happens for a claimed frame.
-    TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(RoutingMode::Filtered), static_cast<uint8_t>(router.routingMode()));
-    TEST_ASSERT_EQUAL_UINT8(1, router.localRangeStart());
-
     // An unclaimed reply, and any non-position traffic, still reaches the host.
     ingest(router, Side::Two, positionReply(5));
     TEST_ASSERT_TRUE(pop(router, Side::Two));
@@ -355,18 +375,18 @@ void test_claimed_inner_replies_are_not_relayed_upstream() {
     TEST_ASSERT_EQUAL_UINT64(1, router.stats().consumedInnerFrames);
 }
 
-void test_restored_range_accepts_only_legal_block_starts() {
-    for(uint8_t start : {1, 10, 19, 28, 37, 46}) {
+void test_a_block_start_must_be_a_legal_one() {
+    for(uint8_t start : {uint8_t{1}, uint8_t{10}, uint8_t{19}, uint8_t{28}, uint8_t{37}, uint8_t{46}}) {
         FrameRouter router;
-        router.restoreLearnedRange(start);
-        TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(RoutingMode::Filtered), static_cast<uint8_t>(router.routingMode()));
+        router.setLocalBlock(start);
+        TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(BlockState::Assigned), static_cast<uint8_t>(router.blockState()));
         TEST_ASSERT_EQUAL_UINT8(start, router.localRangeStart());
-        TEST_ASSERT_EQUAL_UINT8(start + 8, router.localRangeEnd());
+        TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(start + 8), router.localRangeEnd());
     }
-    for(uint8_t start : {0, 2, 9, 45, 55, 255}) {
+    for(uint8_t start : {uint8_t{0}, uint8_t{2}, uint8_t{9}, uint8_t{45}, uint8_t{119}, uint8_t{255}}) {
         FrameRouter router;
-        router.restoreLearnedRange(start);
-        TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(RoutingMode::Transparent), static_cast<uint8_t>(router.routingMode()));
+        router.setLocalBlock(start);
+        TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(BlockState::Unknown), static_cast<uint8_t>(router.blockState()));
         TEST_ASSERT_EQUAL_UINT8(0, router.localRangeStart());
     }
 }
@@ -374,9 +394,9 @@ void test_restored_range_accepts_only_legal_block_starts() {
 void test_maintenance_pause_stops_relaying_but_not_the_control_plane() {
     class Claimer : public repeater::ControlFrameConsumer {
     public:
-        bool consumeControlFrame(const uint8_t*, size_t) override {
+        repeater::ControlDisposition consumeControlFrame(const uint8_t*, size_t) override {
             seen++;
-            return true;
+            return repeater::ControlDisposition::Consumed;
         }
         int seen = 0;
     } claimer;
@@ -412,24 +432,67 @@ void test_maintenance_pause_stops_relaying_but_not_the_control_plane() {
     TEST_ASSERT_TRUE(pop(router, Side::One));
 }
 
+/// A frame that arrives in two pieces is still one frame.
+///
+/// This is the bench failure of 2026-08-26 in miniature. The host writes a frame with one
+/// `write_all`, but the USB-serial path delivers it in 64-byte packets, and once a frame spans
+/// more than two of them the gap in the middle exceeded the old 2 ms discard timer. `ingest` and
+/// `expireIncomplete` both run every loop pass, so the timer fired between the halves and the
+/// frame was dropped with nothing on the wire having gone wrong. Measured: 159 bytes relayed,
+/// 160 bytes silently discarded, and an entire firmware transfer lost to it.
+void test_a_frame_split_across_a_usb_packet_gap_still_arrives() {
+    FrameRouter router(20000);
+    auto frame = envelope(1, 0);
+    // Padded past the two-USB-packet boundary where the gap appears in practice.
+    while(frame.size() < 160) frame.insert(frame.end() - 1, 0x7F);
+
+    const size_t half = 64;
+    router.ingest(Side::One, frame.data(), half, 1000);
+    // Several loop passes with nothing arriving -- more than the old 2 ms, less than the new 20 ms.
+    router.expireIncomplete(4000);
+    router.ingest(Side::One, frame.data() + half, frame.size() - half, 6000);
+
+    FrameView view;
+    TEST_ASSERT_TRUE_MESSAGE(router.nextFrame(view), "a split frame was discarded");
+    TEST_ASSERT_EQUAL_UINT32(frame.size(), view.size);
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(frame.data(), view.data, frame.size());
+    TEST_ASSERT_EQUAL_UINT64(0, router.stats().oneToTwo.incompleteFrames);
+}
+
+/// The longer timer must still abandon a stream that really did stop.
+void test_a_stream_that_stops_is_still_abandoned() {
+    FrameRouter router(20000);
+    const uint8_t partial[] = {2, 0x91};
+    router.ingest(Side::One, partial, sizeof(partial), 1000);
+
+    router.expireIncomplete(15000);
+    TEST_ASSERT_EQUAL_UINT64_MESSAGE(0, router.stats().oneToTwo.incompleteFrames,
+        "abandoned too early -- this is the gap a split frame lives in");
+
+    router.expireIncomplete(21001);
+    TEST_ASSERT_EQUAL_UINT64(1, router.stats().oneToTwo.incompleteFrames);
+}
+
 int main(int, char**) {
     UNITY_BEGIN();
     RUN_TEST(test_complete_frames_are_stored_before_forwarding);
     RUN_TEST(test_incomplete_and_oversized_frames_are_dropped_atomically);
+    RUN_TEST(test_a_frame_split_across_a_usb_packet_gap_still_arrives);
+    RUN_TEST(test_a_stream_that_stops_is_still_abandoned);
     RUN_TEST(test_queue_is_bounded_and_observable);
-    RUN_TEST(test_each_valid_reply_learns_its_nine_id_block);
-    RUN_TEST(test_learned_router_filters_nonlocal_unicasts);
-    RUN_TEST(test_keyframes_are_filtered_by_interval_intersection);
+    RUN_TEST(test_the_local_block_comes_from_the_provisioned_index);
+    RUN_TEST(test_unicasts_for_downstream_panels_are_relayed);
+    RUN_TEST(test_keyframes_for_other_panels_are_relayed);
     RUN_TEST(test_unknown_and_firmware_broadcasts_fail_open);
     RUN_TEST(test_outer_host_frames_do_not_enter_local_branch);
-    RUN_TEST(test_conflicting_local_reply_disables_filtering_until_relearn);
-    RUN_TEST(test_out_of_topology_source_is_an_observable_conflict);
-    RUN_TEST(test_host_addressed_frames_are_dropped_in_every_routing_mode);
+    RUN_TEST(test_transit_replies_from_other_panels_leave_the_block_alone);
+    RUN_TEST(test_stray_host_addressed_frames_never_enter_a_branch);
+    RUN_TEST(test_control_frames_for_other_panels_are_relayed);
     RUN_TEST(test_five_element_envelopes_are_inspected_normally);
     RUN_TEST(test_originated_frames_are_transmitted_ahead_of_relayed_traffic);
     RUN_TEST(test_oversized_or_overflowing_originations_are_refused);
     RUN_TEST(test_claimed_inner_replies_are_not_relayed_upstream);
-    RUN_TEST(test_restored_range_accepts_only_legal_block_starts);
+    RUN_TEST(test_a_block_start_must_be_a_legal_one);
     RUN_TEST(test_maintenance_pause_stops_relaying_but_not_the_control_plane);
     return UNITY_END();
 }

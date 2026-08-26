@@ -523,9 +523,17 @@ namespace bl {
 			}
 		}
 
+		// An unrecognised verb is *not* rejected here. It has to survive as far as the addressing
+		// check below so that a board addressed by name can answer `UNKNOWN_VERB`, which is what
+		// §10 promises and what lets a host tell "I got the verb wrong" apart from "nothing
+		// answered". Rejecting it here made the reply arm in `handleControl` unreachable and the
+		// board indistinguishable from an absent one.
+		//
+		// Broadcasts are unaffected: the addressing block below leaves `replyAllowed` false for
+		// an unselected broadcast, and every reply path checks it, so a mistyped fleet verb still
+		// cannot make every board answer at once.
 		if(command.verb == Verb::None) {
 			command.error = Error::UnknownVerb;
-			return false;
 		}
 
 		// Addressing, finally, now that any selector has been seen.
@@ -541,7 +549,10 @@ namespace bl {
 			// An unselected broadcast. Acted on, never answered.
 			if(command.verb == Verb::Adopt) {
 				// Except this one: every board adopting the same id from one frame is how a bus
-				// becomes unusable.
+				// becomes unusable. Recorded as `SELECTOR_REQUIRED` rather than merely dropped, so
+				// the refusal shows up in the next `status.err` and an operator can see that the
+				// frame arrived and was declined -- not that it never got here.
+				command.error = Error::SelectorRequired;
 				return false;
 			}
 		}
@@ -667,7 +678,17 @@ namespace bl {
 		msgpack::writeIntU7(this->cobs, (uint8_t) (this->myId < 0 ? 0 : this->myId));
 		msgpack::writeMapSize4(this->cobs, 1);
 		writeKey(this->cobs, "bl");
-		msgpack::writeMapSize4(this->cobs, (uint8_t) (fieldCount + 1));
+		// The verb counts as a field, so this map is one larger than the caller's count. A fixmap
+		// header only carries four bits of size and `writeMapSize4` *masks* rather than refusing,
+		// so a sixteenth field would have been written as a map of zero -- a reply that decodes as
+		// empty rather than as an error. `status` was already sitting on exactly fifteen.
+		const uint8_t entries = (uint8_t) (fieldCount + 1);
+		if(entries > 15) {
+			msgpack::writeMapSize16(this->cobs, entries);
+		}
+		else {
+			msgpack::writeMapSize4(this->cobs, entries);
+		}
 		writeKey(this->cobs, "q");
 		msgpack::writeString5(this->cobs, verb, (uint8_t) strlen(verb));
 	}

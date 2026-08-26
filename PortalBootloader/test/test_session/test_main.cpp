@@ -438,6 +438,24 @@ void test_a_full_bank_map_fits_one_frame()
 
 // ---- Runner -------------------------------------------------------------------------------------
 
+/// A chunk small enough that its bitmap would not fit a bin8 is refused at `begin`.
+///
+/// The `map` reply carries the bitmap in a bin8, so more than 255 bytes of it cannot be sent.
+/// Truncating reads to a host as "everything past here is missing", which it dutifully repairs,
+/// asks again, and is told the same thing -- for ever. Refusing the session is the only point at
+/// which that is still one error rather than a loop.
+void test_a_chunk_whose_bitmap_would_not_fit_is_refused()
+{
+	Session session;
+	// A full bank at 8-byte chunks needs 1,696 bytes of bitmap.
+	TEST_ASSERT_EQUAL(Error::BadParam,
+		session.declare(config::appCap, 0x1234, config::granule, config::appBase));
+
+	// 128 is what the host actually uses: 106 bytes, comfortably inside.
+	TEST_ASSERT_EQUAL(Error::None,
+		session.declare(config::appCap, 0x1234, 128, config::appBase));
+}
+
 int main()
 {
 	UNITY_BEGIN();
@@ -447,6 +465,7 @@ int main()
 	RUN_TEST(test_erase_never_reaches_the_bootloader_itself);
 	RUN_TEST(test_a_legacy_erase_still_clears_the_new_bank);
 	RUN_TEST(test_a_page_that_will_not_erase_stops_rather_than_looping);
+	RUN_TEST(test_a_chunk_whose_bitmap_would_not_fit_is_refused);
 
 	RUN_TEST(test_a_simple_sequential_upload_lands_byte_for_byte);
 	RUN_TEST(test_frames_may_arrive_in_any_order);

@@ -984,9 +984,18 @@ whole `0x08004000`–`0x0801E800` bank, so a stale new-base image cannot shadow
 the one just uploaded.
 
 On Reworld V3 the repeaters do not filter or reinterpret any of this: every word
-and every upload frame is forwarded to all six branches as received, at the same
-115200 baud. Use the firmware updater's own pacing; the 5 ms V3 broadcast gap
-does not override a packet's explicit wait.
+and every upload frame is relayed down the chain as received, at the same 115200
+baud. Use the firmware updater's own pacing; the 5 ms V3 broadcast gap does not
+override a packet's explicit wait.
+
+Because the panels are chained rather than starred, a frame is stored and
+forwarded once per panel, so its delivery time grows with depth — roughly
+`(hops + 1) x` its own wire time. A 146-byte data frame is about 12.7 ms on the
+wire, so a fourteen-panel chain puts the last panel's copy some 180 ms behind the
+host's. That is latency, not throughput: every segment runs at the same rate, so
+a host pacing below the line rate keeps every queue shallow. It is why the reply
+timeouts in `router_link::fw_session` are set in hundreds of milliseconds rather
+than tens.
 
 ### 10.2 The v6 control plane
 

@@ -13,6 +13,7 @@ namespace {
 	uint8_t g_dip = 0;
 	uint32_t g_millis = 0;
 	uint32_t g_kicks = 0;
+	bool g_ringOverran = false;
 	uint32_t g_erased = 0;
 	uint32_t g_programmed = 0;
 	uint32_t g_failErasePage = 0xFFFFFFFFu;
@@ -41,6 +42,7 @@ namespace bltest {
 		g_dip = 0;
 		g_millis = 0;
 		g_kicks = 0;
+		g_ringOverran = false;
 		g_erased = 0;
 		g_programmed = 0;
 		g_failErasePage = 0xFFFFFFFFu;
@@ -104,6 +106,7 @@ namespace bltest {
 	void setMillis(uint32_t value) { g_millis = value; }
 	void advance(uint32_t by) { g_millis += by; }
 	uint32_t watchdogKicks() { return g_kicks; }
+	void setRingOverran() { g_ringOverran = true; }
 
 	const Terminal & terminal() { return g_terminal; }
 
@@ -182,6 +185,14 @@ namespace hw {
 	uint32_t millis()
 	{
 		return g_millis;
+	}
+
+	//----------
+	bool ringOverran()
+	{
+		const bool value = g_ringOverran;
+		g_ringOverran = false;
+		return value;
 	}
 
 	//----------

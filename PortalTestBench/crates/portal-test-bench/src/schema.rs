@@ -507,6 +507,24 @@ pub fn declare(builder: &mut SchemaBuilder, simulated: bool) -> Result<(), Strin
             .read_only()
             .register(),
     )?;
+    // The firmware list's own generation, and deliberately not `/setup/ports_generation`.
+    //
+    // The page used to re-fetch `/api/bench/firmware` off the hardware counter, which was true
+    // enough while the only way the list changed was a rescan -- a rescan re-reads both. A drop
+    // changes the list and nothing else, and bumping the hardware counter for it would drag a full
+    // port survey along behind it and make the page re-render the probe list for no reason.
+    //
+    // `no_reset` for the same reason the hardware one has it: "restore default" on a generation
+    // counter would make every open page re-fetch for nothing.
+    check(
+        builder
+            .param("/flash/artefacts_generation")
+            .i64(0)
+            .label("Firmware list generation")
+            .read_only()
+            .no_reset()
+            .register(),
+    )?;
 
     // Durable provisioning. These controls are intentionally separate from the runtime RS485
     // address: the serial is a global positive u32 written to the protected identity page.
@@ -1290,6 +1308,7 @@ pub struct FlashParams {
     pub app_id: ParamId,
     pub preserve_unselected: ParamId,
     pub scope: ParamId,
+    pub artefacts_generation: ParamId,
 }
 
 pub struct ProvisionParams {
@@ -1497,6 +1516,7 @@ impl Params {
                 boot_detail: id("/flash/boot_detail")?,
                 needs_replug: id("/flash/needs_replug")?,
                 last_outcome: id("/flash/last_outcome")?,
+                artefacts_generation: id("/flash/artefacts_generation")?,
                 boot_id: id("/flash/boot_id")?,
                 app_id: id("/flash/app_id")?,
                 preserve_unselected: id("/flash/preserve_unselected")?,

@@ -1,0 +1,4 @@
+# Board readbacks: 128 kB each, one per board, and only meaningful next to the board they
+# came off. Kept out of the tree deliberately -- an artefact directory that fills with
+# binaries is how a repo stops being cloneable.
+artifacts/

@@ -18,6 +18,8 @@ pub struct Installation {
     pub columns_count: usize,
     pub rows: usize,
     pub column_width: usize,
+    /// Rows per panel, when a column is a stack of panels rather than a flat grid.
+    pub panel_height: usize,
     pub flipped: bool,
     // messaging parameters
     pub transmit: ImageTransmit,
@@ -38,6 +40,7 @@ impl Installation {
             columns_count: 32,
             rows: 24,
             column_width: 1,
+            panel_height: 0,
             flipped: false,
             transmit: ImageTransmit::Individual,
             period_s: 0.5,
@@ -57,6 +60,7 @@ impl Installation {
         installation.columns_count = config.arrangement.columns;
         installation.rows = config.arrangement.rows;
         installation.column_width = config.arrangement.column_width;
+        installation.panel_height = config.arrangement.panel_height;
         installation.flipped = config.arrangement.flipped;
         installation.transmit = config.messaging.transmit;
         installation.period_s = config.messaging.period_s;
@@ -81,6 +85,7 @@ impl Installation {
                         index,
                         count_x: self.column_width,
                         count_y: self.rows,
+                        panel_height: self.panel_height,
                         flipped: self.flipped,
                     },
                     self.reporter.clone(),

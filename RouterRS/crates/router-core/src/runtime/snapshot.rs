@@ -49,6 +49,8 @@ pub struct ColumnSnapshot {
     pub index: usize,
     pub count_x: usize,
     pub count_y: usize,
+    /// Rows per panel; 0 when the column is one flat grid. See `model::column::portal_cell`.
+    pub panel_height: usize,
     pub flipped: bool,
     pub stats: Rs485Stats,
     pub portals: Vec<PortalSnapshot>,
@@ -68,8 +70,8 @@ pub struct UiSnapshot {
     pub preview: PixelsF32,
     pub image_enabled: bool,
     pub transmit_mode: &'static str,
-    /// (columns, rows, column width, flipped) arrangement parameters.
-    pub arrangement: (usize, usize, usize, bool),
+    /// (columns, rows, column width, panel height, flipped) arrangement parameters.
+    pub arrangement: (usize, usize, usize, usize, bool),
     pub period_s: f32,
     pub keyframe_batch_size: usize,
     pub keyframe_velocities: bool,

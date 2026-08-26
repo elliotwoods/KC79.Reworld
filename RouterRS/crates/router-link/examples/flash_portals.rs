@@ -34,6 +34,7 @@ const USAGE: &str = "\
 usage:
   flash_portals --port <usb-serial-number> app <image.bin> [--ids 1-54] [--serials 73001,73002]
                                                            [--mode auto|legacy|v6] [--no-run]
+                                                           [--legacy-gap ms] [--legacy-reps n]
   flash_portals --port <usb-serial-number> bootloader <bl.bin> --id N [--stay]
   flash_portals --port <usb-serial-number> status [--ids 1-54]";
 
@@ -93,7 +94,10 @@ struct Args {
 
 impl Args {
     fn parse() -> Self {
-        const VALUED: [&str; 5] = ["--port", "--ids", "--serials", "--mode", "--id"];
+        const VALUED: [&str; 7] = [
+            "--port", "--ids", "--serials", "--mode", "--id",
+            "--legacy-gap", "--legacy-reps",
+        ];
         let mut positional = Vec::new();
         let mut flags = std::collections::HashMap::new();
         let mut args = std::env::args().skip(1).peekable();
@@ -184,8 +188,19 @@ fn flash_application(args: &Args, serial_number: &str) -> Result<(), Box<dyn std
         run_after: !args.present("--no-run"),
         ..FwSessionParams::default()
     };
+    // The blind path's pacing is the only control there is over a v4/v5 bootloader: its
+    // receive ring overflows if frames arrive faster than it writes them ("RB Full" in its
+    // own log), and it refuses every frame after a gap ("Write position is ahead of ours"),
+    // so one overrun ends the upload. Repetitions do not help -- a repeated frame is sent
+    // immediately after the original, which is when the receiver is least able to take it.
+    if let Some(gap) = args.value("--legacy-gap") {
+        params.legacy.wait_between_frames_ms = gap.parse()?;
+    }
+    if let Some(reps) = args.value("--legacy-reps") {
+        params.legacy.frame_repetitions = reps.parse()?;
+    }
     if let Targets::Ids(ids) = &params.targets {
-        if ids.len() > 4 {
+        if ids.len() > 4 && !args.present("--legacy-gap") && !args.present("--legacy-reps") {
             params = FwSessionParams {
                 mode: params.mode,
                 run_after: params.run_after,

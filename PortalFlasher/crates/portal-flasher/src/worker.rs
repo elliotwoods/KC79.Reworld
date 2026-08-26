@@ -756,6 +756,10 @@ impl Worker {
                 found.map_or("", |a| match a.origin {
                     portal_swd::artefacts::Origin::Built => "built",
                     portal_swd::artefacts::Origin::Reference => "reference",
+                    // PortalTestBench stages operator-dropped images; this application does not
+                    // offer that door, so the word is here only because the shared `Discovery`
+                    // can carry one and a `_` arm would have hidden the next variant too.
+                    portal_swd::artefacts::Origin::Dropped => "dropped",
                 }),
             );
             let _ = self.bus.set_text(

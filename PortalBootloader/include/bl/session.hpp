@@ -34,8 +34,14 @@ namespace bl {
 		/// which is what a repeated `ER` from a legacy host means.
 		void beginErase(uint32_t base);
 
-		/// Erase one page. Returns true when the last page is done.
+		/// Erase one page. Returns true when the erase is over -- either because the last page is
+		/// done or because one would not erase. Ask [`eraseFailed`](Session::eraseFailed) which.
 		bool eraseStep();
+
+		/// Whether the erase stopped on a page the flash controller refused.
+		///
+		/// Cleared by the next `beginErase`, so it always describes the most recent attempt.
+		bool eraseFailed() const { return this->eraseError; }
 
 		bool isErasing() const { return this->erasing; }
 		/// Pages erased so far, for `status.prog`.
@@ -79,6 +85,7 @@ namespace bl {
 		uint32_t receivedBytes = 0;
 		uint32_t nextPage = 0;
 		bool erasing = false;
+		bool eraseError = false;
 		bool hasDeclaration = false;
 	};
 

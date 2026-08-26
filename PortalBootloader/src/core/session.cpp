@@ -23,6 +23,7 @@ namespace bl {
 		this->writeBase = (base == config::appBaseLegacy) ? config::appBaseLegacy : config::appBase;
 		this->nextPage = firstPage;
 		this->erasing = true;
+		this->eraseError = false;
 		this->clearProgress();
 	}
 
@@ -37,9 +38,15 @@ namespace bl {
 		hw::watchdogKick();
 		if(hw::flashErasePage(this->nextPage) != 0) {
 			// A page that will not erase is a dead board, not a retryable condition. Stopping
-			// leaves `status.err` reporting it rather than looping on the same page until the
-			// watchdog fires, which would look like a boot loop instead of a flash fault.
+			// beats looping on the same page until the watchdog fires, which would look like a
+			// boot loop instead of a flash fault.
+			//
+			// The failure is latched rather than merely stopping the loop. Without it `begin`
+			// answers `ok` -- the erase "finished", after all -- and the host streams a whole
+			// image into a bank that cannot hold it, which then fails `verify` with nothing to
+			// say why. This is the only path here that could corrupt an upload silently.
 			this->erasing = false;
+			this->eraseError = true;
 			return true;
 		}
 
@@ -88,6 +95,15 @@ namespace bl {
 		if(chunkBytes == 0
 			|| chunkBytes > config::chunkMax
 			|| (chunkBytes % config::granule) != 0) {
+			return Error::BadParam;
+		}
+		// The `map` reply carries its bitmap in a bin8, whose length is one byte. A chunk small
+		// enough to need more than 255 bytes of bitmap would be answered with a *truncated* one,
+		// which a host reads as "every chunk past here is missing" -- so it repairs them, asks
+		// again, and gets the same answer for ever. Refusing the session up front turns a silent
+		// non-terminating loop into one error at the only point where anything can still be done
+		// about it. At the 128 the host uses, a full bank needs 106 bytes.
+		if(((length + chunkBytes - 1) / chunkBytes) > 255u * 8u) {
 			return Error::BadParam;
 		}
 

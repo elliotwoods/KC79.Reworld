@@ -77,6 +77,17 @@ pub enum Request {
     CheckBoot,
     ReadDevice,
     RescanFirmware,
+    /// Take a freshly staged drop into the picker, and select it into its own bank.
+    ///
+    /// Deliberately not `RescanFirmware`: that closes and reopens the probe, which must not happen
+    /// because somebody dropped a file on the window mid-fixture.
+    AdoptDropped {
+        id: String,
+        select: bool,
+    },
+    ForgetDropped {
+        id: String,
+    },
     SendRaw {
         channel: Channel,
         signal: RawSignal,
@@ -214,6 +225,8 @@ pub struct Worker {
     survey: bench_core::Survey,
     survey_identity: Vec<String>,
     survey_generation: i64,
+    /// The firmware list's own counter. See [`Worker::publish_artefacts`].
+    artefacts_generation: i64,
     next_survey_ms: u64,
     flash_heartbeat_seen: i64,
     flash_was_armed: bool,
@@ -303,6 +316,8 @@ impl Worker {
         let _ = bus.set_text(params.probe.selected, flash.probe_selector());
         *shared.flash.lock().unwrap() = initial.clone();
         *shared.artefacts.lock().unwrap() = flash.artefacts_json();
+        // Both generations start at 1 for the same reason, spelled out below.
+        let _ = bus.set(params.flash.artefacts_generation, Value::I64(1));
         // Start the generation at 1, not 0. The schema default of 0 then means "the worker has
         // not published yet", and the page seeing it move to 1 as the first bus snapshot arrives
         // guarantees exactly one fetch after connect, with no special case for the first render.
@@ -357,6 +372,7 @@ impl Worker {
             survey,
             survey_identity,
             survey_generation: 1,
+            artefacts_generation: 1,
             next_survey_ms: SURVEY_PERIOD_MS,
             flash_heartbeat_seen: 0,
             flash_was_armed: false,
@@ -1124,7 +1140,7 @@ impl Worker {
             }
             self.flash.select(selection.0.clone(), selection.1.clone());
             self.flash_selection_seen = selection;
-            *self.shared.artefacts.lock().unwrap() = self.flash.artefacts_json();
+            self.publish_artefacts();
         }
 
         // Part of the setup, and locked with the rest of it: what happens to a bank that was left
@@ -1151,7 +1167,7 @@ impl Worker {
                     "preserve is off: a bank left out will be erased, not kept",
                 );
             }
-            *self.shared.artefacts.lock().unwrap() = self.flash.artefacts_json();
+            self.publish_artefacts();
         }
     }
 
@@ -1210,6 +1226,20 @@ impl Worker {
         };
     }
 
+    /// Publish the firmware list and tell every open page it moved.
+    ///
+    /// The single place the mirror is written after start-up, so the counter cannot drift from the
+    /// document it is counting. Everything that changes the list -- a selection, the preserve
+    /// policy, a rescan, a drop -- goes through here.
+    fn publish_artefacts(&mut self) {
+        *self.shared.artefacts.lock().unwrap() = self.flash.artefacts_json();
+        self.artefacts_generation = self.artefacts_generation.saturating_add(1);
+        let _ = self.bus.set(
+            self.params.flash.artefacts_generation,
+            Value::I64(self.artefacts_generation),
+        );
+    }
+
     /// Carry a probe selection the fixture resolved on its own up to the page.
     ///
     /// [`Self::sync_probe_selection`] carries the operator's intent *down* and is edge-triggered on
@@ -1232,6 +1262,66 @@ impl Worker {
             .set_text(self.params.probe.selected, &self.probe_selection_seen);
     }
 
+    /// Carry the controller's own bank selection up to the page.
+    ///
+    /// Settling `flash_selection_seen` at the same time is what stops [`Self::sync_flash_selection`]
+    /// reading its own write back as an operator edit on the next tick and re-applying it.
+    fn publish_flash_selection(&mut self) {
+        self.flash_selection_seen = (
+            self.flash.snapshot().boot_id.clone(),
+            self.flash.snapshot().app_id.clone(),
+        );
+        let _ = self
+            .bus
+            .set_text(self.params.flash.boot_id, &self.flash_selection_seen.0);
+        let _ = self
+            .bus
+            .set_text(self.params.flash.app_id, &self.flash_selection_seen.1);
+    }
+
+    /// Adopt an image the HTTP route has already written into the staging directory.
+    ///
+    /// The route does the bytes -- classifying, flattening an ELF, writing the file -- because
+    /// none of that touches hardware and answering the operator immediately is what makes the drop
+    /// feel like it landed. What it cannot do is mutate this thread's `Discovery`, so it enqueues
+    /// this and the picker catches up on the generation bump.
+    ///
+    /// Selection is refused while the fixture is active, for the reason the whole picker is:
+    /// changing what a running pass would write is not a thing to do quietly. The image is still
+    /// adopted -- it is in the list, ready -- which is the difference between "not now" and "lost".
+    fn adopt_dropped(&mut self, id: &str, select: bool, now: u64) {
+        let locked = select && self.setup_is_locked();
+        let Some(region) = self.flash.adopt_dropped(id, select && !locked) else {
+            self.bench.note(
+                now,
+                bench_core::LOG_LEVEL_WARNING,
+                format!("firmware: dropped image {id} is no longer staged"),
+            );
+            return;
+        };
+        self.publish_flash_selection();
+        self.publish_artefacts();
+        let label = self
+            .flash
+            .artefact_label(id)
+            .unwrap_or_else(|| id.to_owned());
+        self.bench.note(
+            now,
+            bench_core::LOG_LEVEL_STATUS,
+            if locked {
+                format!(
+                    "firmware: {label} added to the {} bank, but not selected -- the fixture is active",
+                    region.as_str()
+                )
+            } else {
+                format!(
+                    "firmware: {label} selected as the {} image",
+                    region.as_str()
+                )
+            },
+        );
+    }
+
     fn rescan_setup(&mut self, now: u64) {
         if self.setup_is_locked() {
             self.bench.note(
@@ -1242,18 +1332,9 @@ impl Worker {
             return;
         }
         self.flash.rescan();
-        *self.shared.artefacts.lock().unwrap() = self.flash.artefacts_json();
-        self.flash_selection_seen = (
-            self.flash.snapshot().boot_id.clone(),
-            self.flash.snapshot().app_id.clone(),
-        );
+        self.publish_artefacts();
+        self.publish_flash_selection();
         self.probe_selection_seen = self.flash.probe_selector().to_string();
-        let _ = self
-            .bus
-            .set_text(self.params.flash.boot_id, &self.flash_selection_seen.0);
-        let _ = self
-            .bus
-            .set_text(self.params.flash.app_id, &self.flash_selection_seen.1);
         let _ = self
             .bus
             .set_text(self.params.probe.selected, &self.probe_selection_seen);
@@ -2174,6 +2255,20 @@ impl Worker {
                 }
                 Request::RescanFirmware => {
                     self.rescan_setup(now);
+                }
+                Request::AdoptDropped { id, select } => {
+                    self.adopt_dropped(&id, select, now);
+                }
+                Request::ForgetDropped { id } => {
+                    if self.flash.forget_dropped(&id) {
+                        self.publish_flash_selection();
+                        self.publish_artefacts();
+                        self.bench.note(
+                            now,
+                            bench_core::LOG_LEVEL_STATUS,
+                            format!("firmware: dropped image {id} removed"),
+                        );
+                    }
                 }
                 Request::Abort => {
                     self.bench.abort(now);

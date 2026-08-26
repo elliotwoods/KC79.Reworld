@@ -19,6 +19,10 @@ pub struct Column {
     pub index: usize,
     pub count_x: usize,
     pub count_y: usize,
+    /// Rows per panel on a Reworld V3 column, whose portals are wired as a vertical
+    /// stack of 3x3 panels. Zero for V1/V2, which is one flat row-major grid.
+    /// See [`portal_cell`].
+    pub panel_height: usize,
     /// Default true. When NOT flipped, image sampling runs bottom-to-top.
     pub flipped: bool,
     pub portals: Vec<Portal>,
@@ -38,7 +42,37 @@ pub struct ColumnSettings {
     pub index: usize,
     pub count_x: usize,
     pub count_y: usize,
+    pub panel_height: usize,
     pub flipped: bool,
+}
+
+/// Where the portal at `index` sits in its column, as `(column, row-counted-from-the-bottom)`.
+///
+/// Two wirings, and they are not interchangeable.
+///
+/// A V1/V2 column is one flat grid numbered row by row, which is what `panel_height == 0`
+/// selects and what every existing installation is.
+///
+/// A Reworld V3 column is a **stack of panels**. Six of them are chained vertically, each
+/// three wide and `panel_height` tall, and within a panel the nine slots are numbered
+/// column-major and bottom-up -- ids 1..9 read BL, CL, TL, BM, CM, TM, BR, CR, TR. That
+/// ordering is not a convention anyone chose: ids come from the shorted MCU pins the
+/// motherboard's FFC cables present, so an id *is* a slot, which is why a partly
+/// populated panel answers on 1, 2, 4, 7 rather than 1, 2, 3, 4.
+///
+/// Panel 1 sits at the **bottom** of the stack when the column is not flipped, matching
+/// the bottom-up numbering inside each panel; `flipped` mirrors the whole column.
+pub fn portal_cell(index: usize, count_x: usize, panel_height: usize) -> (usize, usize) {
+    if count_x == 0 {
+        return (0, 0);
+    }
+    if panel_height == 0 {
+        return (index % count_x, index / count_x);
+    }
+    let per_panel = count_x * panel_height;
+    let panel = index / per_panel;
+    let within = index % per_panel;
+    (within / panel_height, panel * panel_height + within % panel_height)
 }
 
 impl Column {
@@ -47,6 +81,7 @@ impl Column {
             index: settings.index,
             count_x: settings.count_x,
             count_y: settings.count_y,
+            panel_height: settings.panel_height,
             flipped: settings.flipped,
             portals: Vec::new(),
             rs485: Rs485::new(settings.index as u8, reporter),
@@ -65,6 +100,7 @@ impl Column {
     pub fn apply_config(&mut self, config: &ColumnConfig) {
         self.count_x = config.count_x;
         self.count_y = config.count_y;
+        self.panel_height = config.panel_height;
         if let Some(flipped) = config.flipped {
             self.flipped = flipped;
         }
@@ -74,7 +110,8 @@ impl Column {
         }
     }
 
-    /// Sequential target IDs 1..=countX*countY (row-major over countY rows).
+    /// Sequential target IDs 1..=countX*countY, laid out column-major -- see
+    /// [`Self::update_positions_from_image`] for why.
     pub fn rebuild_portals(&mut self) {
         let count = self.count_x * self.count_y;
         self.portals = (1..=count as u8).map(Portal::new).collect();
@@ -233,30 +270,32 @@ impl Column {
 
     // ------------------------------------------------------------- image
 
-    /// `Column::updatePositionsFromImage`: sample pixel (columnIndex*countX+i,
-    /// j or countY-1-j when NOT flipped) as the portal's position target.
+    /// Sample the pixel a portal stands in front of as its position target.
     pub fn update_positions_from_image(&mut self, pixels: &PixelsF32) {
-        for j in 0..self.count_y {
-            for i in 0..self.count_x {
-                let portal_index = j * self.count_x + i;
-                let Some(portal) = self.portals.get_mut(portal_index) else {
-                    continue;
-                };
-                let x = self.index * self.count_x + i;
-                let y = if self.flipped { j } else { self.count_y - 1 - j };
-                let Some(rgb) = pixels.get(x, y) else { continue };
-                portal.pilot.set_position(vec2(rgb[0], rgb[1]));
-                portal.pilot.update([
-                    super::pilot::AxisReported {
-                        current_steps: portal.motion_control[0].reported_position,
-                        target_steps: portal.motion_control[0].reported_target,
-                    },
-                    super::pilot::AxisReported {
-                        current_steps: portal.motion_control[1].reported_position,
-                        target_steps: portal.motion_control[1].reported_target,
-                    },
-                ]);
+        for portal_index in 0..self.portals.len() {
+            let (i, row) = portal_cell(portal_index, self.count_x, self.panel_height);
+            // A misconfigured panel height could put a row past the top of the column;
+            // clamp rather than wrap, so it reads as a squashed wall instead of a panic.
+            if row >= self.count_y {
+                continue;
             }
+            let Some(portal) = self.portals.get_mut(portal_index) else {
+                continue;
+            };
+            let x = self.index * self.count_x + i;
+            let y = if self.flipped { row } else { self.count_y - 1 - row };
+            let Some(rgb) = pixels.get(x, y) else { continue };
+            portal.pilot.set_position(vec2(rgb[0], rgb[1]));
+            portal.pilot.update([
+                super::pilot::AxisReported {
+                    current_steps: portal.motion_control[0].reported_position,
+                    target_steps: portal.motion_control[0].reported_target,
+                },
+                super::pilot::AxisReported {
+                    current_steps: portal.motion_control[1].reported_position,
+                    target_steps: portal.motion_control[1].reported_target,
+                },
+            ]);
         }
     }
 
@@ -328,5 +367,59 @@ impl Column {
         flush(&mut block, &mut block_start_index, &self.rs485);
 
         self.last_keyframe_axes = axis_values;
+    }
+}
+
+#[cfg(test)]
+mod panel_layout_tests {
+    use super::portal_cell;
+
+    /// The wiring the bench reads: a 3x3 panel numbered up each column, left to right.
+    /// Ids come from the shorted MCU pins the motherboard's FFC cables present, so an id
+    /// is a slot -- which is why a panel with four boards answers on 1, 2, 4, 7.
+    #[test]
+    fn a_three_by_three_panel_reads_bl_cl_tl_bm_cm_tm_br_cr_tr() {
+        let cell = |id: usize| portal_cell(id - 1, 3, 3);
+        assert_eq!(cell(1), (0, 0), "bottom left");
+        assert_eq!(cell(2), (0, 1), "centre left");
+        assert_eq!(cell(3), (0, 2), "top left");
+        assert_eq!(cell(4), (1, 0), "bottom middle");
+        assert_eq!(cell(5), (1, 1));
+        assert_eq!(cell(6), (1, 2));
+        assert_eq!(cell(7), (2, 0), "bottom right");
+        assert_eq!(cell(8), (2, 1));
+        assert_eq!(cell(9), (2, 2), "top right");
+    }
+
+    /// Six panels chained vertically fill the stack a panel at a time, panel 1 at the
+    /// bottom.
+    #[test]
+    fn six_panels_stack_bottom_upwards() {
+        assert_eq!(portal_cell(9, 3, 3), (0, 3), "id 10 is the bottom left of panel 2");
+        assert_eq!(portal_cell(17, 3, 3), (2, 5), "id 18 is the top right of panel 2");
+        assert_eq!(portal_cell(45, 3, 3), (0, 15), "id 46 is the bottom left of panel 6");
+        assert_eq!(portal_cell(53, 3, 3), (2, 17), "id 54 is the top of the wall");
+    }
+
+    /// Every cell of the stack is used exactly once, so no board hides behind another.
+    #[test]
+    fn the_stack_is_a_bijection() {
+        let mut seen = std::collections::HashSet::new();
+        for index in 0..54 {
+            let (gx, row) = portal_cell(index, 3, 3);
+            assert!(gx < 3 && row < 18, "id {} lands outside the wall", index + 1);
+            assert!(seen.insert((gx, row)), "duplicate cell at id {}", index + 1);
+        }
+        assert_eq!(seen.len(), 54);
+    }
+
+    /// A V1/V2 column has no panels and keeps its historical row-major numbering.
+    #[test]
+    fn a_column_without_panels_is_still_row_major() {
+        assert_eq!(portal_cell(0, 3, 0), (0, 0));
+        assert_eq!(portal_cell(1, 3, 0), (1, 0));
+        assert_eq!(portal_cell(2, 3, 0), (2, 0));
+        assert_eq!(portal_cell(3, 3, 0), (0, 1));
+        assert_eq!(portal_cell(17, 3, 0), (2, 5));
     }
 }

@@ -6,11 +6,12 @@ import { SystemSounds } from '@auroravision/av-gui/calibration';
 import { mount, useParam, useSchema } from '@auroravision/av-gui/runtime';
 import '@auroravision/av-gui/styles.css';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { type BoardValue, type Cue, type FirmwareItem, type LinkView, type SerialView, type SettingsView, connectBlocker, eraseWarning, firmwareRow, flashButtonLabel, linkBlocker, omitDetail, omitLabel, probeListEmpty, serialState, settingsState, settingsSummary, soundFor } from './bench-model';
+import { type BoardValue, type Cue, type FirmwareItem, type LinkView, type SerialView, type SettingsView, connectBlocker, eraseWarning, firmwareRow, flashButtonLabel, linkBlocker, omitDetail, omitLabel, probeListEmpty, sortFirmware, serialState, settingsState, settingsSummary, soundFor } from './bench-model';
 import { loadSurvey, loadSurveyForGeneration, subscribeSurvey, surveySnapshot, type ProbeChoice } from './bench-survey';
 import { SessionLog } from './bench-log';
 import { MotionGraphs, MotionPilot } from './motion';
 import { InspectTab } from './inspect';
+import { FirmwareDrop, FirmwareDropStrip } from './firmware-drop';
 
 function useEnumName(path: string): string {
   const p = useParam<number>(path);
@@ -121,8 +122,20 @@ function usePortSurvey() {
   return { ...surveySnapshot(), refresh: loadSurvey };
 }
 
-function ChoiceRow({ selected, disabled = false, title, detail, badges, onClick }: { selected: boolean; disabled?: boolean; title: string; detail: string; badges?: ReactNode; onClick: () => void }) {
-  return <button type="button" role="option" aria-selected={selected} data-selected={selected} data-disabled={disabled || undefined} className="choice-row" disabled={disabled} onClick={onClick}>
+/**
+ * One row of a picker.
+ *
+ * `empty` is the "write nothing to this bank" row, which is a choice like any other and must not
+ * look like one of the images: it is drawn hollow -- dashed, muted, a hatched mark -- so a glance
+ * at the two banks says which of them has an image in it.
+ *
+ * Its two values are not decoration. `keep` leaves the board's firmware alone; `erase` destroys it,
+ * and for the bootloader bank that costs the board its ability to start. Same row, same click,
+ * opposite outcomes -- so the row that means "erase" is tinted like one, and the operator does not
+ * have to read the switch below to know which one is armed.
+ */
+function ChoiceRow({ selected, disabled = false, empty, title, detail, badges, onClick }: { selected: boolean; disabled?: boolean; empty?: 'keep' | 'erase'; title: string; detail: string; badges?: ReactNode; onClick: () => void }) {
+  return <button type="button" role="option" aria-selected={selected} data-selected={selected} data-empty={empty} data-disabled={disabled || undefined} className="choice-row" disabled={disabled} onClick={onClick}>
     <span className="choice-mark" aria-hidden="true">{selected ? '✓' : ''}</span>
     <span className="choice-copy"><strong>{title}</strong><small>{detail}</small></span>
     {badges && <span className="choice-badges">{badges}</span>}
@@ -144,6 +157,9 @@ function SetupPicker() {
   const preserve = preserveParam.value !== false;
   const probeName = useText('/probe/name');
   const generation = useNumber('/setup/ports_generation');
+  // The firmware list has its own counter. A drop changes the list and nothing else, and bumping
+  // the hardware one for it would drag a full port survey along behind it.
+  const artefactsGeneration = useNumber('/flash/artefacts_generation');
   const { probes, swd_support: swdSupport, loaded, loading: surveying, error } = usePortSurvey();
   const [items, setItems] = useState<Artefact[]>([]);
   const [missing, setMissing] = useState<MissingArtefact[]>([]);
@@ -167,9 +183,18 @@ function SetupPicker() {
       setLoadingFirmware(false);
     }
   };
+  // Removing a staged image is a request like any other: the worker owns the picker's state, so
+  // this enqueues and the list refreshes on the generation bump rather than being edited here.
+  const forget = async (id: string) => {
+    try {
+      await fetch(`/api/bench/firmware/dropped?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
+    } catch {
+      // Same reasoning as `load`: the next generation bump or page load corrects it.
+    }
+  };
   // A rescan re-reads the build tree as well as the hardware, and it announces on the generation
   // whether or not anything moved — so this covers both front doors, and an agent's rescan too.
-  useEffect(() => { void load(); }, [generation]);
+  useEffect(() => { void load(); }, [generation, artefactsGeneration]);
   const probeChoices: ProbeChoice[] = simulated
     ? [{ identifier: 'sim', name: 'SimRig', serial_number: 'SIM', kind: 'simulation' }]
     : probes;
@@ -199,26 +224,40 @@ function SetupPicker() {
         {items.length === 0 ? <EmptyState inline detail="No production firmware was found in the build tree." /> :
           <div className="firmware-banks">{(['bootloader', 'application'] as const).map((region) => {
             const selection = region === 'bootloader' ? boot : app;
-            const regionItems = items.filter((item) => item.region === region);
+            const regionItems = sortFirmware(items.filter((item) => item.region === region));
             const omitted = !selection.value;
             return <section key={region} className="firmware-bank" aria-label={`${region} bank`}>
               <strong>{region === 'bootloader' ? 'PortalBootloader' : 'PortalFW Application'}</strong>
               {regionItems.length === 0 ? <small>No {region} image found.</small> : <div className="choice-list" role="listbox" aria-label={`${region} firmware`}>
-                {/* Leaving a bank out is a choice, so it is a row you pick rather than a state you
-                    reach by clicking the selected one again. That still works; this is what says
-                    the option exists. */}
-                <ChoiceRow selected={omitted} disabled={setupLocked} title={omitLabel(region)} detail={omitDetail(region, preserve)} onClick={() => selection.set('')} />
+                {/* Not writing this bank is two outcomes, not one, so it is two rows sitting with
+                    the images as peers. Picking one empties the bank *and* sets the policy, which
+                    is why the "preserve the bank left out" switch that used to be below is gone:
+                    the rows are that switch, said where the decision is being made. */}
+                {(['keep', 'erase'] as const).map((kind) =>
+                  <ChoiceRow key={kind} empty={kind} selected={omitted && preserve === (kind === 'keep')} disabled={setupLocked} title={omitLabel(region, kind)} detail={omitDetail(region, kind)} onClick={() => { preserveParam.set(kind === 'keep'); selection.set(''); }} />
+                )}
                 {regionItems.map((item) => {
                   const selected = selection.value === item.id;
                   const row = firmwareRow(item);
-                  return <ChoiceRow key={item.id} selected={selected} disabled={!item.fits || setupLocked} title={row.title} detail={row.detail} badges={!item.fits ? <Badge tone="error">too large</Badge> : undefined} onClick={() => selection.set(selected ? '' : item.id)} />;
+                  const badges = <>
+                    {item.origin === 'dropped' && <Badge tone="active">dropped</Badge>}
+                    {!item.fits && <Badge tone="error">too large</Badge>}
+                  </>;
+                  const choice = <ChoiceRow key={item.id} selected={selected} disabled={!item.fits || setupLocked} title={row.title} detail={row.detail} badges={badges} onClick={() => selection.set(selected ? '' : item.id)} />;
+                  // A remove button cannot live inside `ChoiceRow` -- that is a `<button>`, and a
+                  // button inside a button is invalid HTML that browsers resolve by dropping one of
+                  // them. So it is a sibling, and the pair share a row.
+                  return item.origin === 'dropped'
+                    ? <div className="choice-row-with-action" key={item.id}>
+                        {choice}
+                        <button type="button" className="choice-row-remove" disabled={setupLocked} title={`Forget ${row.title}`} aria-label={`Forget ${row.title}`} onClick={() => void forget(item.id)}>×</button>
+                      </div>
+                    : choice;
                 })}
               </div>}
             </section>;
           })}</div>}
-        <div className="firmware-policy">
-          <StripSwitch label="Preserve the bank left out" hint={PRESERVE_HINT} disabled={setupLocked} onToggle={() => preserveParam.set(!preserve)}><Toggle path="/flash/preserve_unselected" /></StripSwitch>
-        </div>
+        <FirmwareDropStrip disabled={setupLocked} />
         {/* The one control on this page that can destroy working firmware. It should not be quiet. */}
         {!preserve && (!boot.value || !app.value) && <Banner tone="warn">{eraseWarning(!boot.value, !app.value)}</Banner>}
         {setupLocked && <Banner tone="info">Selection is locked while flashing, auto-flash, or a test plan is active.</Banner>}
@@ -308,7 +347,6 @@ function StripSwitch({ label, hint, disabled, onToggle, children }: { label: Rea
 
 const AUTO_FLASH_HINT = 'Arm the fixture: every board inserted is flashed and provisioned without pressing anything. While armed, the manual flash button is disabled.';
 const FORCE_HINT = 'Auto-flash only: program even when the board already carries every image this pass would write. A manual flash always programs.';
-const PRESERVE_HINT = 'A bank you leave out is kept as the board already has it, and read back to prove it did not move. Turn this off to erase it instead — which for the bootloader bank leaves a board that cannot boot.';
 const SOUND_HINT = 'Bench sounds: a board connecting or dropping, a run starting, pass, fail and abort.';
 
 function FlashActionStrip({ soundEnabled, onSoundEnabledChange }: { soundEnabled: boolean; onSoundEnabledChange: (enabled: boolean) => void }) {
@@ -882,6 +920,9 @@ function App() {
   const target = useBool('/probe/target_present'), probe = useBool('/probe/connected');
   const passed = useNumber('/counts/passed'), failed = useNumber('/counts/failed'), faults = useNumber('/faults/active');
   return <div className="app app--filled bench">
+    {/* Once, and outside the tabs: the gesture is "drop it on the bench", not "find the firmware
+        panel first". A drop while the Test tab is open still lands in the right bank. */}
+    <FirmwareDrop />
     <TitleBar title="Portal Test Bench" sub={schema ? 'flashing · communications · motion diagnostics' : 'connecting'} />
     <div className="bench-main"><div className="bench-workspace">
       <div className="bench-shared">

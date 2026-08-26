@@ -39,7 +39,8 @@ constexpr uint8_t PIN_MAX2_DERE = 5;
 constexpr uint8_t PIN_LED = 10;
 
 constexpr uint32_t RS485_BAUD = 115200;
-constexpr uint32_t FRAME_IDLE_TIMEOUT_US = 2000;
+
+// The frame idle timeout lives in BridgeCore.h, with the measurement that set it.
 constexpr size_t RX_BUFFER_BYTES = 12288;
 constexpr size_t TX_BUFFER_BYTES = 4096;
 constexpr size_t COPY_CHUNK_BYTES = 128;
@@ -56,7 +57,7 @@ constexpr uint32_t HEALTHY_UPTIME_MS = 30000;
 /// on every pass of a loop that also services two UARTs.
 constexpr uint32_t IDENTITY_SERVICE_PERIOD_MS = 1000;
 
-repeater::FrameRouter router(FRAME_IDLE_TIMEOUT_US);
+repeater::FrameRouter router(repeater::FRAME_IDLE_TIMEOUT_US);
 std::atomic<uint32_t> uartErrors[2] = {0, 0};
 std::atomic<uint32_t> turnaroundEvents[2] = {0, 0};
 std::atomic<bool> transmitting[2] = {false, false};
@@ -98,6 +99,22 @@ bool otaRebootPending = false;
 bool otaPendingVerify = false;
 bool otaVerifyResolved = false;
 
+/// How many `ota-data` frames reached the dispatcher, how many of those the payload
+/// parser rejected, and the payload size of the most recent one. `ota-data` is the one
+/// verb that never answers, so without these a lost chunk is indistinguishable from a
+/// chunk that arrived and was thrown away.
+uint32_t otaDataFrames = 0;
+uint32_t otaDataParseFailures = 0;
+uint32_t otaDataPayloadBytes = 0;
+
+/// Where a control frame stopped: seen by the control plane at all, rejected as
+/// unparseable, or parsed but addressed elsewhere. Together with `data_frames` these
+/// pin a missing chunk to one hop.
+uint32_t controlFramesSeen = 0;
+uint32_t controlFramesInvalid = 0;
+uint32_t controlFramesNotOurs = 0;
+uint32_t controlLastFrameBytes = 0;
+
 /// Set by a control-plane `reboot`, acted on from the service loop. Rebooting
 /// inside frame ingest would strand a half-parsed frame and the reply that has
 /// not been transmitted yet.
@@ -116,7 +133,7 @@ repeater::Side txTestSide = repeater::Side::None;
 uint8_t txTestSequence = 0;
 int8_t txTestTarget = 0;
 uint32_t txTestLastMs = 0;
-repeater::RoutingMode lastReportedMode = repeater::RoutingMode::Transparent;
+repeater::BlockState lastReportedBlockState = repeater::BlockState::Unknown;
 
 uint64_t uptimeMs() {
     const uint32_t now = millis();
@@ -168,8 +185,8 @@ void printStatus(const char* type) {
     Serial.printf(
         "{\"type\":\"%s\",\"version\":\"%s\",\"build\":\"%s\","
         "\"baud\":%lu,\"routing\":{\"mode\":\"%s\",\"range_start\":%u,"
-        "\"range_end\":%u,\"filtered_unicasts\":%llu,\"filtered_keyframes\":%llu,"
-        "\"filtered_host_frames\":%llu,\"parse_errors\":%llu,\"conflicts\":%llu},"
+        "\"range_end\":%u,\"relayed_control\":%llu,"
+        "\"filtered_host_frames\":%llu,\"parse_errors\":%llu},"
         "\"side1\":{\"inverted\":%s,\"rx_bytes\":%llu,\"received_frames\":%llu,"
         "\"forwarded_bytes\":%llu,\"frames\":%llu,\"incomplete\":%llu,"
         "\"oversized\":%llu,\"queue_depth\":%u,\"queue_high_water\":%u,\"queue_drops\":%llu,"
@@ -187,14 +204,12 @@ void printStatus(const char* type) {
         REPEATER_VERSION,
         REPEATER_BUILD_ID,
         static_cast<unsigned long>(RS485_BAUD),
-        repeater::routingModeName(router.routingMode()),
+        repeater::blockStateName(router.blockState()),
         static_cast<unsigned>(router.localRangeStart()),
         static_cast<unsigned>(router.localRangeEnd()),
-        stats.filteredUnicasts,
-        stats.filteredKeyframes,
+        stats.relayedControlFrames,
         stats.filteredHostFrames,
         stats.parseErrors,
-        stats.topologyConflicts,
         SIDE1_INVERTED ? "true" : "false",
         stats.oneToTwo.rxBytes,
         stats.oneToTwo.receivedFrames,
@@ -263,7 +278,7 @@ void writeStatusPayload(repeater::wire::MsgpackWriter& out) {
     out.key("build"); out.string(REPEATER_BUILD_ID);
     out.key("mac"); out.binary(macAddress, sizeof(macAddress));
     out.key("idx"); out.integer(repeaterIndex);
-    out.key("mode"); out.string(repeater::routingModeName(router.routingMode()));
+    out.key("mode"); out.string(repeater::blockStateName(router.blockState()));
     out.key("range");
     out.arrayHeader(2);
     out.uinteger(router.localRangeStart());
@@ -277,12 +292,10 @@ void writeStatusPayload(repeater::wire::MsgpackWriter& out) {
         uartErrors[1].load(), turnaroundEvents[1].load());
 
     out.key("flt");
-    out.mapHeader(5);
-    out.key("uni"); out.uinteger(stats.filteredUnicasts);
-    out.key("kf"); out.uinteger(stats.filteredKeyframes);
+    out.mapHeader(3);
+    out.key("relay"); out.uinteger(stats.relayedControlFrames);
     out.key("host"); out.uinteger(stats.filteredHostFrames);
     out.key("pe"); out.uinteger(stats.parseErrors);
-    out.key("cfl"); out.uinteger(stats.topologyConflicts);
 
     out.key("plane");
     out.mapHeader(5);
@@ -459,7 +472,7 @@ void handleControlRequest(const repeater::ControlRequest& request) {
         break;
     }
     case ControlVerb::Relearn:
-        router.relearn();
+        router.clearLocalBlock();
         repeater::persistence::setLearnedRangeStart(0);
         persistedRangeStart = 0;
         eventSeq++;
@@ -510,7 +523,7 @@ void handleControlRequest(const repeater::ControlRequest& request) {
             int64_t value = 0;
             if(cursor.readInteger(value) && value > 0 && value <= 1000) collectMs = value;
         }
-        if(router.routingMode() == repeater::RoutingMode::Filtered) {
+        if(router.blockState() == repeater::BlockState::Assigned) {
             snapshot.begin(router.localRangeStart(), static_cast<uint32_t>(collectMs), millis());
         }
         break;
@@ -546,14 +559,23 @@ void handleControlRequest(const repeater::ControlRequest& request) {
     }
     case ControlVerb::OtaData: {
         // Unacknowledged: this is the one high-volume verb, and the received-chunk
-        // bitmap is how loss is discovered instead.
+        // bitmap is how loss is discovered instead. That also means a chunk that never
+        // lands says nothing about *why* on its own, so the two ways it can be lost
+        // before `writeChunk` ever sees it -- never dispatched, or dispatched and
+        // unparseable -- are counted separately and reported by `ota-state`.
+        otaDataFrames++;
         uint8_t session = 0;
         uint32_t index = 0;
         const uint8_t* data = nullptr;
         uint32_t size = 0;
         uint16_t crc = 0;
         if(parseOtaData(request, session, index, data, size, crc)) {
+            otaDataPayloadBytes = size;
             ota.writeChunk(session, index, data, size, crc, millis());
+        }
+        else {
+            otaDataParseFailures++;
+            otaDataPayloadBytes = request.payloadSize;
         }
         break;
     }
@@ -619,13 +641,27 @@ void handleControlRequest(const repeater::ControlRequest& request) {
 
 class ControlDispatcher : public repeater::ControlFrameConsumer {
 public:
-    bool consumeControlFrame(const uint8_t* frame, size_t size) override {
+    repeater::ControlDisposition consumeControlFrame(const uint8_t* frame, size_t size) override {
         const repeater::ControlRequest request = controlPlane.parse(frame, size);
-        if(!request.valid) return false;
+        controlFramesSeen++;
+        controlLastFrameBytes = size;
+        if(!request.valid) {
+            controlFramesInvalid++;
+            return repeater::ControlDisposition::NotControl;
+        }
+        if(!request.addressedToUs) controlFramesNotOurs++;
         if(request.addressedToUs) handleControlRequest(request);
-        // Claimed either way: a request for a different repeater is still
-        // repeater-plane traffic, not another branch's stray reply.
-        return true;
+        // A broadcast is for the whole chain, so it is acted on here and passed on. A
+        // unicast for somebody else is not ours to answer, but this panel is the only
+        // road to the panels below it -- dropping it is what made them unreachable.
+        if(request.broadcast) {
+            return request.addressedToUs
+                ? repeater::ControlDisposition::ConsumedAndRelay
+                : repeater::ControlDisposition::Relay;
+        }
+        return request.addressedToUs
+            ? repeater::ControlDisposition::Consumed
+            : repeater::ControlDisposition::Relay;
     }
 };
 
@@ -638,22 +674,23 @@ void serviceIdentity() {
     if(static_cast<uint32_t>(now - lastIdentityServiceMs) < IDENTITY_SERVICE_PERIOD_MS) return;
     lastIdentityServiceMs = now;
 
-    const repeater::RoutingMode mode = router.routingMode();
-    if(mode != lastReportedMode) {
-        lastReportedMode = mode;
+    const repeater::BlockState state = router.blockState();
+    if(state != lastReportedBlockState) {
+        lastReportedBlockState = state;
         eventSeq++;
     }
 
-    const uint8_t rangeStart = router.localRangeStart();
-    if(mode == repeater::RoutingMode::Filtered && rangeStart != persistedRangeStart) {
+    // The block follows the index, and nothing else. It used to be inferred from the
+    // first branch reply, which in a chain is whichever panel answered first -- a panel
+    // could and did adopt the block belonging to one below it.
+    const uint8_t rangeStart = repeaterIndex == repeater::persistence::INDEX_UNSET
+        ? 0
+        : static_cast<uint8_t>((repeaterIndex - 1) * 9 + 1);
+    if(rangeStart != persistedRangeStart) {
+        if(rangeStart == 0) router.clearLocalBlock();
+        else router.setLocalBlock(rangeStart);
         repeater::persistence::setLearnedRangeStart(rangeStart);
         persistedRangeStart = rangeStart;
-        // An unprovisioned unit adopts the block it just learned, so a healthy
-        // branch is enough to make it addressable without a console visit.
-        if(repeaterIndex == repeater::persistence::INDEX_UNSET) {
-            const int8_t derived = static_cast<int8_t>((rangeStart - 1) / 9 + 1);
-            if(repeater::persistence::setRepeaterIndex(derived)) repeaterIndex = derived;
-        }
         eventSeq++;
     }
 
@@ -781,7 +818,7 @@ void serviceUsbDiagnostics() {
                 printStatus("counters-reset");
             }
             else if(commandLine == "relearn") {
-                router.relearn();
+                router.clearLocalBlock();
                 repeater::persistence::setLearnedRangeStart(0);
                 persistedRangeStart = 0;
                 eventSeq++;
@@ -860,6 +897,7 @@ void serviceUsbDiagnostics() {
                 Serial.printf(
                     "{\"type\":\"ota-state\",\"slot\":\"%s\",\"state\":\"%s\","
                     "\"session\":%u,\"chunks\":%lu,\"got\":%lu,\"last\":\"%s\","
+
                     "\"reboot_pending\":%s,\"verify_pending\":%s,\"paused\":%s}\n",
                     repeater::EspOtaTarget::runningLabel(),
                     repeater::otaStateName(ota.state()),
@@ -870,6 +908,18 @@ void serviceUsbDiagnostics() {
                     otaRebootPending ? "true" : "false",
                     otaPendingVerify ? "true" : "false",
                     router.forwardingPaused() ? "true" : "false");
+                Serial.flush();
+                Serial.printf(
+                    "{\"type\":\"ota-diag\",\"data_frames\":%lu,\"data_parse_fails\":%lu,"
+                    "\"data_last_bytes\":%lu,\"ctrl_seen\":%lu,\"ctrl_invalid\":%lu,"
+                    "\"ctrl_not_ours\":%lu,\"ctrl_last_bytes\":%lu}\n",
+                    static_cast<unsigned long>(otaDataFrames),
+                    static_cast<unsigned long>(otaDataParseFailures),
+                    static_cast<unsigned long>(otaDataPayloadBytes),
+                    static_cast<unsigned long>(controlFramesSeen),
+                    static_cast<unsigned long>(controlFramesInvalid),
+                    static_cast<unsigned long>(controlFramesNotOurs),
+                    static_cast<unsigned long>(controlLastFrameBytes));
             }
             else if(commandLine == "rollback") {
                 // Deliberate manual revert. Fails when the other slot holds no
@@ -951,8 +1001,8 @@ void setup() {
     repeater::persistence::noteBootAttempt();
     repeaterIndex = repeater::persistence::repeaterIndex();
     persistedRangeStart = repeater::persistence::learnedRangeStart();
-    router.restoreLearnedRange(persistedRangeStart);
-    lastReportedMode = router.routingMode();
+    router.setLocalBlock(persistedRangeStart);
+    lastReportedBlockState = router.blockState();
 
     esp_read_mac(macAddress, ESP_MAC_WIFI_STA);
     controlPlane.setIdentity(repeaterIndex, macAddress);

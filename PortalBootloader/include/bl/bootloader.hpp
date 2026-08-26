@@ -76,6 +76,8 @@ namespace bl {
 		Phase currentPhase = Phase::Idle;
 		IdSource source = IdSource::None;
 		Error recentError = Error::None;
+		/// Sticky `status.drops`: bit 0 a frame too long for the window, bit 1 a receive overrun.
+		uint32_t dropFlags = 0;
 
 		int8_t myId = 0;
 		uint32_t uid[3] = {0, 0, 0};

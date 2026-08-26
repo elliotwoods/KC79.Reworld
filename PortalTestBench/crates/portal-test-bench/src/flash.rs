@@ -110,6 +110,29 @@ pub struct FieldUpdateEvidence {
     pub detail: String,
 }
 
+/// Whether this bootloader image carries the bounded RS485 updater, which provisioning needs.
+///
+/// This used to be `origin == Origin::Built`, and that was a proxy: the only non-built bootloader
+/// the bench could offer was `PortalBootloader/reference/`, the fielded v4/v5 image, which has no
+/// bounded updater. The proxy held exactly as long as a scan of the build tree was the only way an
+/// image could get here. Once an operator can hand the bench a file, "built by this checkout" and
+/// "new enough to provision" are different questions, and a perfectly good v6 build from a
+/// colleague would have been refused for being someone else's.
+///
+/// So it asks the real question. The version comes from the `"Bootloader v"` banner scraped out of
+/// the image during discovery -- the same string `PortalBootloader/tools/size_gate.py` fails the
+/// build over if the linker drops it, and the same one `router_link::bootloader_update` validates
+/// against. An image that will not say which version it is is refused, which is the pre-existing
+/// behaviour for the reference image and the right default for anything else silent.
+fn carries_bounded_updater(artefact: &portal_swd::Artefact) -> bool {
+    const BOUNDED_UPDATER_FROM: u32 = 6;
+    artefact
+        .banner
+        .as_deref()
+        .and_then(|banner| portal_swd::device::bootloader_version(banner.as_bytes()))
+        .is_some_and(|version| version >= BOUNDED_UPDATER_FROM)
+}
+
 pub struct FlashController {
     rig: Box<dyn Rig>,
     machine: Machine,
@@ -135,11 +158,22 @@ pub struct FlashController {
     /// which, since a rescan also happens when the hardware survey bumps, could happen with
     /// nobody touching the page.
     deliberately_empty: (bool, bool),
+    /// Where operator-dropped firmware is staged, and `None` for a controller built over a tree
+    /// with no staging directory -- which is every unit test that is not about staging.
+    ///
+    /// Kept separately from `discovery` because `rescan` replaces that wholesale. A drop that
+    /// lived only in `discovery.found` would vanish the next time the hardware survey bumped,
+    /// with nobody having touched the page.
+    staging: Option<std::path::PathBuf>,
 }
 
 impl FlashController {
     pub fn new(simulated: bool) -> Self {
-        Self::new_in(portal_swd::discover(), simulated)
+        let mut this = Self::new_in(portal_swd::discover(), simulated);
+        // Production only. `new_in` is the testable door and leaves staging off, so a unit test
+        // cannot pick up whatever the developer running it happened to drop on the bench earlier.
+        this.set_staging(crate::dropped_dir());
+        this
     }
 
     /// The same, over a discovery that was resolved somewhere other than this repository.
@@ -189,10 +223,89 @@ impl FlashController {
             probe_selector,
             unselected: portal_swd::image::Unselected::Preserve,
             deliberately_empty: (false, false),
+            staging: None,
         };
         this.refresh_selection_snapshot();
         this.open_probe();
         this
+    }
+
+    /// Point this controller at a staging directory and adopt whatever is already in it.
+    ///
+    /// Adopting does not *select* anything. A drop selects itself when it arrives, which is the
+    /// moment the operator is looking at it; silently re-selecting yesterday's one-off image at
+    /// the next launch would be a bench that flashes something other than what its picker showed
+    /// the last person to use it.
+    pub fn set_staging(&mut self, dir: std::path::PathBuf) {
+        self.staging = Some(dir);
+        self.merge_dropped();
+    }
+
+    /// Replace the dropped artefacts in `discovery` with what the staging directory holds now.
+    ///
+    /// Idempotent, because `rescan` and `adopt_dropped` both call it and only one of them starts
+    /// from a fresh `Discovery`.
+    fn merge_dropped(&mut self) {
+        self.discovery
+            .found
+            .retain(|artefact| artefact.origin != Origin::Dropped);
+        if let Some(dir) = self.staging.clone() {
+            self.discovery
+                .found
+                .extend(portal_swd::staging::discover(&dir));
+        }
+    }
+
+    /// Take a freshly staged image into the picker and select it into its own bank.
+    ///
+    /// Returns the region it landed in, so the worker knows which bus parameter to push. `None`
+    /// means the id is not in the staging directory -- a delete that raced an adopt, or a stale id
+    /// from a page that has been open across a restart.
+    pub fn adopt_dropped(&mut self, id: &str, select: bool) -> Option<portal_swd::RegionName> {
+        self.merge_dropped();
+        let region = self.discovery.by_id(id)?.region;
+        if select {
+            match region {
+                portal_swd::RegionName::Bootloader => {
+                    self.selection.bootloader = Some(id.to_owned());
+                    self.deliberately_empty.0 = false;
+                }
+                portal_swd::RegionName::Application => {
+                    self.selection.application = Some(id.to_owned());
+                    self.deliberately_empty.1 = false;
+                }
+            }
+            self.refresh_selection_snapshot();
+        }
+        Some(region)
+    }
+
+    /// Forget a staged image, and empty whichever bank was pointing at it.
+    pub fn forget_dropped(&mut self, id: &str) -> bool {
+        let Some(dir) = self.staging.clone() else {
+            return false;
+        };
+        let removed = portal_swd::staging::remove(&dir, id);
+        self.merge_dropped();
+        // A bank left pointing at a file that is gone would be re-filled by the next `rescan` with
+        // the discovered default -- quietly, and possibly minutes later. Emptying it here means
+        // the picker says "no application" the instant the row disappears, which is true.
+        for (selected, empty) in [
+            (&mut self.selection.bootloader, &mut self.deliberately_empty.0),
+            (&mut self.selection.application, &mut self.deliberately_empty.1),
+        ] {
+            if selected.as_deref() == Some(id) {
+                *selected = None;
+                *empty = true;
+            }
+        }
+        self.refresh_selection_snapshot();
+        removed
+    }
+
+    /// The operator-facing name of one artefact, for a log line.
+    pub fn artefact_label(&self, id: &str) -> Option<String> {
+        self.discovery.by_id(id).map(|a| a.label.clone())
     }
 
     pub fn snapshot(&self) -> &FlashSnapshot {
@@ -297,6 +410,12 @@ impl FlashController {
             Some(root) => portal_swd::artefacts::discover_in(root),
             None => portal_swd::discover(),
         };
+        // Before the re-fill below, not after: that logic re-fills any bank whose chosen artefact
+        // has gone, and every dropped image has just "gone" as far as the fresh `Discovery` is
+        // concerned. Merging first is what stops a rescan -- which happens whenever the hardware
+        // survey bumps -- from silently swapping an operator's dropped image for the build tree's
+        // default.
+        self.merge_dropped();
         // Re-fill only a bank whose chosen artefact has gone. A bank the operator emptied on
         // purpose stays empty: a rescan runs whenever the hardware survey bumps, so re-defaulting
         // it here used to undo "leave the bootloader out" with nobody touching the page.
@@ -604,16 +723,17 @@ impl FlashController {
             // on the board has nothing to say about which image it came from.
             Ok(_bundle)
                 if self.selection.bootloader.is_some()
-                    && self
+                    && !self
                         .selection
                         .bootloader
                         .as_deref()
                         .and_then(|id| self.discovery.by_id(id))
-                        .is_none_or(|artefact| artefact.origin != Origin::Built) =>
+                        .is_some_and(carries_bounded_updater) =>
             {
                 Err(RigError::new(
                     RigErrorKind::BadBundle,
-                    "provisioning refuses the legacy reference bootloader; build PortalBootloader so the bounded updater is selected",
+                    "provisioning needs a bootloader v6 or newer for the bounded updater; the \
+                     selected image is older, or does not say which version it is",
                 ))
             }
             Ok(bundle) => self.flash_provision_and_boot(
@@ -1616,9 +1736,15 @@ mod tests {
         // and reach 0x08005000, over the top of an application based at 0x08004000 -- which the
         // flasher refuses as a pair, and rightly: programming it would overwrite the application's
         // vector table.
+        //
+        // And with its version banner, because provisioning now asks the image which generation it
+        // is rather than asking where the file came from. A real bootloader always carries it --
+        // `PortalBootloader/tools/size_gate.py` fails the build if the linker drops the string --
+        // so a fixture without one was modelling something that cannot be built.
         let mut bootloader = vec![0xA5; 14_788];
         bootloader[0..4].copy_from_slice(&0x2000_9000u32.to_le_bytes());
         bootloader[4..8].copy_from_slice(&(portal_swd::addr::FLASH_BASE + 0x123).to_le_bytes());
+        bootloader[0x400..0x400 + 13].copy_from_slice(b"Bootloader v6");
         let boot = dir.join("PortalBootloader/.pio/build/bootloader");
         std::fs::create_dir_all(&boot).unwrap();
         std::fs::write(boot.join("firmware.bin"), bootloader).unwrap();
@@ -1879,5 +2005,168 @@ mod tests {
         let _ = controller.tick(1_200, false, false);
         assert_eq!(controller.snapshot().phase, "disarmed");
         assert!(!controller.snapshot().armed);
+    }
+
+    // ------------------------------------------------------------------ dropped firmware
+
+    fn staging_scratch(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("portal-bench-staging-{name}"));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// A bootloader image of a given generation, with the banner provisioning now reads.
+    fn dropped_bootloader(version: u32) -> Vec<u8> {
+        let mut bytes = vec![0xA5; 14_788];
+        bytes[0..4].copy_from_slice(&0x2000_9000u32.to_le_bytes());
+        bytes[4..8].copy_from_slice(&(portal_swd::addr::FLASH_BASE + 0x123).to_le_bytes());
+        let banner = format!("Bootloader v{version}\0");
+        bytes[0x400..0x400 + banner.len()].copy_from_slice(banner.as_bytes());
+        bytes
+    }
+
+    fn controller_with_staging(name: &str) -> (FlashController, std::path::PathBuf) {
+        let root = firmware_tree(name);
+        let staging = staging_scratch(name);
+        let mut controller =
+            FlashController::new_in(portal_swd::artefacts::discover_in(&root), true);
+        controller.set_staging(staging.clone());
+        (controller, staging)
+    }
+
+    /// A dropped image is selected the moment it is adopted, and it is what a pass would write.
+    #[test]
+    fn a_dropped_bootloader_is_adopted_into_its_own_bank() {
+        let (mut controller, staging) = controller_with_staging("adopt");
+        let staged = portal_swd::staging::stage(
+            &staging,
+            "colleagues-build.bin",
+            &dropped_bootloader(6),
+            portal_swd::staging::Bank::Auto,
+        )
+        .unwrap();
+
+        let region = controller.adopt_dropped(&staged.id, true);
+        assert_eq!(region, Some(portal_swd::RegionName::Bootloader));
+        assert_eq!(controller.snapshot().boot_id, staged.id);
+        assert_eq!(controller.snapshot().scope, "full");
+    }
+
+    /// The failure this cost a rewrite to avoid: `rescan` replaces `Discovery` wholesale and runs
+    /// whenever the hardware survey moves, so without an explicit re-merge an operator's dropped
+    /// image is silently swapped back to the build tree's default with nobody touching the page.
+    #[test]
+    fn a_rescan_does_not_lose_a_dropped_image() {
+        let (mut controller, staging) = controller_with_staging("rescan-keeps");
+        let staged = portal_swd::staging::stage(
+            &staging,
+            "colleagues-build.bin",
+            &dropped_bootloader(6),
+            portal_swd::staging::Bank::Auto,
+        )
+        .unwrap();
+        controller.adopt_dropped(&staged.id, true);
+
+        controller.rescan();
+
+        assert_eq!(
+            controller.snapshot().boot_id,
+            staged.id,
+            "the dropped bootloader is still selected after a rescan"
+        );
+        let listed = controller.artefacts_json();
+        let found = listed["found"].as_array().unwrap();
+        assert!(
+            found
+                .iter()
+                .any(|a| a["id"] == staged.id.as_str() && a["origin"] == "dropped"),
+            "and still listed: {found:?}"
+        );
+    }
+
+    /// Forgetting an image empties the bank that pointed at it, rather than leaving a selection
+    /// aimed at a file that is gone for the next rescan to quietly re-fill.
+    #[test]
+    fn forgetting_a_dropped_image_empties_the_bank_that_held_it() {
+        let (mut controller, staging) = controller_with_staging("forget");
+        let staged = portal_swd::staging::stage(
+            &staging,
+            "colleagues-build.bin",
+            &dropped_bootloader(6),
+            portal_swd::staging::Bank::Auto,
+        )
+        .unwrap();
+        controller.adopt_dropped(&staged.id, true);
+
+        assert!(controller.forget_dropped(&staged.id));
+        assert_eq!(controller.snapshot().boot_id, "");
+        assert_eq!(controller.snapshot().scope, "application only");
+        controller.rescan();
+        assert_eq!(
+            controller.snapshot().boot_id,
+            "",
+            "a bank emptied by a removal stays empty, like one the operator emptied"
+        );
+    }
+
+    /// The widened provisioning gate, both sides. It used to ask where the image came from; it now
+    /// asks the image which generation it is, so a v6 build somebody sent over provisions and the
+    /// fielded v4/v5 image is still refused -- for the reason that was always the real one.
+    #[test]
+    fn provisioning_accepts_a_dropped_v6_bootloader() {
+        let (mut controller, staging) = controller_with_staging("provision-v6");
+        let staged = portal_swd::staging::stage(
+            &staging,
+            "bootloader-v6.bin",
+            &dropped_bootloader(6),
+            portal_swd::staging::Bank::Auto,
+        )
+        .unwrap();
+        controller.adopt_dropped(&staged.id, true);
+
+        controller.set_sim_present(true);
+        let _ = controller.tick(0, false, false);
+        let _ = controller.tick(500, false, false);
+        let passed = controller.provision(
+            1_000,
+            7,
+            DeviceSettings::default(),
+            false,
+            false,
+            &mut |_, _| {},
+        );
+        assert!(passed, "{}", controller.snapshot().last_outcome);
+    }
+
+    #[test]
+    fn provisioning_still_refuses_a_pre_v6_bootloader() {
+        let (mut controller, staging) = controller_with_staging("provision-v5");
+        let staged = portal_swd::staging::stage(
+            &staging,
+            "BootloaderRS485-2023-08-26.bin",
+            &dropped_bootloader(5),
+            portal_swd::staging::Bank::Auto,
+        )
+        .unwrap();
+        controller.adopt_dropped(&staged.id, true);
+
+        controller.set_sim_present(true);
+        let _ = controller.tick(0, false, false);
+        let _ = controller.tick(500, false, false);
+        let passed = controller.provision(
+            1_000,
+            7,
+            DeviceSettings::default(),
+            false,
+            false,
+            &mut |_, _| {},
+        );
+        assert!(!passed, "a v5 bootloader has no bounded updater");
+        assert!(
+            controller.snapshot().last_outcome.contains("v6 or newer"),
+            "and says why: {}",
+            controller.snapshot().last_outcome
+        );
     }
 }

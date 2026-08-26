@@ -35,11 +35,13 @@
 
 pub mod artefacts;
 pub mod device;
+pub mod elf;
 pub mod image;
 pub mod machine;
 pub mod persistent;
 pub mod program;
 pub mod rig;
+pub mod staging;
 pub mod symbols;
 
 #[cfg(feature = "probe")]

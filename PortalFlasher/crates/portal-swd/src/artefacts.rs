@@ -58,6 +58,12 @@ pub enum Origin {
     Built,
     /// A binary committed to the repository whose source is not (yet) here.
     Reference,
+    /// Handed to the application by an operator rather than found by a scan. See
+    /// [`crate::staging`], which mints these and is the only thing that does.
+    ///
+    /// Deliberately a unit variant: the file's own name is the artefact's `label` and the time it
+    /// arrived is its `modified`, so nothing new has to travel and `Origin` stays `Copy`.
+    Dropped,
 }
 
 /// One flashable file that exists right now.

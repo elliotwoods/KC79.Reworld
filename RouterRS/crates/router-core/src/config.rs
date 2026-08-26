@@ -82,12 +82,15 @@ pub struct ArrangementConfig {
     pub columns: usize,
     pub rows: usize,
     pub column_width: usize,
+    /// `"Panel height"`: rows per panel when a column is a vertical stack of panels
+    /// rather than one flat grid. Reworld V3 sets 3; V1/V2 leave it 0.
+    pub panel_height: usize,
     pub flipped: bool,
 }
 
 impl Default for ArrangementConfig {
     fn default() -> Self {
-        Self { columns: 32, rows: 24, column_width: 1, flipped: false }
+        Self { columns: 32, rows: 24, column_width: 1, panel_height: 0, flipped: false }
     }
 }
 
@@ -115,6 +118,9 @@ impl Default for MessagingConfig {
 pub struct ColumnConfig {
     pub count_x: usize,
     pub count_y: usize,
+    /// `"Panel height"`: rows per panel on a Reworld V3 column, which is a vertical stack
+    /// of 3x3 panels rather than one flat grid. Absent (0) on V1/V2, which have no panels.
+    pub panel_height: usize,
     pub flipped: Option<bool>,
     /// Serial device descriptor consumed by the device factory:
     /// `{"deviceType": "Serial"|"TCP", "address": ..., "port"?, "timeout_s"?}`
@@ -216,6 +222,7 @@ impl AppConfig {
                     "Columns": a.columns,
                     "Rows": a.rows,
                     "Column width": a.column_width,
+                    "Panel height": a.panel_height,
                     "Flipped": a.flipped,
                 }),
             );
@@ -240,6 +247,9 @@ impl AppConfig {
                     let obj = col.as_object_mut().unwrap();
                     obj.insert("Count X".into(), json!(c.count_x));
                     obj.insert("Count Y".into(), json!(c.count_y));
+                    if c.panel_height != 0 {
+                        obj.insert("Panel height".into(), json!(c.panel_height));
+                    }
                     if let Some(f) = c.flipped {
                         obj.insert("Flipped".into(), json!(f));
                     }
@@ -315,6 +325,7 @@ fn parse_installation(json: &Json) -> InstallationConfig {
             columns: get_i64(arrangement, "Columns", d.columns as i64) as usize,
             rows: get_i64(arrangement, "Rows", d.rows as i64) as usize,
             column_width: get_i64(arrangement, "Column width", d.column_width as i64) as usize,
+            panel_height: get_i64(arrangement, "Panel height", d.panel_height as i64) as usize,
             flipped: get_bool(arrangement, "Flipped", d.flipped),
         };
     }
@@ -362,6 +373,7 @@ fn parse_column(json: &Json, common: Option<&Json>) -> ColumnConfig {
     ColumnConfig {
         count_x: get_i64(&merged, "Count X", 1) as usize,
         count_y: get_i64(&merged, "Count Y", 1) as usize,
+        panel_height: get_i64(&merged, "Panel height", 0) as usize,
         flipped: param_lookup(&merged, "Flipped").and_then(|v| v.as_bool()),
         rs485: merged.get("rs485").cloned(),
         fwupdate: merged.get("fwupdate").cloned(),

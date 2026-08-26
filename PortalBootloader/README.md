@@ -150,7 +150,7 @@ found by a test, not by reading.
 ## The tests
 
 `pio test -e native` builds `src/core` for the host against `lib/bltest`'s fakes and the real
-msgpack sources, and runs 83 checks in about three seconds. They are the ones that would otherwise
+msgpack sources, and runs 111 checks in about four seconds. They are the ones that would otherwise
 need a board, a probe and a bus.
 
 The fake flash reproduces the two behaviours real flash has that a naive fake would not: an erased

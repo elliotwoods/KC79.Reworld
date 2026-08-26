@@ -114,6 +114,8 @@ struct InstallationState {
     columns: i32,
     rows: i32,
     column_width: i32,
+    /// Rows per panel; 0 when a column is one flat grid rather than a stack of panels.
+    panel_height: i32,
     flipped: bool,
     transmit: u32,
     period_s: f32,
@@ -625,6 +627,7 @@ impl Bridge {
             columns: i32_of(self.bus.get(p.arrangement_columns)),
             rows: i32_of(self.bus.get(p.arrangement_rows)),
             column_width: i32_of(self.bus.get(p.arrangement_column_width)),
+            panel_height: i32_of(self.bus.get(p.arrangement_panel_height)),
             flipped: bool_of(self.bus.get(p.arrangement_flipped)),
             transmit: enum_of(self.bus.get(p.messaging_transmit)),
             period_s: f32_of(self.bus.get(p.messaging_period_s)),
@@ -639,7 +642,8 @@ impl Bridge {
             columns: snap.arrangement.0 as i32,
             rows: snap.arrangement.1 as i32,
             column_width: snap.arrangement.2 as i32,
-            flipped: snap.arrangement.3,
+            panel_height: snap.arrangement.3 as i32,
+            flipped: snap.arrangement.4,
             transmit: match snap.transmit_mode {
                 "Keyframe" => 1,
                 "Disabled" => 2,
@@ -696,6 +700,7 @@ impl Bridge {
                 let _ = self.bus.set(p.arrangement_columns, Value::I32(model_now.columns));
                 let _ = self.bus.set(p.arrangement_rows, Value::I32(model_now.rows));
                 let _ = self.bus.set(p.arrangement_column_width, Value::I32(model_now.column_width));
+                let _ = self.bus.set(p.arrangement_panel_height, Value::I32(model_now.panel_height));
                 let _ = self.bus.set(p.arrangement_flipped, Value::Bool(model_now.flipped));
                 let _ = self.bus.set(p.messaging_transmit, Value::Enum(model_now.transmit));
                 let _ = self.bus.set(p.messaging_period_s, Value::F32(model_now.period_s));

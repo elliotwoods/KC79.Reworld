@@ -37,19 +37,49 @@ export function dialValue(dx: number, dy: number): number {
 }
 
 /**
+ * Where the portal at `index` sits in its column, as `[column, row-from-the-bottom]`.
+ * The mirror of `model::column::portal_cell`; the two must agree exactly.
+ *
+ * Two wirings. A V1/V2 column is one flat grid numbered row by row, which `panelHeight = 0`
+ * selects. A Reworld V3 column is a vertical stack of panels, each `countX` wide and
+ * `panelHeight` tall, numbered column-major and bottom-up *within* a panel — so a 3×3
+ * panel reads BL, CL, TL, BM, CM, TM, BR, CR, TR. Panel 1 is at the bottom of the stack.
+ */
+export function portalCell(index: number, countX: number, panelHeight: number): [number, number] {
+  if (countX === 0) return [0, 0];
+  if (panelHeight === 0) return [index % countX, Math.floor(index / countX)];
+  const perPanel = countX * panelHeight;
+  const panel = Math.floor(index / perPanel);
+  const within = index % perPanel;
+  return [Math.floor(within / panelHeight), panel * panelHeight + (within % panelHeight)];
+}
+
+/**
  * Portal grid cell for the portal at `index` (0-based vector order, target = index + 1).
- * When NOT flipped, portal 1 sits at the BOTTOM (image rows run bottom-to-top).
+ * When NOT flipped, portal 1 sits at the BOTTOM.
  */
 export function gridCell(
   index: number,
   countX: number,
   countY: number,
   flipped: boolean,
+  panelHeight = 0,
 ): { gx: number; gy: number } {
-  const gx = index % countX;
-  const row = Math.floor(index / countX);
+  const [gx, row] = portalCell(index, countX, panelHeight);
   const gy = flipped ? row : countY - 1 - row;
   return { gx, gy };
+}
+
+/** Inverse of [`portalCell`]: (column, row-from-the-bottom) back to a portal index. */
+export function cellIndex(
+  gx: number,
+  row: number,
+  countX: number,
+  panelHeight: number,
+): number {
+  if (panelHeight === 0) return row * countX + gx;
+  const panel = Math.floor(row / panelHeight);
+  return panel * countX * panelHeight + gx * panelHeight + (row % panelHeight);
 }
 
 /** Inverse hit test: pixel -> portal index, or -1 outside every cell. */
@@ -62,12 +92,13 @@ export function gridHit(
   countY: number,
   flipped: boolean,
   count: number,
+  panelHeight = 0,
 ): number {
   const gx = Math.floor((px / width) * countX);
   const gy = Math.floor((py / height) * countY);
   if (gx < 0 || gx >= countX || gy < 0 || gy >= countY) return -1;
   const row = flipped ? gy : countY - 1 - gy;
-  const index = row * countX + gx;
+  const index = cellIndex(gx, row, countX, panelHeight);
   return index >= 0 && index < count ? index : -1;
 }
 
@@ -102,6 +133,7 @@ export function wallHit(
   flipped: boolean,
   cell: number,
   sep: number,
+  panelHeight = 0,
 ): { col: number; index: number } | null {
   if (px < 0 || py < 0 || py >= countY * cell) return null;
   const span = countX * cell + sep;
@@ -112,14 +144,14 @@ export function wallHit(
   const gx = Math.floor(localX / cell);
   const gy = Math.floor(py / cell);
   const row = flipped ? gy : countY - 1 - gy;
-  const index = row * countX + gx;
+  const index = cellIndex(gx, row, countX, panelHeight);
   return index >= 0 && index < countX * countY ? { col, index } : null;
 }
 
 /**
  * The preview pixel a portal samples, as an index into the W×H image — mirroring
- * `Column::update_positions_from_image` exactly: `x = col·countX + i%countX`,
- * `y = flipped ? row : countY−1−row`.
+ * `Column::update_positions_from_image` exactly: `x = col·countX + ⌊i/countY⌋`,
+ * `y = flipped ? row : countY−1−row`, with `row = i % countY`.
  */
 export function previewIndex(
   col: number,
@@ -129,9 +161,10 @@ export function previewIndex(
   flipped: boolean,
   width: number,
   height: number,
+  panelHeight = 0,
 ): number | null {
-  const x = col * countX + (index % countX);
-  const row = Math.floor(index / countX);
+  const [i, row] = portalCell(index, countX, panelHeight);
+  const x = col * countX + i;
   const y = flipped ? row : countY - 1 - row;
   if (x < 0 || x >= width || y < 0 || y >= height) return null;
   return y * width + x;

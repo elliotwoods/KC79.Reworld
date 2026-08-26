@@ -2,10 +2,21 @@
 // content, not a path — the bytes go up, the server mints the path), then flash / erase /
 // run through the same command queue everything else uses. One component serves both the
 // per-column and the mass (every connected column) flows, exactly the C++ split.
+//
+// The upload half is a drop as well as a button. Same reasoning as the file input it sits beside,
+// carried one step further: if the bytes have to travel anyway, the gesture that hands them over
+// may as well be the one people already use for files. `useFileDrop` listens on the window rather
+// than on this panel, so a drop lands wherever the operator happens to be looking — and it is the
+// framework's, so the `dragover`-must-not-set-state rule (`docs/constraints.md` §5) is kept in one
+// place rather than re-remembered here.
+//
+// A `.elf` is accepted too and flattened server-side. It is at least as likely to be the file
+// somebody sends as the `.bin` — it is what a debugger session leaves behind and what CI publishes
+// first — and refusing it for its extension when the bytes are right there is a poor answer.
 
-import { Badge, Banner, Button, Panel } from '@auroravision/av-gui/controls';
-import { useEffect, useRef, useState } from 'react';
-import { AlertTriangle, Check, Eraser, Film, HardDriveUpload, Play, RefreshCw, Upload } from './icons';
+import { Badge, Banner, Button, DropOverlay, DropStrip, Panel, useFileDrop } from '@auroravision/av-gui/controls';
+import { useEffect, useState } from 'react';
+import { AlertTriangle, Check, Eraser, Film, HardDriveUpload, Play, RefreshCw } from './icons';
 import { api } from './model';
 
 interface Artefact {
@@ -21,7 +32,6 @@ export function FirmwarePanel({ col }: { col: number | null }) {
     null,
   );
   const [armedErase, setArmedErase] = useState(false);
-  const fileInput = useRef<HTMLInputElement>(null);
 
   const refresh = () => {
     api<{ artefacts: Artefact[] }>('/api/router/firmware')
@@ -37,7 +47,20 @@ export function FirmwarePanel({ col }: { col: number | null }) {
 
   const scope = col == null ? 'every connected column' : `column ${col + 1}`;
 
+  // Mounted per panel, and that is fine: the mass and per-column views are never on screen at the
+  // same time, so exactly one of these is ever listening.
+  const drop = useFileDrop({
+    onFiles: (files) => {
+      for (const file of files) void upload(file);
+    },
+  });
+
   const upload = async (file: File) => {
+    const extension = file.name.slice(file.name.lastIndexOf('.')).toLowerCase();
+    if (extension !== '.bin' && extension !== '.elf') {
+      setStatus({ tone: 'error', text: `${file.name} is not a firmware image — drop a .bin or a .elf` });
+      return;
+    }
     try {
       const bytes = await file.arrayBuffer();
       const result = await api<{ ok: boolean; path?: string; error?: string }>(
@@ -79,6 +102,12 @@ export function FirmwarePanel({ col }: { col: number | null }) {
 
   return (
     <div data-av-surface="firmware">
+      <DropOverlay
+        open={drop.dragging}
+        drop={drop}
+        title="Drop firmware to upload it"
+        hint="A .bin or .elf. An ELF is flattened to its flash image on the way in."
+      />
       <Panel title={<><HardDriveUpload />{col == null ? 'Mass firmware update' : 'Firmware update'}</>}>
         <div className="device-picker">
           {artefacts.map((artefact) => (
@@ -100,22 +129,15 @@ export function FirmwarePanel({ col }: { col: number | null }) {
             <p className="placeholder">No .bin artefacts found — upload one below.</p>
           )}
         </div>
+        <DropStrip
+          accept=".bin,.elf"
+          label="Drop firmware here"
+          hint="A .bin or .elf — anywhere on the window works too."
+          onFiles={(files) => {
+            for (const file of files) void upload(file);
+          }}
+        />
         <div className="row wrap">
-          <input
-            ref={fileInput}
-            type="file"
-            accept=".bin"
-            style={{ display: 'none' }}
-            onChange={(event) => {
-              const file = event.target.files?.[0];
-              if (file) void upload(file);
-              event.target.value = '';
-            }}
-          />
-          <Button variant="quiet" onClick={() => fileInput.current?.click()}>
-            <Upload />
-            Upload .bin…
-          </Button>
           <Button variant="quiet" onClick={refresh}>
             <RefreshCw />
             Rescan

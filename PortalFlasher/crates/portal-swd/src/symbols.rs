@@ -116,7 +116,17 @@ pub fn address_of(elf: &Path, symbol: &str) -> Result<u32, SymbolError> {
         path: path.clone(),
         detail: err.to_string(),
     })?;
-    let file = object::File::parse(&*bytes).map_err(|err| SymbolError::NotAnElf {
+    address_in(&bytes, &path, symbol)
+}
+
+/// The same, over bytes that are already in hand and a name to blame in the message.
+///
+/// Split out for the staging path, where a dropped ELF is read once and used twice -- as the
+/// image via [`crate::elf::flatten`] and as the symbol table here. There is no file to re-read,
+/// and `path` is the operator's own filename rather than somewhere on disk.
+pub fn address_in(bytes: &[u8], path: &str, symbol: &str) -> Result<u32, SymbolError> {
+    let path = path.to_owned();
+    let file = object::File::parse(bytes).map_err(|err| SymbolError::NotAnElf {
         path: path.clone(),
         detail: err.to_string(),
     })?;

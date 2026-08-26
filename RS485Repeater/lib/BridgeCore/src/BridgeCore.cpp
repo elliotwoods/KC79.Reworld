@@ -210,7 +210,6 @@ bool FrameRouter::shouldForward(Side source, const uint8_t* data, size_t size) {
     const EnvelopeInfo envelope = inspectEnvelope(data, size);
     if(!envelope.valid || envelope.parseError) stats_.parseErrors++;
     if(source == Side::Two) {
-        if(envelope.valid) observeLocalReply(envelope);
         // A local subsystem may claim a reply it solicited itself, so a snapshot
         // sweep's own polls do not also surface upstream as loose replies.
         if(envelope.valid && innerReplyConsumer_ != nullptr) {
@@ -227,14 +226,36 @@ bool FrameRouter::shouldForward(Side source, const uint8_t* data, size_t size) {
         return true;
     }
     if(envelope.valid && envelope.target == 0) {
-        // Either a repeater-plane frame for us, or another branch's reply leaking
-        // across the outer bus. Neither may enter the local branch. This is checked
+        // Repeater-plane traffic, or a reply that has come the wrong way. Classified
         // ahead of the pause so a paused repeater can still be told to resume.
-        if(controlFrameConsumer_ != nullptr && controlFrameConsumer_->consumeControlFrame(data, size)) {
-            stats_.controlFrames++;
+        ControlDisposition disposition = ControlDisposition::NotControl;
+        if(controlFrameConsumer_ != nullptr) {
+            disposition = controlFrameConsumer_->consumeControlFrame(data, size);
         }
-        else stats_.filteredHostFrames++;
-        return false;
+        switch(disposition) {
+        case ControlDisposition::Consumed:
+            stats_.controlFrames++;
+            return false;
+        case ControlDisposition::ConsumedAndRelay:
+            stats_.controlFrames++;
+            break;
+        case ControlDisposition::Relay:
+            stats_.relayedControlFrames++;
+            break;
+        case ControlDisposition::NotControl:
+            // A Portal reply cannot legitimately arrive from upstream, and must never
+            // reach a branch.
+            stats_.filteredHostFrames++;
+            return false;
+        }
+        // Relaying a control frame is still relaying: an update that has paused this
+        // bridge cannot deliver it either, which is why a fleet update rolls from the
+        // far end of the chain back towards the host.
+        if(forwardingPaused_) {
+            stats_.pausedDrops++;
+            return false;
+        }
+        return true;
     }
     // Ahead of the fail-open branch below: maintenance mode has to hold for
     // undecodable traffic too, or a garbled frame would still reach the branch.
@@ -242,28 +263,10 @@ bool FrameRouter::shouldForward(Side source, const uint8_t* data, size_t size) {
         stats_.pausedDrops++;
         return false;
     }
-    if(!envelope.valid) {
-        return true;
-    }
-    if(routingMode_ != RoutingMode::Filtered) return true;
-
-    const uint64_t rangeStart = localRangeStart_;
-    const uint64_t rangeEnd = rangeStart + 8;
-    if(envelope.target > 0 && envelope.target <= 127) {
-        const bool local = static_cast<uint64_t>(envelope.target) >= rangeStart
-            && static_cast<uint64_t>(envelope.target) <= rangeEnd;
-        if(!local) stats_.filteredUnicasts++;
-        return local;
-    }
-    if(envelope.target == -1 && envelope.isKeyframe) {
-        const uint64_t frameEnd = envelope.keyframeCount - 1
-            > std::numeric_limits<uint64_t>::max() - envelope.keyframeStart
-            ? std::numeric_limits<uint64_t>::max()
-            : envelope.keyframeStart + envelope.keyframeCount - 1;
-        const bool intersects = envelope.keyframeStart <= rangeEnd && frameEnd >= rangeStart;
-        if(!intersects) stats_.filteredKeyframes++;
-        return intersects;
-    }
+    // Everything else goes downstream, decodable or not. A panel cannot tell which of
+    // the frames crossing it are for its own Portals and which are for the panels below,
+    // and it does not need to: the bus is shared either way, and a Portal ignores an
+    // envelope that is not addressed to it.
     return true;
 }
 
@@ -317,39 +320,17 @@ FrameRouter::EnvelopeInfo FrameRouter::inspectEnvelope(const uint8_t* data, size
     return result;
 }
 
-void FrameRouter::observeLocalReply(const EnvelopeInfo& envelope) {
-    if(envelope.target != 0 || envelope.source < 1 || envelope.source > 127) return;
-    if(envelope.source > 54) {
-        if(routingMode_ != RoutingMode::Conflict) {
-            localRangeStart_ = 0;
-            routingMode_ = RoutingMode::Conflict;
-            stats_.topologyConflicts++;
-        }
-        return;
-    }
-    const uint8_t rangeStart = static_cast<uint8_t>(((envelope.source - 1) / 9) * 9 + 1);
-    if(routingMode_ == RoutingMode::Transparent) {
-        localRangeStart_ = rangeStart;
-        routingMode_ = RoutingMode::Filtered;
-    }
-    else if(routingMode_ == RoutingMode::Filtered && rangeStart != localRangeStart_) {
-        localRangeStart_ = 0;
-        routingMode_ = RoutingMode::Conflict;
-        stats_.topologyConflicts++;
-    }
-}
-
-void FrameRouter::relearn() {
-    routingMode_ = RoutingMode::Transparent;
+void FrameRouter::clearLocalBlock() {
+    blockState_ = BlockState::Unknown;
     localRangeStart_ = 0;
 }
 
-void FrameRouter::restoreLearnedRange(uint8_t rangeStart) {
-    // Only the six legal block starts are accepted; anything else leaves the router
-    // transparent so a corrupt stored value cannot silently misroute a branch.
-    if(rangeStart == 0 || rangeStart > 46 || (rangeStart - 1) % 9 != 0) return;
+void FrameRouter::setLocalBlock(uint8_t rangeStart) {
+    // Only a legal block start is accepted, so a corrupt stored value cannot make a panel
+    // sweep nine IDs that are not its own.
+    if(rangeStart == 0 || rangeStart > 118 || (rangeStart - 1) % 9 != 0) return;
     localRangeStart_ = rangeStart;
-    routingMode_ = RoutingMode::Filtered;
+    blockState_ = BlockState::Assigned;
 }
 
 void FrameRouter::resetStats() { stats_ = RouterStats{}; }
@@ -384,11 +365,10 @@ DirectionStats& FrameRouter::direction(Side source) {
     return source == Side::One ? stats_.oneToTwo : stats_.twoToOne;
 }
 
-const char* routingModeName(RoutingMode mode) {
-    switch(mode) {
-    case RoutingMode::Transparent: return "transparent";
-    case RoutingMode::Filtered: return "filtered";
-    case RoutingMode::Conflict: return "conflict";
+const char* blockStateName(BlockState state) {
+    switch(state) {
+    case BlockState::Unknown: return "unknown";
+    case BlockState::Assigned: return "assigned";
     }
     return "unknown";
 }

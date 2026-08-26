@@ -78,6 +78,28 @@ pub fn reports_dir() -> std::path::PathBuf {
     std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../reports")
 }
 
+/// Where firmware an operator hands the bench directly is kept.
+///
+/// Unlike [`reports_dir`] this has one answer everywhere, and deliberately: a staged image is
+/// per-user scratch, not evidence, and a development run writing into the source tree would put
+/// somebody's one-off build under `git status` for the next person to wonder about. So it is
+/// always the platform's per-user state directory -- the same one a packaged run keeps its session
+/// files in -- with an environment override for a bench that wants its drops somewhere it can see
+/// them.
+///
+/// Returning a path that cannot be created is fine and is the reason there is no `Result` here:
+/// `staging::stage` reports the write failure with the path in it, which says more than an early
+/// refusal that has nothing to name.
+pub fn dropped_dir() -> std::path::PathBuf {
+    if let Some(explicit) = env_dir("PORTAL_TEST_BENCH_DROPPED") {
+        return explicit;
+    }
+    match av_app_registry::state_dir("portal-test-bench") {
+        Ok(state) => state.join("dropped-firmware"),
+        Err(_) => std::env::temp_dir().join("portal-test-bench-dropped-firmware"),
+    }
+}
+
 /// A directory named by an environment variable, or `None` when it is unset or empty.
 fn env_dir(key: &str) -> Option<std::path::PathBuf> {
     std::env::var_os(key)

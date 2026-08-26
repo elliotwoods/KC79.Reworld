@@ -236,7 +236,15 @@ void test_an_unselected_broadcast_adopt_is_refused()
 
 	Link link = makeLink();
 	// Every board on the bus adopting the same id is how a bus becomes unusable.
-	TEST_ASSERT_EQUAL(CommandKind::None, link.receive().kind);
+	//
+	// Refused *and recorded*: the frame is not acted on, and `SELECTOR_REQUIRED` reaches
+	// `status.err` so an operator can see it arrived and was declined rather than never landed.
+	// Still no reply -- an unselected broadcast that answered would put every board on air.
+	const Command command = link.receive();
+	TEST_ASSERT_EQUAL(CommandKind::Rejected, command.kind);
+	TEST_ASSERT_EQUAL(Error::SelectorRequired, command.error);
+	TEST_ASSERT_FALSE(command.replyAllowed);
+	TEST_ASSERT_EQUAL_size_t(0, stream.replyCount());
 }
 
 // ---- The trailer ------------------------------------------------------------------------------------
@@ -489,7 +497,12 @@ void test_an_unknown_control_key_is_skipped_rather_than_fatal()
 	TEST_ASSERT_EQUAL(Verb::Status, command.verb);
 }
 
-void test_an_unknown_verb_is_reported()
+/// An unknown verb addressed to us survives parsing so that it can be *answered*.
+///
+/// It arrives as a `Control` command carrying `UnknownVerb` rather than as a `Rejected` one:
+/// rejecting it here is what used to make the reply arm unreachable, leaving a host unable to
+/// tell a verb it got wrong from a board that is not there.
+void test_an_unknown_verb_survives_parsing_so_it_can_be_answered()
 {
 	bltest::FrameBuilder builder(ourId, 0, 3);
 	bltest::controlBegin(builder, "teleport", 0);
@@ -498,8 +511,25 @@ void test_an_unknown_verb_is_reported()
 
 	Link link = makeLink();
 	const Command command = link.receive();
-	TEST_ASSERT_EQUAL(CommandKind::Rejected, command.kind);
+	TEST_ASSERT_EQUAL(CommandKind::Control, command.kind);
+	TEST_ASSERT_EQUAL(Verb::None, command.verb);
 	TEST_ASSERT_EQUAL(Error::UnknownVerb, command.error);
+	TEST_ASSERT_TRUE(command.replyAllowed);
+}
+
+/// The same verb broadcast without a selector must stay silent, or one mistyped fleet command
+/// puts every board on the bus on air at once.
+void test_an_unknown_verb_broadcast_to_everyone_is_not_answered()
+{
+	bltest::FrameBuilder builder(-1, 0, 3);
+	bltest::controlBegin(builder, "teleport", 0);
+	builder.finish();
+	deliver(builder);
+
+	Link link = makeLink();
+	const Command command = link.receive();
+	TEST_ASSERT_EQUAL(Verb::None, command.verb);
+	TEST_ASSERT_FALSE(command.replyAllowed);
 }
 
 void test_frames_are_consumed_one_at_a_time_and_in_order()
@@ -604,6 +634,122 @@ void test_every_frame_offset_of_a_completely_full_bank_decodes()
 	TEST_ASSERT_EQUAL_UINT32(3392, checked);
 }
 
+// ---- Chain transit ---------------------------------------------------------------------------
+//
+// The panels are wired as a chain, not a star: each panel's downstream bus carries its own nine
+// Portals *and* the uplink for the panel below it. A board therefore sees traffic it never saw
+// when every panel hung off one shared bus -- every reply from every panel below it, and every
+// control frame addressed to those panels, transiting its own wire on the way past.
+//
+// None of it is addressed to this board, and the only correct response to all of it is silence.
+// A reply here would collide with the frame it was answering.
+
+void test_a_reply_from_a_panel_below_us_is_ignored()
+{
+	// `[0, 20, {"bl": {...}}]` -- exactly what a board on a lower panel produces, relayed up
+	// through this board's bus. Target 0 is the host's address, and it is also the address the
+	// repeater control plane uses, so this is the shape most likely to be mistaken for ours.
+	bltest::FrameBuilder builder(0, 20, 5);
+	bltest::controlBegin(builder, "status", 1);
+	bltest::controlUint(builder, "v", 6);
+	builder.finish();
+	deliver(builder);
+
+	Link link = makeLink();
+	TEST_ASSERT_EQUAL(CommandKind::None, link.receive().kind);
+	TEST_ASSERT_EQUAL_size_t(0, stream.replyCount());
+}
+
+void test_a_repeater_control_frame_transiting_our_bus_is_ignored()
+{
+	// `[0, 0, {"rq": ...}]` -- the repeater plane. In a star every panel heard the host directly
+	// and these were dropped at the first hop; in a chain they must be relayed to reach the panels
+	// below, so they now cross every Portal bus on the way.
+	bltest::FrameBuilder builder(0, 0, -1);
+	msgpack::writeMapSize4(builder.body(), 1);
+	msgpack::writeString5(builder.body(), "rq", 2);
+	msgpack::writeMapSize4(builder.body(), 2);
+	msgpack::writeString5(builder.body(), "a", 1);
+	msgpack::writeInt8(builder.body(), -4);
+	msgpack::writeString5(builder.body(), "q", 1);
+	msgpack::writeString5(builder.body(), "status", 6);
+	builder.finish();
+	deliver(builder);
+
+	Link link = makeLink();
+	TEST_ASSERT_EQUAL(CommandKind::None, link.receive().kind);
+	TEST_ASSERT_EQUAL_size_t(0, stream.replyCount());
+}
+
+void test_a_request_for_a_panel_below_us_is_ignored()
+{
+	bltest::FrameBuilder builder(20, 0, 6);
+	bltest::controlBegin(builder, "begin", 3);
+	bltest::controlUint(builder, "len", 4096);
+	bltest::controlUint(builder, "crc", 0x1234);
+	bltest::controlUint(builder, "chunk", 128);
+	builder.finish();
+	deliver(builder);
+
+	Link link = makeLink();
+	// Not merely unanswered -- not acted on either. Erasing this board's bank because a board two
+	// panels down was told to would be silent and total.
+	TEST_ASSERT_EQUAL(CommandKind::None, link.receive().kind);
+}
+
+void test_a_broadcast_still_reaches_us_through_the_chain()
+{
+	// The other half of the same property: relaying is transparent, so a fleet broadcast crosses
+	// every panel and every board acts on it. That is what lets one image serve the whole chain.
+	uint8_t payload[64];
+	for(uint32_t index = 0; index < sizeof(payload); index++) {
+		payload[index] = (uint8_t) index;
+	}
+	bltest::FrameBuilder builder(-1, 0, 9);
+	bltest::dataFrame(builder, 256, payload, sizeof(payload));
+	deliver(builder);
+
+	Link link = makeLink();
+	const Command command = link.receive();
+	TEST_ASSERT_EQUAL(CommandKind::Data, command.kind);
+	TEST_ASSERT_EQUAL_UINT32(256, command.offset);
+}
+
+void test_the_whole_addressable_id_range_works()
+{
+	// The chain permits fourteen blocks of nine, so an id now runs to 126 where it used to stop at
+	// 54. Both the match on the way in and the reply's own source field have to carry it: the
+	// source is written as a positive fixint, which tops out at 127, so 126 is the last id that
+	// fits the encoding at all.
+	for(int8_t id : {(int8_t) 1, (int8_t) 54, (int8_t) 55, (int8_t) 118, (int8_t) 126}) {
+		bltest::reset();
+		stream = bltest::DuplexStream();
+
+		bltest::FrameBuilder builder(id, 0, 3);
+		bltest::controlBegin(builder, "status", 0);
+		builder.finish();
+		deliver(builder);
+
+		Link link(stream);
+		link.setAddress(id);
+		link.setIdentity(ourSerial, ourUid);
+
+		const Command command = link.receive();
+		TEST_ASSERT_EQUAL_MESSAGE(CommandKind::Control, command.kind, "high id not matched");
+		TEST_ASSERT_TRUE(command.replyAllowed);
+
+		// And the reply names that id back, decodably.
+		link.beginReply(command, "status", 1);
+		link.fieldUint("v", 6);
+		link.endReply(command);
+
+		const bltest::Reply reply = bltest::readReply(stream);
+		TEST_ASSERT_TRUE_MESSAGE(reply.present, "reply from a high id did not decode");
+		TEST_ASSERT_EQUAL_INT32_MESSAGE(id, reply.source, "reply carried the wrong source id");
+		TEST_ASSERT_TRUE(reply.trailerOk);
+	}
+}
+
 // ---- Runner -------------------------------------------------------------------------------------
 
 int main()
@@ -639,9 +785,16 @@ int main()
 
 	RUN_TEST(test_a_truncated_frame_never_blocks);
 	RUN_TEST(test_an_unknown_control_key_is_skipped_rather_than_fatal);
-	RUN_TEST(test_an_unknown_verb_is_reported);
+	RUN_TEST(test_an_unknown_verb_survives_parsing_so_it_can_be_answered);
+	RUN_TEST(test_an_unknown_verb_broadcast_to_everyone_is_not_answered);
 	RUN_TEST(test_frames_are_consumed_one_at_a_time_and_in_order);
 	RUN_TEST(test_the_window_holds_one_frame_and_never_blocks);
+
+	RUN_TEST(test_a_reply_from_a_panel_below_us_is_ignored);
+	RUN_TEST(test_a_repeater_control_frame_transiting_our_bus_is_ignored);
+	RUN_TEST(test_a_request_for_a_panel_below_us_is_ignored);
+	RUN_TEST(test_a_broadcast_still_reaches_us_through_the_chain);
+	RUN_TEST(test_the_whole_addressable_id_range_works);
 
 	return UNITY_END();
 }

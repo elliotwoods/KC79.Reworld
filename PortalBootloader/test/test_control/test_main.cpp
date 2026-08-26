@@ -729,6 +729,152 @@ void test_adopt_sets_the_address_and_records_it()
 
 // ---- Runner ---------------------------------------------------------------------------------------
 
+// ---- Faults that must be reported rather than glossed over ----------------------------------------
+
+/// A bank that will not erase must fail `begin`, not pass it.
+///
+/// The failure used to be invisible: `eraseStep` stopped on the bad page, the phase advanced, and
+/// the deferred reply said `ok`. A host then streamed a whole image into flash that could not take
+/// it and learned nothing until `verify` disagreed, with no field anywhere saying why.
+void test_a_bank_that_will_not_erase_fails_begin()
+{
+	installHandoff(ourId, ourSerial, PORTAL_HANDOFF_REQUEST_STAY);
+	Bootloader bootloader(stream);
+	bootloader.begin(now);
+
+	bltest::failEraseOf(config::appFirstPage + 3);
+
+	bltest::FrameBuilder builder(ourId, 0, 5);
+	bltest::controlBegin(builder, "begin", 3);
+	bltest::controlUint(builder, "len", 1024);
+	bltest::controlUint(builder, "crc", 0xDEADBEEF);
+	bltest::controlUint(builder, "chunk", 128);
+	builder.finish();
+	send(builder);
+	settle(bootloader);
+
+	const bltest::Reply reply = lastReply();
+	TEST_ASSERT_TRUE_MESSAGE(reply.present, "begin was not answered at all");
+	TEST_ASSERT_EQUAL_STRING("begin", reply.verb);
+	TEST_ASSERT_FALSE_MESSAGE(reply.boolAt("ok"), "a failed erase was reported as success");
+	TEST_ASSERT_EQUAL_UINT32(code(Error::Erase), reply.uintAt("err"));
+}
+
+/// ...and `status` keeps saying so afterwards, so an operator who missed the reply can still ask.
+void test_a_failed_erase_is_still_visible_in_status()
+{
+	installHandoff(ourId, ourSerial, PORTAL_HANDOFF_REQUEST_STAY);
+	Bootloader bootloader(stream);
+	bootloader.begin(now);
+
+	bltest::failEraseOf(config::appFirstPage + 1);
+
+	{
+		bltest::FrameBuilder builder(ourId, 0, 5);
+		bltest::controlBegin(builder, "begin", 3);
+		bltest::controlUint(builder, "len", 1024);
+		bltest::controlUint(builder, "crc", 0xDEADBEEF);
+		bltest::controlUint(builder, "chunk", 128);
+		builder.finish();
+		send(builder);
+	}
+	settle(bootloader);
+	lastReply();
+
+	{
+		bltest::FrameBuilder builder(ourId, 0, 6);
+		bltest::controlBegin(builder, "status", 0);
+		builder.finish();
+		send(builder);
+	}
+	settle(bootloader);
+
+	const bltest::Reply status = lastReply();
+	TEST_ASSERT_TRUE(status.present);
+	TEST_ASSERT_EQUAL_UINT32(code(Error::Erase), status.uintAt("err"));
+}
+
+/// An unknown verb addressed to this board is answered, not ignored.
+///
+/// Silence is what an absent board sounds like. A host that mistypes a verb -- or speaks a later
+/// revision of the protocol -- needs those two cases to look different.
+void test_an_unknown_verb_is_answered_rather_than_ignored()
+{
+	installHandoff(ourId, ourSerial, PORTAL_HANDOFF_REQUEST_STAY);
+	Bootloader bootloader(stream);
+	bootloader.begin(now);
+
+	bltest::FrameBuilder builder(ourId, 0, 11);
+	bltest::controlBegin(builder, "teleport", 0);
+	builder.finish();
+	send(builder);
+	settle(bootloader);
+
+	const bltest::Reply reply = lastReply();
+	TEST_ASSERT_TRUE_MESSAGE(reply.present, "an unknown verb drew no reply");
+	// Labelled "?" rather than borrowing the name of a verb we do understand: a host that
+	// matches replies by verb would take a refusal labelled "status" for a status reply.
+	TEST_ASSERT_EQUAL_STRING("?", reply.verb);
+	TEST_ASSERT_FALSE(reply.boolAt("ok"));
+	TEST_ASSERT_EQUAL_UINT32(code(Error::UnknownVerb), reply.uintAt("err"));
+	TEST_ASSERT_EQUAL_UINT8(11, reply.seq);
+}
+
+/// The same verb broadcast to everyone stays silent. One mistyped fleet command must not put
+/// fifty-four boards on air together.
+void test_an_unknown_verb_broadcast_draws_no_reply()
+{
+	installHandoff(ourId, ourSerial, PORTAL_HANDOFF_REQUEST_STAY);
+	Bootloader bootloader(stream);
+	bootloader.begin(now);
+
+	bltest::FrameBuilder builder(-1, 0, 12);
+	bltest::controlBegin(builder, "teleport", 0);
+	builder.finish();
+	send(builder);
+	settle(bootloader);
+
+	TEST_ASSERT_FALSE_MESSAGE(lastReply().present, "a broadcast unknown verb was answered");
+}
+
+/// `status.drops` reports the two ways a frame can be lost before the parser ever sees it.
+///
+/// Both were latched and discarded before this. They are also the reply's fifteenth and sixteenth
+/// entries, which is why this test doubles as the guard on the map header: `writeMapSize4` masks
+/// its size to four bits rather than refusing, so a sixteenth entry used to be written as a map of
+/// *zero* and the whole reply decoded as empty.
+void test_status_reports_frames_lost_before_the_parser()
+{
+	installIdentity(ourSerial);
+	installHandoff(ourId, ourSerial, PORTAL_HANDOFF_REQUEST_STAY);
+	bltest::preloadApplication(config::appBase, 0x241, true, config::appBase, "Portal v1");
+
+	Bootloader bootloader(stream);
+	bootloader.begin(now);
+
+	const auto askStatus = [&]() {
+		bltest::FrameBuilder builder(ourId, 0, 2);
+		bltest::controlBegin(builder, "status", 0);
+		builder.finish();
+		send(builder);
+		settle(bootloader);
+		return lastReply();
+	};
+
+	const bltest::Reply quiet = askStatus();
+	TEST_ASSERT_TRUE_MESSAGE(quiet.present, "the status reply did not decode");
+	TEST_ASSERT_TRUE_MESSAGE(quiet.has("app"), "the app map is what makes this the 16-entry case");
+	TEST_ASSERT_EQUAL_UINT32(0, quiet.uintAt("drops"));
+
+	bltest::setRingOverran();
+	const bltest::Reply overrun = askStatus();
+	TEST_ASSERT_EQUAL_UINT32(2, overrun.uintAt("drops"));
+
+	// Sticky: `hw::ringOverran()` clears as it reads, so without accumulating it here the second
+	// host to ask would be told the board had never fallen behind.
+	TEST_ASSERT_EQUAL_UINT32(2, askStatus().uintAt("drops"));
+}
+
 int main()
 {
 	UNITY_BEGIN();
@@ -758,6 +904,12 @@ int main()
 	RUN_TEST(test_a_short_extension_never_pulls_a_deadline_closer);
 	RUN_TEST(test_reset_replies_before_it_resets);
 	RUN_TEST(test_adopt_sets_the_address_and_records_it);
+
+	RUN_TEST(test_a_bank_that_will_not_erase_fails_begin);
+	RUN_TEST(test_a_failed_erase_is_still_visible_in_status);
+	RUN_TEST(test_an_unknown_verb_is_answered_rather_than_ignored);
+	RUN_TEST(test_an_unknown_verb_broadcast_draws_no_reply);
+	RUN_TEST(test_status_reports_frames_lost_before_the_parser);
 
 	return UNITY_END();
 }

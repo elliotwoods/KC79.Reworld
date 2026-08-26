@@ -19,7 +19,7 @@ pub struct RepeaterStatus {
     pub build: Option<String>,
     pub mac: Option<[u8; 6]>,
     pub index: Option<u8>,
-    pub routing_mode: Option<String>,
+    pub block_state: Option<String>,
     pub range: Option<(u8, u8)>,
     pub event_seq: Option<u64>,
     pub reset_reason: Option<String>,
@@ -30,22 +30,26 @@ pub struct RepeaterStatus {
     pub core_dump: Option<bool>,
     pub queue_drops: Option<u64>,
     pub parse_errors: Option<u64>,
-    pub conflicts: Option<u64>,
+    /// Repeater-plane frames this unit passed on to a panel further down the chain.
+    pub relayed_control: Option<u64>,
     pub paused_drops: Option<u64>,
 }
 
 impl RepeaterStatus {
-    /// Whether this repeater is in the state a healthy V3 branch should be in:
-    /// filtering to its own nine IDs, with the range the topology says it owns.
+    /// Whether this repeater is in the state a healthy panel should be in: provisioned,
+    /// knowing which nine Portal IDs are its own, and dropping nothing.
+    ///
+    /// This used to require the unit to be *filtering*, which in a chain is precisely the
+    /// state that strands every panel below it — a broken chain would have reported
+    /// healthy and a working one would not.
     pub fn healthy(&self) -> bool {
         let Some(index) = self.index else {
             return false;
         };
-        let filtering = self.routing_mode.as_deref() == Some("filtered");
+        let block_assigned = self.block_state.as_deref() == Some("assigned");
         let range_correct = self.range == portal_range(index);
-        let quiet = self.queue_drops.unwrap_or(0) == 0
-            && self.conflicts.unwrap_or(0) == 0;
-        filtering && range_correct && quiet
+        let quiet = self.queue_drops.unwrap_or(0) == 0;
+        block_assigned && range_correct && quiet
     }
 
     /// Whether the host may use the snapshot and OTA verbs against this unit. A
@@ -148,7 +152,7 @@ fn parse_status(payload: &Value) -> RepeaterStatus {
         version: field(entries, "ver").and_then(|v| v.as_str()).map(str::to_owned),
         build: field(entries, "build").and_then(|v| v.as_str()).map(str::to_owned),
         index: field(entries, "idx").and_then(|v| v.as_i64()).map(|v| v as u8),
-        routing_mode: field(entries, "mode").and_then(|v| v.as_str()).map(str::to_owned),
+        block_state: field(entries, "mode").and_then(|v| v.as_str()).map(str::to_owned),
         event_seq: field(entries, "ev").and_then(|v| v.as_u64()),
         ..Default::default()
     };
@@ -169,7 +173,7 @@ fn parse_status(payload: &Value) -> RepeaterStatus {
     }
     if let Some(Value::Map(filters)) = field(entries, "flt") {
         status.parse_errors = field(filters, "pe").and_then(|v| v.as_u64());
-        status.conflicts = field(filters, "cfl").and_then(|v| v.as_u64());
+        status.relayed_control = field(filters, "relay").and_then(|v| v.as_u64());
     }
     if let Some(Value::Map(plane)) = field(entries, "plane") {
         status.paused_drops = field(plane, "pd").and_then(|v| v.as_u64());
@@ -246,7 +250,7 @@ mod tests {
     #[test]
     fn a_status_reply_is_folded_into_the_plane() {
         let mut plane = RepeaterPlane::default();
-        plane.observe(&reply(-4, status_payload(2, "filtered", (10, 18), 0)));
+        plane.observe(&reply(-4, status_payload(2, "assigned", (10, 18), 0)));
 
         let record = plane.by_index(2).expect("repeater 2 recorded");
         assert_eq!(record.address, -4);
@@ -263,17 +267,17 @@ mod tests {
     fn a_repeater_serving_the_wrong_block_is_not_healthy() {
         let mut plane = RepeaterPlane::default();
         // Index 2 should own 10..18; this one reports 19..27.
-        plane.observe(&reply(-4, status_payload(2, "filtered", (19, 27), 0)));
+        plane.observe(&reply(-4, status_payload(2, "assigned", (19, 27), 0)));
         assert!(!plane.by_index(2).unwrap().status.healthy());
     }
 
     #[test]
-    fn transparent_or_dropping_repeaters_are_not_healthy() {
+    fn unprovisioned_or_dropping_repeaters_are_not_healthy() {
         let mut plane = RepeaterPlane::default();
-        plane.observe(&reply(-3, status_payload(1, "transparent", (0, 0), 0)));
+        plane.observe(&reply(-3, status_payload(1, "unknown", (0, 0), 0)));
         assert!(!plane.by_index(1).unwrap().status.healthy());
 
-        plane.observe(&reply(-3, status_payload(1, "filtered", (1, 9), 5)));
+        plane.observe(&reply(-3, status_payload(1, "assigned", (1, 9), 5)));
         assert!(!plane.by_index(1).unwrap().status.healthy());
     }
 
@@ -295,7 +299,7 @@ mod tests {
             address: router_proto::REPEATER_ALL,
             verb: Some(RepeaterVerb::Status),
             ok: true,
-            payload: Some(status_payload(0, "transparent", (0, 0), 0)),
+            payload: Some(status_payload(0, "unknown", (0, 0), 0)),
         });
         assert_eq!(plane.unprovisioned().count(), 1);
         assert!(plane.by_index(1).is_none());
@@ -304,8 +308,8 @@ mod tests {
     #[test]
     fn repeated_replies_update_in_place_rather_than_accumulating() {
         let mut plane = RepeaterPlane::default();
-        plane.observe(&reply(-5, status_payload(3, "transparent", (0, 0), 0)));
-        plane.observe(&reply(-5, status_payload(3, "filtered", (19, 27), 0)));
+        plane.observe(&reply(-5, status_payload(3, "unknown", (0, 0), 0)));
+        plane.observe(&reply(-5, status_payload(3, "assigned", (19, 27), 0)));
         assert_eq!(plane.records().len(), 1);
         assert!(plane.by_index(3).unwrap().status.healthy());
     }

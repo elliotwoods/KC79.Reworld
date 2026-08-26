@@ -70,6 +70,30 @@ describe('portal grid', () => {
     expect(gridCell(17, 3, 6, false)).toEqual({ gx: 2, gy: 0 });
   });
 
+  // These are the cases that tell column-major from row-major. The three above happen to
+  // agree under both, so on their own they pin nothing.
+  it('numbers a 3x3 panel BL, CL, TL, BM, CM, TM, BR, CR, TR', () => {
+    const cell = (id: number) => gridCell(id - 1, 3, 3, false, 3);
+    expect(cell(1)).toEqual({ gx: 0, gy: 2 }); // bottom left
+    expect(cell(2)).toEqual({ gx: 0, gy: 1 }); // centre left
+    expect(cell(3)).toEqual({ gx: 0, gy: 0 }); // top left
+    expect(cell(4)).toEqual({ gx: 1, gy: 2 }); // bottom middle
+    expect(cell(5)).toEqual({ gx: 1, gy: 1 });
+    expect(cell(6)).toEqual({ gx: 1, gy: 0 });
+    expect(cell(7)).toEqual({ gx: 2, gy: 2 }); // bottom right
+    expect(cell(8)).toEqual({ gx: 2, gy: 1 });
+    expect(cell(9)).toEqual({ gx: 2, gy: 0 }); // top right
+  });
+
+  // The bench's own panel: slots 1, 2, 4 and 7 populated reads as a full left column
+  // plus the bottom of the other two, not as a row across the bottom.
+  it('places the bench panel 1,2,4,7 as BL, CL, BM, BR', () => {
+    expect(gridCell(0, 3, 3, false, 3)).toEqual({ gx: 0, gy: 2 });
+    expect(gridCell(1, 3, 3, false, 3)).toEqual({ gx: 0, gy: 1 });
+    expect(gridCell(3, 3, 3, false, 3)).toEqual({ gx: 1, gy: 2 });
+    expect(gridCell(6, 3, 3, false, 3)).toEqual({ gx: 2, gy: 2 });
+  });
+
   it('hit test inverts the cell mapping', () => {
     const [w, h, cx, cy] = [90, 180, 3, 6];
     for (let i = 0; i < 18; i++) {
@@ -118,8 +142,11 @@ describe('the wall', () => {
   it('maps a portal to the preview pixel Column::update_positions_from_image samples', () => {
     // 12×6 image; portal 1 (index 0) of column 0 samples the bottom-left pixel when not flipped
     expect(previewIndex(0, 0, cx, cy, false, 12, 6)).toBe(5 * 12);
-    // portal 4 (index 3, second row) of column 1 samples x=3, y=4
+    // portal 4 (index 3, second row of a flat V1/V2 column) samples x=3, y=4
     expect(previewIndex(1, 3, cx, cy, false, 12, 6)).toBe(4 * 12 + 3);
+    // the same portal on a V3 column of 3-tall panels is BM of the bottom panel:
+    // one cell right of the column's left edge, on the bottom row
+    expect(previewIndex(1, 3, cx, cy, false, 12, 6, 3)).toBe(5 * 12 + 4);
     // flipped: rows run top-down
     expect(previewIndex(0, 0, cx, cy, true, 12, 6)).toBe(0);
     // out of the image

@@ -88,8 +88,6 @@
 .firmware-bank { display: grid; align-content: start; gap: var(--space-1); min-width: 0; }
 .firmware-bank > strong { padding: 0 var(--space-1); color: var(--text-secondary); font-size: var(--text-xs); letter-spacing: var(--tracking-label); text-transform: uppercase; }
 .firmware-bank > small { padding: var(--space-2); color: var(--text-faint); }
-/* The preserve switch sits under both banks because it applies to whichever one is left out. */
-.firmware-policy { display: flex; justify-content: flex-start; padding: var(--space-1) 0 0; }
 .choice-list { display: grid; grid-template-columns: 1fr; gap: 2px; max-height: 260px; overflow: auto; }
 .choice-row { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; align-items: center; gap: var(--space-2); width: 100%; padding: var(--space-2); border: 1px solid transparent; border-radius: var(--radius-sm); background: transparent; color: var(--text); text-align: left; cursor: pointer; }
 .choice-row:hover { background: var(--surface-raised); }
@@ -98,6 +96,26 @@
 .choice-row[data-disabled] { opacity: .55; cursor: not-allowed; }
 .choice-mark { display: grid; place-items: center; width: 18px; height: 18px; border: 1px solid var(--border); border-radius: var(--radius-pill); color: var(--accent-fg); font-size: var(--text-xs); }
 .choice-row[data-selected='true'] .choice-mark { border-color: var(--accent); background: var(--accent); }
+/* The "write nothing to this bank" row. Drawn hollow so the two banks can be read at a glance:
+   dashed where an image row is solid, muted where an image row is not, and a dashed mark rather
+   than a filled one even when it is the selected choice. It is a real choice and looks selectable;
+   it just never looks like an image. */
+.choice-row[data-empty] { border-style: dashed; border-color: var(--border); background: transparent; }
+.choice-row[data-empty] .choice-copy strong { color: var(--text-secondary); font-weight: var(--weight-regular); font-style: italic; }
+.choice-row[data-empty] .choice-mark { border-style: dashed; }
+.choice-row[data-empty]:hover { background: var(--surface); }
+.choice-row[data-empty][data-selected='true'] { border-color: var(--text-faint); background: var(--surface); }
+.choice-row[data-empty][data-selected='true'] .choice-copy strong { color: var(--text); }
+.choice-row[data-empty][data-selected='true'] .choice-mark { border-color: var(--text-faint); background: transparent; color: var(--text-secondary); }
+/* Preserve is off, so this row destroys the bank rather than keeping it. Same row, same click,
+   opposite outcome -- the styling has to say which one is armed, or the words are doing it alone. */
+.choice-row[data-empty='erase'] { border-color: color-mix(in srgb, var(--danger) 45%, var(--border)); }
+.choice-row[data-empty='erase'] .choice-copy strong,
+.choice-row[data-empty='erase'] .choice-copy small { color: var(--danger); }
+.choice-row[data-empty='erase'] .choice-mark { border-color: color-mix(in srgb, var(--danger) 55%, var(--border)); }
+.choice-row[data-empty='erase']:hover { background: color-mix(in srgb, var(--danger) 7%, transparent); }
+.choice-row[data-empty='erase'][data-selected='true'] { border-color: var(--danger); background: color-mix(in srgb, var(--danger) 10%, var(--surface)); }
+.choice-row[data-empty='erase'][data-selected='true'] .choice-mark { border-color: var(--danger); color: var(--danger); }
 .choice-copy { display: grid; min-width: 0; }
 .choice-copy strong, .choice-copy small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .choice-copy small { color: var(--text-secondary); font-size: var(--text-2xs); }
@@ -297,3 +315,17 @@
   .hardware-facts, .firmware-banks { grid-template-columns: 1fr; }
   .setup-choice-group > footer { align-items: flex-start; flex-direction: column; }
 }
+
+/* Dropped firmware. The overlay, its targets and the strip come from the framework's styles.css;
+   these are the parts that are about firmware rather than about files. */
+.firmware-drop-result { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: var(--space-2); padding: var(--space-2); border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-sunken); }
+.firmware-drop-result[data-ok='false'] { border-color: var(--danger); background: color-mix(in srgb, var(--danger) 6%, var(--surface-sunken)); }
+.firmware-drop-copy { display: grid; min-width: 0; }
+.firmware-drop-copy strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.firmware-drop-copy small { color: var(--text-secondary); font-size: var(--text-2xs); overflow-wrap: anywhere; }
+/* The remove button is a sibling of the row, not a child: `.choice-row` is a `<button>`. */
+.choice-row-with-action { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 2px; }
+.choice-row-remove { display: grid; place-items: center; width: 24px; height: 24px; padding: 0; border: 1px solid transparent; border-radius: var(--radius-sm); background: transparent; color: var(--text-faint); font-size: var(--text-md); line-height: 1; cursor: pointer; }
+.choice-row-remove:hover:not(:disabled) { border-color: var(--danger); color: var(--danger); }
+.choice-row-remove:focus-visible { outline: 2px solid var(--accent-ring); outline-offset: 1px; }
+.choice-row-remove:disabled { opacity: var(--disabled-opacity); cursor: default; }

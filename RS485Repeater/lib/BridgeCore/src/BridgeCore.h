@@ -12,10 +12,17 @@ enum class Side : uint8_t {
     Two = 2, // local Portal bus
 };
 
-enum class RoutingMode : uint8_t {
-    Transparent = 0,
-    Filtered = 1,
-    Conflict = 2,
+/// Whether this panel knows which nine Portal IDs are its own.
+///
+/// It no longer decides any forwarding -- in a chain everything is relayed downstream
+/// regardless -- but the snapshot sweep has to know which nine boards to poll, and the
+/// block cannot be inferred from traffic any more. A panel sees replies from every panel
+/// below it transiting its own bus, so "the first reply tells me my block" learns
+/// whichever panel answered first, and "a reply from another block is a conflict" fires
+/// on ordinary transit. The block comes from the provisioned index instead.
+enum class BlockState : uint8_t {
+    Unknown = 0,
+    Assigned = 1,
 };
 
 /// Largest relayed frame. Deliberately far below the previous 8192: a frame is
@@ -42,6 +49,24 @@ constexpr size_t FRAME_QUEUE_DEPTH = 16;
 constexpr size_t MAX_ORIGINATED_FRAME_BYTES = 512;
 constexpr size_t ORIGINATE_QUEUE_DEPTH = 4;
 
+/// How long a part-received frame may sit before it is abandoned as truncated.
+///
+/// It lives here rather than beside the pin numbers so the firmware and the tests
+/// cannot hold different opinions about it; a value that only the Arduino build sees
+/// is one the native suite can never catch a regression in.
+///
+/// It was 2 ms -- 23 byte-times at 115200, shorter than the frames it was protecting.
+/// Bisected on the bench 2026-08-26: a 159-byte frame relayed, a 160-byte one silently
+/// discarded, because a buffered host writer delivers a frame in 64-byte USB packets and
+/// the gap between them exceeded the timer once a frame spanned more than two. It cost a
+/// whole ESP32 firmware transfer, and it sat directly under the bootloader control plane,
+/// whose frames are ~149 bytes.
+///
+/// 20 ms is still well below the 178 ms a full 2048-byte frame occupies, and COBS
+/// delimiters -- not this timer -- are what separate frames, so a stream that genuinely
+/// stopped is still abandoned long before the next one could be joined to it.
+constexpr uint32_t FRAME_IDLE_TIMEOUT_US = 20000;
+
 struct DirectionStats {
     uint64_t rxBytes = 0;
     uint64_t receivedFrames = 0;
@@ -57,11 +82,13 @@ struct RouterStats {
     DirectionStats oneToTwo;
     DirectionStats twoToOne;
     uint64_t parseErrors = 0;
-    uint64_t filteredUnicasts = 0;
-    uint64_t filteredKeyframes = 0;
+    /// Host-addressed frames that were not repeater-plane traffic: a Portal reply
+    /// arriving from the wrong direction. Never relayed into a branch.
     uint64_t filteredHostFrames = 0;
-    uint64_t topologyConflicts = 0;
     uint64_t txErrors = 0;
+    /// Repeater-plane frames passed down the chain because they belong to a panel
+    /// below this one.
+    uint64_t relayedControlFrames = 0;
     /// Side-2 frames a local consumer claimed, so they were not relayed upstream.
     uint64_t consumedInnerFrames = 0;
     uint64_t originatedFrames = 0;
@@ -99,30 +126,46 @@ public:
     virtual bool consumeInnerReply(const InnerFrameInfo& info, const uint8_t* frame, size_t size) = 0;
 };
 
-/// Lets the control plane claim host-addressed frames arriving on the outer bus.
+/// What a repeater-plane frame arriving on the upstream side should have done with it.
 ///
-/// Repeater-plane frames are addressed with envelope target 0 precisely because
-/// that is the one class this router has always refused to forward to the branch,
-/// in every routing mode. A repeater running older firmware therefore ignores
-/// control traffic rather than relaying it to nine Portals. Whether or not the
-/// consumer claims a frame, it is still never forwarded.
+/// Panels are wired as a chain, not a star: this repeater's downstream bus is also the
+/// uplink for the next panel, so a control frame addressed to a panel below this one can
+/// only get there by being relayed. Dropping it -- which is what a star topology could
+/// afford to do, because every repeater heard the host directly -- makes every panel
+/// past the first permanently unreachable for status, provisioning and OTA.
+enum class ControlDisposition : uint8_t {
+    /// Not repeater-plane traffic. A host-addressed frame that is not a request is a
+    /// reply that has come the wrong way, and must not enter a branch.
+    NotControl = 0,
+    /// Addressed to this repeater. Acted on, and it stops here.
+    Consumed,
+    /// Broadcast to every repeater. Acted on here, and every panel below needs it too.
+    ConsumedAndRelay,
+    /// Addressed to a different repeater. Not ours to act on; relay it unchanged.
+    Relay,
+};
+
+/// Lets the control plane claim, or route, host-addressed frames arriving upstream.
 class ControlFrameConsumer {
 public:
     virtual ~ControlFrameConsumer() = default;
 
-    /// Return true if this frame was addressed to the repeater plane.
-    virtual bool consumeControlFrame(const uint8_t* frame, size_t size) = 0;
+    /// Classify a repeater-plane frame, acting on it if it is ours.
+    virtual ControlDisposition consumeControlFrame(const uint8_t* frame, size_t size) = 0;
 };
 
 /// Bounded, store-and-forward router for zero-delimited COBS frames.
 ///
-/// Side One is the shared host bus and Side Two is the local Portal branch.
-/// Unknown traffic is deliberately fail-open. Once a valid reply from a local
-/// Portal identifies a nine-ID block, only understood non-local unicasts and
-/// keyframes are suppressed on the outer-to-inner path.
+/// Side One faces the host -- directly for the first panel, and through the panel above
+/// for every other. Side Two carries this panel's Portals *and* the next panel's uplink.
+///
+/// Because of that, upstream-to-downstream is deliberately transparent: anything this
+/// panel does not consume is relayed, because the traffic for every panel below has to
+/// cross this one. There is no address filtering to be had -- the frames a filter would
+/// drop are exactly the frames the rest of the chain is waiting for.
 class FrameRouter {
 public:
-    explicit FrameRouter(uint32_t idleTimeoutUs = 2000);
+    explicit FrameRouter(uint32_t idleTimeoutUs = FRAME_IDLE_TIMEOUT_US);
 
     void ingest(Side source, const uint8_t* bytes, size_t count, uint32_t nowUs);
     void expireIncomplete(uint32_t nowUs);
@@ -147,7 +190,8 @@ public:
     void setForwardingPaused(bool paused) { forwardingPaused_ = paused; }
     bool forwardingPaused() const { return forwardingPaused_; }
 
-    void relearn();
+    /// Forget the local block. The snapshot sweep stops until an index is provisioned.
+    void clearLocalBlock();
     void resetStats();
 
     /// How long an unterminated frame is allowed to stall before it is abandoned.
@@ -162,12 +206,11 @@ public:
     void setIdleTimeoutUs(uint32_t microseconds) { idleTimeoutUs_ = microseconds; }
     uint32_t idleTimeoutUs() const { return idleTimeoutUs_; }
 
-    /// Adopt a previously learned block without waiting for a branch reply. Used to
-    /// restore the range persisted at the last shutdown, so a cold boot does not
-    /// fail open and flood the branch with all 54 unicasts.
-    void restoreLearnedRange(uint8_t rangeStart);
+    /// Declare which nine Portal IDs belong to this panel, from its provisioned index.
+    /// Rejects anything that is not a legal block start.
+    void setLocalBlock(uint8_t rangeStart);
 
-    RoutingMode routingMode() const { return routingMode_; }
+    BlockState blockState() const { return blockState_; }
     uint8_t localRangeStart() const { return localRangeStart_; }
     uint8_t localRangeEnd() const {
         return localRangeStart_ == 0 ? 0 : static_cast<uint8_t>(localRangeStart_ + 8);
@@ -230,7 +273,6 @@ private:
     bool enqueue(Side source, const uint8_t* data, size_t size);
     bool shouldForward(Side source, const uint8_t* data, size_t size);
     EnvelopeInfo inspectEnvelope(const uint8_t* data, size_t size);
-    void observeLocalReply(const EnvelopeInfo& envelope);
 
     uint32_t idleTimeoutUs_;
     Accumulator sideOneAccumulator_;
@@ -240,7 +282,7 @@ private:
     OriginateQueue originateToOneQueue_;
     OriginateQueue originateToTwoQueue_;
     std::array<uint8_t, MAX_FRAME_BYTES> decodeBuffer_{};
-    RoutingMode routingMode_ = RoutingMode::Transparent;
+    BlockState blockState_ = BlockState::Unknown;
     uint8_t localRangeStart_ = 0;
     Side lastDequeued_ = Side::Two;
     Side lastOriginated_ = Side::Two;
@@ -250,6 +292,6 @@ private:
     RouterStats stats_;
 };
 
-const char* routingModeName(RoutingMode mode);
+const char* blockStateName(BlockState state);
 
 } // namespace repeater
