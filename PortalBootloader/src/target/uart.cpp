@@ -53,11 +53,30 @@ namespace target {
 			int read() override { return ringRead(); }
 			int peek() override { return ringPeek(); }
 
+			/// Frames are assembled here and put on the wire in one burst by `flush()`.
+			///
+			/// Writing each byte straight to `TDR` as the encoder produced it was the natural
+			/// thing to do and it did not work. With hardware driver-enable the peripheral holds
+			/// DE only while it has something to send: the moment the shift register empties, DE
+			/// drops. The COBS encoder does real work between bytes -- buffering a block, folding
+			/// the running CRC -- so the transmitter kept catching up with the producer, and DE
+			/// toggled *inside* the frame. Every toggle left the far end's receiver looking at a
+			/// floating line, which it sampled as a framing error, which reads as `0x00`, which is
+			/// the COBS delimiter. A 213-byte reply arrived at the repeater whole and split into
+			/// five frames, of which one was forwarded.
+			///
+			/// Assembling first and sending afterwards makes the transmission one uninterrupted
+			/// run, so DE asserts once and drops once. It also makes the timing independent of how
+			/// fast the encoder happens to be, which is the part that would otherwise come back
+			/// whenever a reply grew a field.
 			size_t write(uint8_t value) override
 			{
-				while(!(USART2->ISR & USART_ISR_TXE_TXFNF)) {
+				if(this->pending >= sizeof(this->buffer)) {
+					// Longer than any frame this bootloader builds. Emit what is held rather than
+					// dropping bytes: a gap is recoverable, a truncated frame is not.
+					this->burst();
 				}
-				USART2->TDR = value;
+				this->buffer[this->pending++] = value;
 				return 1;
 			}
 
@@ -71,11 +90,29 @@ namespace target {
 
 			void flush() override
 			{
+				this->burst();
 				// Transmission complete, not merely "the register is free". The driver-enable
 				// line follows this flag, so returning early would drop the bus mid-byte.
 				while(!(USART2->ISR & USART_ISR_TC)) {
 				}
 			}
+
+		private:
+			void burst()
+			{
+				for(size_t index = 0; index < this->pending; index++) {
+					while(!(USART2->ISR & USART_ISR_TXE_TXFNF)) {
+					}
+					USART2->TDR = this->buffer[index];
+				}
+				this->pending = 0;
+			}
+
+			/// The largest frame this bootloader builds is a `status` reply at 213 encoded bytes.
+			/// Rounded up with room for a field or two more before anyone has to think about it
+			/// again; the overflow path above keeps a bigger one correct regardless.
+			uint8_t buffer[320];
+			size_t pending = 0;
 		};
 
 		Rs485Stream g_rs485;
@@ -119,11 +156,31 @@ namespace target {
 			: divisorFor(16'000'000u);
 
 		// USART2: 8N1, oversampling by 16, FIFO on, hardware driver-enable active high.
+		//
+		// `DEP` is *polarity*, and it reads backwards: 0 means DE is active high, 1 means active
+		// low. Setting it -- as this did -- leaves DE asserted whenever the peripheral is not
+		// transmitting, which on a MAX3362 whose RE# is tied to DE means the receiver is disabled
+		// for exactly as long as the board is listening. The bootloader came up, printed its
+		// banner on USART1, blinked its idle heartbeat, and never saw a single frame.
+		//
+		// Nothing on the host side could have found this: every native test drives the parser
+		// through a fake stream, and the fault is one bit in a peripheral the tests do not have.
+		// It took the board's own log -- a banner, then nothing but idle ticks -- to place it.
 		USART2->CR1 = 0;
 		USART2->BRR = divisor;
 		USART2->CR2 = 0;
-		USART2->CR3 = USART_CR3_DEM | USART_CR3_DEP;
-		USART2->CR1 = USART_CR1_FIFOEN
+		USART2->CR3 = USART_CR3_DEM;
+		// One bit time of driver-enable margin at each end (DEAT/DEDT are in sample times, and
+		// there are sixteen to a bit at OVER16).
+		//
+		// Both default to zero, which asserts DE with the first bit and releases it the instant
+		// the stop bit is clocked out -- no allowance for the transceiver's own enable and
+		// disable delays. Measured on the bench 2026-08-26: the repeater received 121 bytes of
+		// every 122-byte reply, missing exactly the terminating COBS delimiter, so the frame never
+		// closed and was discarded as incomplete. One byte, and it made every reply invisible.
+		USART2->CR1 = (16u << USART_CR1_DEAT_Pos)
+			| (16u << USART_CR1_DEDT_Pos)
+			| USART_CR1_FIFOEN
 			| USART_CR1_TE
 			| USART_CR1_RE
 			| USART_CR1_RXNEIE_RXFNEIE

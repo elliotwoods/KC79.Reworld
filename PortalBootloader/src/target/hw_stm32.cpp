@@ -183,6 +183,15 @@ namespace hw {
 	}
 
 	//----------
+	void replyGuard()
+	{
+		const uint32_t started = millis();
+		while((uint32_t) (millis() - started) < config::replyGuardMs) {
+			IWDG->KR = 0xAAAAu;
+		}
+	}
+
+	//----------
 	bool ringOverran()
 	{
 		// The flag itself lives with the ISR that sets it, in SRAM. This is only the seam.

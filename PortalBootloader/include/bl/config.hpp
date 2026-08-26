@@ -99,6 +99,17 @@ namespace config {
 	// Long, because the host may be servicing 53 other boards in between.
 	constexpr uint32_t sessionSilence = 60000;
 
+	/// How long to wait after a request before answering it.
+	///
+	/// The far end of a half-duplex link needs time to stop driving. This board is fast enough to
+	/// begin replying while the repeater in front of it is still holding its driver, and every
+	/// byte spoken into that window is simply gone -- 92 of a 213-byte reply, measured.
+	///
+	/// Five milliseconds is comfortably longer than the repeater's observed turnaround and still
+	/// far inside the host's shortest reply timeout (250 ms). Data frames are unacknowledged, so
+	/// this is paid only on frames that are answered.
+	constexpr uint32_t replyGuardMs = 5;
+
 	// Heartbeat LED half-periods, chosen so the three states are distinguishable across a rack:
 	// a slow blink while idle, a fast one while receiving, a very fast one when there is nothing
 	// valid to run.

@@ -81,6 +81,12 @@ namespace hw {
 	/// call this from inside its loop, not around it.
 	void watchdogKick();
 
+	/// Hold off before transmitting a reply, so the far end can release the bus.
+	///
+	/// See `config::replyGuardMs` for what it is worth and why. A no-op on the host, where there
+	/// is no bus and no clock running of its own accord.
+	void replyGuard();
+
 	/// Whether the UART receive ring has overrun since this was last asked, clearing the flag.
 	///
 	/// Clear-on-read is the ISR's contract, not this one's: the caller is expected to latch the

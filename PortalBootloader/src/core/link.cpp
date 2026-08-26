@@ -1,4 +1,5 @@
 #include "bl/link.hpp"
+#include "bl/hw.hpp"
 
 #include "msgpack/deserialize.hpp"
 #include "msgpack/serialize.hpp"
@@ -673,6 +674,44 @@ namespace bl {
 	Link::beginReply(const Command & request, const char * verb, uint8_t fieldCount)
 	{
 		(void) request;
+
+		// A bare delimiter before the frame, so the receiver starts from a known boundary.
+		//
+		// On a half-duplex bus every listener's receiver is disabled while it transmits and its
+		// input floats; the UART samples a spurious byte at the turn-around. Measured on the bench
+		// 2026-08-26: the repeater latched exactly one such byte per frame it sent, and that byte
+		// became the first byte of the next frame it received.
+		//
+		// One wrong byte was not a small problem. COBS reads it as a *code* byte, so it consumes
+		// the real frame's leading bytes as though they were its block -- and swallows the frame's
+		// own terminating zero along with them, so the frame does not close until the following
+		// turn-around happens to supply another delimiter. Every reply arrived corrupted and one
+		// exchange late, which for hours looked like a fault in whichever firmware was replying.
+		//
+		// A leading zero costs one byte and ends that garbage block before this frame begins.
+		// COBS treats the gap between two delimiters as an empty packet and skips it, so a
+		// receiver that never had the problem is unaffected.
+		this->window.write((uint8_t) 0x00);
+
+		// Then wait for the other end to let go of the bus before saying anything.
+		//
+		// This board answers within microseconds of the last byte of a request -- the frame window
+		// completes at the delimiter and the reply is written from the same loop pass. The
+		// repeater in front of it takes milliseconds to drop its driver after its own last byte,
+		// and its receiver is deaf for every one of them. Measured on the bench 2026-08-26: of a
+		// 213-byte status reply, the repeater received the last 121 bytes and none of the first
+		// 92. The reply was whole when it left here -- the `>` in the log says so -- and the front
+		// of it was spoken into a closed ear.
+		//
+		// A guard time is the standard answer on a half-duplex bus and it belongs at this end: a
+		// device cannot know how slowly the thing in front of it turns around, and being early is
+		// the one failure it can prevent by itself. It costs nothing on the data path, which is
+		// unacknowledged, and only applies to frames this board originates.
+		//
+		// Behind the hardware seam because it is a wait on a real clock; on the host it returns
+		// at once, so the protocol tests neither spin nor have to know about it.
+		hw::replyGuard();
+
 		msgpack::writeArraySize4(this->cobs, 5);
 		msgpack::writeIntU7(this->cobs, (uint8_t) hostAddress);
 		msgpack::writeIntU7(this->cobs, (uint8_t) (this->myId < 0 ? 0 : this->myId));
@@ -769,6 +808,10 @@ namespace bl {
 		msgpack::writeIntU8(this->cobs, request.seq);
 		msgpack::writeIntU16(this->cobs, this->cobs.getTxRunningCRC());
 		this->cobs.flush();
+		// One character once the whole reply has been handed to the UART. On a bus where a reply
+		// can be truncated between here and the far end, this is what separates "the board never
+		// finished writing it" from "it wrote it and something downstream lost the rest".
+		hw::logChar('>');
 	}
 
 } // namespace bl

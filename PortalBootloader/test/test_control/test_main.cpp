@@ -15,6 +15,7 @@
 #include "portal_crc32c.h"
 
 #include <initializer_list>
+#include <stdio.h>
 #include <string.h>
 
 using namespace bl;
@@ -875,6 +876,32 @@ void test_status_reports_frames_lost_before_the_parser()
 	TEST_ASSERT_EQUAL_UINT32(2, askStatus().uintAt("drops"));
 }
 
+/// How big is a `status` reply on the wire?
+///
+/// Not an assertion about a magic number -- a measurement, printed, because the bench needs to
+/// know what a complete reply looks like before it can tell a truncated one from a whole one.
+void test_report_the_encoded_size_of_a_status_reply()
+{
+	installIdentity(ourSerial);
+	installHandoff(ourId, ourSerial, PORTAL_HANDOFF_REQUEST_STAY);
+	bltest::preloadApplication(config::appBase, 0x241, true, config::appBase, "Portal v2026-08-26_02.30 273d881+");
+
+	Bootloader bootloader(stream);
+	bootloader.begin(now);
+	stream.clearSent();
+
+	bltest::FrameBuilder builder(ourId, 0, 7);
+	bltest::controlBegin(builder, "status", 0);
+	builder.finish();
+	send(builder);
+	settle(bootloader);
+
+	char note[80];
+	sprintf(note, "status reply is %u encoded bytes", (unsigned) stream.sentLength());
+	TEST_MESSAGE(note);
+	TEST_ASSERT_GREATER_THAN_size_t(0, stream.sentLength());
+}
+
 int main()
 {
 	UNITY_BEGIN();
@@ -910,6 +937,7 @@ int main()
 	RUN_TEST(test_an_unknown_verb_is_answered_rather_than_ignored);
 	RUN_TEST(test_an_unknown_verb_broadcast_draws_no_reply);
 	RUN_TEST(test_status_reports_frames_lost_before_the_parser);
+	RUN_TEST(test_report_the_encoded_size_of_a_status_reply);
 
 	return UNITY_END();
 }

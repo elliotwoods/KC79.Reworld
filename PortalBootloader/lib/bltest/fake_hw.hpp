@@ -42,6 +42,9 @@ namespace bltest {
 	/// How many pages have been erased, and how many double-words programmed.
 	uint32_t erasedPages();
 	uint32_t programmedWords();
+	/// How many times a reply waited for the bus to clear.
+	uint32_t replyGuards();
+
 	/// Pretend the UART receive ring overran, to exercise the reporting path.
 	void setRingOverran();
 

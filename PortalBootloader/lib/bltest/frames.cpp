@@ -132,6 +132,13 @@ namespace bltest {
 		if(!cobs.isStartOfIncomingPacket()) {
 			cobs.nextIncomingPacket();
 		}
+		// Skip empty packets. The bootloader emits a bare delimiter before every reply so that a
+		// half-duplex listener which latched a turn-around byte starts this frame from a known
+		// boundary; two delimiters in a row are an empty packet, and any receiver has to step over
+		// one. Bounded, so a stream of nothing but delimiters cannot spin here.
+		for(int skips = 0; skips < 4 && cobs.available() <= 0; skips++) {
+			cobs.nextIncomingPacket();
+		}
 		if(cobs.available() <= 0) {
 			return reply;
 		}
