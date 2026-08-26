@@ -811,6 +811,8 @@ mod tests {
                     kind: "usb".into(),
                     product: Some("STM32 STLink".into()),
                     serial_number: Some("PROBE123".into()),
+                    vid: None,
+                    pid: None,
                 }],
                 probes: vec![bench_core::ProbeEntry {
                     identifier: "0483:374b:PROBE123".into(),

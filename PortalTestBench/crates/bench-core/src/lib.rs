@@ -12,6 +12,7 @@ pub mod dut;
 pub mod engine;
 pub mod plan;
 pub mod provisioning;
+pub mod repeater;
 pub mod report;
 pub mod state;
 pub mod survey;

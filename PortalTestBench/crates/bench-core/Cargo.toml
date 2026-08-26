@@ -28,8 +28,16 @@ rmpv = "1"
 workspace = true
 optional = true
 
+[dependencies.espflash]
+workspace = true
+optional = true
+
 [features]
-default = ["swd"]
+default = ["swd", "esp"]
 # SWD flashing via probe-rs. Behind a feature so a headless soak or a CI run of the engine does
 # not have to link probe-rs and its USB stack at all.
 swd = ["dep:portal-swd"]
+# USB flashing for the ESP32-C3 repeaters, via espflash. Behind a feature for the same reason,
+# and the simulated programmer is compiled either way -- so the repeater provisioning sequence,
+# including the readback that decides its verdict, is testable with this off.
+esp = ["dep:espflash"]

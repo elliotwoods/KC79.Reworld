@@ -843,7 +843,10 @@ mod tests {
         })
         .unwrap();
         let wire = written.lock().unwrap().clone();
-        let payload = router_proto::cobs_decode(&wire[..wire.len() - 1]).unwrap();
+        // `encode_frame` writes a delimiter on *both* sides of the payload now -- the
+        // leading one terminates the spurious byte an RS485 receiver samples at a
+        // half-duplex turn-around, before the real frame starts. Strip both.
+        let payload = router_proto::cobs_decode(&wire[1..wire.len() - 1]).unwrap();
         let frame = direct::decode(&payload).unwrap();
         assert_eq!(frame.kind, direct::kind::JOG);
         assert_eq!(

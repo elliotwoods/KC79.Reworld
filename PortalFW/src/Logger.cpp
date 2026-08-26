@@ -775,7 +775,20 @@ Logger::updateDirect()
 	if(!directStream.isStartOfIncomingPacket()) {
 		directStream.nextIncomingPacket();
 	}
-	while(directStream.isStartOfIncomingPacket() && directStream.available()) {
+	while(directStream.isStartOfIncomingPacket()) {
+		// The same empty-packet wedge as RS485::processIncoming, and reachable here without any
+		// RS485 hardware in the picture: the bench's direct transport frames every packet with a
+		// leading delimiter (bench-core/src/transport/direct.rs), so an empty packet arrives ahead
+		// of the very first frame rather than as a rare glitch. Left unhandled, entering direct
+		// mode succeeds, the banner prints, and then nothing works until the heartbeat times out.
+		if(!directStream.available()) {
+			if(!directStream.isEndOfIncomingPacket()) {
+				break;
+			}
+			directStream.nextIncomingPacket();
+			continue;
+		}
+
 		this->processDirectPacket();
 		if(directStream.isEndOfIncomingPacket()) {
 			directStream.nextIncomingPacket();

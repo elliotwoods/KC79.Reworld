@@ -43,6 +43,16 @@ axum       = { version = "0.8", default-features = false, features = ["http1", "
 serde      = { version = "1", features = ["derive"] }
 serde_json = "1"
 serialport = "4"
+# The ESP32 ROM/stub loader, as a library rather than a subprocess. `default-features = false`
+# drops the entire CLI tree (clap, indicatif, dialoguer, defmt-decoder, update-informer,
+# miette's `fancy`); the `serialport` feature is the half that talks to a chip, and it resolves
+# the same `serialport 4.x` above -- which matters, because `espflash::connection::Port` is a
+# concrete `TTYPort`/`COMPort`, not a trait object, so two majors would not compile.
+#
+# It links no native library of its own: flate2 uses miniz_oxide, and the only system frameworks
+# in the graph come through `serialport` (IOKit, CoreFoundation), which this bench already links.
+# `tools/package.mjs`'s `checkLinkage` is the gate that keeps that true.
+espflash   = { version = "4.5", default-features = false, features = ["serialport"] }
 thiserror  = "2"
 rusqlite   = { version = "0.37", features = ["bundled"] }
 toml = "0.9"

@@ -4,6 +4,7 @@
 #include <HardwareSerial.h>
 #include <atomic>
 #include <driver/gpio.h>
+#include <driver/uart.h>
 #include <esp_core_dump.h>
 #include <esp_mac.h>
 #include <esp_system.h>
@@ -45,6 +46,15 @@ constexpr size_t RX_BUFFER_BYTES = 12288;
 constexpr size_t TX_BUFFER_BYTES = 4096;
 constexpr size_t COPY_CHUNK_BYTES = 128;
 constexpr uint32_t HEARTBEAT_HALF_PERIOD_MS = 500;
+
+/// How long to wait for a frame to actually reach the wire before releasing the driver.
+/// A full 2048-byte frame occupies 178 ms at 115200, so this is a stuck-peripheral bound,
+/// not a normal-path timeout, and it stays well inside the 5 s loop watchdog.
+constexpr uint32_t TX_DONE_TIMEOUT_MS = 500;
+
+/// Held after the last bit is on the wire, before DE/RE# goes back to receive. About one
+/// character time -- the same margin the bootloader gets from the USART's own DEDT field.
+constexpr uint32_t DE_RELEASE_GUARD_US = 100;
 constexpr uint32_t DATA_LED_HOLD_MS = 100;
 constexpr bool SIDE1_INVERTED = REPEATER_SIDE1_INVERT != 0;
 constexpr bool SIDE2_INVERTED = REPEATER_SIDE2_INVERT != 0;
@@ -164,6 +174,10 @@ HardwareSerial& uartFor(repeater::Side destination) {
     return destination == repeater::Side::One ? Serial0 : Serial1;
 }
 
+uart_port_t uartNumberFor(repeater::Side destination) {
+    return destination == repeater::Side::One ? UART_NUM_0 : UART_NUM_1;
+}
+
 void setTransmitting(repeater::Side destination, bool enabled) {
     const bool isTwo = destination == repeater::Side::Two;
     const uint8_t index = isTwo ? 1 : 0;
@@ -189,11 +203,11 @@ void printStatus(const char* type) {
         "\"filtered_host_frames\":%llu,\"parse_errors\":%llu},"
         "\"side1\":{\"inverted\":%s,\"rx_bytes\":%llu,\"received_frames\":%llu,"
         "\"forwarded_bytes\":%llu,\"frames\":%llu,\"incomplete\":%llu,"
-        "\"oversized\":%llu,\"queue_depth\":%u,\"queue_high_water\":%u,\"queue_drops\":%llu,"
+        "\"oversized\":%llu,\"empty_frames\":%llu,\"queue_depth\":%u,\"queue_high_water\":%u,\"queue_drops\":%llu,"
         "\"uart_errors\":%lu,\"turnaround_events\":%lu},"
         "\"side2\":{\"inverted\":%s,\"rx_bytes\":%llu,\"received_frames\":%llu,"
         "\"forwarded_bytes\":%llu,\"frames\":%llu,\"incomplete\":%llu,"
-        "\"oversized\":%llu,\"queue_depth\":%u,\"queue_high_water\":%u,\"queue_drops\":%llu,"
+        "\"oversized\":%llu,\"empty_frames\":%llu,\"queue_depth\":%u,\"queue_high_water\":%u,\"queue_drops\":%llu,"
         "\"uart_errors\":%lu,\"turnaround_events\":%lu},"
         "\"tx_errors\":%llu,\"consumed_inner\":%llu,\"originated\":%llu,"
         "\"originate_drops\":%llu,\"last_activity_ms\":%lu,"
@@ -217,6 +231,7 @@ void printStatus(const char* type) {
         stats.oneToTwo.forwardedFrames,
         stats.oneToTwo.incompleteFrames,
         stats.oneToTwo.oversizedFrames,
+        stats.oneToTwo.emptyFrames,
         static_cast<unsigned>(router.queueDepth(repeater::Side::One)),
         static_cast<unsigned>(stats.oneToTwo.queueHighWater),
         stats.oneToTwo.queueDrops,
@@ -229,6 +244,7 @@ void printStatus(const char* type) {
         stats.twoToOne.forwardedFrames,
         stats.twoToOne.incompleteFrames,
         stats.twoToOne.oversizedFrames,
+        stats.twoToOne.emptyFrames,
         static_cast<unsigned>(router.queueDepth(repeater::Side::Two)),
         static_cast<unsigned>(stats.twoToOne.queueHighWater),
         stats.twoToOne.queueDrops,
@@ -255,13 +271,14 @@ void printStatus(const char* type) {
 /// because this crosses a 115200 bus; the host-side decoder names them.
 void writeDirectionStats(repeater::wire::MsgpackWriter& out, const repeater::DirectionStats& dir,
     size_t queueDepth, uint32_t uartErrorCount, uint32_t turnaroundCount) {
-    out.mapHeader(11);
+    out.mapHeader(12);
     out.key("rx"); out.uinteger(dir.rxBytes);
     out.key("rf"); out.uinteger(dir.receivedFrames);
     out.key("fb"); out.uinteger(dir.forwardedBytes);
     out.key("ff"); out.uinteger(dir.forwardedFrames);
     out.key("inc"); out.uinteger(dir.incompleteFrames);
     out.key("ovr"); out.uinteger(dir.oversizedFrames);
+    out.key("emp"); out.uinteger(dir.emptyFrames);
     out.key("qd"); out.uinteger(queueDepth);
     out.key("qhw"); out.uinteger(dir.queueHighWater);
     out.key("qdr"); out.uinteger(dir.queueDrops);
@@ -967,9 +984,25 @@ void serviceBridge() {
     auto& destination = uartFor(frame.destination);
     setTransmitting(frame.destination, true);
     const size_t written = destination.write(frame.data, frame.size);
-    destination.flush(true);
+
+    // Wait for the frame to reach the wire -- not merely for the FIFO to look idle.
+    //
+    // `flush(true)` is `uartFlushTxOnly`, which spins on the hardware TX-FSM idle bit and
+    // nothing else. With a software TX ring installed (setTxBufferSize, below), the write
+    // above copies into that ring and returns before the TX interrupt has moved a single byte
+    // into the FIFO -- so the idle bit is still set from the previous frame and the spin exits
+    // immediately. Dropping DE there stops the transceiver driving while the frame is still
+    // sitting in the ring, and the bridge counts a clean forward for a frame nobody ever saw.
+    //
+    // That is a complete account of the 2026-08-25 bench result in FIELD_REPORT_2026-08-24.md:
+    // 4,800 frames driven at the branch with tx_errors = 0, while an SWD probe on the Portal's
+    // PA3 recorded zero edges across 9,380 samples. It was read as a fault in the RS485 front
+    // end. `uart_wait_tx_done` waits on the ring as well as the FIFO.
+    const bool drained = uart_wait_tx_done(uartNumberFor(frame.destination),
+        pdMS_TO_TICKS(TX_DONE_TIMEOUT_MS)) == ESP_OK;
+    delayMicroseconds(DE_RELEASE_GUARD_US);
     setTransmitting(frame.destination, false);
-    const bool ok = written == frame.size;
+    const bool ok = written == frame.size && drained;
     if(frame.source == repeater::Side::None) router.completeOriginated(frame.destination, ok);
     else router.completeTransmission(frame.source, ok);
     lastActivityMs = millis();

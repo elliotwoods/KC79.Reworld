@@ -206,14 +206,20 @@ mod tests {
             kind::JOG,
             Value::Array(vec![Value::from(0), Value::from(-14080)]),
         );
-        let payload = router_proto::cobs_decode(&wire[..wire.len() - 1]).unwrap();
+        // `encode_frame` writes a delimiter on *both* sides of the payload now -- the
+        // leading one terminates the spurious byte an RS485 receiver samples at a
+        // half-duplex turn-around, before the real frame starts. Strip both.
+        let payload = router_proto::cobs_decode(&wire[1..wire.len() - 1]).unwrap();
         let frame = decode(&payload).unwrap();
         assert_eq!((frame.seq, frame.kind), (17, kind::JOG));
     }
     #[test]
     fn corruption_is_rejected() {
         let wire = encode(1, kind::HEARTBEAT, Value::Nil);
-        let mut payload = router_proto::cobs_decode(&wire[..wire.len() - 1]).unwrap();
+        // `encode_frame` writes a delimiter on *both* sides of the payload now -- the
+        // leading one terminates the spurious byte an RS485 receiver samples at a
+        // half-duplex turn-around, before the real frame starts. Strip both.
+        let mut payload = router_proto::cobs_decode(&wire[1..wire.len() - 1]).unwrap();
         payload[2] ^= 1;
         assert!(decode(&payload).unwrap_err().contains("CRC mismatch"));
     }

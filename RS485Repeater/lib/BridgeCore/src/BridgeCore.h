@@ -74,6 +74,9 @@ struct DirectionStats {
     uint64_t forwardedFrames = 0;
     uint64_t incompleteFrames = 0;
     uint64_t oversizedFrames = 0;
+    /// Delimiters that closed nothing -- an empty COBS packet. Absorbed, not relayed.
+    /// Counted because it is the only direct measure of turn-around glitching on this side.
+    uint64_t emptyFrames = 0;
     uint64_t queueDrops = 0;
     uint32_t queueHighWater = 0;
 };

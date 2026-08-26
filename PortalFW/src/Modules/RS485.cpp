@@ -210,7 +210,34 @@ namespace Modules {
 			cobsStream.nextIncomingPacket();
 		}
 
-		while(cobsStream.isStartOfIncomingPacket() && cobsStream.available()) {
+		while(cobsStream.isStartOfIncomingPacket()) {
+			// An empty packet -- two delimiters with nothing between them -- decodes to no bytes at
+			// all, and on a half-duplex bus they arrive for real: every listener's receiver is
+			// disabled while it transmits, its input floats, and the framing error the UART samples
+			// at the turn-around reads as 0x00, which is the delimiter.
+			//
+			// Nothing below used to advance past one. The loop needed available(), which is zero;
+			// the guard above only fires when we are NOT at a packet start, and an empty packet
+			// leaves us at one. So the stream sat at an end-of-packet it would never be told to
+			// leave, and the board went deaf on RS485 until it was power-cycled -- watchdog fed,
+			// motors running, logging happily, answering nothing. One stray zero was enough.
+			//
+			// isEndOfIncomingPacket() is exactly "delimiter seen and the decoded buffer is drained":
+			// false at cold start, false while a frame is still arriving, true only for a packet
+			// that is finished. So this steps over the empty one and leaves every other case alone.
+			//
+			// The v6 bootloader never had this bug, and the reason is worth copying rather than the
+			// code: Link::receive guarantees nextIncomingPacket() on every exit path, via a guard
+			// object (PortalBootloader/src/core/link.cpp). Here the guarantee is this branch.
+			if(!cobsStream.available()) {
+				if(!cobsStream.isEndOfIncomingPacket()) {
+					// Nothing has arrived yet. Come back next update().
+					break;
+				}
+				cobsStream.nextIncomingPacket();
+				continue;
+			}
+
 			bool needsReply = false;
 
 			// set the flags for ACKS (used inside processIncoming under processCOBSPacket)

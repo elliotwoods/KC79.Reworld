@@ -105,6 +105,25 @@ pub enum Mode {
     /// result unless `silent_is_legacy` is off, which is what turns "did not answer" into
     /// "was not there".
     V6Only,
+    /// One-way streaming to boards named on the command line, with no discovery and no
+    /// received-chunk repair. `begin`, `verify` and `run` are still addressed and still
+    /// answered -- those replies are small -- but nothing large ever has to come back.
+    ///
+    /// This exists because on the V3 bus a reply longer than about a hundred bytes does not
+    /// survive the trip: `status` (213 bytes) and the `map` bitmap arrive fragmented, while
+    /// the short replies are reliable. Rather than depend on the fragile ones, this mode
+    /// leans on the two guarantees that need no reply at all:
+    ///
+    /// - **writes are idempotent per eight-byte granule**, so simply sending the image more
+    ///   than once fills whatever the first pass dropped. On a v4/v5 bootloader a repeat was
+    ///   useless -- it demanded strictly increasing offsets -- which is why the old protocol
+    ///   needed the map. v6 accepts any order and skips what it already holds.
+    /// - **`begin` arms the image length and CRC-32C, and `run` refuses to start an image
+    ///   whose CRC does not match.** A bad upload cannot boot. The board stays in its
+    ///   bootloader, reachable, rather than running something corrupt.
+    ///
+    /// `verify` then turns "probably fine" into a definite answer, in forty bytes.
+    Blind,
 }
 
 /// How the boards to update are named.
@@ -146,6 +165,13 @@ pub struct FwSessionParams {
     /// [`layout::FLASH_GRANULE`] and at most [`layout::BL_CHUNK_MAX`].
     pub chunk_bytes: usize,
     pub data_gap_ms: u32,
+    /// How many times the whole image is streamed before verifying.
+    ///
+    /// Only meaningful in [`Mode::Blind`], which has no received-chunk map to repair from.
+    /// Writes are idempotent per granule, so a second pass costs wire time and fills whatever
+    /// the first dropped. Two is the default: one pass is what the fielded protocol did and it
+    /// is what a single lost frame defeats.
+    pub stream_passes: u32,
     pub status_timeout_ms: u32,
     /// Gap between one board's `begin` and the next board's.
     ///
@@ -182,6 +208,7 @@ impl Default for FwSessionParams {
             legacy: FwUpdateParams::resilient(),
             chunk_bytes: 128,
             data_gap_ms: 6,
+            stream_passes: 2,
             status_timeout_ms: 400,
             begin_stagger_ms: 60,
             begin_timeout_ms: 6_000,
@@ -237,6 +264,9 @@ pub enum FwSessionError {
     #[error("no boards were named")]
     NoTargets,
 }
+
+/// How many times `verify` is asked before a board is called silent. See `expire`.
+const VERIFY_ATTEMPTS: u8 = 4;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Phase {
@@ -352,6 +382,10 @@ pub struct FwSession {
     seq: u8,
     pending: Vec<Pending>,
     cursor: usize,
+    /// Which streaming pass is in flight, for [`FwSessionParams::stream_passes`].
+    stream_pass: u32,
+    /// When the current streaming pass was queued, for [`FwSession::pass_wire_time`].
+    stream_started: Option<Instant>,
     discover_pass: u8,
     repair_round: usize,
     stagger_until: Option<Instant>,
@@ -417,6 +451,8 @@ impl FwSession {
             seq: 0,
             pending: Vec::new(),
             cursor: 0,
+            stream_pass: 0,
+            stream_started: None,
             discover_pass: 0,
             repair_round: 0,
             stagger_until: None,
@@ -508,9 +544,19 @@ impl FwSession {
             Reply::Other(_) => return None,
         };
         self.pending.iter().position(|pending| {
+            // `verify` and `map` are read-only and self-describing -- the reply carries the CRC,
+            // the length, the bitmap -- so they are matched on verb and sender alone. Everything
+            // else must also echo the sequence number.
+            //
+            // This is what makes a retry work on a bus that runs one exchange behind: the answer
+            // to the first attempt arrives while the second is outstanding, carrying the first
+            // attempt's seq, and dropping it as stale would lose the only answer there is. It
+            // cannot produce a false pass, because what is judged is the CRC in the reply against
+            // the CRC of the image, and re-asking does not change either.
+            let idempotent = matches!(verb, BlVerb::Verify | BlVerb::Map);
             pending.verb == verb
                 && (!pending.id_known || self.boards[pending.board].id == envelope.source)
-                && envelope.trailer.seq().is_none_or(|seq| seq == pending.seq)
+                && (idempotent || envelope.trailer.seq().is_none_or(|seq| seq == pending.seq))
         })
     }
 
@@ -608,6 +654,14 @@ impl FwSession {
                 BlVerb::Begin if pending.attempt == 0 => {
                     self.send_begin(bus, pending.board, now, 1);
                 }
+                // `verify` is worth retrying for a different reason: it is read-only, so asking
+                // twice costs nothing, and on a bus that runs an exchange behind the answer to
+                // the first attempt only surfaces once a second frame has gone out. Without the
+                // retry the reply exists, arrives, and is thrown away as late -- which reads as
+                // "the board never answered" and fails an upload that in fact succeeded.
+                BlVerb::Verify if pending.attempt < VERIFY_ATTEMPTS - 1 => {
+                    self.send_verify_attempt(bus, pending.board, now, pending.attempt + 1);
+                }
                 verb => {
                     let phase = self.phase;
                     self.boards[pending.board].state = BoardState::NoReply(match verb {
@@ -660,6 +714,8 @@ impl FwSession {
         self.cursor = 0;
         if self.params.mode == Mode::LegacyOnly {
             self.take_legacy_path();
+        } else if self.params.mode == Mode::Blind {
+            self.take_blind_path();
         } else {
             self.phase = Phase::Discover;
         }
@@ -805,6 +861,7 @@ impl FwSession {
             return;
         }
         self.phase = Phase::Stream;
+        self.stream_pass = 0;
         self.queued_phase_work = false;
     }
 
@@ -814,9 +871,31 @@ impl FwSession {
                 self.send_chunk(bus, index, now);
             }
             self.queued_phase_work = true;
+            self.stream_started = Some(now);
             return;
         }
         if bus.outbox_len() > 0 {
+            return;
+        }
+        // An empty outbox is not an empty wire. The worker hands each frame to a buffered
+        // `write_all` and moves on, so it can be done with a whole pass while the port is still
+        // shifting it out for seconds afterwards. Asking `verify` at that point queues the
+        // question behind the answer's own data and times out against a board doing nothing
+        // wrong -- which is exactly how the first blind run failed.
+        if let Some(started) = self.stream_started {
+            if now.duration_since(started) < self.pass_wire_time() {
+                return;
+            }
+        }
+        // Another pass, if one was asked for. Every chunk is sent again from the top; the
+        // bootloader skips the granules it already holds, so a repeat costs wire time and
+        // nothing else, and it is what stands in for the repair round in blind mode.
+        // Only in blind mode: the addressed path reads a map back and repairs exactly the gaps,
+        // which is strictly better than sending everything again.
+        if self.params.mode == Mode::Blind && self.stream_pass + 1 < self.params.stream_passes.max(1) {
+            self.stream_pass += 1;
+            self.queued_phase_work = false;
+            self.stream_started = None;
             return;
         }
         for index in self.participants.clone() {
@@ -824,8 +903,50 @@ impl FwSession {
                 self.boards[index].state = BoardState::Streamed;
             }
         }
-        self.phase = Phase::Map;
+        // Blind mode never reads a map back -- that reply is the one that does not survive the
+        // bus -- so it goes straight to the small, reliable `verify`.
+        self.phase = if self.params.mode == Mode::Blind {
+            Phase::Verify
+        } else {
+            Phase::Map
+        };
         self.cursor = 0;
+    }
+
+    /// How long one streaming pass really occupies the bus.
+    ///
+    /// The two costs overlap rather than add: the worker's per-packet gap elapses while the port
+    /// is still shifting out earlier packets, so a pass takes the longer of "bytes at 115200" and
+    /// "one gap each", not their sum. 10 bits per byte, and about 40 bytes of envelope, offset,
+    /// checksum, trailer and COBS around each chunk.
+    fn pass_wire_time(&self) -> Duration {
+        let bytes = self.chunks * (self.params.chunk_bytes + 40);
+        let on_the_wire = bytes as f32 * 10.0 / 115_200.0;
+        let paced = self.chunks as f32 * self.params.data_gap_ms as f32 / 1000.0;
+        Duration::from_secs_f32(on_the_wire.max(paced) * 1.15 + 0.5)
+    }
+
+    /// Treat every named board as a v6 bootloader without asking, and start erasing.
+    ///
+    /// Discovery costs a `status` reply per board, which is the largest frame in the protocol
+    /// and the one that arrives in pieces. In this mode the operator has named the boards, so
+    /// there is nothing to discover: a board that is not there simply never answers `begin`,
+    /// and that is reported against it exactly as a refusal would be.
+    fn take_blind_path(&mut self) {
+        for index in 0..self.boards.len() {
+            self.boards[index].kind = BoardKind::V6;
+            // Nothing was asked, so nothing is known about where this board wants its
+            // application. The host's pre-check is skipped and the decision moves to the board:
+            // `begin` carries the base, `Session::declare` refuses one it does not recognise, and
+            // that refusal comes back in a reply small enough to survive. Assuming here and
+            // being told no is safe; refusing here on a field nobody filled in is not.
+            self.boards[index].base = self.base;
+        }
+        self.participants = (0..self.boards.len()).collect();
+        self.phase = Phase::Begin;
+        self.cursor = 0;
+        self.stagger_until = None;
+        self.queued_phase_work = false;
     }
 
     fn do_map(&mut self, bus: &dyn FwBus, now: Instant) {
@@ -957,6 +1078,10 @@ impl FwSession {
     }
 
     fn send_verify(&mut self, bus: &dyn FwBus, index: usize, now: Instant) {
+        self.send_verify_attempt(bus, index, now, 0);
+    }
+
+    fn send_verify_attempt(&mut self, bus: &dyn FwBus, index: usize, now: Instant, attempt: u8) {
         let seq = self.next_seq();
         let target = self.boards[index].id;
         let bytes = bootloader::verify(target, seq);
@@ -967,7 +1092,7 @@ impl FwSession {
             seq,
             now,
             self.params.verify_timeout_ms,
-            0,
+            attempt,
             true,
         );
     }
@@ -2187,4 +2312,75 @@ mod tests {
             .as_str()
             .map(str::to_string)
     }
+
+    /// Blind mode: no `status` is ever asked for, no map is read, and the image goes out twice.
+    ///
+    /// The point of the mode is that nothing large has to come back. `status` (213 bytes) and the
+    /// map bitmap are the two replies that do not survive the V3 bus intact; `begin`, `verify` and
+    /// `run` are forty bytes and do. This pins that: if a future change reintroduces a discovery
+    /// round or a map read here, the mode has stopped being what it was built to be.
+    #[test]
+    fn blind_mode_streams_twice_and_never_asks_for_a_status_or_a_map() {
+        let firmware = image_for(layout::APP_BASE, 1_024);
+        let mut h = Harness::new(
+            &firmware,
+            FwSessionParams {
+                mode: Mode::Blind,
+                ..params(vec![1])
+            },
+        );
+        let progress = h.run(60, |h| {
+            answer_v6(h, 1, layout::APP_BASE, None);
+        });
+
+        assert!(progress.done && progress.ok, "{}", progress.detail);
+        assert_eq!(h.board(1).state, BoardState::Running);
+
+        let verbs: Vec<String> = h
+            .timeline
+            .iter()
+            .filter_map(|(_, packet)| decode_envelope(&packet.bytes).ok())
+            .filter_map(|envelope| body_verb(&envelope))
+            .collect();
+        assert!(
+            !verbs.iter().any(|verb| verb == "status"),
+            "blind mode asked for a status: {verbs:?}"
+        );
+        assert!(
+            !verbs.iter().any(|verb| verb == "map"),
+            "blind mode read a map: {verbs:?}"
+        );
+        assert!(verbs.iter().any(|verb| verb == "begin"));
+        assert!(verbs.iter().any(|verb| verb == "verify"));
+        assert!(verbs.iter().any(|verb| verb == "run"));
+
+        // Every chunk twice: the repeat is what replaces repair, and it works only because the
+        // bootloader skips granules it already holds.
+        let offsets = data_offsets(&h);
+        let once: Vec<u32> = (0..h.session.chunks).map(|i| (i * CHUNK) as u32).collect();
+        let mut twice = once.clone();
+        twice.extend(once.iter().copied());
+        assert_eq!(offsets, twice, "the image should have been streamed twice");
+    }
+
+    /// One pass, when asked for. The repeat is a setting, not a law.
+    #[test]
+    fn blind_mode_honours_a_single_pass() {
+        let firmware = image_for(layout::APP_BASE, 1_024);
+        let mut h = Harness::new(
+            &firmware,
+            FwSessionParams {
+                mode: Mode::Blind,
+                stream_passes: 1,
+                ..params(vec![1])
+            },
+        );
+        let progress = h.run(60, |h| {
+            answer_v6(h, 1, layout::APP_BASE, None);
+        });
+        assert!(progress.done && progress.ok, "{}", progress.detail);
+        let offsets = data_offsets(&h);
+        assert_eq!(offsets.len(), h.session.chunks);
+    }
+
 }

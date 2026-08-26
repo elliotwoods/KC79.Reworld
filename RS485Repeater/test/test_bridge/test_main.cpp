@@ -440,6 +440,64 @@ void test_maintenance_pause_stops_relaying_but_not_the_control_plane() {
 /// `expireIncomplete` both run every loop pass, so the timer fired between the halves and the
 /// frame was dropped with nothing on the wire having gone wrong. Measured: 159 bytes relayed,
 /// 160 bytes silently discarded, and an entire firmware transfer lost to it.
+void test_a_bare_delimiter_is_absorbed_not_relayed() {
+    // A delimiter with nothing in front of it closes nothing. It used to become a one-byte
+    // frame: counted as received, counted as a parse error, and relayed to the branch under
+    // its own driver-enable interval -- which manufactured a fresh turn-around glitch directly
+    // in front of the real frame the delimiter existed to protect.
+    FrameRouter router;
+    const uint8_t zero = 0;
+    router.ingest(Side::One, &zero, 1, 1);
+    FrameView view;
+    TEST_ASSERT_FALSE(router.nextFrame(view));
+    TEST_ASSERT_EQUAL_UINT64(1, router.stats().oneToTwo.emptyFrames);
+    TEST_ASSERT_EQUAL_UINT64(0, router.stats().oneToTwo.receivedFrames);
+    TEST_ASSERT_EQUAL_UINT64(0, router.stats().parseErrors);
+    TEST_ASSERT_EQUAL_UINT32(0, router.queueDepth(Side::One));
+}
+
+void test_a_leading_delimiter_does_not_split_the_frame_behind_it() {
+    // What the host emits once encode_frame writes a delimiter at both ends: the real frame
+    // must still relay exactly once, byte-identical, and cost nothing extra.
+    FrameRouter router;
+    const auto frame = envelope(1, 0);
+    std::vector<uint8_t> wire{0};
+    wire.insert(wire.end(), frame.begin(), frame.end());
+    router.ingest(Side::One, wire.data(), wire.size(), 1);
+
+    FrameView view;
+    TEST_ASSERT_TRUE(router.nextFrame(view));
+    TEST_ASSERT_EQUAL_UINT32(frame.size(), view.size);
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(frame.data(), view.data, frame.size());
+    router.completeTransmission(Side::One);
+    TEST_ASSERT_FALSE(router.nextFrame(view));
+    TEST_ASSERT_EQUAL_UINT64(1, router.stats().oneToTwo.receivedFrames);
+    TEST_ASSERT_EQUAL_UINT64(1, router.stats().oneToTwo.emptyFrames);
+    TEST_ASSERT_EQUAL_UINT64(0, router.stats().parseErrors);
+}
+
+void test_a_run_of_delimiters_between_frames_is_absorbed() {
+    FrameRouter router;
+    const auto first = envelope(1, 0);
+    const auto second = envelope(2, 0);
+    std::vector<uint8_t> wire(first.begin(), first.end());
+    wire.push_back(0);
+    wire.push_back(0);
+    wire.push_back(0);
+    wire.insert(wire.end(), second.begin(), second.end());
+    router.ingest(Side::One, wire.data(), wire.size(), 1);
+
+    FrameView view;
+    TEST_ASSERT_TRUE(router.nextFrame(view));
+    router.completeTransmission(Side::One);
+    TEST_ASSERT_TRUE(router.nextFrame(view));
+    router.completeTransmission(Side::One);
+    TEST_ASSERT_FALSE(router.nextFrame(view));
+    TEST_ASSERT_EQUAL_UINT64(2, router.stats().oneToTwo.receivedFrames);
+    TEST_ASSERT_EQUAL_UINT64(3, router.stats().oneToTwo.emptyFrames);
+    TEST_ASSERT_EQUAL_UINT64(0, router.stats().parseErrors);
+}
+
 void test_a_frame_split_across_a_usb_packet_gap_still_arrives() {
     FrameRouter router(20000);
     auto frame = envelope(1, 0);
@@ -477,6 +535,9 @@ int main(int, char**) {
     UNITY_BEGIN();
     RUN_TEST(test_complete_frames_are_stored_before_forwarding);
     RUN_TEST(test_incomplete_and_oversized_frames_are_dropped_atomically);
+    RUN_TEST(test_a_bare_delimiter_is_absorbed_not_relayed);
+    RUN_TEST(test_a_leading_delimiter_does_not_split_the_frame_behind_it);
+    RUN_TEST(test_a_run_of_delimiters_between_frames_is_absorbed);
     RUN_TEST(test_a_frame_split_across_a_usb_packet_gap_still_arrives);
     RUN_TEST(test_a_stream_that_stops_is_still_abandoned);
     RUN_TEST(test_queue_is_bounded_and_observable);

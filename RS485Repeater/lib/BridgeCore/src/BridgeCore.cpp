@@ -61,6 +61,20 @@ void FrameRouter::ingestByte(Side source, uint8_t value, uint32_t nowUs) {
         }
         return;
     }
+    if(value == 0 && acc.size == 0) {
+        // A delimiter with nothing in front of it closes nothing. One leading a frame, or two
+        // in a row, is an empty COBS packet: it decodes to no bytes, and the turn-around glitch
+        // on a half-duplex bus manufactures them for real.
+        //
+        // It used to be stored and forwarded as a one-byte frame: counted as received, counted
+        // as a parse error (inspectEnvelope rejects size < 2), and relayed to the far side under
+        // its OWN driver-enable interval -- which put a fresh turn-around glitch immediately in
+        // front of the real frame the delimiter was there to protect. It also burned a queue slot
+        // per frame, halving a depth that was sized for the twelve keyframes a host can emit
+        // during a branch sweep.
+        dir.emptyFrames++;
+        return;
+    }
     if(acc.size >= acc.data.size()) {
         dir.oversizedFrames++;
         acc.size = 0;

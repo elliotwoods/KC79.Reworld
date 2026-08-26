@@ -96,13 +96,51 @@ impl SerialDevice for SerialPortDevice {
         let Some(port) = self.port.as_mut() else {
             return Err(ErrorKind::NotConnected.into());
         };
-        match port.write_all(data) {
-            Ok(()) => Ok(()),
-            Err(e) => {
+
+        // A write that has to wait is not a write that failed.
+        //
+        // Sending a firmware image queues tens of kilobytes far faster than 115200 can carry
+        // them, so the driver buffer fills and a write blocks until space appears. Past the
+        // port's timeout that surfaces as `TimedOut`, and treating it as a disconnect tore the
+        // link down mid-upload: measured on the bench 2026-08-26, a 100 kB image stopped after
+        // 33 kB with the worker gone and the host reporting "sent 0 frames", because the whole
+        // port had been dropped on a full buffer.
+        //
+        // Written as an offset loop rather than `write_all` so a partial write followed by a
+        // timeout resumes where it stopped instead of re-sending bytes the far end already has.
+        // Only silence gives up: a stall long enough to mean the port really is gone.
+        const STALL_LIMIT: u32 = 100; // ~10 s at the port's 100 ms timeout
+        let mut written = 0usize;
+        let mut stalls = 0u32;
+        while written < data.len() {
+            match port.write(&data[written..]) {
+                Ok(0) => stalls += 1,
+                Ok(count) => {
+                    written += count;
+                    stalls = 0;
+                }
+                Err(error)
+                    if matches!(
+                        error.kind(),
+                        ErrorKind::TimedOut | ErrorKind::Interrupted | ErrorKind::WouldBlock
+                    ) =>
+                {
+                    stalls += 1;
+                }
+                Err(error) => {
+                    self.port = None;
+                    return Err(error);
+                }
+            }
+            if stalls >= STALL_LIMIT {
                 self.port = None;
-                Err(e)
+                return Err(std::io::Error::new(
+                    ErrorKind::TimedOut,
+                    "the serial port accepted no bytes for ten seconds",
+                ));
             }
         }
+        Ok(())
     }
 
     fn receive_available(&mut self) -> std::io::Result<Vec<u8>> {

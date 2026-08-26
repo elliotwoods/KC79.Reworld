@@ -23,6 +23,16 @@ bool u8x8_stm32_init_i2c()
 	Wire.setSDA(PB11);
 	Wire.begin();
 
+	// 400 kHz, not the 100 kHz default.
+	//
+	// A full-buffer sendBuffer() is ~1 kB pushed in 32-byte chunks, each ending in a blocking
+	// Wire.endTransmission(). At 100 kHz that is roughly 100 ms with the main loop stopped, and
+	// the RS485 receive ring holds 5.5 ms of wire at 115200 -- so every redraw dropped bytes
+	// mid-frame. Worse, the only thing that sets GUI::needsUpdate is a log message, and a
+	// malformed packet logs one, so a corrupt frame bought ~100 ms of deafness that produced
+	// more corrupt frames. 400 kHz is what the SSD1306 supports and it cuts the stall to ~25 ms.
+	Wire.setClock(400000);
+
 	// Check if device exists
 	Wire.beginTransmission(address);
 	auto error = Wire.endTransmission();

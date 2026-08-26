@@ -23,20 +23,26 @@ use std::io::Write;
 use std::time::{Duration, Instant};
 
 use router_link::bootloader_update::{BlPhase, BlUpdateParams, BootloaderUpdate};
+use router_link::fw_update::{self, FwUpdateParams};
 use router_link::fw_session::{
     Board, BoardKind, BoardState, FwSession, FwSessionParams, Mode, Phase, Targets,
 };
 use router_link::rs485::{device::SerialPortDevice, Packet, Payload, Rs485};
 use router_proto::bootloader::{self, BlReply, BlSelector};
+use router_proto::Value;
 use router_proto::replies::{classify_reply, Reply};
 
 const USAGE: &str = "\
 usage:
   flash_portals --port <usb-serial-number> app <image.bin> [--ids 1-54] [--serials 73001,73002]
-                                                           [--mode auto|legacy|v6] [--no-run]
+                                                           [--mode auto|legacy|v6|blind] [--no-run]
                                                            [--legacy-gap ms] [--legacy-reps n]
+                                                           [--passes n] [--chunk 64] [--gap ms]
   flash_portals --port <usb-serial-number> bootloader <bl.bin> --id N [--stay]
-  flash_portals --port <usb-serial-number> status [--ids 1-54]";
+  flash_portals --port <usb-serial-number> status [--ids 1-54]
+  flash_portals --port <usb-serial-number> bl <verb> --id N [--recall] [--serial S | --uid HEX]
+                                           [--len L --crc C --chunk K --base B] [--to N]
+                                           [--repeat n] [--timeout ms]";
 
 fn find_port(serial_number: &str) -> Option<String> {
     serialport::available_ports()
@@ -94,9 +100,10 @@ struct Args {
 
 impl Args {
     fn parse() -> Self {
-        const VALUED: [&str; 7] = [
+        const VALUED: [&str; 18] = [
             "--port", "--ids", "--serials", "--mode", "--id",
-            "--legacy-gap", "--legacy-reps",
+            "--legacy-gap", "--legacy-reps", "--passes", "--chunk", "--gap",
+            "--serial", "--uid", "--to", "--len", "--crc", "--base", "--repeat", "--timeout",
         ];
         let mut positional = Vec::new();
         let mut flags = std::collections::HashMap::new();
@@ -156,6 +163,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "app" => flash_application(&args, &serial_number),
         "bootloader" => flash_bootloader(&args, &serial_number),
         "status" => report_status(&args, &serial_number),
+        "bl" => run_verb(&args, &serial_number),
         other => Err(format!("unknown subcommand '{other}'\n\n{USAGE}").into()),
     }
 }
@@ -179,6 +187,7 @@ fn flash_application(args: &Args, serial_number: &str) -> Result<(), Box<dyn std
         "auto" => Mode::Auto,
         "legacy" => Mode::LegacyOnly,
         "v6" => Mode::V6Only,
+        "blind" => Mode::Blind,
         other => return Err(format!("unknown mode '{other}'").into()),
     };
 
@@ -198,6 +207,17 @@ fn flash_application(args: &Args, serial_number: &str) -> Result<(), Box<dyn std
     }
     if let Some(reps) = args.value("--legacy-reps") {
         params.legacy.frame_repetitions = reps.parse()?;
+    }
+    if let Some(passes) = args.value("--passes") {
+        params.stream_passes = passes.parse()?;
+    }
+    // Frame size is the lever that matters on the V3 bus: a 128-byte chunk makes a ~176-byte
+    // frame, and frames much over 160 bytes do not survive the relay intact. 64 halves that.
+    if let Some(chunk) = args.value("--chunk") {
+        params.chunk_bytes = chunk.parse()?;
+    }
+    if let Some(gap) = args.value("--gap") {
+        params.data_gap_ms = gap.parse()?;
     }
     if let Targets::Ids(ids) = &params.targets {
         if ids.len() > 4 && !args.present("--legacy-gap") && !args.present("--legacy-reps") {
@@ -400,6 +420,161 @@ fn flash_bootloader(args: &Args, serial_number: &str) -> Result<(), Box<dyn std:
 }
 
 // ----------------------------------------------------------------------- status
+
+/// Send one `bl` verb and print what comes back, decoded and measured.
+///
+/// The update paths drive whole sequences; this drives a single verb, which is what a verb
+/// matrix needs and what nothing else could do. `adopt` and `reset` in particular had builders in
+/// `router-proto` and no caller anywhere, so until now they were unreachable from any tool.
+///
+/// The raw reply length is printed alongside the decode because on a relayed bus it is the
+/// diagnostic that matters: a reply can decode as far as it goes and still be missing its tail.
+fn run_verb(args: &Args, serial_number: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let verb = args
+        .positional
+        .get(1)
+        .ok_or_else(|| format!("bl needs a verb\n\n{USAGE}"))?
+        .clone();
+    let id: i8 = args.value("--id").unwrap_or("1").parse()?;
+    let repeat: usize = args.value("--repeat").unwrap_or("1").parse()?;
+    let timeout_ms: u64 = args.value("--timeout").unwrap_or("2000").parse()?;
+
+    let selector = match (args.value("--serial"), args.value("--uid")) {
+        (Some(_), Some(_)) => return Err("give --serial or --uid, not both".into()),
+        (Some(serial), None) => BlSelector::Serial(serial.parse()?),
+        (None, Some(hex)) => {
+            let bytes: Vec<u8> = (0..hex.len())
+                .step_by(2)
+                .map(|i| u8::from_str_radix(&hex[i..i + 2], 16))
+                .collect::<Result<_, _>>()?;
+            let uid: [u8; 12] = bytes
+                .try_into()
+                .map_err(|_| "--uid must be 24 hex characters (12 bytes)")?;
+            BlSelector::Uid(uid)
+        }
+        (None, None) => BlSelector::None,
+    };
+    // A selector is how a board is named when the frame is not addressed to it, so a selected
+    // request is broadcast. Unicast otherwise.
+    let target = if matches!(selector, BlSelector::None) { id } else { -1 };
+
+    let mut rs485 = open_bus(serial_number)?;
+    println!();
+
+    // A board running its application ignores `bl` entirely -- deliberately, so that scanning for
+    // bootloaders cannot be mistaken for finding broken applications. `--recall` bounces it into
+    // its bootloader first, which is what makes a single verb testable against a healthy board.
+    if args.present("--recall") {
+        for step in fw_update::announce_steps(&FwUpdateParams::default()) {
+            rs485.transmit(fw_update::step_packet(step, &[]));
+        }
+        // Drain the announce burst before asking anything. `announce_steps` queues five seconds
+        // of alternating words, and a verb pushed in behind them is not transmitted until they
+        // have all gone -- so it times out having never reached the bus, which reads as a board
+        // that did not answer.
+        let deadline = Instant::now() + Duration::from_secs(12);
+        while Instant::now() < deadline {
+            rs485.update();
+            if rs485.outbox_len() == 0 {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        // Then let the application finish its half-second pause and the bootloader come up.
+        let settle = Instant::now() + Duration::from_millis(1_200);
+        while Instant::now() < settle {
+            rs485.update();
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        println!("  (recalled into the bootloader)");
+    }
+
+    for attempt in 0..repeat {
+        let seq = ((attempt % 255) + 1) as u8;
+        let bytes = match verb.as_str() {
+            "status" => bootloader::status(target, selector.clone(), seq),
+            "map" => bootloader::map_request(target, args.value("--chunk").map(|c| c.parse()).transpose()?, seq),
+            "verify" => bootloader::verify(target, seq),
+            "run" => bootloader::run(target, seq),
+            "reset" => bootloader::reset(target, seq),
+            "adopt" => bootloader::adopt(
+                target,
+                selector.clone(),
+                args.value("--to").ok_or("adopt needs --to <new id>")?.parse()?,
+                seq,
+            ),
+            "begin" => bootloader::begin(
+                target,
+                args.value("--len").ok_or("begin needs --len")?.parse()?,
+                u32::from_str_radix(
+                    args.value("--crc").ok_or("begin needs --crc (hex)")?.trim_start_matches("0x"),
+                    16,
+                )?,
+                args.value("--chunk").unwrap_or("128").parse()?,
+                args.value("--base")
+                    .map(|b| u32::from_str_radix(b.trim_start_matches("0x"), 16))
+                    .transpose()?,
+                seq,
+            ),
+            // Anything the protocol does not define goes out verbatim, which is the only way to
+            // test that a board answers `UNKNOWN_VERB` rather than sitting there silently. It has
+            // to be built from the envelope encoder rather than `bootloader::request`, because
+            // that takes a `BlVerb` and the whole point here is a name that is not one.
+            other => {
+                let body = Value::Map(vec![(
+                    Value::from("bl"),
+                    Value::Map(vec![(Value::from("q"), Value::from(other))]),
+                )]);
+                router_proto::envelope::encode_envelope_trailer(target, &body, seq)
+            }
+        };
+
+        rs485.transmit(Packet {
+            payload: Payload::Rendered(bytes),
+            target,
+            address: String::new(),
+            needs_ack: false,
+            collateable: false,
+            custom_wait_time_ms: Some(2),
+            on_sent: None,
+        });
+
+        let sent = Instant::now();
+        let deadline = sent + Duration::from_millis(timeout_ms);
+        let mut answered = false;
+        while Instant::now() < deadline {
+            for envelope in rs485.update() {
+                let trailer = match envelope.trailer {
+                    router_proto::envelope::Trailer::Absent => "no trailer".to_string(),
+                    router_proto::envelope::Trailer::Ok { seq } => format!("trailer ok, seq {seq}"),
+                    router_proto::envelope::Trailer::Bad { expected, found } => {
+                        format!("TRAILER BAD expected {expected:04X} found {found:04X}")
+                    }
+                };
+                println!(
+                    "  {verb} -> {target}  reply from {} after {:.0} ms  [{trailer}]",
+                    envelope.source,
+                    sent.elapsed().as_secs_f32() * 1000.0
+                );
+                match classify_reply(&envelope.body) {
+                    Reply::Bootloader(reply) => println!("    {reply:#?}"),
+                    other => println!("    (not a bootloader reply) {other:?}"),
+                }
+                answered = true;
+            }
+            if answered {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        if !answered {
+            println!("  {verb} -> {target}  silence for {timeout_ms} ms");
+        }
+    }
+
+    rs485.close();
+    Ok(())
+}
 
 /// Ask each board what it is, and change nothing.
 ///

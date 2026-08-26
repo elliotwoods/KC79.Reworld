@@ -21,6 +21,16 @@ pub struct PortEntry {
     pub product: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub serial_number: Option<String>,
+    /// USB vendor and product ids, when the OS reports them.
+    ///
+    /// Present because a product *string* is not an identity. `RS485Repeater/AGENTS.md`
+    /// makes the rule explicit -- identify a port by USB VID/PID/serial or by a harmless
+    /// query, never by a transient `/dev/cu.usbmodem*` number -- and picking the repeater
+    /// out of three attached serial functions is exactly the case it was written for.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub vid: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pid: Option<u16>,
 }
 
 /// A debug probe, if SWD support is compiled in.
@@ -160,19 +170,25 @@ fn ports() -> Vec<PortEntry> {
     found
         .into_iter()
         .map(|port| {
-            let (kind, product, serial_number) = match &port.port_type {
-                serialport::SerialPortType::UsbPort(info) => {
-                    ("usb", info.product.clone(), info.serial_number.clone())
-                }
-                serialport::SerialPortType::BluetoothPort => ("bluetooth", None, None),
-                serialport::SerialPortType::PciPort => ("pci", None, None),
-                serialport::SerialPortType::Unknown => ("unknown", None, None),
+            let (kind, product, serial_number, vid, pid) = match &port.port_type {
+                serialport::SerialPortType::UsbPort(info) => (
+                    "usb",
+                    info.product.clone(),
+                    info.serial_number.clone(),
+                    Some(info.vid),
+                    Some(info.pid),
+                ),
+                serialport::SerialPortType::BluetoothPort => ("bluetooth", None, None, None, None),
+                serialport::SerialPortType::PciPort => ("pci", None, None, None, None),
+                serialport::SerialPortType::Unknown => ("unknown", None, None, None, None),
             };
             PortEntry {
                 name: port.port_name,
                 kind: kind.to_string(),
                 product,
                 serial_number,
+                vid,
+                pid,
             }
         })
         .collect()
@@ -379,12 +395,16 @@ mod tests {
                 kind: "usb".into(),
                 product: Some("USB RS485 adapter".into()),
                 serial_number: Some("ADAPTER9".into()),
+                vid: None,
+                pid: None,
             },
             PortEntry {
                 name: "COM3".into(),
                 kind: "usb".into(),
                 product: Some("ST-Link Virtual COM Port".into()),
                 serial_number: Some("probe123".into()),
+                vid: None,
+                pid: None,
             },
         ]);
         assert_eq!(
@@ -403,12 +423,16 @@ mod tests {
                 kind: "usb".into(),
                 product: Some("STM32 STLink".into()),
                 serial_number: Some("PROBE123".into()),
+                vid: None,
+                pid: None,
             },
             PortEntry {
                 name: "/dev/cu.usbmodem5103".into(),
                 kind: "usb".into(),
                 product: Some("STM32 STLink".into()),
                 serial_number: Some("PROBE123".into()),
+                vid: None,
+                pid: None,
             },
         ]);
         assert_eq!(
@@ -427,12 +451,16 @@ mod tests {
                 kind: "usb".into(),
                 product: Some("STM32 STLink".into()),
                 serial_number: Some("PROBE123".into()),
+                vid: None,
+                pid: None,
             },
             PortEntry {
                 name: "/dev/cu.usbmodem9910".into(),
                 kind: "usb".into(),
                 product: Some("STM32 STLink".into()),
                 serial_number: Some("PROBE123".into()),
+                vid: None,
+                pid: None,
             },
         ]);
         assert!(
@@ -455,12 +483,16 @@ mod tests {
                 kind: "usb".into(),
                 product: Some("STM32 STLink".into()),
                 serial_number: Some("PROBE123".into()),
+                vid: None,
+                pid: None,
             },
             PortEntry {
                 name: "/dev/cu.usbserial-B003ASAG".into(),
                 kind: "usb".into(),
                 product: Some("FT232R USB UART".into()),
                 serial_number: Some("B003ASAG".into()),
+                vid: None,
+                pid: None,
             },
         ]);
         let mut second = pairing_survey(vec![
@@ -470,12 +502,16 @@ mod tests {
                 // The same adapter, named differently by a second enumeration.
                 product: Some("USB Serial".into()),
                 serial_number: Some("B003ASAG".into()),
+                vid: None,
+                pid: None,
             },
             PortEntry {
                 name: "/dev/cu.usbmodem5103".into(),
                 kind: "usb".into(),
                 product: None,
                 serial_number: Some("PROBE123".into()),
+                vid: None,
+                pid: None,
             },
         ]);
         second.probes.push(second.probes[0].clone());
@@ -502,6 +538,8 @@ mod tests {
             kind: "usb".into(),
             product: Some("ST-Link Virtual COM Port".into()),
             serial_number: Some("SOMEONE_ELSE".into()),
+            vid: None,
+            pid: None,
         }]);
         assert!(
             paired_vcom_port(&survey, "0483:374b:PROBE123")

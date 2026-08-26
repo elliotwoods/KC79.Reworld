@@ -406,9 +406,11 @@ mod tests {
 
     #[test]
     fn a_framed_request_carries_no_embedded_zero() {
+        // Delimited at both ends; the COBS body between them carries no zero of its own.
         let framed = encode_frame(&request(&RepeaterTarget::Index(1), RepeaterVerb::Status, None));
+        assert_eq!(*framed.first().unwrap(), 0);
         assert_eq!(*framed.last().unwrap(), 0);
-        assert!(!framed[..framed.len() - 1].contains(&0));
+        assert!(!framed[1..framed.len() - 1].contains(&0));
     }
 }
 

@@ -32,10 +32,29 @@ pub fn cobs_encode(src: &[u8]) -> Vec<u8> {
     out
 }
 
-/// COBS-encode and append the `0x00` frame delimiter — the exact bytes the
-/// C++ `RS485::serialThreadSend` writes to the device.
+/// COBS-encode between two `0x00` delimiters: one to start from a known boundary, one to end.
+///
+/// The trailing delimiter is what the C++ `RS485::serialThreadSend` has always written. The
+/// leading one is new, and it is what makes a frame survive a half-duplex bus.
+///
+/// Every listener on RS485 has its receiver disabled while it transmits, and its input floats
+/// while it does; the UART samples a spurious byte at the turn-around. Measured on the bench
+/// 2026-08-26: the repeater latched one such byte for every frame it relayed, and that byte
+/// became the *first byte of the next frame* the far end saw. COBS reads it as a code byte, so
+/// the real frame decodes to nonsense — and it fails whichever integrity check runs first, which
+/// says "corrupt payload" rather than "your bus ate a byte".
+///
+/// Roughly half of a firmware image was being rejected that way, one frame in two, with the
+/// repeater reporting a clean relay of every single one. A leading delimiter costs one byte and
+/// terminates that stray byte as an empty packet before the real frame begins.
+///
+/// Receivers already cope: two delimiters in a row are an empty packet, which `COBSRWStream`
+/// skips and the bootloader's frame window discards. Nothing has to be taught anything.
 pub fn encode_frame(msgpack: &[u8]) -> Vec<u8> {
-    let mut out = cobs_encode(msgpack);
+    let encoded = cobs_encode(msgpack);
+    let mut out = Vec::with_capacity(encoded.len() + 2);
+    out.push(0);
+    out.extend_from_slice(&encoded);
     out.push(0);
     out
 }

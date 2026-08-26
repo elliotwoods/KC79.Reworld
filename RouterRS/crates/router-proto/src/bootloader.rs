@@ -671,10 +671,14 @@ mod tests {
             adopt(-1, BlSelector::Uid([0; 12]), 1, 0),
             reset(1, 0),
         ] {
+            // A frame is delimited at both ends now; the body between them is what must be
+            // free of zeros, because that is what COBS guarantees and what a receiver relies on
+            // to find the boundaries.
             let framed = encode_frame(&frame);
+            assert_eq!(*framed.first().unwrap(), 0);
             assert_eq!(*framed.last().unwrap(), 0);
             assert!(
-                !framed[..framed.len() - 1].contains(&0),
+                !framed[1..framed.len() - 1].contains(&0),
                 "embedded zero in {}",
                 hex(&framed)
             );

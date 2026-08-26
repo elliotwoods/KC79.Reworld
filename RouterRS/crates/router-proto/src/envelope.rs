@@ -285,7 +285,8 @@ mod tests {
         let msgpack = encode_envelope(BROADCAST, &body);
         assert_eq!(hex(&msgpack), "93 FF 00 81 A4 70 6F 6C 6C C0");
         let framed = encode_frame(&msgpack);
-        assert_eq!(hex(&framed), "03 93 FF 08 81 A4 70 6F 6C 6C C0 00");
+        // Leading delimiter, the COBS body, then the trailing delimiter.
+        assert_eq!(hex(&framed), "00 03 93 FF 08 81 A4 70 6F 6C 6C C0 00");
     }
 
     #[test]
@@ -360,10 +361,11 @@ mod tests {
         // Also firmware-computed, same method as `bootloader_status_request_bytes`.
         assert_eq!(&msgpack[msgpack.len() - 3..], &[0xCD, 0xB9, 0x88]);
         let framed = encode_frame(&msgpack);
-        assert_eq!(*framed.last().unwrap(), 0, "delimited");
-        assert!(!framed[..framed.len() - 1].contains(&0), "no embedded zero");
+        assert_eq!(*framed.first().unwrap(), 0, "delimited at the front");
+        assert_eq!(*framed.last().unwrap(), 0, "delimited at the back");
+        assert!(!framed[1..framed.len() - 1].contains(&0), "no embedded zero");
 
-        let decoded = cobs_decode(&framed[..framed.len() - 1]).unwrap();
+        let decoded = cobs_decode(&framed[1..framed.len() - 1]).unwrap();
         assert_eq!(decoded, msgpack);
         let env = decode_envelope(&decoded).unwrap();
         assert_eq!(env.target, -1);
