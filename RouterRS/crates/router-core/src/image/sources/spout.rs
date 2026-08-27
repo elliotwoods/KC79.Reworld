@@ -185,7 +185,9 @@ mod backend {
         pub fn receive_into(&mut self, out: &mut PixelsF32) -> bool {
             let (w, h) = (out.width, out.height);
             self.rgba.resize(w * h * 4, 0);
-            let ok = unsafe { (self.receive)(self.instance, self.rgba.as_mut_ptr(), w as u32, h as u32) };
+            let ok = unsafe {
+                (self.receive)(self.instance, self.rgba.as_mut_ptr(), w as u32, h as u32)
+            };
             if !ok {
                 return false;
             }

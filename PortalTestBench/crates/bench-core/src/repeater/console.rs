@@ -16,7 +16,7 @@
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
-use router_link::rs485::device::{create_device, SerialDevice};
+use router_link::rs485::device::{SerialDevice, create_device};
 use serde_json::Value;
 
 use super::programmer::ConsoleSession;

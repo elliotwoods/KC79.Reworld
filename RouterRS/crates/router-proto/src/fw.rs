@@ -227,7 +227,11 @@ mod tests {
 
         let data = [0xA5u8; 128];
         let env = fw_frame_envelope_trailer(last, &data, 5);
-        assert_eq!(&env[..5], &[0x95, 0xD0, 0xFF, 0xD0, 0x00], "5-element envelope");
+        assert_eq!(
+            &env[..5],
+            &[0x95, 0xD0, 0xFF, 0xD0, 0x00],
+            "5-element envelope"
+        );
         assert_eq!(env[5], 0x81, "fixmap(1)");
         assert_eq!(env[6], 0xCE, "uint32 key");
         assert_eq!(&env[7..11], &last.to_be_bytes());
@@ -253,7 +257,11 @@ mod tests {
         let trailered = fw_frame_envelope_trailer(1_024, &data, 9);
         assert_eq!(plain[0], 0x93, "3 elements");
         assert_eq!(trailered[0], 0x95, "5 elements");
-        assert_eq!(&plain[1..], &trailered[1..plain.len()], "same header and body");
+        assert_eq!(
+            &plain[1..],
+            &trailered[1..plain.len()],
+            "same header and body"
+        );
         assert_eq!(trailered.len(), plain.len() + 5);
     }
 

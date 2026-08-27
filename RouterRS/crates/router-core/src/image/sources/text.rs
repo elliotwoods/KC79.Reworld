@@ -45,10 +45,9 @@ impl Text {
 }
 
 fn load_font(name: &str) -> Option<FontVec> {
-    let fonts_dir = std::path::PathBuf::from(
-        std::env::var("WINDIR").unwrap_or_else(|_| "C:\\Windows".into()),
-    )
-    .join("Fonts");
+    let fonts_dir =
+        std::path::PathBuf::from(std::env::var("WINDIR").unwrap_or_else(|_| "C:\\Windows".into()))
+            .join("Fonts");
     let mut candidates: Vec<std::path::PathBuf> = Vec::new();
     if !name.is_empty() {
         let base = fonts_dir.join(name);
@@ -123,7 +122,8 @@ impl ImageSource for Text {
                 caret_x += scaled.kern(prev, id);
             }
             previous = Some(id);
-            let glyph: Glyph = id.with_scale_and_position(scale, ab_glyph::point(caret_x, baseline));
+            let glyph: Glyph =
+                id.with_scale_and_position(scale, ab_glyph::point(caret_x, baseline));
             caret_x += scaled.h_advance(id);
             if let Some(outlined) = font.outline_glyph(glyph) {
                 let bounds = outlined.px_bounds();

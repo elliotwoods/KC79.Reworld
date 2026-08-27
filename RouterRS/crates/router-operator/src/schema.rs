@@ -28,8 +28,12 @@ use router_core::config::AppConfig;
 
 pub const TRANSMIT_MODES: &[(u32, &str)] = &[(0, "Individual"), (1, "Keyframe"), (2, "Disabled")];
 pub const LEADING_CONTROLS: &[(u32, &str)] = &[(0, "Position"), (1, "Polar"), (2, "Axes")];
-pub const SELECT_KINDS: &[(u32, &str)] =
-    &[(0, "installation"), (1, "column"), (2, "portal"), (3, "source")];
+pub const SELECT_KINDS: &[(u32, &str)] = &[
+    (0, "installation"),
+    (1, "column"),
+    (2, "portal"),
+    (3, "source"),
+];
 pub const PORTAL_SUBS: &[(u32, &str)] = &[
     (0, "overview"),
     (1, "pilot"),
@@ -100,7 +104,11 @@ fn action(builder: &mut SchemaBuilder, path: &str, label: &str) -> DeclResult {
 
 fn action_bank(builder: &mut SchemaBuilder, prefix: &str, names: &[&str]) -> DeclResult {
     for name in names {
-        action(builder, &format!("{prefix}/actions/{name}"), &title_case(name))?;
+        action(
+            builder,
+            &format!("{prefix}/actions/{name}"),
+            &title_case(name),
+        )?;
     }
     Ok(())
 }
@@ -174,7 +182,11 @@ impl Shape {
             .iter()
             .filter_map(|s| s.get("type").and_then(|t| t.as_str()).map(String::from))
             .collect();
-        Self { columns, resolution, sources }
+        Self {
+            columns,
+            resolution,
+            sources,
+        }
     }
 }
 
@@ -182,7 +194,13 @@ impl Shape {
 /// (through the bridge) with a fresh builder whenever the live shape changes.
 pub fn declare(builder: &mut SchemaBuilder, shape: &Shape, _simulated: bool) -> DeclResult {
     // --- the page's own liveness ----------------------------------------------------------
-    check(builder.param("/ui/heartbeat").i64(0).label("UI heartbeat").register())?;
+    check(
+        builder
+            .param("/ui/heartbeat")
+            .i64(0)
+            .label("UI heartbeat")
+            .register(),
+    )?;
 
     // --- selection (drives the /portal proxy; bus state so proxy and page agree) ----------
     check(
@@ -192,8 +210,20 @@ pub fn declare(builder: &mut SchemaBuilder, shape: &Shape, _simulated: bool) -> 
             .label("Selection kind")
             .register(),
     )?;
-    check(builder.param("/ui/select/col").i32(0).label("Selected column").register())?;
-    check(builder.param("/ui/select/portal").i32(1).label("Selected portal").register())?;
+    check(
+        builder
+            .param("/ui/select/col")
+            .i32(0)
+            .label("Selected column")
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/ui/select/portal")
+            .i32(1)
+            .label("Selected portal")
+            .register(),
+    )?;
     check(
         builder
             .param("/ui/select/sub")
@@ -201,13 +231,47 @@ pub fn declare(builder: &mut SchemaBuilder, shape: &Shape, _simulated: bool) -> 
             .label("Portal panel")
             .register(),
     )?;
-    check(builder.param("/ui/select/source").i32(0).label("Selected source").register())?;
+    check(
+        builder
+            .param("/ui/select/source")
+            .i32(0)
+            .label("Selected source")
+            .register(),
+    )?;
 
     // --- setup facts ----------------------------------------------------------------------
-    check(builder.param("/app/simulated").bool(false).label("Simulated").read_only().register())?;
-    check(builder.param("/app/http_port").i32(0).label("HTTP port").read_only().register())?;
-    check(builder.param("/app/config_path").text("").label("Config file").read_only().register())?;
-    check(builder.param("/app/version").text("").label("Version").read_only().register())?;
+    check(
+        builder
+            .param("/app/simulated")
+            .bool(false)
+            .label("Simulated")
+            .read_only()
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/app/http_port")
+            .i32(0)
+            .label("HTTP port")
+            .read_only()
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/app/config_path")
+            .text("")
+            .label("Config file")
+            .read_only()
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/app/version")
+            .text("")
+            .label("Version")
+            .read_only()
+            .register(),
+    )?;
 
     // --- installation ---------------------------------------------------------------------
     check(
@@ -281,7 +345,13 @@ pub fn declare(builder: &mut SchemaBuilder, shape: &Shape, _simulated: bool) -> 
             .label("Keyframe velocities")
             .register(),
     )?;
-    check(builder.param("/installation/image_enabled").bool(false).label("Image sampling").register())?;
+    check(
+        builder
+            .param("/installation/image_enabled")
+            .bool(false)
+            .label("Image sampling")
+            .register(),
+    )?;
     // The "Pilot all" drag pad: one Vec2, clamped to the unit circle on the page; the bridge
     // broadcasts a collateable {"m":[a,b]} through the first portal's kinematics on change.
     check(
@@ -293,8 +363,16 @@ pub fn declare(builder: &mut SchemaBuilder, shape: &Shape, _simulated: bool) -> 
             .register(),
     )?;
     action_bank(builder, "/installation", BROADCAST_ACTIONS)?;
-    action(builder, "/installation/actions/home_and_zero", "Home and zero local")?;
-    action(builder, "/installation/actions/rebuild_columns", "Rebuild columns")?;
+    action(
+        builder,
+        "/installation/actions/home_and_zero",
+        "Home and zero local",
+    )?;
+    action(
+        builder,
+        "/installation/actions/rebuild_columns",
+        "Rebuild columns",
+    )?;
     action(builder, "/installation/actions/save_config", "Save config")?;
     check(
         builder
@@ -340,26 +418,116 @@ pub fn declare(builder: &mut SchemaBuilder, shape: &Shape, _simulated: bool) -> 
             .label("Current")
             .register(),
     )?;
-    action(builder, "/bulk/actions/push_motion_profile", "Push motion profile to all")?;
+    action(
+        builder,
+        "/bulk/actions/push_motion_profile",
+        "Push motion profile to all",
+    )?;
     action(builder, "/bulk/actions/set_current", "Set current on all")?;
 
     // --- servers (observed; runtime enable/port is config-file territory today) -----------
-    check(builder.param("/servers/osc/running").bool(false).label("OSC running").read_only().register())?;
-    check(builder.param("/servers/osc/port").i32(0).label("OSC port").read_only().register())?;
-    check(builder.param("/servers/rest/running").bool(false).label("REST running").read_only().register())?;
-    check(builder.param("/servers/rest/port").i32(0).label("REST port").read_only().register())?;
+    check(
+        builder
+            .param("/servers/osc/running")
+            .bool(false)
+            .label("OSC running")
+            .read_only()
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/servers/osc/port")
+            .i32(0)
+            .label("OSC port")
+            .read_only()
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/servers/rest/running")
+            .bool(false)
+            .label("REST running")
+            .read_only()
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/servers/rest/port")
+            .i32(0)
+            .label("REST port")
+            .read_only()
+            .register(),
+    )?;
 
     // --- session / report ------------------------------------------------------------------
-    check(builder.param("/report/session_file").text("").label("Session file").read_only().register())?;
-    check(builder.param("/report/file_bytes").i64(0).label("Session size").read_only().register())?;
-    check(builder.param("/report/dropped_events").i64(0).label("Dropped events").read_only().register())?;
-    check(builder.param("/report/verbose").bool(false).label("Verbose packet log").register())?;
-    check(builder.param("/report/marker_text").text("").label("Marker").register())?;
+    check(
+        builder
+            .param("/report/session_file")
+            .text("")
+            .label("Session file")
+            .read_only()
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/report/file_bytes")
+            .i64(0)
+            .label("Session size")
+            .read_only()
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/report/dropped_events")
+            .i64(0)
+            .label("Dropped events")
+            .read_only()
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/report/verbose")
+            .bool(false)
+            .label("Verbose packet log")
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/report/marker_text")
+            .text("")
+            .label("Marker")
+            .register(),
+    )?;
     action(builder, "/report/actions/mark", "Write marker")?;
-    action(builder, "/report/actions/write_summary", "Write summary now")?;
-    check(builder.param("/stats/tx_per_s").f32(0.0).label("Tx rate").read_only().register())?;
-    check(builder.param("/stats/rx_per_s").f32(0.0).label("Rx rate").read_only().register())?;
-    check(builder.param("/health/faulty_units").i32(0).label("Faulty units").read_only().register())?;
+    action(
+        builder,
+        "/report/actions/write_summary",
+        "Write summary now",
+    )?;
+    check(
+        builder
+            .param("/stats/tx_per_s")
+            .f32(0.0)
+            .label("Tx rate")
+            .read_only()
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/stats/rx_per_s")
+            .f32(0.0)
+            .label("Rx rate")
+            .read_only()
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/health/faulty_units")
+            .i32(0)
+            .label("Faulty units")
+            .read_only()
+            .register(),
+    )?;
 
     // --- per-column subtrees ---------------------------------------------------------------
     for (i, (count_x, count_y)) in shape.columns.iter().enumerate() {
@@ -372,8 +540,22 @@ pub fn declare(builder: &mut SchemaBuilder, shape: &Shape, _simulated: bool) -> 
                 .read_only()
                 .register(),
         )?;
-        check(builder.param(&p("flipped")).bool(false).label("Flipped").read_only().register())?;
-        check(builder.param(&p("rs485/connected")).bool(false).label("Connected").read_only().register())?;
+        check(
+            builder
+                .param(&p("flipped"))
+                .bool(false)
+                .label("Flipped")
+                .read_only()
+                .register(),
+        )?;
+        check(
+            builder
+                .param(&p("rs485/connected"))
+                .bool(false)
+                .label("Connected")
+                .read_only()
+                .register(),
+        )?;
         check(
             builder
                 .param(&p("rs485/device_description"))
@@ -385,11 +567,45 @@ pub fn declare(builder: &mut SchemaBuilder, shape: &Shape, _simulated: bool) -> 
         // Desired device, as the same JSON the config carries:
         // {"deviceType":"Serial"|"TCP","address":...,"port"?}. Written by the device picker;
         // applied by the connect action.
-        check(builder.param(&p("rs485/device")).text("").label("Device settings").register())?;
-        check(builder.param(&p("rs485/tx_count")).i64(0).label("Tx").read_only().register())?;
-        check(builder.param(&p("rs485/rx_count")).i64(0).label("Rx").read_only().register())?;
-        check(builder.param(&p("rs485/ack_timeouts")).i64(0).label("ACK timeouts").read_only().register())?;
-        check(builder.param(&p("rs485/decode_errors")).i64(0).label("Decode errors").read_only().register())?;
+        check(
+            builder
+                .param(&p("rs485/device"))
+                .text("")
+                .label("Device settings")
+                .register(),
+        )?;
+        check(
+            builder
+                .param(&p("rs485/tx_count"))
+                .i64(0)
+                .label("Tx")
+                .read_only()
+                .register(),
+        )?;
+        check(
+            builder
+                .param(&p("rs485/rx_count"))
+                .i64(0)
+                .label("Rx")
+                .read_only()
+                .register(),
+        )?;
+        check(
+            builder
+                .param(&p("rs485/ack_timeouts"))
+                .i64(0)
+                .label("ACK timeouts")
+                .read_only()
+                .register(),
+        )?;
+        check(
+            builder
+                .param(&p("rs485/decode_errors"))
+                .i64(0)
+                .label("Decode errors")
+                .read_only()
+                .register(),
+        )?;
         check(
             builder
                 .param(&p("scheduled_poll/enabled"))
@@ -406,7 +622,14 @@ pub fn declare(builder: &mut SchemaBuilder, shape: &Shape, _simulated: bool) -> 
                 .label("Poll period")
                 .register(),
         )?;
-        check(builder.param(&p("pilot_all")).vec2([0.0, 0.0]).label("Pilot all").no_reset().register())?;
+        check(
+            builder
+                .param(&p("pilot_all"))
+                .vec2([0.0, 0.0])
+                .label("Pilot all")
+                .no_reset()
+                .register(),
+        )?;
         action_bank(builder, &format!("/columns/{i}"), BROADCAST_ACTIONS)?;
         action(builder, &p("actions/connect"), "Connect")?;
         action(builder, &p("actions/disconnect"), "Disconnect")?;
@@ -415,8 +638,22 @@ pub fn declare(builder: &mut SchemaBuilder, shape: &Shape, _simulated: bool) -> 
     }
 
     // --- the portal selection proxy (static paths; repointed by /ui/select) ----------------
-    check(builder.param("/portal/exists").bool(false).label("Portal found").read_only().register())?;
-    check(builder.param("/portal/target_id").i32(0).label("Target ID").read_only().register())?;
+    check(
+        builder
+            .param("/portal/exists")
+            .bool(false)
+            .label("Portal found")
+            .read_only()
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/portal/target_id")
+            .i32(0)
+            .label("Target ID")
+            .read_only()
+            .register(),
+    )?;
     check(
         builder
             .param("/portal/pilot/leading")
@@ -471,7 +708,13 @@ pub fn declare(builder: &mut SchemaBuilder, shape: &Shape, _simulated: bool) -> 
             .label("Send periodically")
             .register(),
     )?;
-    check(builder.param("/portal/poll/regularly").bool(false).label("Poll regularly").register())?;
+    check(
+        builder
+            .param("/portal/poll/regularly")
+            .bool(false)
+            .label("Poll regularly")
+            .register(),
+    )?;
     check(
         builder
             .param("/portal/poll/interval_s")
@@ -524,23 +767,83 @@ pub fn declare(builder: &mut SchemaBuilder, shape: &Shape, _simulated: bool) -> 
                 .label("Min velocity")
                 .register(),
         )?;
-        check(builder.param(&p("reported_position")).i32(0).label("Position").read_only().register())?;
-        check(builder.param(&p("reported_target")).i32(0).label("Target").read_only().register())?;
+        check(
+            builder
+                .param(&p("reported_position"))
+                .i32(0)
+                .label("Position")
+                .read_only()
+                .register(),
+        )?;
+        check(
+            builder
+                .param(&p("reported_target"))
+                .i32(0)
+                .label("Target")
+                .read_only()
+                .register(),
+        )?;
         // −1 unknown / 0 fault / 1 ok
-        check(builder.param(&p("health_ok")).i32(-1).label("Health").read_only().register())?;
+        check(
+            builder
+                .param(&p("health_ok"))
+                .i32(-1)
+                .label("Health")
+                .read_only()
+                .register(),
+        )?;
         action_bank(builder, &format!("/portal/axis/{axis}"), &[])?;
         for name in AXIS_ACTIONS {
             action(builder, &p(&format!("actions/{name}")), &title_case(name))?;
         }
     }
-    check(builder.param("/portal/state/uptime_ms").i64(0).label("Uptime").read_only().register())?;
-    check(builder.param("/portal/state/version").text("").label("Firmware").read_only().register())?;
-    check(builder.param("/portal/state/in_position").bool(false).label("In position").read_only().register())?;
-    check(builder.param("/portal/state/last_log").text("").label("Last log").read_only().register())?;
-    check(builder.param("/portal/state/last_log_level").i32(0).label("Last log level").read_only().register())?;
+    check(
+        builder
+            .param("/portal/state/uptime_ms")
+            .i64(0)
+            .label("Uptime")
+            .read_only()
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/portal/state/version")
+            .text("")
+            .label("Firmware")
+            .read_only()
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/portal/state/in_position")
+            .bool(false)
+            .label("In position")
+            .read_only()
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/portal/state/last_log")
+            .text("")
+            .label("Last log")
+            .read_only()
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/portal/state/last_log_level")
+            .i32(0)
+            .label("Last log level")
+            .read_only()
+            .register(),
+    )?;
     action_bank(builder, "/portal", BROADCAST_ACTIONS)?;
     for name in PORTAL_LOCAL_ACTIONS {
-        action(builder, &format!("/portal/actions/{name}"), &title_case(name))?;
+        action(
+            builder,
+            &format!("/portal/actions/{name}"),
+            &title_case(name),
+        )?;
     }
     action(builder, "/portal/log/actions/clear", "Clear log")?;
 
@@ -550,12 +853,17 @@ pub fn declare(builder: &mut SchemaBuilder, shape: &Shape, _simulated: bool) -> 
     }
     action(builder, "/sources/actions/add_gradient", "Add gradient")?;
     action(builder, "/sources/actions/add_text", "Add text")?;
-    action(builder, "/sources/actions/add_file_player", "Add file player")?;
+    action(
+        builder,
+        "/sources/actions/add_file_player",
+        "Add file player",
+    )?;
     action(builder, "/sources/actions/add_spout", "Add Spout")?;
 
     // --- telemetry -------------------------------------------------------------------------
     let total = shape.total_portals().max(1) as u32;
-    let tel = |r: Result<TelemetryId, av_gui_bus::BusError>| r.map(|_| ()).map_err(|e| e.to_string());
+    let tel =
+        |r: Result<TelemetryId, av_gui_bus::BusError>| r.map(|_| ()).map_err(|e| e.to_string());
     // Per portal ×4: target x, y, live x, y (NaN = unreported).
     tel(builder.telemetry("/tel/portals/pose", SampleType::F32, total * 4, 8, 30.0))?;
     // Per portal ×4: rx age ms, tx age ms, health state (0..4), health score (0..100).
@@ -602,9 +910,28 @@ pub const MICROSTEP_RESOLUTIONS: &[(u32, &str)] = &[
 
 fn declare_source(builder: &mut SchemaBuilder, i: usize, type_name: &str) -> DeclResult {
     let p = |leaf: &str| format!("/sources/{i}/{leaf}");
-    check(builder.param(&p("type")).text(type_name).label("Type").read_only().register())?;
-    check(builder.param(&p("visible")).bool(true).label("Visible").register())?;
-    check(builder.param(&p("render_enabled")).bool(true).label("Render").register())?;
+    check(
+        builder
+            .param(&p("type"))
+            .text(type_name)
+            .label("Type")
+            .read_only()
+            .register(),
+    )?;
+    check(
+        builder
+            .param(&p("visible"))
+            .bool(true)
+            .label("Visible")
+            .register(),
+    )?;
+    check(
+        builder
+            .param(&p("render_enabled"))
+            .bool(true)
+            .label("Render")
+            .register(),
+    )?;
     check(
         builder
             .param(&p("alpha"))
@@ -630,7 +957,13 @@ fn declare_source(builder: &mut SchemaBuilder, i: usize, type_name: &str) -> Dec
                     .label("Gradient type")
                     .register(),
             )?;
-            check(builder.param(&p("wave")).enumeration(0, GRADIENT_WAVES).label("Wave").register())?;
+            check(
+                builder
+                    .param(&p("wave"))
+                    .enumeration(0, GRADIENT_WAVES)
+                    .label("Wave")
+                    .register(),
+            )?;
             check(
                 builder
                     .param(&p("frequency"))
@@ -649,20 +982,81 @@ fn declare_source(builder: &mut SchemaBuilder, i: usize, type_name: &str) -> Dec
                     .label("Speed")
                     .register(),
             )?;
-            check(builder.param(&p("value1")).vec2([0.0, 0.0]).range(-1.0, 1.0).step(0.01).label("Value 1").register())?;
-            check(builder.param(&p("value2")).vec2([1.0, 1.0]).range(-1.0, 1.0).step(0.01).label("Value 2").register())?;
+            check(
+                builder
+                    .param(&p("value1"))
+                    .vec2([0.0, 0.0])
+                    .range(-1.0, 1.0)
+                    .step(0.01)
+                    .label("Value 1")
+                    .register(),
+            )?;
+            check(
+                builder
+                    .param(&p("value2"))
+                    .vec2([1.0, 1.0])
+                    .range(-1.0, 1.0)
+                    .step(0.01)
+                    .label("Value 2")
+                    .register(),
+            )?;
         }
         "Text" => {
-            check(builder.param(&p("text")).text("TEST").label("Text").register())?;
+            check(
+                builder
+                    .param(&p("text"))
+                    .text("TEST")
+                    .label("Text")
+                    .register(),
+            )?;
             check(builder.param(&p("font")).text("").label("Font").register())?;
-            check(builder.param(&p("size")).i32(11).range(1.0, 200.0).label("Size").register())?;
-            check(builder.param(&p("border")).i32(0).range(0.0, 8.0).label("Border").register())?;
-            check(builder.param(&p("inverse")).bool(false).label("Inverse").register())?;
+            check(
+                builder
+                    .param(&p("size"))
+                    .i32(11)
+                    .range(1.0, 200.0)
+                    .label("Size")
+                    .register(),
+            )?;
+            check(
+                builder
+                    .param(&p("border"))
+                    .i32(0)
+                    .range(0.0, 8.0)
+                    .label("Border")
+                    .register(),
+            )?;
+            check(
+                builder
+                    .param(&p("inverse"))
+                    .bool(false)
+                    .label("Inverse")
+                    .register(),
+            )?;
         }
         "FilePlayer" => {
-            check(builder.param(&p("file")).text("").label("File").read_only().register())?;
-            check(builder.param(&p("play")).bool(true).label("Play").register())?;
-            check(builder.param(&p("loop_mode")).enumeration(0, LOOP_MODES).label("Loop mode").register())?;
+            check(
+                builder
+                    .param(&p("file"))
+                    .text("")
+                    .label("File")
+                    .read_only()
+                    .register(),
+            )?;
+            check(
+                builder
+                    .param(&p("play"))
+                    .bool(true)
+                    .label("Play")
+                    .register(),
+            )?;
+            check(
+                builder
+                    .param(&p("loop_mode"))
+                    .enumeration(0, LOOP_MODES)
+                    .label("Loop mode")
+                    .register(),
+            )?;
             check(
                 builder
                     .param(&p("speed"))
@@ -682,16 +1076,51 @@ fn declare_source(builder: &mut SchemaBuilder, i: usize, type_name: &str) -> Dec
                     .no_reset()
                     .register(),
             )?;
-            check(builder.param(&p("loaded")).bool(false).label("Loaded").read_only().register())?;
-            check(builder.param(&p("duration_s")).f32(0.0).unit(Unit::Seconds).label("Duration").read_only().register())?;
-            check(builder.param(&p("error")).text("").label("Error").read_only().register())?;
+            check(
+                builder
+                    .param(&p("loaded"))
+                    .bool(false)
+                    .label("Loaded")
+                    .read_only()
+                    .register(),
+            )?;
+            check(
+                builder
+                    .param(&p("duration_s"))
+                    .f32(0.0)
+                    .unit(Unit::Seconds)
+                    .label("Duration")
+                    .read_only()
+                    .register(),
+            )?;
+            check(
+                builder
+                    .param(&p("error"))
+                    .text("")
+                    .label("Error")
+                    .read_only()
+                    .register(),
+            )?;
             action(builder, &p("actions/clear_file"), "Clear file")?;
             action(builder, &p("actions/jump_to_start"), "Jump to start")?;
         }
         // Spout is Windows-only; the page shows the card only when these paths exist.
         "Spout" => {
-            check(builder.param(&p("sender_name")).text("").label("Sender").register())?;
-            check(builder.param(&p("status")).text("").label("Status").read_only().register())?;
+            check(
+                builder
+                    .param(&p("sender_name"))
+                    .text("")
+                    .label("Sender")
+                    .register(),
+            )?;
+            check(
+                builder
+                    .param(&p("status"))
+                    .text("")
+                    .label("Status")
+                    .read_only()
+                    .register(),
+            )?;
         }
         _ => {}
     }
@@ -815,7 +1244,8 @@ pub struct SourceParams {
 impl Params {
     pub fn resolve(bus: &Bus, shape: &Shape) -> Result<Self, String> {
         let id = |path: &str| -> Result<ParamId, String> {
-            bus.id_of(path).ok_or_else(|| format!("schema path missing: {path}"))
+            bus.id_of(path)
+                .ok_or_else(|| format!("schema path missing: {path}"))
         };
         let tel = |path: &str| -> Result<TelemetryId, String> {
             bus.schema()
@@ -857,9 +1287,14 @@ impl Params {
                 let mut mirrors = Vec::new();
                 for decl in bus.schema().params() {
                     let path = decl.path.as_str();
-                    let Some(leaf) = path.strip_prefix(&format!("{base}/")) else { continue };
+                    let Some(leaf) = path.strip_prefix(&format!("{base}/")) else {
+                        continue;
+                    };
                     if leaf.starts_with("actions/")
-                        || matches!(leaf, "type" | "visible" | "render_enabled" | "alpha" | "style")
+                        || matches!(
+                            leaf,
+                            "type" | "visible" | "render_enabled" | "alpha" | "style"
+                        )
                     {
                         continue;
                     }
@@ -987,8 +1422,18 @@ mod tests {
         assert_eq!(params.columns.len(), 4);
         assert_eq!(params.sources.len(), 3);
         // Gradient extras include value1/value2; FilePlayer mirrors include loaded.
-        assert!(params.sources[0].extras.iter().any(|(leaf, _)| leaf == "value1"));
-        assert!(params.sources[2].mirrors.iter().any(|(leaf, _)| leaf == "loaded"));
+        assert!(
+            params.sources[0]
+                .extras
+                .iter()
+                .any(|(leaf, _)| leaf == "value1")
+        );
+        assert!(
+            params.sources[2]
+                .mirrors
+                .iter()
+                .any(|(leaf, _)| leaf == "loaded")
+        );
     }
 
     #[test]

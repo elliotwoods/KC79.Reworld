@@ -72,7 +72,10 @@ pub fn read_descriptor(image: &[u8]) -> Option<AppDescriptor> {
         ])
     };
     let version = &bytes[16..16 + layout::APP_VERSION_BYTES];
-    let end = version.iter().position(|b| *b == 0).unwrap_or(version.len());
+    let end = version
+        .iter()
+        .position(|b| *b == 0)
+        .unwrap_or(version.len());
     Some(AppDescriptor {
         base: word(8),
         flags: word(12),

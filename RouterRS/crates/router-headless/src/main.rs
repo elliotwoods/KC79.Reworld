@@ -158,13 +158,14 @@ fn main() {
         if last_status.elapsed() >= Duration::from_secs(10) {
             last_status = Instant::now();
             let snap = handle.snapshot();
-            let (tx, rx, timeouts): (u64, u64, u64) = snap.columns.iter().fold((0, 0, 0), |acc, c| {
-                (
-                    acc.0 + c.stats.tx_count,
-                    acc.1 + c.stats.rx_count,
-                    acc.2 + c.stats.ack_timeouts,
-                )
-            });
+            let (tx, rx, timeouts): (u64, u64, u64) =
+                snap.columns.iter().fold((0, 0, 0), |acc, c| {
+                    (
+                        acc.0 + c.stats.tx_count,
+                        acc.1 + c.stats.rx_count,
+                        acc.2 + c.stats.ack_timeouts,
+                    )
+                });
             println!(
                 "[{}s] tx {} rx {} timeouts {} connected {}/{}",
                 started.elapsed().as_secs(),

@@ -34,11 +34,11 @@ pub mod sim;
 pub mod usb;
 
 pub use artefacts::{
-    classify, discover_in, RepeaterArtefact, RepeaterDiscovery, RepeaterImageKind, RepeaterMissing,
+    RepeaterArtefact, RepeaterDiscovery, RepeaterImageKind, RepeaterMissing, classify, discover_in,
 };
-pub use identity::{candidates, choose_port, mac_bytes, mac_string, RepeaterPort};
+pub use identity::{RepeaterPort, candidates, choose_port, mac_bytes, mac_string};
 pub use programmer::{RepeaterProgrammer, WriteReport};
 pub use provision::{
-    evidence_verdict, parse_status, provision_over_usb, Expectation, RepeaterEvidence,
-    RepeaterError, UsbOutcome, UsbPass,
+    Expectation, RepeaterError, RepeaterEvidence, UsbOutcome, UsbPass, evidence_verdict,
+    parse_status, provision_over_usb,
 };

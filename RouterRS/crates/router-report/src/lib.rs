@@ -13,4 +13,6 @@ pub(crate) mod writer;
 
 pub use events::{Event, LatencyStats, Totals};
 pub use reporter::{ReportConfig, Reporter, ReporterHandle, RxKind, SessionInfo};
-pub use snapshot::{ColumnDiag, ColumnState, DiagnosticsSnapshot, FaultLine, PortalDiag, PortalState};
+pub use snapshot::{
+    ColumnDiag, ColumnState, DiagnosticsSnapshot, FaultLine, PortalDiag, PortalState,
+};

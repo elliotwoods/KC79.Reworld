@@ -148,9 +148,17 @@ fn query_position(
 ) -> (u16, String) {
     let (reply_tx, reply_rx) = channel();
     let query = if target {
-        Query::GetTargetPosition { col, portal, reply: reply_tx }
+        Query::GetTargetPosition {
+            col,
+            portal,
+            reply: reply_tx,
+        }
     } else {
-        Query::GetPosition { col, portal, reply: reply_tx }
+        Query::GetPosition {
+            col,
+            portal,
+            reply: reply_tx,
+        }
     };
     let _ = commands.send(Command::Query(query));
     match reply_rx.recv_timeout(QUERY_TIMEOUT) {

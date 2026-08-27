@@ -103,7 +103,11 @@ pub fn find_closest_axes_cycle(target: Vec2, current: Vec2) -> Vec2 {
 
 /// Axis value (rotations) -> motor microsteps. Axis index 1 (B) is inverted.
 /// C++ truncates the f32 result toward zero when converting to `Steps`.
-pub fn axis_to_steps(axis_value: f32, axis_index: usize, microsteps_per_prism_rotation: i32) -> i32 {
+pub fn axis_to_steps(
+    axis_value: f32,
+    axis_index: usize,
+    microsteps_per_prism_rotation: i32,
+) -> i32 {
     let invert = if axis_index == 1 { -1.0f32 } else { 1.0f32 };
     of_map(
         axis_value,
@@ -142,8 +146,16 @@ mod tests {
         }
         let (ai, bi) = (a.to_bits() as i32, b.to_bits() as i32);
         // map to monotonic ordering
-        let am = if ai < 0 { i32::MIN.wrapping_sub(ai) } else { ai };
-        let bm = if bi < 0 { i32::MIN.wrapping_sub(bi) } else { bi };
+        let am = if ai < 0 {
+            i32::MIN.wrapping_sub(ai)
+        } else {
+            ai
+        };
+        let bm = if bi < 0 {
+            i32::MIN.wrapping_sub(bi)
+        } else {
+            bi
+        };
         am.wrapping_sub(bm).unsigned_abs()
     }
 
@@ -157,9 +169,8 @@ mod tests {
             env!("CARGO_MANIFEST_DIR"),
             "/../../tests-fixtures/pilot-vectors.csv"
         );
-        let data = std::fs::read_to_string(path).expect(
-            "pilot-vectors.csv missing — build and run tests-fixtures/pilot_oracle.cpp",
-        );
+        let data = std::fs::read_to_string(path)
+            .expect("pilot-vectors.csv missing — build and run tests-fixtures/pilot_oracle.cpp");
         let f = |s: &str| f32::from_bits(u32::from_str_radix(s, 16).unwrap());
         let mut count = 0usize;
         let mut max_transcendental_ulp = 0u32;
@@ -195,8 +206,10 @@ mod tests {
                     }
                 }
                 "findClosestAxesCycle" => {
-                    let out =
-                        find_closest_axes_cycle(vec2(f(cols[1]), f(cols[2])), vec2(f(cols[3]), 0.0));
+                    let out = find_closest_axes_cycle(
+                        vec2(f(cols[1]), f(cols[2])),
+                        vec2(f(cols[3]), 0.0),
+                    );
                     assert_eq!(out.x.to_bits(), f(cols[4]).to_bits(), "{line}");
                     assert_eq!(out.y.to_bits(), f(cols[5]).to_bits(), "{line}");
                 }
@@ -219,8 +232,13 @@ mod tests {
                 other => panic!("unknown oracle function {other}"),
             }
         }
-        assert!(count > 6000, "expected the full golden table, got {count} rows");
-        eprintln!("golden vectors: {count} rows, max transcendental ulp diff = {max_transcendental_ulp}");
+        assert!(
+            count > 6000,
+            "expected the full golden table, got {count} rows"
+        );
+        eprintln!(
+            "golden vectors: {count} rows, max transcendental ulp diff = {max_transcendental_ulp}"
+        );
     }
 
     #[test]
@@ -237,11 +255,17 @@ mod tests {
                 for &offset in &[0.0f32, 0.05, -0.1] {
                     let axes = polar_to_axes(vec2(r, theta), offset);
                     let back = axes_to_polar(axes, offset);
-                    assert!((back.x - r).abs() < 1e-4, "r: {r} theta {theta} offset {offset} -> {back:?}");
+                    assert!(
+                        (back.x - r).abs() < 1e-4,
+                        "r: {r} theta {theta} offset {offset} -> {back:?}"
+                    );
                     // theta comes back in 0..2pi (or equivalent modulo 2pi)
                     let dt = (back.y - theta).rem_euclid(std::f32::consts::TAU);
                     let dt = dt.min(std::f32::consts::TAU - dt);
-                    assert!(dt < 1e-3, "theta: {r}/{theta} offset {offset} -> {back:?} (dt {dt})");
+                    assert!(
+                        dt < 1e-3,
+                        "theta: {r}/{theta} offset {offset} -> {back:?} (dt {dt})"
+                    );
                 }
             }
         }

@@ -194,7 +194,9 @@ impl ImageSource for FilePlayer {
         };
         let frame_count = video.frames.len();
         self.advance(frame_count);
-        let DecodeState::Done(video) = &self.decode else { return };
+        let DecodeState::Done(video) = &self.decode else {
+            return;
+        };
         if video.frames.is_empty() {
             out.clear();
             return;
@@ -245,13 +247,22 @@ impl ImageSource for FilePlayer {
     }
 }
 
-fn decode_video(path: &std::path::Path, width: usize, height: usize) -> Result<DecodedVideo, String> {
+fn decode_video(
+    path: &std::path::Path,
+    width: usize,
+    height: usize,
+) -> Result<DecodedVideo, String> {
     use ffmpeg_sidecar::command::FfmpegCommand;
     use ffmpeg_sidecar::event::FfmpegEvent;
 
     let mut child = FfmpegCommand::new()
         .input(path.to_string_lossy())
-        .args(["-vf", &format!("scale={width}:{height}"), "-r", &format!("{DECODE_FPS}")])
+        .args([
+            "-vf",
+            &format!("scale={width}:{height}"),
+            "-r",
+            &format!("{DECODE_FPS}"),
+        ])
         .rawvideo()
         .spawn()
         .map_err(|e| format!("ffmpeg spawn failed (is ffmpeg.exe on PATH?): {e}"))?;

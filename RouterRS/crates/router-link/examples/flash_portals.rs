@@ -23,14 +23,14 @@ use std::io::Write;
 use std::time::{Duration, Instant};
 
 use router_link::bootloader_update::{BlPhase, BlUpdateParams, BootloaderUpdate};
-use router_link::fw_update::{self, FwUpdateParams};
 use router_link::fw_session::{
     Board, BoardKind, BoardState, FwSession, FwSessionParams, Mode, Phase, Targets,
 };
+use router_link::fw_update::{self, FwUpdateParams};
 use router_link::rs485::{device::SerialPortDevice, Packet, Payload, Rs485};
 use router_proto::bootloader::{self, BlReply, BlSelector};
-use router_proto::Value;
 use router_proto::replies::{classify_reply, Reply};
+use router_proto::Value;
 
 const USAGE: &str = "\
 usage:
@@ -64,14 +64,21 @@ fn parse_ids(spec: &str) -> Result<Vec<i8>, String> {
     for part in spec.split(',').filter(|part| !part.is_empty()) {
         match part.split_once('-') {
             Some((from, to)) => {
-                let from: i8 = from.trim().parse().map_err(|_| format!("bad id '{from}'"))?;
+                let from: i8 = from
+                    .trim()
+                    .parse()
+                    .map_err(|_| format!("bad id '{from}'"))?;
                 let to: i8 = to.trim().parse().map_err(|_| format!("bad id '{to}'"))?;
                 if to < from {
                     return Err(format!("'{part}' counts backwards"));
                 }
                 ids.extend(from..=to);
             }
-            None => ids.push(part.trim().parse().map_err(|_| format!("bad id '{part}'"))?),
+            None => ids.push(
+                part.trim()
+                    .parse()
+                    .map_err(|_| format!("bad id '{part}'"))?,
+            ),
         }
     }
     if ids.is_empty() {
@@ -101,9 +108,24 @@ struct Args {
 impl Args {
     fn parse() -> Self {
         const VALUED: [&str; 18] = [
-            "--port", "--ids", "--serials", "--mode", "--id",
-            "--legacy-gap", "--legacy-reps", "--passes", "--chunk", "--gap",
-            "--serial", "--uid", "--to", "--len", "--crc", "--base", "--repeat", "--timeout",
+            "--port",
+            "--ids",
+            "--serials",
+            "--mode",
+            "--id",
+            "--legacy-gap",
+            "--legacy-reps",
+            "--passes",
+            "--chunk",
+            "--gap",
+            "--serial",
+            "--uid",
+            "--to",
+            "--len",
+            "--crc",
+            "--base",
+            "--repeat",
+            "--timeout",
         ];
         let mut positional = Vec::new();
         let mut flags = std::collections::HashMap::new();
@@ -288,7 +310,11 @@ fn flash_application(args: &Args, serial_number: &str) -> Result<(), Box<dyn std
         stats.decode_errors,
         started.elapsed().as_secs_f32()
     );
-    println!("{}: {}", if progress.ok { "OK" } else { "FAILED" }, progress.detail);
+    println!(
+        "{}: {}",
+        if progress.ok { "OK" } else { "FAILED" },
+        progress.detail
+    );
     rs485.close();
     if progress.ok {
         Ok(())
@@ -314,7 +340,8 @@ fn phase_name(phase: Phase) -> &'static str {
 }
 
 fn board_table(boards: &[Board]) -> String {
-    let mut out = String::from("  id  kind        state                     base        application\n");
+    let mut out =
+        String::from("  id  kind        state                     base        application\n");
     for board in boards {
         let kind = match board.kind {
             BoardKind::Unknown => "unknown",
@@ -456,7 +483,11 @@ fn run_verb(args: &Args, serial_number: &str) -> Result<(), Box<dyn std::error::
     };
     // A selector is how a board is named when the frame is not addressed to it, so a selected
     // request is broadcast. Unicast otherwise.
-    let target = if matches!(selector, BlSelector::None) { id } else { -1 };
+    let target = if matches!(selector, BlSelector::None) {
+        id
+    } else {
+        -1
+    };
 
     let mut rs485 = open_bus(serial_number)?;
     println!();
@@ -493,21 +524,29 @@ fn run_verb(args: &Args, serial_number: &str) -> Result<(), Box<dyn std::error::
         let seq = ((attempt % 255) + 1) as u8;
         let bytes = match verb.as_str() {
             "status" => bootloader::status(target, selector.clone(), seq),
-            "map" => bootloader::map_request(target, args.value("--chunk").map(|c| c.parse()).transpose()?, seq),
+            "map" => bootloader::map_request(
+                target,
+                args.value("--chunk").map(|c| c.parse()).transpose()?,
+                seq,
+            ),
             "verify" => bootloader::verify(target, seq),
             "run" => bootloader::run(target, seq),
             "reset" => bootloader::reset(target, seq),
             "adopt" => bootloader::adopt(
                 target,
                 selector.clone(),
-                args.value("--to").ok_or("adopt needs --to <new id>")?.parse()?,
+                args.value("--to")
+                    .ok_or("adopt needs --to <new id>")?
+                    .parse()?,
                 seq,
             ),
             "begin" => bootloader::begin(
                 target,
                 args.value("--len").ok_or("begin needs --len")?.parse()?,
                 u32::from_str_radix(
-                    args.value("--crc").ok_or("begin needs --crc (hex)")?.trim_start_matches("0x"),
+                    args.value("--crc")
+                        .ok_or("begin needs --crc (hex)")?
+                        .trim_start_matches("0x"),
                     16,
                 )?,
                 args.value("--chunk").unwrap_or("128").parse()?,

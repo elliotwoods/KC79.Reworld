@@ -109,13 +109,11 @@ function copyTree(src, dst) {
   }
 }
 
-function hardLink(src, dst) {
-  fs.rmSync(dst, { force: true });
-  try {
-    fs.linkSync(src, dst);
-  } catch {
-    fs.copyFileSync(src, dst);
-  }
+function copyExecutable(src, dst) {
+  // A real codesign rewrites the Mach-O signature. A hard link here therefore lets packaging
+  // mutate target/{profile}, and signing a companion in place can invalidate a concurrently used
+  // build artefact. A distributable must be an independent copy before signing begins.
+  fs.copyFileSync(src, dst);
 }
 
 main(() => {
@@ -151,10 +149,10 @@ main(() => {
   fs.writeFileSync(path.join(contents, 'Info.plist'), appPlist(version));
   fs.writeFileSync(path.join(contents, 'PkgInfo'), 'APPL????');
 
-  hardLink(binary, path.join(macos, BINARY));
+  copyExecutable(binary, path.join(macos, BINARY));
   for (const name of COMPANIONS) {
     const from = path.join(targetDir, name);
-    if (fs.existsSync(from)) hardLink(from, path.join(macos, name));
+    if (fs.existsSync(from)) copyExecutable(from, path.join(macos, name));
     else warn(`${name} is not built; the bundle will not carry it`);
   }
 
@@ -171,7 +169,20 @@ main(() => {
   // contents change afterwards is a bundle whose signature no longer matches -- and then verified,
   // because `codesign` succeeding says the signature was written, not that it is valid.
   step(`Signing (${options.sign === '-' ? 'ad-hoc' : options.sign})`);
-  const signed = tryRun('codesign', ['--force', '--sign', options.sign, '--timestamp=none', bundle]);
+  const signatureArgs = options.sign === '-'
+    ? ['--force', '--sign', '-', '--timestamp=none']
+    : ['--force', '--options', 'runtime', '--timestamp', '--sign', options.sign];
+
+  // Sign nested code before the containing bundle. The main executable is signed as part of the
+  // bundle; companions are independent Mach-O code and notarisation validates them separately.
+  for (const name of COMPANIONS) {
+    const companion = path.join(macos, name);
+    if (fs.existsSync(companion)) {
+      const nested = tryRun('codesign', [...signatureArgs, companion]);
+      if (!nested.ok) fail(`codesign ${name}: ${nested.stderr}`);
+    }
+  }
+  const signed = tryRun('codesign', [...signatureArgs, bundle]);
   if (!signed.ok) warn(`codesign: ${signed.stderr}`);
 
   const verified = tryRun('codesign', ['--verify', '--deep', '--strict', bundle]);

@@ -56,7 +56,8 @@ impl RepeaterStatus {
     /// repeater whose protocol version has not been read is not assumed capable —
     /// the fleet may be mixed, and the fallback is per repeater, not fleet-wide.
     pub fn supports(&self, required: u16) -> bool {
-        self.proto_version.is_some_and(|version| version >= required)
+        self.proto_version
+            .is_some_and(|version| version >= required)
     }
 }
 
@@ -148,11 +149,21 @@ fn parse_status(payload: &Value) -> RepeaterStatus {
         return RepeaterStatus::default();
     };
     let mut status = RepeaterStatus {
-        proto_version: field(entries, "proto").and_then(|v| v.as_u64()).map(|v| v as u16),
-        version: field(entries, "ver").and_then(|v| v.as_str()).map(str::to_owned),
-        build: field(entries, "build").and_then(|v| v.as_str()).map(str::to_owned),
-        index: field(entries, "idx").and_then(|v| v.as_i64()).map(|v| v as u8),
-        block_state: field(entries, "mode").and_then(|v| v.as_str()).map(str::to_owned),
+        proto_version: field(entries, "proto")
+            .and_then(|v| v.as_u64())
+            .map(|v| v as u16),
+        version: field(entries, "ver")
+            .and_then(|v| v.as_str())
+            .map(str::to_owned),
+        build: field(entries, "build")
+            .and_then(|v| v.as_str())
+            .map(str::to_owned),
+        index: field(entries, "idx")
+            .and_then(|v| v.as_i64())
+            .map(|v| v as u8),
+        block_state: field(entries, "mode")
+            .and_then(|v| v.as_str())
+            .map(str::to_owned),
         event_seq: field(entries, "ev").and_then(|v| v.as_u64()),
         ..Default::default()
     };
@@ -190,7 +201,9 @@ fn parse_status(payload: &Value) -> RepeaterStatus {
         status.queue_drops = Some(drops);
     }
     if let Some(Value::Map(health)) = field(entries, "health") {
-        status.reset_reason = field(health, "rst").and_then(|v| v.as_str()).map(str::to_owned);
+        status.reset_reason = field(health, "rst")
+            .and_then(|v| v.as_str())
+            .map(str::to_owned);
         status.boots = field(health, "boots").and_then(|v| v.as_u64());
         status.unhealthy_boots = field(health, "unhealthy").and_then(|v| v.as_u64());
         status.min_free_heap = field(health, "heap").and_then(|v| v.as_u64());
@@ -210,7 +223,10 @@ mod tests {
             (key("proto"), Value::from(1)),
             (key("ver"), Value::from("3.0.0")),
             (key("build"), Value::from("abc123-dirty")),
-            (key("mac"), Value::Binary(vec![0xF8, 0x5B, 0x1B, 0xED, 0x8D, 0xA4])),
+            (
+                key("mac"),
+                Value::Binary(vec![0xF8, 0x5B, 0x1B, 0xED, 0x8D, 0xA4]),
+            ),
             (key("idx"), Value::from(index)),
             (key("mode"), Value::from(mode)),
             (
@@ -221,7 +237,10 @@ mod tests {
             (key("s2"), map(vec![(key("qdr"), Value::from(0))])),
             (
                 key("flt"),
-                map(vec![(key("pe"), Value::from(0)), (key("cfl"), Value::from(0))]),
+                map(vec![
+                    (key("pe"), Value::from(0)),
+                    (key("cfl"), Value::from(0)),
+                ]),
             ),
             (key("ev"), Value::from(7)),
             (

@@ -193,7 +193,11 @@ impl FlashController {
         } else {
             adopt_selector("", &portal_swd::list_probes()).unwrap_or_default()
         };
-        type SimHandles = (Box<dyn Rig>, Option<Arc<AtomicBool>>, Option<Arc<AtomicU32>>);
+        type SimHandles = (
+            Box<dyn Rig>,
+            Option<Arc<AtomicBool>>,
+            Option<Arc<AtomicU32>>,
+        );
         let (rig, fixture, starts): SimHandles = if simulated {
             let rig = portal_swd::SimRig::new();
             let (fixture, starts) = (rig.fixture(), rig.starts());
@@ -291,8 +295,14 @@ impl FlashController {
         // the discovered default -- quietly, and possibly minutes later. Emptying it here means
         // the picker says "no application" the instant the row disappears, which is true.
         for (selected, empty) in [
-            (&mut self.selection.bootloader, &mut self.deliberately_empty.0),
-            (&mut self.selection.application, &mut self.deliberately_empty.1),
+            (
+                &mut self.selection.bootloader,
+                &mut self.deliberately_empty.0,
+            ),
+            (
+                &mut self.selection.application,
+                &mut self.deliberately_empty.1,
+            ),
         ] {
             if selected.as_deref() == Some(id) {
                 *selected = None;
@@ -1080,8 +1090,10 @@ impl FlashController {
             } else {
                 format!(
                     ", {} left alone and proved unchanged",
-                    if report.preserved.iter().any(|&(start, _)| start
-                        == portal_swd::addr::FLASH_BASE)
+                    if report
+                        .preserved
+                        .iter()
+                        .any(|&(start, _)| start == portal_swd::addr::FLASH_BASE)
                     {
                         "bootloader bank"
                     } else {
@@ -1404,7 +1416,10 @@ impl FlashController {
 
     /// What to prove once the firmware is written: that the application runs, or -- when there is
     /// no application to run -- that the bootloader does.
-    fn observe_after_write(&mut self, bundle: &portal_swd::ImageBundle) -> Result<String, RigError> {
+    fn observe_after_write(
+        &mut self,
+        bundle: &portal_swd::ImageBundle,
+    ) -> Result<String, RigError> {
         if !self.application_will_be_present(bundle) {
             return self.observe_bootloader_alive();
         }
@@ -1486,7 +1501,33 @@ impl FlashController {
     }
 
     fn open_probe(&mut self) {
-        if !self.simulated && self.probe_selector.is_empty() {
+        // A selector naming a probe that is no longer attached is released before the adoption
+        // below gets its chance. `rescan` has always done this; `open_probe` did not, and the gap
+        // is what a swapped ST-Link falls into: the bench adopted the old probe's `vid:pid:serial`
+        // at startup, the operator unplugged it for another, and because the selector was
+        // non-empty the adoption arm never ran again. Every reopen then asked for a serial that
+        // was not on the bus, so a probe sitting right there read as "not picked up" until
+        // somebody happened to press Rescan.
+        //
+        // Only a selector whose probe is absent is cleared. One that names an attached probe is
+        // left alone even when others are present -- an explicit choice between two fixtures is
+        // exactly what must not be second-guessed.
+        //
+        // One enumeration serves both this release and the adoption below. It runs only while the
+        // probe is disconnected -- `tick` calls `open_probe` only when `probe_connected` is false,
+        // and the empty-selector arm already enumerated once per tick in exactly that state -- so
+        // this costs a USB descriptor walk on a bench that is already idle, and nothing at all on
+        // one that is running.
+        let attached = (!self.simulated).then(portal_swd::list_probes);
+        if let Some(attached) = attached.as_deref()
+            && selector_is_stale(&self.probe_selector, attached)
+        {
+            self.probe_selector.clear();
+            self.rig.close();
+        }
+        if let Some(attached) = attached
+            && self.probe_selector.is_empty()
+        {
             // The refusal below already had to enumerate, so adopting rides along for free -- and
             // this is the path that used to leave a bench running all day without knowing which
             // probe it was running on. A bench started before its fixture is plugged in resolves
@@ -1499,7 +1540,6 @@ impl FlashController {
             // Nothing open is disturbed by rebuilding the rig here: this runs from `new_in`, from
             // `select_probe` and `rescan` (which both close first), and from `tick` only while
             // `probe_connected` is already false.
-            let attached = portal_swd::list_probes();
             if attached.len() > 1 {
                 self.snapshot.probe_connected = false;
                 self.snapshot.detail = "multiple ST-Links found; choose the fixture probe".into();
@@ -1577,6 +1617,19 @@ impl FlashController {
 /// Stated once, as a plain function, for two reasons: the constructor, the operator's picker, a
 /// rescan and the reopen path all have to apply the *same* rule, and this way the rule can be
 /// tested with no probe attached.
+/// Whether a selection still names something on the bus.
+///
+/// The release half of the rule [`adopt_selector`] states the adoption half of, and deliberately
+/// as narrow: a selector is stale only when the probe it names is *absent*. It is never stale for
+/// being one of several, so an operator's explicit choice between two fixtures survives the other
+/// one being plugged in or out.
+///
+/// An empty selector is not stale -- there is nothing to release, and saying otherwise would make
+/// the caller clear what it is about to fill.
+fn selector_is_stale(current: &str, attached: &[portal_swd::ProbeDescriptor]) -> bool {
+    !current.is_empty() && !attached.iter().any(|probe| probe.id == current)
+}
+
 fn adopt_selector(current: &str, attached: &[portal_swd::ProbeDescriptor]) -> Option<String> {
     if !current.is_empty() {
         return None;
@@ -1672,6 +1725,46 @@ mod tests {
         }
     }
 
+    /// Swapping one ST-Link for another must not need a Rescan.
+    ///
+    /// `open_probe` only ever adopted into an *empty* selector, so a bench that had already
+    /// adopted probe A went on asking for A's `vid:pid:serial` forever after A was unplugged --
+    /// with B sitting on the bus, enumerated, and ignored. The operator saw "could not attach" and
+    /// a probe that was plainly connected. Releasing the dead selector first lets the existing
+    /// adoption arm do the rest.
+    #[test]
+    fn a_selector_is_released_only_when_its_probe_is_gone() {
+        let a = descriptor("0483:374b:PROBE123");
+        let b = descriptor("0483:374b:OTHER456");
+
+        assert!(
+            selector_is_stale("0483:374b:PROBE123", std::slice::from_ref(&b)),
+            "the named probe was swapped out: release it so the only attached probe is adopted"
+        );
+        assert!(
+            selector_is_stale("0483:374b:PROBE123", &[]),
+            "nothing attached at all"
+        );
+        assert!(
+            !selector_is_stale("0483:374b:PROBE123", std::slice::from_ref(&a)),
+            "the named probe is right there"
+        );
+        assert!(
+            !selector_is_stale("0483:374b:PROBE123", &[a.clone(), b.clone()]),
+            "a deliberate choice between two fixtures is not stale"
+        );
+        assert!(
+            !selector_is_stale("", &[a, b]),
+            "an empty selector has nothing to release; adoption owns that case"
+        );
+
+        // The two halves compose into the swap: release, then adopt the survivor.
+        assert_eq!(
+            adopt_selector("", std::slice::from_ref(&descriptor("0483:374b:OTHER456"))),
+            Some("0483:374b:OTHER456".to_string())
+        );
+    }
+
     /// The hardware-free core of the fix: an unselected fixture adopts the only probe there is,
     /// and never picks between two.
     ///
@@ -1689,7 +1782,11 @@ mod tests {
             descriptor("0483:374b:OTHER456"),
         ];
 
-        assert_eq!(adopt_selector("", &[]), None, "nothing attached, nothing to adopt");
+        assert_eq!(
+            adopt_selector("", &[]),
+            None,
+            "nothing attached, nothing to adopt"
+        );
         assert_eq!(
             adopt_selector("", &one),
             Some("0483:374b:PROBE123".to_string()),
@@ -1719,12 +1816,10 @@ mod tests {
         // table that can only be *inferred* as legacy-base, and the pass refuses it -- correctly.
         let mut application = vec![0u8; 60_000];
         application[0..4].copy_from_slice(&0x2000_9000u32.to_le_bytes());
-        application[4..8]
-            .copy_from_slice(&(portal_swd::addr::APP_BASE + 0x241).to_le_bytes());
+        application[4..8].copy_from_slice(&(portal_swd::addr::APP_BASE + 0x241).to_le_bytes());
         let at = portal_swd::addr::APP_DESCRIPTOR_OFFSET;
         application[at..at + 8].copy_from_slice(portal_swd::addr::APP_DESCRIPTOR_MAGIC);
-        application[at + 8..at + 12]
-            .copy_from_slice(&portal_swd::addr::APP_BASE.to_le_bytes());
+        application[at + 8..at + 12].copy_from_slice(&portal_swd::addr::APP_BASE.to_le_bytes());
         let app = dir.join("PortalFW/.pio/build/application_bank_optical");
         std::fs::create_dir_all(&app).unwrap();
         std::fs::write(app.join("firmware.bin"), application).unwrap();
@@ -1865,11 +1960,21 @@ mod tests {
 
         // A virgin part: nothing to keep, so there would be no bootloader to boot from.
         assert!(
-            !controller.provision(1_000, 7, DeviceSettings::default(), false, false, &mut |_, _| {}),
+            !controller.provision(
+                1_000,
+                7,
+                DeviceSettings::default(),
+                false,
+                false,
+                &mut |_, _| {}
+            ),
             "a board with no bootloader must not be left with none"
         );
         assert!(
-            controller.snapshot().last_outcome.contains("has none to keep"),
+            controller
+                .snapshot()
+                .last_outcome
+                .contains("has none to keep"),
             "{}",
             controller.snapshot().last_outcome
         );
@@ -1877,13 +1982,27 @@ mod tests {
         // Give it one, the ordinary way, then repeat.
         controller.select(boot_id, app_id.clone());
         assert!(
-            controller.provision(2_000, 7, DeviceSettings::default(), false, false, &mut |_, _| {}),
+            controller.provision(
+                2_000,
+                7,
+                DeviceSettings::default(),
+                false,
+                false,
+                &mut |_, _| {}
+            ),
             "{}",
             controller.snapshot().last_outcome
         );
         controller.select(String::new(), app_id);
         assert!(
-            controller.provision(3_000, 7, DeviceSettings::default(), false, false, &mut |_, _| {}),
+            controller.provision(
+                3_000,
+                7,
+                DeviceSettings::default(),
+                false,
+                false,
+                &mut |_, _| {}
+            ),
             "a board that already carries a bootloader may be reflashed application-only: {}",
             controller.snapshot().last_outcome
         );
@@ -1902,7 +2021,14 @@ mod tests {
         let _ = controller.tick(0, false, false);
         let _ = controller.tick(500, false, false);
         assert!(
-            controller.provision(1_000, 7, DeviceSettings::default(), false, false, &mut |_, _| {}),
+            controller.provision(
+                1_000,
+                7,
+                DeviceSettings::default(),
+                false,
+                false,
+                &mut |_, _| {}
+            ),
             "{}",
             controller.snapshot().last_outcome
         );
@@ -1910,11 +2036,21 @@ mod tests {
         controller.select(String::new(), app_id);
         controller.set_unselected(portal_swd::Unselected::Erase);
         assert!(
-            !controller.provision(2_000, 7, DeviceSettings::default(), false, false, &mut |_, _| {}),
+            !controller.provision(
+                2_000,
+                7,
+                DeviceSettings::default(),
+                false,
+                false,
+                &mut |_, _| {}
+            ),
             "this pass would erase the bootloader the board is booting from"
         );
         assert!(
-            controller.snapshot().last_outcome.contains("erase the bank it leaves out"),
+            controller
+                .snapshot()
+                .last_outcome
+                .contains("erase the bank it leaves out"),
             "{}",
             controller.snapshot().last_outcome
         );

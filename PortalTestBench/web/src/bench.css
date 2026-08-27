@@ -28,7 +28,7 @@
    that. `display: contents` keeps the wrapper out of the grid until it is needed as a row. */
 .board-values { display: contents; }
 .board-value { position: relative; z-index: 1; display: grid; align-items: center; gap: var(--space-2); min-height: 46px; padding: var(--space-1) var(--space-2); border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-raised); }
-.board-value[data-kind='serial'] { grid-template-columns: minmax(104px, 128px) minmax(120px, 140px) auto; }
+.board-value[data-kind='serial'] { grid-template-columns: minmax(104px, 128px) minmax(112px, 132px) auto auto; }
 .board-value[data-kind='settings'] { grid-template-columns: minmax(120px, 150px) minmax(88px, 104px) auto auto auto; }
 .board-value[data-tone='warn'] { background: color-mix(in srgb, var(--warn) 5%, var(--surface-raised)); }
 .board-value[data-tone='error'] { background: color-mix(in srgb, var(--danger) 6%, var(--surface-raised)); }
@@ -136,6 +136,98 @@
 .history-list > div { display: grid; grid-template-columns: 90px minmax(0, 1fr) auto; align-items: center; gap: var(--space-2); padding: var(--space-2); background: var(--surface-raised); }
 .history-list > div > span { display: grid; min-width: 0; }
 .history-list small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The three sources a serial can come from, in the top strip: board, database, free.
+   Small enough to live beside the number box, big enough to read and click. `database` is
+   rendered even when it is empty -- an em dash there is the fact that the registry has never
+   bound this MCU, which is the single thing the old layout could not say without scrolling. */
+.serial-sources { display: flex; align-items: stretch; gap: 3px; }
+.serial-source { display: grid; justify-items: center; align-content: center; gap: 0; min-width: 52px; padding: 2px var(--space-1-5); border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); color: var(--text-secondary); cursor: pointer; font: inherit; line-height: 1.1; }
+.serial-source:hover:not(:disabled) { border-color: var(--text-faint); color: var(--text); }
+.serial-source:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.serial-source:disabled { cursor: default; opacity: var(--disabled-opacity); }
+.serial-source .label-caps { font-size: 8px; letter-spacing: var(--tracking-label); }
+.serial-source-value { font-size: var(--text-md); font-weight: var(--weight-semibold); font-variant-numeric: tabular-nums; color: var(--text); }
+.serial-source:disabled .serial-source-value { color: var(--text-faint); }
+/* Current beats suggested beats blocked in the border, because "this is the number in the box"
+   is the one an operator needs to confirm at a glance before pressing flash. */
+.serial-source.is-blocked { border-color: color-mix(in srgb, var(--danger) 60%, var(--border)); }
+.serial-source.is-suggested { border-color: var(--ok); }
+.serial-source.is-current { border-color: var(--accent); background: var(--accent-soft-bg); }
+.serial-source.is-current .serial-source-value { color: var(--accent); }
+/* Blocked wins the NUMBER even when the chip is the current one -- a number that cannot be
+   reserved must never be shown in the same colour as one that can. The border still says
+   "current", so the two facts coexist instead of one hiding the other. */
+.serial-source.is-blocked .serial-source-value, .serial-source.is-current.is-blocked .serial-source-value { color: var(--danger); }
+/* Seen before but never registered. Dashed, so it reads as "we know this board" rather than as
+   the flat blank of an MCU this bench has never met -- the two look identical in the registry. */
+.serial-source.is-seen { border-style: dashed; border-color: var(--text-faint); opacity: 1; }
+.serial-source.is-seen .serial-source-value { color: var(--text-secondary); }
+.serial-source-slot { display: inline-flex; }
+
+/* The serial chooser: the answer to "which number should this board have", given room.
+   The clash it reports used to be one line of a banner squeezed between two other banners, which
+   is why nobody could read it. It gets its own bordered block, and turns red at the edge when
+   there is a conflict so the eye lands here before anywhere else on the tab. */
+.serial-chooser { display: grid; gap: var(--space-3); padding: var(--space-3); border: 1px solid var(--border); border-left: 4px solid var(--border); border-radius: var(--radius-md); background: var(--surface-sunken); }
+.serial-chooser.is-conflict { border-color: var(--danger); border-left-color: var(--danger); background: color-mix(in srgb, var(--danger) 5%, var(--surface-sunken)); }
+.serial-chooser.is-idle { color: var(--text-secondary); }
+.serial-chooser > header { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap; }
+.serial-chooser > header > div { display: grid; gap: 2px; min-width: 0; }
+.serial-chooser > header strong { font-size: var(--text-md); }
+.serial-chooser > header small { color: var(--text-secondary); }
+.serial-chooser > header code { font-size: var(--text-xs); }
+
+.serial-clash { display: grid; gap: var(--space-1-5); padding: var(--space-2) var(--space-3); border: 1px solid color-mix(in srgb, var(--danger) 45%, var(--border)); border-radius: var(--radius-sm); background: color-mix(in srgb, var(--danger) 9%, var(--surface-raised)); }
+.serial-clash-head { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+.serial-clash-head strong { font-size: var(--text-sm); }
+/* The other MCU on its own line. A 26-character UID inlined in a sentence is the single thing
+   that made the old banner unreadable, so it gets a line and a monospace face of its own. */
+.serial-clash-holder { display: flex; align-items: baseline; gap: var(--space-2); flex-wrap: wrap; }
+.serial-clash-holder code { font-size: var(--text-sm); overflow-wrap: anywhere; }
+.serial-clash-holder small, .serial-clash-note { color: var(--text-secondary); }
+
+/* One card per offered number. Auto-fit rather than a fixed count: there are two candidates as
+   often as three, and a half-empty row reads as something missing. */
+.candidate-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: var(--space-2); }
+.candidate { display: grid; align-content: start; gap: var(--space-1-5); padding: var(--space-2) var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-raised); }
+.candidate.is-suggested { border-color: var(--ok); }
+.candidate.is-blocked { border-color: color-mix(in srgb, var(--danger) 55%, var(--border)); }
+.candidate.is-chosen { box-shadow: inset 0 0 0 1px var(--accent); }
+.candidate-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
+/* The number is the content. Everything else on the card is a caption for it. */
+.candidate-serial { font-size: 30px; font-weight: var(--weight-semibold); line-height: 1; font-variant-numeric: tabular-nums; }
+.candidate-tags { display: grid; justify-items: end; gap: 3px; }
+.candidate-tags .label-caps { color: var(--text-secondary); font-size: var(--text-2xs); }
+.candidate-detail { color: var(--text-secondary); }
+.candidate-blocked { color: var(--danger); overflow-wrap: anywhere; }
+.candidate-take, .candidate-take > button { display: flex; width: 100%; justify-content: center; }
+
+.prefer-registry { display: inline-flex; align-items: center; gap: var(--space-1-5); padding: var(--space-1) var(--space-2); border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-raised); color: var(--text-secondary); cursor: pointer; font-size: var(--text-sm); white-space: nowrap; }
+.prefer-registry.is-on { border-color: var(--accent-soft-border); background: var(--accent-soft-bg); color: var(--accent); }
+.prefer-registry .param-control { min-width: 0; }
+
+/* The serial registry table. Scrolls in its own box so a few hundred provisioned boards never
+   push the history below it off the page, and never make the panel itself scroll sideways. */
+.provision-registry { display: grid; gap: var(--space-2); }
+.provision-registry > header { display: flex; align-items: center; gap: var(--space-3); }
+.provision-registry > header strong { font-size: var(--text-sm); }
+.provision-registry > header input[type="text"], .provision-registry > header input:not([type]) { min-width: 220px; min-height: 30px; padding: 0 var(--space-2); border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-raised); color: var(--text); }
+.provision-registry > header > input { margin-left: auto; }
+.registry-filter { display: flex; align-items: center; gap: 4px; color: var(--text-secondary); font-size: var(--text-sm); white-space: nowrap; }
+.registry-scroll { max-height: 260px; overflow: auto; border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.registry-table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.registry-table th { position: sticky; top: 0; z-index: 1; padding: var(--space-2); text-align: left; background: var(--surface-sunken); border-bottom: 1px solid var(--border); font-size: var(--text-sm); color: var(--text-secondary); }
+.registry-table td { padding: var(--space-2); border-bottom: 1px solid var(--border); background: var(--surface-raised); }
+.registry-table td:nth-child(2) { display: flex; align-items: center; gap: var(--space-2); }
+.registry-table td code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Superseded rows stay legible -- they are evidence, not noise -- but must never be mistaken for
+   a live binding, so they are dimmed and struck rather than merely greyed. */
+.registry-table tr.is-superseded td { color: var(--text-secondary); }
+.registry-table tr.is-superseded td:nth-child(1) code, .registry-table tr.is-superseded td:nth-child(2) code { text-decoration: line-through; }
+.registry-table tr.is-this-board td { background: color-mix(in srgb, var(--accent) 12%, var(--surface-raised)); }
+/* The row standing between the operator and a reservation. Tinted with the same danger colour as
+   the banner naming it, so the two read as one fact rather than two coincidences. */
+.registry-table tr.is-blocking td { background: color-mix(in srgb, var(--danger) 14%, var(--surface-raised)); }
 .simulation-fixture { display: flex; justify-content: space-between; align-items: center; padding: var(--space-2); border: 1px dashed var(--border); border-radius: var(--radius-sm); color: var(--text-secondary); }
 .flash-device-actions { display: grid; gap: var(--space-2); padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-sunken); }
 .flash-device-actions > header { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
@@ -144,6 +236,55 @@
 .flash-action-groups { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-2); }
 .flash-action-groups > div { padding: var(--space-2); border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-raised); }
 .flash-action-groups .button-row > span, .flash-action-groups .button-row button { flex: 1; }
+
+/* The database is a library rather than a log dump: a compact index remains visible while one
+   device's lineage and evidence are read beside it. */
+.database-workspace { min-width: 0; }
+.database-workspace > .panel > .panel-body { display: grid; gap: var(--space-3); }
+.database-summary { display: grid; grid-template-columns: repeat(4, minmax(110px, 1fr)) minmax(220px, 1.4fr); gap: var(--space-2); }
+.database-summary > div { display: grid; gap: 2px; padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-raised); }
+.database-summary > div[data-attention='true'] { border-color: var(--warn); }
+.database-summary small, .database-detail small, .database-list small { color: var(--text-secondary); }
+.database-summary strong { font-size: var(--text-xl); font-variant-numeric: tabular-nums; }
+.database-next > span, .database-admin, .database-note { display: flex; gap: var(--space-2); align-items: center; }
+.database-next input { width: 110px; }
+.fixture-library-link { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2); border: 1px solid var(--accent); border-radius: var(--radius-sm); background: color-mix(in srgb, var(--accent) 8%, var(--surface-raised)); }
+.fixture-library-link code { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.fixture-library-link button { margin-left: auto; }
+.database-toolbar { display: flex; gap: var(--space-2); align-items: center; }
+.database-toolbar > input { flex: 1; min-width: 240px; }
+.database-toolbar input, .database-toolbar select, .database-next input, .database-admin input, .database-note input { min-height: 34px; padding: 0 var(--space-2); border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-sunken); color: var(--text); font: inherit; }
+.database-explorer { display: grid; grid-template-columns: minmax(500px, 1.35fr) minmax(360px, 1fr); gap: var(--space-3); align-items: start; min-width: 0; }
+.database-list { min-width: 0; overflow: auto; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-sunken); }
+.database-list table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.database-list th { position: sticky; top: 0; z-index: 1; padding: var(--space-2); text-align: left; color: var(--text-secondary); background: var(--surface-sunken); border-bottom: 1px solid var(--border); font-size: var(--text-xs); }
+.database-list td { padding: var(--space-2); border-bottom: 1px solid var(--border); background: var(--surface-raised); }
+.database-list tr { cursor: pointer; }
+.database-list tr:hover td, .database-list tr[data-selected='true'] td { background: color-mix(in srgb, var(--accent) 10%, var(--surface-raised)); }
+.database-list tr[data-fixture='true'] td:first-child { border-left: 3px solid var(--accent); }
+.database-list td:nth-child(2), .database-list td:nth-child(4) { display: grid; gap: 2px; min-width: 0; }
+.database-list td code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.database-list footer { display: flex; justify-content: space-between; align-items: center; gap: var(--space-2); padding: var(--space-2); }
+.database-list footer > span { display: flex; gap: var(--space-2); align-items: center; }
+.database-detail { display: grid; gap: var(--space-3); min-width: 0; }
+.database-detail > header, .database-detail > section { padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-raised); }
+.database-detail > header { display: flex; justify-content: space-between; align-items: center; gap: var(--space-2); border-color: var(--accent); }
+.database-detail > header > div { display: grid; min-width: 0; }
+.database-detail > header code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.database-detail h3 { margin: 0 0 var(--space-2); font-size: var(--text-sm); }
+.database-detail dl { display: grid; grid-template-columns: minmax(110px, .45fr) minmax(0, 1fr); gap: var(--space-1) var(--space-3); margin: 0; }
+.database-detail dt { color: var(--text-secondary); }
+.database-detail dd { min-width: 0; margin: 0; overflow-wrap: anywhere; }
+.database-admin { flex-wrap: wrap; margin-bottom: var(--space-2); }
+.database-admin input { width: 130px; }
+.database-note input { flex: 1; min-width: 0; }
+.database-event { display: grid; grid-template-columns: minmax(90px, auto) minmax(0, 1fr) auto; gap: var(--space-2); align-items: center; padding: var(--space-2) 0; border-top: 1px solid var(--border); }
+.database-event > span { display: grid; min-width: 0; }
+.database-event > span small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.database-detail details { border-top: 1px solid var(--border); }
+.database-detail summary { display: flex; justify-content: space-between; align-items: center; gap: var(--space-2); padding: var(--space-2) 0; cursor: pointer; }
+.database-detail summary > span { display: grid; }
+.database-detail details dl { padding-bottom: var(--space-2); }
 .secondary-operations, .button-row { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-2); }
 
 /* The link controls, first on the Test tab. Accent border because every disabled control below
@@ -302,6 +443,14 @@
   .board-value[data-kind='settings'] { grid-template-columns: auto minmax(80px, 1fr) auto auto auto; }
   .quick-fields { grid-column: auto; }
   .quick-fields h3, .procedure-progress-track { grid-column: 1; }
+}
+
+@media (max-width: 1100px) {
+  .database-summary { grid-template-columns: repeat(2, minmax(130px, 1fr)); }
+  .database-next { grid-column: span 2; }
+  .database-explorer { grid-template-columns: 1fr; }
+  .database-toolbar { flex-wrap: wrap; }
+  .database-toolbar > input { flex-basis: 100%; }
 }
 
 @media (max-width: 640px) {

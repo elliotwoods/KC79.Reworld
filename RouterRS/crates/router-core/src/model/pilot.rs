@@ -353,7 +353,11 @@ mod tests {
         pilot.set_axes(vec2(0.5, 0.5));
         pilot.update([AxisReported::default(); 2]);
         assert!((pilot.polar.x - 1.0).abs() < 1e-5);
-        assert!((pilot.position.x + 1.0).abs() < 1e-5, "{:?}", pilot.position);
+        assert!(
+            (pilot.position.x + 1.0).abs() < 1e-5,
+            "{:?}",
+            pilot.position
+        );
         assert!(pilot.position.y.abs() < 1e-5);
     }
 
@@ -362,14 +366,26 @@ mod tests {
         let mut pilot = Pilot::default();
         assert!(!pilot.is_in_target_position());
         pilot.update([
-            AxisReported { current_steps: Some(0), target_steps: Some(0) },
-            AxisReported { current_steps: Some(0), target_steps: Some(0) },
+            AxisReported {
+                current_steps: Some(0),
+                target_steps: Some(0),
+            },
+            AxisReported {
+                current_steps: Some(0),
+                target_steps: Some(0),
+            },
         ]);
         assert!(pilot.is_in_target_position());
         // hardware moves away
         pilot.update([
-            AxisReported { current_steps: Some(500), target_steps: Some(0) },
-            AxisReported { current_steps: Some(0), target_steps: Some(0) },
+            AxisReported {
+                current_steps: Some(500),
+                target_steps: Some(0),
+            },
+            AxisReported {
+                current_steps: Some(0),
+                target_steps: Some(0),
+            },
         ]);
         assert!(!pilot.is_in_target_position());
     }

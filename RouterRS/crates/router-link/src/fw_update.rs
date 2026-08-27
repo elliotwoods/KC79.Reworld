@@ -148,8 +148,15 @@ impl FwUpdateParams {
 /// packets are inside a worker thread.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FwStep {
-    Magic { magic: FwMagic, wait_ms: u32 },
-    Data { offset: u32, len: usize, wait_ms: u32 },
+    Magic {
+        magic: FwMagic,
+        wait_ms: u32,
+    },
+    Data {
+        offset: u32,
+        len: usize,
+        wait_ms: u32,
+    },
 }
 
 impl FwStep {
@@ -243,7 +250,10 @@ fn plan_for_image(
 /// [`crate::fw_session`] does before it has decided which path to take.
 pub fn announce_steps(params: &FwUpdateParams) -> Vec<FwStep> {
     let period = params.announce_period_ms.max(1);
-    let announce = |magic| FwStep::Magic { magic, wait_ms: period };
+    let announce = |magic| FwStep::Magic {
+        magic,
+        wait_ms: period,
+    };
     let mut steps = Vec::new();
 
     // 1. bump: alternate, so applications reboot and bootloaders stay resident.
@@ -276,7 +286,10 @@ pub fn upload_steps(
     validate(image, base, params)?;
 
     let period = params.announce_period_ms.max(1);
-    let announce = |magic| FwStep::Magic { magic, wait_ms: period };
+    let announce = |magic| FwStep::Magic {
+        magic,
+        wait_ms: period,
+    };
     let mut steps = Vec::new();
 
     // 3. erase, twice, each covered by short announces.
@@ -493,7 +506,10 @@ mod tests {
 
     #[test]
     fn padding_never_pushes_a_maximal_image_over_the_bank() {
-        let params = FwUpdateParams { truncate: false, ..Default::default() };
+        let params = FwUpdateParams {
+            truncate: false,
+            ..Default::default()
+        };
         // The bank is itself a multiple of 8, so a full image needs no padding at all.
         assert!(LEGACY_BANK.is_multiple_of(FLASH_WRITE_GRANULE));
         let image = prepare_image(&vec![0x00; LEGACY_BANK], &params);
@@ -505,7 +521,10 @@ mod tests {
     /// below its write position is skipped, above it kills the upload outright.
     #[test]
     fn offsets_stride_by_exactly_the_payload_length() {
-        let params = FwUpdateParams { frame_size: 32, ..Default::default() };
+        let params = FwUpdateParams {
+            frame_size: 32,
+            ..Default::default()
+        };
         let steps = plan(&[0x5A; 98_196], LEGACY, &params).unwrap();
         let data = data_steps(&steps);
         assert_eq!(data.len(), 98_200 / 32 + 1); // 3068 full frames + a 24-byte tail
@@ -520,12 +539,26 @@ mod tests {
 
     #[test]
     fn repetitions_repeat_an_offset_in_place_rather_than_replaying_the_image() {
-        let params = FwUpdateParams { frame_size: 32, frame_repetitions: 3, ..Default::default() };
+        let params = FwUpdateParams {
+            frame_size: 32,
+            frame_repetitions: 3,
+            ..Default::default()
+        };
         let steps = plan(&[0u8; 96], LEGACY, &params).unwrap();
         let data = data_steps(&steps);
         assert_eq!(
             data,
-            vec![(0, 32), (0, 32), (0, 32), (32, 32), (32, 32), (32, 32), (64, 32), (64, 32), (64, 32)]
+            vec![
+                (0, 32),
+                (0, 32),
+                (0, 32),
+                (32, 32),
+                (32, 32),
+                (32, 32),
+                (64, 32),
+                (64, 32),
+                (64, 32)
+            ]
         );
     }
 
@@ -544,7 +577,10 @@ mod tests {
         for step in &steps {
             let parseable = !matches!(
                 step,
-                FwStep::Magic { magic: FwMagic::AnnounceLong, .. }
+                FwStep::Magic {
+                    magic: FwMagic::AnnounceLong,
+                    ..
+                }
             );
             if parseable {
                 since_parseable = 0;
@@ -568,7 +604,15 @@ mod tests {
         let long: Vec<usize> = steps
             .iter()
             .enumerate()
-            .filter(|(_, s)| matches!(s, FwStep::Magic { magic: FwMagic::AnnounceLong, .. }))
+            .filter(|(_, s)| {
+                matches!(
+                    s,
+                    FwStep::Magic {
+                        magic: FwMagic::AnnounceLong,
+                        ..
+                    }
+                )
+            })
             .map(|(i, _)| i)
             .collect();
         assert!(long.len() >= 20, "only {} long announces", long.len());
@@ -585,7 +629,15 @@ mod tests {
         // the last board to hear a long word is resident in its bootloader.
         let first_erase = steps
             .iter()
-            .position(|s| matches!(s, FwStep::Magic { magic: FwMagic::Erase, .. }))
+            .position(|s| {
+                matches!(
+                    s,
+                    FwStep::Magic {
+                        magic: FwMagic::Erase,
+                        ..
+                    }
+                )
+            })
             .expect("an erase");
         let gap_ms = (first_erase - long.last().unwrap()) as u32 * params.announce_period_ms;
         assert!(
@@ -625,7 +677,15 @@ mod tests {
         let steps = plan(&[0u8; 64], LEGACY, &params).unwrap();
         let last_erase = steps
             .iter()
-            .rposition(|s| matches!(s, FwStep::Magic { magic: FwMagic::Erase, .. }))
+            .rposition(|s| {
+                matches!(
+                    s,
+                    FwStep::Magic {
+                        magic: FwMagic::Erase,
+                        ..
+                    }
+                )
+            })
             .unwrap();
         let first_data = steps
             .iter()
@@ -636,14 +696,23 @@ mod tests {
 
     #[test]
     fn run_after_puts_the_handoff_at_the_very_end() {
-        let params = FwUpdateParams { run_after: true, ..Default::default() };
+        let params = FwUpdateParams {
+            run_after: true,
+            ..Default::default()
+        };
         let steps = plan(&[0u8; 64], LEGACY, &params).unwrap();
         assert!(matches!(
             steps.last().unwrap(),
-            FwStep::Magic { magic: FwMagic::Run, .. }
+            FwStep::Magic {
+                magic: FwMagic::Run,
+                ..
+            }
         ));
         assert_eq!(
-            magics(&steps).iter().filter(|m| **m == FwMagic::Run).count(),
+            magics(&steps)
+                .iter()
+                .filter(|m| **m == FwMagic::Run)
+                .count(),
             1
         );
         // ...and stays off by default, because the GUI drives it from its own button.
@@ -655,13 +724,23 @@ mod tests {
     /// somebody has to look at rather than as a slower bench session.
     #[test]
     fn the_production_image_plans_a_sequence_of_known_size_and_duration() {
-        let params = FwUpdateParams { run_after: true, ..FwUpdateParams::resilient() };
+        let params = FwUpdateParams {
+            run_after: true,
+            ..FwUpdateParams::resilient()
+        };
         let steps = plan(&[0xA5; 98_196], LEGACY, &params).unwrap();
 
         let announces = magics(&steps).len();
         let frames = data_steps(&steps).len();
-        assert_eq!(announces, 133, "132 announce/erase packets, plus the trailing RU");
-        assert_eq!(frames, 3_069 * 2, "3,069 frames of a 98,200-byte padded image, x2");
+        assert_eq!(
+            announces, 133,
+            "132 announce/erase packets, plus the trailing RU"
+        );
+        assert_eq!(
+            frames,
+            3_069 * 2,
+            "3,069 frames of a 98,200-byte padded image, x2"
+        );
 
         let seconds = estimate_duration_ms(&steps) / 1_000;
         assert!(
@@ -672,12 +751,18 @@ mod tests {
 
     #[test]
     fn an_odd_frame_size_is_refused_rather_than_silently_mismatching_the_checksum() {
-        let params = FwUpdateParams { frame_size: 33, ..Default::default() };
+        let params = FwUpdateParams {
+            frame_size: 33,
+            ..Default::default()
+        };
         assert!(matches!(
             plan(&[0u8; 64], LEGACY, &params),
             Err(FwUpdateError::OddFrameSize)
         ));
-        let params = FwUpdateParams { frame_size: 0, ..Default::default() };
+        let params = FwUpdateParams {
+            frame_size: 0,
+            ..Default::default()
+        };
         assert!(matches!(
             plan(&[0u8; 64], LEGACY, &params),
             Err(FwUpdateError::ZeroFrameSize)

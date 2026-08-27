@@ -159,7 +159,9 @@ mod tests {
         assert_eq!(first.target, 2);
         let second = outbox.pop_front().unwrap();
         assert_eq!(second.target, 1);
-        let Payload::Rendered(bytes) = second.payload else { panic!() };
+        let Payload::Rendered(bytes) = second.payload else {
+            panic!()
+        };
         // contains int 300 (0xCD 0x01 0x2C)
         assert!(bytes.windows(3).any(|w| w == [0xCD, 0x01, 0x2C]));
     }

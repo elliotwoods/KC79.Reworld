@@ -40,11 +40,18 @@ fn parse_ids(spec: &str) -> Result<Vec<i8>, String> {
     for part in spec.split(',').filter(|part| !part.is_empty()) {
         match part.split_once('-') {
             Some((from, to)) => {
-                let from: i8 = from.trim().parse().map_err(|_| format!("bad id '{from}'"))?;
+                let from: i8 = from
+                    .trim()
+                    .parse()
+                    .map_err(|_| format!("bad id '{from}'"))?;
                 let to: i8 = to.trim().parse().map_err(|_| format!("bad id '{to}'"))?;
                 ids.extend(from..=to);
             }
-            None => ids.push(part.trim().parse().map_err(|_| format!("bad id '{part}'"))?),
+            None => ids.push(
+                part.trim()
+                    .parse()
+                    .map_err(|_| format!("bad id '{part}'"))?,
+            ),
         }
     }
     Ok(ids)

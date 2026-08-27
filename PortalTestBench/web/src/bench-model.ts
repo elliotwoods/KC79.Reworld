@@ -331,6 +331,10 @@ export interface SerialView {
   boardSerial: number;
   entered: number;
   pending: boolean;
+  /** `/provision/database_serial`: what the registry holds for this MCU; 0 when it holds nothing. */
+  dbSerial: number;
+  /** `/provision/entered_serial_holder`: the UID already holding `entered`, or '' when free. */
+  heldBy: string;
 }
 
 export interface SettingsView {
@@ -380,8 +384,16 @@ export function serialState(v: SerialView): BoardValue {
   if (v.pending) return { word: 'pending', detail: 'board: replug to verify', hint: 'Provisioned. Unplug and replug the board so its UID, serial and firmware can be verified without another flash.', tone: 'warn', changed: false };
   if (!v.boardPresent) return { word: 'no board', detail, hint: 'No MCU is answering the probe.', tone: 'idle', changed: false };
   if (!boardRead(v)) return { word: 'no board', detail, hint: 'A board is attached but its identity has not been read yet.', tone: 'idle', changed: false };
+  // Ahead of every identity state below, because this is the one that gets *refused* rather than
+  // merely questioned: the registry's unique index will reject the reservation whatever the
+  // identity page says. Naming the holder here is the difference between a dead end and a choice.
+  if (v.heldBy) return { word: 'conflict', detail: `serial ${v.entered} belongs to …${v.heldBy.slice(-8)}`, hint: `Serial ${v.entered} is already held by MCU ${v.heldBy}. Either enter a free serial, use this board's registry serial, or override to move ${v.entered} onto this MCU.`, tone: 'error', changed };
   if (v.identity === 'corrupt') return { word: 'review', detail, hint: 'The identity page is corrupt. Flashing needs an explicit choice in the Flash tab.', tone: 'warn', changed: false };
   if (v.identity === 'foreign-uid') return { word: 'review', detail, hint: 'The identity page was written for a different MCU. Flashing needs an explicit choice in the Flash tab.', tone: 'warn', changed: false };
+  // A blank page on an MCU the registry already knows is not a new board -- it is a provisioned
+  // one that has been erased. Calling it "fresh" is what invites someone to accept the offered
+  // `next_serial` and issue the same MCU a second number.
+  if (v.identity === 'blank' && v.dbSerial > 0) return { word: 'erased', detail: `board: no serial · registry: ${v.dbSerial}`, hint: `The identity page is blank, but the registry already has this MCU as serial ${v.dbSerial}. Use the registry serial rather than issuing a new one.`, tone: 'warn', changed: false };
   if (v.identity === 'blank') return { word: 'fresh', detail, hint: 'The board has no serial yet; the next flash writes this one.', tone: 'idle', changed: false };
   if (changed) return { word: 'changed', detail, hint: 'Differs from the serial on the board. Before flashing, choose in the Flash tab: keep the on-board serial, or use the entered one.', tone: 'warn', changed };
   return { word: 'on board', detail, hint: 'The entered serial is the one on the board.', tone: 'ok', changed: false };

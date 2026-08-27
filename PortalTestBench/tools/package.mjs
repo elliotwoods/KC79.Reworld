@@ -48,6 +48,7 @@ const app = path.resolve(import.meta.dirname, '..');
 const repo = path.resolve(app, '..');
 
 const APP_NAME = 'PortalTestBench';
+const DEFAULT_MACOS_SIGN_IDENTITY = 'Developer ID Application: elliot Woods (CGB4H2337N)';
 
 /**
  * Every environment the package ships, and where it goes in the payload.
@@ -77,7 +78,13 @@ const APP_DESCRIPTOR_MAGIC = 'KC79APP1';
 const FLASH_BASE = 0x0800_0000;
 
 function parseArgs(argv) {
-  const options = { skipBuild: false, allowDirty: false, profile: 'release', sign: '-', verify: true };
+  const options = {
+    skipBuild: false,
+    allowDirty: false,
+    profile: 'release',
+    sign: DEFAULT_MACOS_SIGN_IDENTITY,
+    verify: true,
+  };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     const next = () => {

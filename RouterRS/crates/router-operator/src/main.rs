@@ -196,10 +196,15 @@ impl OperatorApp for RouterOperatorApp {
         _app: &mut AppBuilder,
     ) -> AppResult<()> {
         let bus = live.current();
-        let params =
-            schema::Params::resolve(&bus, &self.shape).map_err(std::io::Error::other)?;
-        schema::publish_setup(&bus, &params, self.port, self.simulate.is_some(), &self.config_path)
-            .map_err(std::io::Error::other)?;
+        let params = schema::Params::resolve(&bus, &self.shape).map_err(std::io::Error::other)?;
+        schema::publish_setup(
+            &bus,
+            &params,
+            self.port,
+            self.simulate.is_some(),
+            &self.config_path,
+        )
+        .map_err(std::io::Error::other)?;
 
         let app_config = self.app_config.take().expect("config loaded in create");
         let session = SessionInfo {
@@ -225,7 +230,13 @@ impl OperatorApp for RouterOperatorApp {
 
         // Per-column device settings from the config, seeded into the device-picker params.
         let initial_devices: Vec<Option<serde_json::Value>> = (0..self.shape.columns.len())
-            .map(|i| app_config.installation.columns.get(i).and_then(|c| c.rs485.clone()))
+            .map(|i| {
+                app_config
+                    .installation
+                    .columns
+                    .get(i)
+                    .and_then(|c| c.rs485.clone())
+            })
             .collect();
 
         let runtime = router_core::runtime::spawn(RuntimeConfig {
@@ -267,8 +278,9 @@ impl OperatorApp for RouterOperatorApp {
         // The mark `av_app_icon::embed_for` resolved for this package at build time — the same
         // bytes the Windows resource carries — so the macOS Dock wears it too (a bare binary
         // has no bundle to carry `CFBundleIconFile`).
-        spec.options.icon =
-            av_operator_app::AppIcon::Ico(include_bytes!(env!("AV_APP_ICON_ICO")).as_slice().into());
+        spec.options.icon = av_operator_app::AppIcon::Ico(
+            include_bytes!(env!("AV_APP_ICON_ICO")).as_slice().into(),
+        );
         Ok(Some(spec))
     }
 
@@ -280,7 +292,8 @@ impl OperatorApp for RouterOperatorApp {
     ) -> AppResult<()> {
         // Order matters: the bridge feeds the runtime, so it stops first; the reporter is
         // shut down (writing its summary) only after the runtime has fully stopped.
-        self.bridge_stop.store(true, std::sync::atomic::Ordering::Release);
+        self.bridge_stop
+            .store(true, std::sync::atomic::Ordering::Release);
         if let Some(join) = self.bridge_join.take() {
             let _ = join.join();
         }

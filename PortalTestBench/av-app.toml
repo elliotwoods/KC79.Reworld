@@ -32,6 +32,7 @@ required_surfaces = [
   "test-runner",
   "live-telemetry",
   "firmware",
+  "hardware-library",
   "session-log",
   "faults",
 ]

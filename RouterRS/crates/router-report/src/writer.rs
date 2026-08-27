@@ -20,7 +20,18 @@ use crate::snapshot::{
 use crate::summary;
 use crate::time::{compact_utc_stamp, epoch_ms};
 
-const LATENCY_BUCKET_EDGES_MS: [f32; 10] = [1.0, 2.0, 5.0, 10.0, 20.0, 50.0, 100.0, 200.0, 300.0, f32::INFINITY];
+const LATENCY_BUCKET_EDGES_MS: [f32; 10] = [
+    1.0,
+    2.0,
+    5.0,
+    10.0,
+    20.0,
+    50.0,
+    100.0,
+    200.0,
+    300.0,
+    f32::INFINITY,
+];
 const FAULT_RING_SIZE: usize = 500;
 const STORM_THRESHOLD_PER_SEC: u32 = 10;
 
@@ -306,7 +317,12 @@ fn handle_msg(
                 let _ = out.flush();
             }
         }
-        Msg::Tx { col, target, needs_ack, bytes } => {
+        Msg::Tx {
+            col,
+            target,
+            needs_ack,
+            bytes,
+        } => {
             let column = state.columns.entry(col).or_default();
             column.tx += 1;
             column.w_tx += 1;
@@ -321,7 +337,13 @@ fn handle_msg(
                 }
             }
         }
-        Msg::Rx { col, source, kind, latency_ms, bytes } => {
+        Msg::Rx {
+            col,
+            source,
+            kind,
+            latency_ms,
+            bytes,
+        } => {
             let column = state.columns.entry(col).or_default();
             column.rx += 1;
             column.w_rx += 1;
@@ -356,14 +378,18 @@ fn handle_msg(
             column.w_outbox_peak = column.w_outbox_peak.max(depth);
         }
         Msg::WriteSummary(reply) => {
-            let path = state
-                .config
-                .dir
-                .join(format!(
-                    "session-{}.summary.json",
-                    compact_utc_stamp(state.session_start_ms)
-                ));
-            if summary::write(state, &path, Duration::from_millis(epoch_ms() - state.session_start_ms), false).is_ok() {
+            let path = state.config.dir.join(format!(
+                "session-{}.summary.json",
+                compact_utc_stamp(state.session_start_ms)
+            ));
+            if summary::write(
+                state,
+                &path,
+                Duration::from_millis(epoch_ms() - state.session_start_ms),
+                false,
+            )
+            .is_ok()
+            {
                 let _ = reply.try_send(path);
             }
         }
@@ -374,7 +400,13 @@ fn handle_msg(
 /// Update aggregates from a structured event.
 fn ingest_event(state: &mut State, event: &Event) {
     match event {
-        Event::DeviceConnect { col, transport, endpoint, ok, .. } => {
+        Event::DeviceConnect {
+            col,
+            transport,
+            endpoint,
+            ok,
+            ..
+        } => {
             let column = state.columns.entry(*col).or_default();
             column.endpoint = endpoint.clone();
             column.transport = transport.clone();
@@ -415,7 +447,14 @@ fn ingest_event(state: &mut State, event: &Event) {
             column.w_msgpack += 1;
             state.totals.msgpack_errors += 1;
         }
-        Event::PortalLog { col, portal, level, message, count, .. } => {
+        Event::PortalLog {
+            col,
+            portal,
+            level,
+            message,
+            count,
+            ..
+        } => {
             let p = state.portals.entry((*col, *portal)).or_default();
             let n = *count as u64;
             match *level {
@@ -431,7 +470,14 @@ fn ingest_event(state: &mut State, event: &Event) {
                 *p.top_logs.entry((*level, message.clone())).or_default() += n;
             }
         }
-        Event::PortalStatus { col, portal, uptime_ms, version, mca, mcb } => {
+        Event::PortalStatus {
+            col,
+            portal,
+            uptime_ms,
+            version,
+            mca,
+            mcb,
+        } => {
             let p = state.portals.entry((*col, *portal)).or_default();
             if let (Some(new), Some(old)) = (uptime_ms, p.uptime_ms) {
                 if *new < old {
@@ -477,13 +523,20 @@ fn ingest_event(state: &mut State, event: &Event) {
 
 pub(crate) fn fault_line(event: &Event, ts_ms: u64, repeat: u32) -> Option<FaultLine> {
     let (kind, col, portal, detail) = match event {
-        Event::AckTimeout { col, portal, addr, waited_ms } => (
+        Event::AckTimeout {
+            col,
+            portal,
+            addr,
+            waited_ms,
+        } => (
             "ack_timeout",
             *col,
             Some(*portal),
             format!("addr={addr} waited={waited_ms}ms"),
         ),
-        Event::AckNack { col, portal, addr } => ("ack_nack", *col, Some(*portal), format!("addr={addr}")),
+        Event::AckNack { col, portal, addr } => {
+            ("ack_nack", *col, Some(*portal), format!("addr={addr}"))
+        }
         Event::CobsError { col, detail } => ("cobs_error", *col, None, detail.clone()),
         Event::MsgpackError { col, detail, .. } => ("msgpack_error", *col, None, detail.clone()),
         Event::CrcError { col, expected, got } => (
@@ -501,7 +554,14 @@ pub(crate) fn fault_line(event: &Event, ts_ms: u64, repeat: u32) -> Option<Fault
                 None => reason.clone(),
             },
         ),
-        Event::HealthTransition { col, portal, from, to, reason, .. } => (
+        Event::HealthTransition {
+            col,
+            portal,
+            from,
+            to,
+            reason,
+            ..
+        } => (
             "health_transition",
             *col,
             *portal,
@@ -632,7 +692,10 @@ fn publish_snapshot(state: &State, shared: &Arc<Shared>) {
             } else if agg.w_cobs + agg.w_msgpack > 5 {
                 ColumnState::Noisy
             } else if agg.w_tx > 0
-                && agg.last_rx.map(|t| t.elapsed() > Duration::from_secs(5)).unwrap_or(true)
+                && agg
+                    .last_rx
+                    .map(|t| t.elapsed() > Duration::from_secs(5))
+                    .unwrap_or(true)
             {
                 ColumnState::Stalled
             } else {

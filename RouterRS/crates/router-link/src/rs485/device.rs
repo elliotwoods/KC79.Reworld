@@ -34,9 +34,19 @@ pub fn create_device(config: &Json) -> std::io::Result<Box<dyn SerialDevice>> {
     match device_type {
         "Serial" => Ok(Box::new(SerialPortDevice::open(address)?)),
         "TCP" => {
-            let port = config.get("port").and_then(|v| v.as_u64()).unwrap_or(DEFAULT_TCP_PORT as u64) as u16;
-            let timeout_s = config.get("timeout_s").and_then(|v| v.as_u64()).unwrap_or(1);
-            Ok(Box::new(TcpDevice::open(address, port, Duration::from_secs(timeout_s))?))
+            let port = config
+                .get("port")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(DEFAULT_TCP_PORT as u64) as u16;
+            let timeout_s = config
+                .get("timeout_s")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(1);
+            Ok(Box::new(TcpDevice::open(
+                address,
+                port,
+                Duration::from_secs(timeout_s),
+            )?))
         }
         other => Err(std::io::Error::new(
             ErrorKind::InvalidInput,
@@ -140,6 +150,26 @@ impl SerialDevice for SerialPortDevice {
                 ));
             }
         }
+
+        // A write that has returned is not a frame on the wire.
+        //
+        // The worker paces frames by sleeping *after* each write, but the write only hands the
+        // bytes to the operating system, which hands them to the adapter in 64-byte USB packets
+        // as its FIFO frees up. Queue frames faster than 115200 baud drains them -- a 176-byte
+        // data frame is 15 ms on the wire against a 6 ms gap -- and the OS buffer fills within a
+        // few seconds; from then on the adapter is topped up one packet at a time, its FIFO runs
+        // dry between packets, and its driver-enable drops in the middle of a frame.
+        //
+        // On a pair wired at the receiver's expected polarity that gap is invisible. On a pair
+        // landed the other way round -- which a V3 repeater absorbs by inverting its UART -- the
+        // undriven line reads as a break, and the frame is destroyed. Measured on the bench
+        // 2026-08-26: the first ~230 frames of an upload arrived intact, every frame after the
+        // buffer filled was hit, and the short repair pass, which never filled it, was clean.
+        //
+        // `flush` is `tcdrain`: it returns once the bytes have left the port. The gap the worker
+        // then sleeps is a real gap, every frame goes out as one driven burst, and the outbox
+        // drains at exactly the wire rate -- so a caller can also trust an empty outbox again.
+        port.flush()?;
         Ok(())
     }
 
@@ -234,7 +264,9 @@ impl SerialDevice for TcpDevice {
                 Err(ErrorKind::ConnectionReset.into())
             }
             Ok(n) => Ok(buf[..n].to_vec()),
-            Err(e) if matches!(e.kind(), ErrorKind::TimedOut | ErrorKind::WouldBlock) => Ok(Vec::new()),
+            Err(e) if matches!(e.kind(), ErrorKind::TimedOut | ErrorKind::WouldBlock) => {
+                Ok(Vec::new())
+            }
             Err(e) => {
                 self.stream = None;
                 Err(e)

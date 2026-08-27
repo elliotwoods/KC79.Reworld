@@ -127,6 +127,51 @@ pub enum RepeaterVerb {
     OtaBoot,
     OtaConfirm,
     OtaAbort,
+    /// `v: [side, mode]` -- side `1` or `2`, mode `0` normal / `1` inverted / `2` auto.
+    /// Acknowledged. See [`PolarityMode`].
+    SetPolarity,
+}
+
+/// How a repeater decides one side's UART polarity. The wire value is the discriminant.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PolarityMode {
+    Normal = 0,
+    Inverted = 1,
+    /// Flip on undecodable traffic, lock on valid frames. The firmware default.
+    Auto = 2,
+}
+
+impl PolarityMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            PolarityMode::Normal => "normal",
+            PolarityMode::Inverted => "inverted",
+            PolarityMode::Auto => "auto",
+        }
+    }
+
+    pub fn from_str(name: &str) -> Option<Self> {
+        Some(match name {
+            "normal" => PolarityMode::Normal,
+            "inverted" => PolarityMode::Inverted,
+            "auto" => PolarityMode::Auto,
+            _ => return None,
+        })
+    }
+
+    pub fn from_wire(value: i64) -> Option<Self> {
+        Some(match value {
+            0 => PolarityMode::Normal,
+            1 => PolarityMode::Inverted,
+            2 => PolarityMode::Auto,
+            _ => return None,
+        })
+    }
+}
+
+/// The payload for [`RepeaterVerb::SetPolarity`].
+pub fn set_polarity_payload(side: u8, mode: PolarityMode) -> Value {
+    Value::Array(vec![Value::from(side), Value::from(mode as i64 as i32)])
 }
 
 impl RepeaterVerb {
@@ -146,6 +191,7 @@ impl RepeaterVerb {
             RepeaterVerb::OtaBoot => "ota-boot",
             RepeaterVerb::OtaConfirm => "ota-confirm",
             RepeaterVerb::OtaAbort => "ota-abort",
+            RepeaterVerb::SetPolarity => "set-polarity",
         }
     }
 
@@ -165,6 +211,7 @@ impl RepeaterVerb {
             "ota-boot" => RepeaterVerb::OtaBoot,
             "ota-confirm" => RepeaterVerb::OtaConfirm,
             "ota-abort" => RepeaterVerb::OtaAbort,
+            "set-polarity" => RepeaterVerb::SetPolarity,
             _ => return None,
         })
     }
@@ -220,10 +267,7 @@ pub fn parse_reply(body: &Value) -> Result<Option<RepeaterReply>, ProtoError> {
     let Value::Map(entries) = body else {
         return Ok(None);
     };
-    let Some((_, inner)) = entries
-        .iter()
-        .find(|(k, _)| k.as_str() == Some("rr"))
-    else {
+    let Some((_, inner)) = entries.iter().find(|(k, _)| k.as_str() == Some("rr")) else {
         return Ok(None);
     };
     let Value::Map(fields) = inner else {
@@ -316,9 +360,15 @@ mod tests {
         let Value::Map(fields) = rq else {
             panic!("rq is not a map")
         };
-        let address = fields.iter().find(|(k, _)| k.as_str() == Some("a")).unwrap();
+        let address = fields
+            .iter()
+            .find(|(k, _)| k.as_str() == Some("a"))
+            .unwrap();
         assert_eq!(address.1.as_i64(), Some(-5));
-        let verb = fields.iter().find(|(k, _)| k.as_str() == Some("q")).unwrap();
+        let verb = fields
+            .iter()
+            .find(|(k, _)| k.as_str() == Some("q"))
+            .unwrap();
         assert_eq!(verb.1.as_str(), Some("status"));
     }
 
@@ -326,21 +376,34 @@ mod tests {
     fn broadcast_and_mac_targets_encode_as_expected() {
         let all = request(&RepeaterTarget::All, RepeaterVerb::SnapshotStart, None);
         let envelope = decode_envelope(&all).unwrap();
-        let Value::Map(body) = &envelope.body else { panic!() };
+        let Value::Map(body) = &envelope.body else {
+            panic!()
+        };
         let (_, rq) = body.iter().find(|(k, _)| k.as_str() == Some("rq")).unwrap();
         let Value::Map(fields) = rq else { panic!() };
         assert_eq!(
-            fields.iter().find(|(k, _)| k.as_str() == Some("a")).unwrap().1.as_i64(),
+            fields
+                .iter()
+                .find(|(k, _)| k.as_str() == Some("a"))
+                .unwrap()
+                .1
+                .as_i64(),
             Some(REPEATER_ALL as i64)
         );
 
         let mac = [0xF8, 0x5B, 0x1B, 0xED, 0x8D, 0xA4];
         let by_mac = request(&RepeaterTarget::Mac(mac), RepeaterVerb::Status, None);
         let envelope = decode_envelope(&by_mac).unwrap();
-        let Value::Map(body) = &envelope.body else { panic!() };
+        let Value::Map(body) = &envelope.body else {
+            panic!()
+        };
         let (_, rq) = body.iter().find(|(k, _)| k.as_str() == Some("rq")).unwrap();
         let Value::Map(fields) = rq else { panic!() };
-        let address = &fields.iter().find(|(k, _)| k.as_str() == Some("a")).unwrap().1;
+        let address = &fields
+            .iter()
+            .find(|(k, _)| k.as_str() == Some("a"))
+            .unwrap()
+            .1;
         assert_eq!(address.as_slice(), Some(&mac[..]));
     }
 
@@ -353,6 +416,21 @@ mod tests {
         assert!(RepeaterVerb::Status.expects_reply());
         assert!(RepeaterVerb::OtaBegin.expects_reply());
         assert!(RepeaterVerb::SnapshotRead.expects_reply());
+        assert!(RepeaterVerb::SetPolarity.expects_reply());
+    }
+
+    #[test]
+    fn set_polarity_round_trips_its_names_and_wire_values() {
+        for mode in [PolarityMode::Normal, PolarityMode::Inverted, PolarityMode::Auto] {
+            assert_eq!(PolarityMode::from_str(mode.as_str()), Some(mode));
+            assert_eq!(PolarityMode::from_wire(mode as i64), Some(mode));
+        }
+        assert_eq!(PolarityMode::from_wire(3), None);
+        assert_eq!(RepeaterVerb::from_str("set-polarity"), Some(RepeaterVerb::SetPolarity));
+        let payload = set_polarity_payload(1, PolarityMode::Auto);
+        let Value::Array(items) = payload else { panic!() };
+        assert_eq!(items[0].as_i64(), Some(1));
+        assert_eq!(items[1].as_i64(), Some(2));
     }
 
     #[test]
@@ -377,7 +455,12 @@ mod tests {
         // mistaken for a repeater reply.
         let positions = map(vec![(
             key("p"),
-            Value::Array(vec![Value::from(1), Value::from(2), Value::from(3), Value::from(4)]),
+            Value::Array(vec![
+                Value::from(1),
+                Value::from(2),
+                Value::from(3),
+                Value::from(4),
+            ]),
         )]);
         assert_eq!(parse_reply(&positions).unwrap(), None);
         assert_eq!(parse_reply(&Value::Boolean(true)).unwrap(), None);
@@ -407,7 +490,11 @@ mod tests {
     #[test]
     fn a_framed_request_carries_no_embedded_zero() {
         // Delimited at both ends; the COBS body between them carries no zero of its own.
-        let framed = encode_frame(&request(&RepeaterTarget::Index(1), RepeaterVerb::Status, None));
+        let framed = encode_frame(&request(
+            &RepeaterTarget::Index(1),
+            RepeaterVerb::Status,
+            None,
+        ));
         assert_eq!(*framed.first().unwrap(), 0);
         assert_eq!(*framed.last().unwrap(), 0);
         assert!(!framed[1..framed.len() - 1].contains(&0));

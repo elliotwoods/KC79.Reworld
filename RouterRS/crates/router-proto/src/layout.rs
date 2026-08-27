@@ -126,7 +126,9 @@ mod tests {
                 .and_then(|hex| u64::from_str_radix(hex, 16).ok())
                 .or_else(|| value.parse::<u64>().ok())
                 .unwrap_or_else(|| {
-                    panic!("`#define {name} {value}` is not a bare literal; see the header's own note")
+                    panic!(
+                        "`#define {name} {value}` is not a bare literal; see the header's own note"
+                    )
                 });
             assert!(found.is_none(), "`{name}` is defined more than once");
             found = Some(parsed);
@@ -138,8 +140,14 @@ mod tests {
     fn every_constant_matches_the_firmware_header() {
         assert_eq!(u64::from(FLASH_BASE), define("PORTAL_FLASH_BASE"));
         assert_eq!(u64::from(FLASH_END), define("PORTAL_FLASH_END"));
-        assert_eq!(u64::from(FLASH_PAGE_BYTES), define("PORTAL_FLASH_PAGE_BYTES"));
-        assert_eq!(u64::from(BOOTLOADER_BYTES), define("PORTAL_BOOTLOADER_BYTES"));
+        assert_eq!(
+            u64::from(FLASH_PAGE_BYTES),
+            define("PORTAL_FLASH_PAGE_BYTES")
+        );
+        assert_eq!(
+            u64::from(BOOTLOADER_BYTES),
+            define("PORTAL_BOOTLOADER_BYTES")
+        );
         assert_eq!(
             u64::from(BOOTLOADER_BYTES_LEGACY),
             define("PORTAL_BOOTLOADER_BYTES_LEGACY")
@@ -147,19 +155,37 @@ mod tests {
         assert_eq!(u64::from(APP_BASE), define("PORTAL_APP_BASE"));
         assert_eq!(u64::from(APP_BASE_LEGACY), define("PORTAL_APP_BASE_LEGACY"));
         assert_eq!(u64::from(APP_END), define("PORTAL_APP_END"));
-        assert_eq!(u64::from(PERSIST_IDENTITY), define("PORTAL_PERSIST_IDENTITY"));
-        assert_eq!(u64::from(PERSIST_SETTINGS_A), define("PORTAL_PERSIST_SETTINGS_A"));
-        assert_eq!(u64::from(PERSIST_SETTINGS_B), define("PORTAL_PERSIST_SETTINGS_B"));
+        assert_eq!(
+            u64::from(PERSIST_IDENTITY),
+            define("PORTAL_PERSIST_IDENTITY")
+        );
+        assert_eq!(
+            u64::from(PERSIST_SETTINGS_A),
+            define("PORTAL_PERSIST_SETTINGS_A")
+        );
+        assert_eq!(
+            u64::from(PERSIST_SETTINGS_B),
+            define("PORTAL_PERSIST_SETTINGS_B")
+        );
         assert_eq!(u64::from(RAM_BASE), define("PORTAL_RAM_BASE"));
         assert_eq!(u64::from(RAM_END), define("PORTAL_RAM_END"));
         assert_eq!(u64::from(HANDOFF_ADDR), define("PORTAL_HANDOFF_ADDR"));
         assert_eq!(u64::from(HANDOFF_BYTES), define("PORTAL_HANDOFF_BYTES"));
         assert_eq!(u64::from(HANDOFF_MAGIC), define("PORTAL_HANDOFF_MAGIC"));
         assert_eq!(u64::from(HANDOFF_VERSION), define("PORTAL_HANDOFF_VERSION"));
-        assert_eq!(APP_DESCRIPTOR_OFFSET as u64, define("PORTAL_APP_DESCRIPTOR_OFFSET"));
-        assert_eq!(APP_DESCRIPTOR_BYTES as u64, define("PORTAL_APP_DESCRIPTOR_BYTES"));
+        assert_eq!(
+            APP_DESCRIPTOR_OFFSET as u64,
+            define("PORTAL_APP_DESCRIPTOR_OFFSET")
+        );
+        assert_eq!(
+            APP_DESCRIPTOR_BYTES as u64,
+            define("PORTAL_APP_DESCRIPTOR_BYTES")
+        );
         assert_eq!(APP_VERSION_BYTES as u64, define("PORTAL_APP_VERSION_BYTES"));
-        assert_eq!(u64::from(BL_PROTO_VERSION), define("PORTAL_BL_PROTO_VERSION"));
+        assert_eq!(
+            u64::from(BL_PROTO_VERSION),
+            define("PORTAL_BL_PROTO_VERSION")
+        );
         assert_eq!(BL_CHUNK_MAX as u64, define("PORTAL_BL_CHUNK_MAX"));
         assert_eq!(FLASH_GRANULE as u64, define("PORTAL_FLASH_GRANULE"));
         assert_eq!(u64::from(UID_BASE), define("PORTAL_UID_BASE"));
@@ -191,7 +217,11 @@ mod tests {
             PERSIST_SETTINGS_B,
             FLASH_END,
         ] {
-            assert_eq!(boundary % FLASH_PAGE_BYTES, 0, "0x{boundary:08X} is not page-aligned");
+            assert_eq!(
+                boundary % FLASH_PAGE_BYTES,
+                0,
+                "0x{boundary:08X} is not page-aligned"
+            );
         }
 
         // Each bootloader bank ends exactly where its application begins.
@@ -223,7 +253,10 @@ mod tests {
 
         // Both banks are a whole number of pages, since `begin` erases them page by page.
         assert_eq!(app_bank_bytes(APP_BASE) % FLASH_PAGE_BYTES as usize, 0);
-        assert_eq!(app_bank_bytes(APP_BASE_LEGACY) % FLASH_PAGE_BYTES as usize, 0);
+        assert_eq!(
+            app_bank_bytes(APP_BASE_LEGACY) % FLASH_PAGE_BYTES as usize,
+            0
+        );
         assert_eq!(app_bank_bytes(APP_BASE) / FLASH_PAGE_BYTES as usize, 53);
     }
 

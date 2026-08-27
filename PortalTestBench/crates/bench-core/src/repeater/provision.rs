@@ -80,7 +80,9 @@ pub fn parse_status(value: &Value) -> Result<RepeaterEvidence, RepeaterError> {
         version,
         build: first_str(object, &["build", "bld"]).unwrap_or_default(),
         index: first_i64(object, &["index", "idx"]).unwrap_or(-1) as i8,
-        mac: first_str(object, &["mac"]).unwrap_or_default().to_lowercase(),
+        mac: first_str(object, &["mac"])
+            .unwrap_or_default()
+            .to_lowercase(),
         routing_mode: nested_str(routing, &["mode", "m"]).unwrap_or_default(),
         range: match (range_start, range_end) {
             (Some(start), Some(end)) => Some((start, end)),
@@ -129,7 +131,10 @@ pub struct Expectation<'a> {
 /// Every clause here is something that has a way of being wrong on a bench with two repeaters
 /// and three serial ports attached. **This is the function the mutation check breaks**: make
 /// it return `Ok(())` unconditionally and the suite must go red, or a pass is not evidence.
-pub fn evidence_verdict(expected: &Expectation<'_>, after: &RepeaterEvidence) -> Result<(), String> {
+pub fn evidence_verdict(
+    expected: &Expectation<'_>,
+    after: &RepeaterEvidence,
+) -> Result<(), String> {
     if after.index != expected.index {
         return Err(format!(
             "asked for index {}, and the repeater reports {}",
@@ -266,11 +271,12 @@ pub fn provision_over_usb(
     // What the board already is. Best-effort: a virgin part has no firmware to answer with,
     // and that is the ordinary case for the route this exists to serve.
     let before = match programmer.open_console(port) {
-        Ok(mut console) => match console.ask("status", &["status", "version"], pass.console_timeout)
-        {
-            Ok(value) => parse_status(&value).ok(),
-            Err(_) => None,
-        },
+        Ok(mut console) => {
+            match console.ask("status", &["status", "version"], pass.console_timeout) {
+                Ok(value) => parse_status(&value).ok(),
+                Err(_) => None,
+            }
+        }
         Err(_) => None,
     };
     match &before {
@@ -361,7 +367,7 @@ pub fn provision_over_usb(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::repeater::sim::{SimProgrammer, SIM_MAC};
+    use crate::repeater::sim::{SIM_MAC, SimProgrammer};
     use serde_json::json;
     use std::time::Duration;
 
@@ -402,7 +408,10 @@ mod tests {
         let wire = parse_status(&wire_status(3, 4)).unwrap();
         // Identical apart from `proto`, which is an RS485-only fact -- see below.
         assert_eq!(
-            RepeaterEvidence { proto: None, ..wire.clone() },
+            RepeaterEvidence {
+                proto: None,
+                ..wire.clone()
+            },
             console,
             "the route must not change the evidence"
         );
@@ -485,7 +494,10 @@ mod tests {
             &good(),
         )
         .unwrap_err();
-        assert!(error.contains("not the repeater it was written to"), "{error}");
+        assert!(
+            error.contains("not the repeater it was written to"),
+            "{error}"
+        );
     }
 
     #[test]
@@ -569,7 +581,10 @@ mod tests {
         }
     }
 
-    fn run(programmer: &mut SimProgrammer, pass: &UsbPass<'_>) -> Result<UsbOutcome, RepeaterError> {
+    fn run(
+        programmer: &mut SimProgrammer,
+        pass: &UsbPass<'_>,
+    ) -> Result<UsbOutcome, RepeaterError> {
         provision_over_usb(
             programmer,
             &SimProgrammer::port(),

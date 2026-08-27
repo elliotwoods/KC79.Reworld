@@ -52,8 +52,12 @@ pub trait ConsoleSession: Send {
     fn boot_record(&mut self, timeout: Duration) -> Option<Value>;
 
     /// Send a command and read the object it answers with, or the `error` it refuses with.
-    fn ask(&mut self, command: &str, kinds: &[&str], timeout: Duration)
-        -> Result<Value, RepeaterError>;
+    fn ask(
+        &mut self,
+        command: &str,
+        kinds: &[&str],
+        timeout: Duration,
+    ) -> Result<Value, RepeaterError>;
 }
 
 /// Writing firmware to an ESP32-C3 over its own USB.
@@ -86,6 +90,8 @@ pub trait RepeaterProgrammer: Send {
         timeout: Duration,
     ) -> Result<RepeaterPort, RepeaterError>;
 
-    fn open_console(&mut self, port: &RepeaterPort)
-        -> Result<Box<dyn ConsoleSession>, RepeaterError>;
+    fn open_console(
+        &mut self,
+        port: &RepeaterPort,
+    ) -> Result<Box<dyn ConsoleSession>, RepeaterError>;
 }

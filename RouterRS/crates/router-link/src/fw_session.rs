@@ -408,7 +408,9 @@ impl FwSession {
             return Err(FwSessionError::NoTargets);
         }
         let chunk = params.chunk_bytes;
-        if chunk == 0 || chunk > layout::BL_CHUNK_MAX || !chunk.is_multiple_of(layout::FLASH_GRANULE)
+        if chunk == 0
+            || chunk > layout::BL_CHUNK_MAX
+            || !chunk.is_multiple_of(layout::FLASH_GRANULE)
         {
             return Err(FwSessionError::BadChunkSize {
                 got: chunk,
@@ -487,7 +489,8 @@ impl FwSession {
         self.ingest(envelopes);
         self.expire(bus, now);
         if self.keepalive_due(bus, now) {
-            let packet = fw_update::magic_packet(router_proto::fw::FwMagic::Announce, CONTROL_GAP_MS);
+            let packet =
+                fw_update::magic_packet(router_proto::fw::FwMagic::Announce, CONTROL_GAP_MS);
             self.send(bus, packet, true, now);
         }
         match self.phase {
@@ -892,7 +895,9 @@ impl FwSession {
         // nothing else, and it is what stands in for the repair round in blind mode.
         // Only in blind mode: the addressed path reads a map back and repairs exactly the gaps,
         // which is strictly better than sending everything again.
-        if self.params.mode == Mode::Blind && self.stream_pass + 1 < self.params.stream_passes.max(1) {
+        if self.params.mode == Mode::Blind
+            && self.stream_pass + 1 < self.params.stream_passes.max(1)
+        {
             self.stream_pass += 1;
             self.queued_phase_work = false;
             self.stream_started = None;
@@ -1040,7 +1045,15 @@ impl FwSession {
         let bytes = bootloader::status(target, selector, seq);
         self.send(bus, control_packet(target, bytes), false, now);
         self.asked[index] += 1;
-        self.push_pending(index, BlVerb::Status, seq, now, self.params.status_timeout_ms, 0, id_known);
+        self.push_pending(
+            index,
+            BlVerb::Status,
+            seq,
+            now,
+            self.params.status_timeout_ms,
+            0,
+            id_known,
+        );
     }
 
     fn send_begin(&mut self, bus: &dyn FwBus, index: usize, now: Instant, attempt: u8) {
@@ -1074,7 +1087,15 @@ impl FwSession {
         let target = self.boards[index].id;
         let bytes = bootloader::map_request(target, None, seq);
         self.send(bus, control_packet(target, bytes), false, now);
-        self.push_pending(index, BlVerb::Map, seq, now, self.params.map_timeout_ms, 0, true);
+        self.push_pending(
+            index,
+            BlVerb::Map,
+            seq,
+            now,
+            self.params.map_timeout_ms,
+            0,
+            true,
+        );
     }
 
     fn send_verify(&mut self, bus: &dyn FwBus, index: usize, now: Instant) {
@@ -1102,7 +1123,15 @@ impl FwSession {
         let target = self.boards[index].id;
         let bytes = bootloader::run(target, seq);
         self.send(bus, control_packet(target, bytes), false, now);
-        self.push_pending(index, BlVerb::Run, seq, now, self.params.run_timeout_ms, 0, true);
+        self.push_pending(
+            index,
+            BlVerb::Run,
+            seq,
+            now,
+            self.params.run_timeout_ms,
+            0,
+            true,
+        );
     }
 
     /// One data frame, broadcast: 54 boards take the same image from the same transmission,
@@ -1127,7 +1156,12 @@ impl FwSession {
     fn enqueue_steps(&mut self, bus: &dyn FwBus, steps: &[FwStep], now: Instant) {
         let packets: Vec<(Packet, bool)> = steps
             .iter()
-            .map(|step| (fw_update::step_packet(*step, &self.image), parseable_by_legacy(*step)))
+            .map(|step| {
+                (
+                    fw_update::step_packet(*step, &self.image),
+                    parseable_by_legacy(*step),
+                )
+            })
             .collect();
         for (packet, legacy_word) in packets {
             self.send(bus, packet, legacy_word, now);
@@ -1183,10 +1217,8 @@ impl FwSession {
     /// byte on the bus. Suppressed while the outbox is non-empty, because a queue that is
     /// still draining is already keeping the bus busy with words of exactly this kind.
     fn keepalive_due(&self, bus: &dyn FwBus, now: Instant) -> bool {
-        if !matches!(
-            self.phase,
-            Phase::Bump | Phase::Discover | Phase::Begin
-        ) || bus.outbox_len() > 0
+        if !matches!(self.phase, Phase::Bump | Phase::Discover | Phase::Begin)
+            || bus.outbox_len() > 0
         {
             return false;
         }
@@ -1671,7 +1703,10 @@ mod tests {
             "begin" => h.reply(
                 id,
                 seq,
-                vec![(key("q"), Value::from("begin")), (key("ok"), Value::from(true))],
+                vec![
+                    (key("q"), Value::from("begin")),
+                    (key("ok"), Value::from(true)),
+                ],
             ),
             "map" => {
                 let chunks = h.session.chunks;
@@ -1715,10 +1750,10 @@ mod tests {
     }
 
     fn is_data_frame(packet: &SentPacket) -> bool {
-        decode_envelope(&packet.bytes)
-            .ok()
-            .is_some_and(|envelope| matches!(&envelope.body, Value::Map(entries)
-                if entries.first().is_some_and(|(k, _)| k.as_str().is_none())))
+        decode_envelope(&packet.bytes).ok().is_some_and(|envelope| {
+            matches!(&envelope.body, Value::Map(entries)
+                if entries.first().is_some_and(|(k, _)| k.as_str().is_none()))
+        })
     }
 
     fn data_offsets(h: &Harness) -> Vec<u32> {
@@ -1771,7 +1806,11 @@ mod tests {
         assert_eq!(h.board(1).serial, Some(73_001));
         assert_eq!(h.board(1).base, layout::APP_BASE);
         assert_eq!(h.board(2).kind, BoardKind::AppRunning);
-        assert_eq!(h.board(3).kind, BoardKind::Absent, "silence, not a bootloader");
+        assert_eq!(
+            h.board(3).kind,
+            BoardKind::Absent,
+            "silence, not a bootloader"
+        );
         assert_eq!(h.board(4).kind, BoardKind::V6);
         // Exactly one board got a second look, and it is the one that answered as an app.
         assert_eq!(h.session.asked[1], 2);
@@ -1892,8 +1931,16 @@ mod tests {
         let mut h = Harness::new(&firmware, params(vec![1, 2, 3]));
         let progress = h.run(50, |_| {});
         assert!(progress.done && !progress.ok);
-        assert!(progress.detail.contains("_legacy_base"), "{}", progress.detail);
-        assert_eq!(data_offsets(&h), Vec::<u32>::new(), "no image bytes were sent");
+        assert!(
+            progress.detail.contains("_legacy_base"),
+            "{}",
+            progress.detail
+        );
+        assert_eq!(
+            data_offsets(&h),
+            Vec::<u32>::new(),
+            "no image bytes were sent"
+        );
         let erases = h
             .timeline
             .iter()
@@ -1922,7 +1969,10 @@ mod tests {
         };
         assert!(why.contains("0x08006000"), "{why}");
         // A refused board is refused before anything is asked of it.
-        assert_eq!(h.outstanding(2).map(|(verb, _)| verb), Some("status".into()));
+        assert_eq!(
+            h.outstanding(2).map(|(verb, _)| verb),
+            Some("status".into())
+        );
     }
 
     // ------------------------------------------------------------ happy path
@@ -2205,8 +2255,14 @@ mod tests {
         // 70 announce words, then discovery, begin, eight data frames, map, verify, run.
         assert!(h.bus.len() > 80, "only {} packets", h.bus.len());
         for packet in h.bus.sent() {
-            assert!(!packet.needs_ack, "the worker would eat the reply as an ACK");
-            assert!(!packet.collateable, "the outbox would drop all but the last");
+            assert!(
+                !packet.needs_ack,
+                "the worker would eat the reply as an ACK"
+            );
+            assert!(
+                !packet.collateable,
+                "the outbox would drop all but the last"
+            );
             assert!(packet.address.is_empty(), "a non-empty address collates");
         }
     }
@@ -2280,7 +2336,10 @@ mod tests {
         assert!(session.image_len().is_multiple_of(layout::FLASH_GRANULE));
         assert_eq!(session.image_crc32(), crc32c(&session.image));
         assert_eq!(session.chunk_count(), session.image_len().div_ceil(CHUNK));
-        assert_eq!(session.image_base(), (layout::APP_BASE, BaseSource::Descriptor));
+        assert_eq!(
+            session.image_base(),
+            (layout::APP_BASE, BaseSource::Descriptor)
+        );
     }
 
     // ------------------------------------------------------------- bitmap maths
@@ -2382,5 +2441,4 @@ mod tests {
         let offsets = data_offsets(&h);
         assert_eq!(offsets.len(), h.session.chunks);
     }
-
 }

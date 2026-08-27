@@ -66,6 +66,8 @@ enum class ControlVerb : uint8_t {
     OtaBoot,
     OtaConfirm,
     OtaAbort,
+    /// `v: [side, mode]` -- side 1 or 2, mode 0 normal / 1 inverted / 2 auto. Acknowledged.
+    SetPolarity,
 };
 
 const char* controlVerbName(ControlVerb verb);

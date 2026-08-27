@@ -10,9 +10,9 @@
 
 use std::time::Duration;
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
-use super::artefacts::{classify, RepeaterImageKind, APP_OFFSET};
+use super::artefacts::{APP_OFFSET, RepeaterImageKind, classify};
 use super::identity::RepeaterPort;
 use super::programmer::{ConsoleSession, Progress, RepeaterProgrammer, UsbIdentity, WriteReport};
 use super::provision::RepeaterError;

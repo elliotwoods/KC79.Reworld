@@ -759,7 +759,11 @@ fn handle_command(
                 }
             }
         }
-        RepeaterOta { col, repeater, path } => match std::fs::read(&path) {
+        RepeaterOta {
+            col,
+            repeater,
+            path,
+        } => match std::fs::read(&path) {
             Ok(image) => {
                 let params = crate::repeater_ota::RepeaterOtaParams::default();
                 match crate::repeater_ota::RepeaterImage::new(image, params.chunk_bytes) {
@@ -776,12 +780,7 @@ fn handle_command(
                                 // until it answers: the erase runs with the flash
                                 // cache off, so the UART ISR cannot run and inbound
                                 // bytes are lost while it does.
-                                crate::repeater_ota::begin(
-                                    &column.rs485,
-                                    &target,
-                                    &image,
-                                    &params,
-                                );
+                                crate::repeater_ota::begin(&column.rs485, &target, &image, &params);
                                 crate::repeater_ota::send_chunks(
                                     &column.rs485,
                                     &target,
@@ -792,11 +791,7 @@ fn handle_command(
                                 // Reads the received-chunk bitmap back. Repair of
                                 // whatever it reports missing is driven by the reply
                                 // handler, not queued blindly here.
-                                crate::repeater_ota::request_map(
-                                    &column.rs485,
-                                    &target,
-                                    &params,
-                                );
+                                crate::repeater_ota::request_map(&column.rs485, &target, &params);
                                 crate::repeater_ota::end(&column.rs485, &target, &params);
                             }
                             reporter.emit(router_report::Event::Marker {

@@ -42,6 +42,20 @@ void noteBootAttempt();
 /// counter. A no-op when it is already zero, so it costs no flash write.
 void noteHealthy();
 
+/// Per-side UART polarity. `side` is 1 or 2. The mode is a `PolarityMode` value
+/// (0 normal, 1 inverted, 2 auto); `fallback` is what an unset entry reads as.
+/// The inverted flag is the last polarity the wire proved, so a reboot starts
+/// where the previous run finished rather than hunting again.
+uint8_t polarityMode(uint8_t side, uint8_t fallback);
+void setPolarityMode(uint8_t side, uint8_t mode);
+bool polarityInverted(uint8_t side, bool fallback);
+void setPolarityInverted(uint8_t side, bool inverted);
+
+/// Whether the UART peripheral times driver-enable itself (true) or the loop
+/// toggles the GPIO around each frame (false). Read at boot only.
+bool hardwareDriverEnable(bool fallback);
+void setHardwareDriverEnable(bool enabled);
+
 } // namespace persistence
 } // namespace repeater
 

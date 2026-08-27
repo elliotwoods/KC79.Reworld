@@ -11,7 +11,7 @@ use glam::vec2;
 use router_core::runtime::{Command, Scope};
 use router_proto::commands::ActionKind;
 use serde::Deserialize;
-use serde_json::{json, Value as Json_};
+use serde_json::{Value as Json_, json};
 
 use crate::shared::Shared;
 
@@ -22,9 +22,15 @@ pub fn routes(shared: Arc<Shared>) -> Router {
         .route("/api/router/logs", get(logs))
         .route("/api/router/ports", get(ports))
         .route("/api/router/command", post(command))
-        .route("/api/router/firmware", get(firmware_list).post(firmware_upload))
+        .route(
+            "/api/router/firmware",
+            get(firmware_list).post(firmware_upload),
+        )
         .route("/api/router/firmware/flash", post(firmware_flash))
-        .route("/api/router/repeaters", get(repeaters_list).post(repeaters_command))
+        .route(
+            "/api/router/repeaters",
+            get(repeaters_list).post(repeaters_command),
+        )
         .route("/api/router/files", get(files_list))
         .with_state(shared)
 }
@@ -47,13 +53,17 @@ fn firmware_dirs() -> Vec<std::path::PathBuf> {
 }
 
 fn upload_dir() -> Option<std::path::PathBuf> {
-    av_app_registry::state_dir("router").ok().map(|d| d.join("firmware"))
+    av_app_registry::state_dir("router")
+        .ok()
+        .map(|d| d.join("firmware"))
 }
 
 async fn firmware_list() -> Json<Json_> {
     let mut artefacts = Vec::new();
     for dir in firmware_dirs() {
-        let Ok(entries) = std::fs::read_dir(&dir) else { continue };
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
         for entry in entries.flatten() {
             let path = entry.path();
             if path.extension().and_then(|e| e.to_str()) != Some("bin") {
@@ -75,10 +85,7 @@ struct UploadQuery {
     name: String,
 }
 
-async fn firmware_upload(
-    Query(query): Query<UploadQuery>,
-    body: axum::body::Bytes,
-) -> Json<Json_> {
+async fn firmware_upload(Query(query): Query<UploadQuery>, body: axum::body::Bytes) -> Json<Json_> {
     // One flash bank; anything bigger can't be a valid application image.
     const MAX_BYTES: usize = 4 * 1024 * 1024;
     let name = std::path::Path::new(&query.name)
@@ -114,7 +121,9 @@ async fn firmware_upload(
     }
     let path = dir.join(&name);
     match std::fs::write(&path, &image) {
-        Ok(()) => Json(json!({ "ok": true, "path": path.display().to_string(), "bytes": image.len() })),
+        Ok(()) => {
+            Json(json!({ "ok": true, "path": path.display().to_string(), "bytes": image.len() }))
+        }
         Err(error) => Json(json!({ "ok": false, "error": error.to_string() })),
     }
 }
@@ -203,18 +212,43 @@ async fn repeaters_list(State(shared): State<Arc<Shared>>) -> Json<Json_> {
 enum RepeaterOp {
     /// Unicast per repeater. `repeater: null` queries all six, one at a time --
     /// never as a broadcast, which would collide six replies on the wire.
-    Status { col: usize, repeater: Option<u8> },
+    Status {
+        col: usize,
+        repeater: Option<u8>,
+    },
     /// Provisioning, addressed by MAC because the unit has no index yet.
-    SetIndex { col: usize, mac: String, index: u8 },
-    Relearn { col: usize, repeater: u8 },
-    ResetCounters { col: usize, repeater: u8 },
-    Reboot { col: usize, repeater: u8 },
+    SetIndex {
+        col: usize,
+        mac: String,
+        index: u8,
+    },
+    Relearn {
+        col: usize,
+        repeater: u8,
+    },
+    ResetCounters {
+        col: usize,
+        repeater: u8,
+    },
+    Reboot {
+        col: usize,
+        repeater: u8,
+    },
     /// One parallel sweep of all six branches, then six reads.
-    Snapshot { col: usize },
+    Snapshot {
+        col: usize,
+    },
     /// `repeater: null` rolls through all six in turn, which keeps five-sixths of
     /// the installation relaying while each one updates.
-    Ota { col: usize, repeater: Option<u8>, path: String },
-    OtaAbort { col: usize, repeater: Option<u8> },
+    Ota {
+        col: usize,
+        repeater: Option<u8>,
+        path: String,
+    },
+    OtaAbort {
+        col: usize,
+        repeater: Option<u8>,
+    },
 }
 
 fn parse_mac(text: &str) -> Option<[u8; 6]> {
@@ -263,12 +297,20 @@ async fn repeaters_command(
             shared.queue(Command::RepeaterReboot { col, repeater })
         }
         RepeaterOp::Snapshot { col } => shared.queue(Command::RepeaterSnapshot { col }),
-        RepeaterOp::Ota { col, repeater, path } => {
+        RepeaterOp::Ota {
+            col,
+            repeater,
+            path,
+        } => {
             let path = std::path::PathBuf::from(path);
             if !path.is_file() {
                 return Json(json!({ "ok": false, "error": "no such file" }));
             }
-            shared.queue(Command::RepeaterOta { col, repeater, path });
+            shared.queue(Command::RepeaterOta {
+                col,
+                repeater,
+                path,
+            });
         }
         RepeaterOp::OtaAbort { col, repeater } => {
             shared.queue(Command::RepeaterOtaAbort { col, repeater })
@@ -289,10 +331,16 @@ async fn files_list() -> Json<Json_> {
     dirs.push(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../media"));
     let mut files = Vec::new();
     for dir in dirs {
-        let Ok(entries) = std::fs::read_dir(&dir) else { continue };
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
         for entry in entries.flatten() {
             let path = entry.path();
-            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+            let ext = path
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("")
+                .to_lowercase();
             if !VIDEO_EXT.contains(&ext.as_str()) {
                 continue;
             }
@@ -375,10 +423,7 @@ struct LogsQuery {
     portal: u8,
 }
 
-async fn logs(
-    State(shared): State<Arc<Shared>>,
-    Query(query): Query<LogsQuery>,
-) -> Json<Json_> {
+async fn logs(State(shared): State<Arc<Shared>>, Query(query): Query<LogsQuery>) -> Json<Json_> {
     let snap = shared.snapshot.lock().unwrap().clone();
     let logs = snap
         .columns
@@ -405,25 +450,68 @@ async fn ports(State(shared): State<Arc<Shared>>) -> Json<Json_> {
 #[derive(Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case")]
 enum ApiCommand {
-    SetPosition { col: usize, portal: u8, x: f32, y: f32 },
-    SetPolar { col: usize, portal: u8, r: f32, theta: f32 },
-    SetAxes { col: usize, portal: u8, a: f32, b: f32 },
-    PilotAll { col: Option<usize>, x: f32, y: f32 },
+    SetPosition {
+        col: usize,
+        portal: u8,
+        x: f32,
+        y: f32,
+    },
+    SetPolar {
+        col: usize,
+        portal: u8,
+        r: f32,
+        theta: f32,
+    },
+    SetAxes {
+        col: usize,
+        portal: u8,
+        a: f32,
+        b: f32,
+    },
+    PilotAll {
+        col: Option<usize>,
+        x: f32,
+        y: f32,
+    },
     /// One of the 12 hardware actions by its OSC name (`ping`, `home`, `seeThrough`, …).
-    Action { action: String, col: Option<usize>, portal: Option<u8> },
-    Poll { col: Option<usize>, portal: Option<u8> },
-    Unwind { col: Option<usize>, portal: Option<u8> },
-    Push { col: usize, portal: u8 },
-    PollPosition { col: usize, portal: u8 },
+    Action {
+        action: String,
+        col: Option<usize>,
+        portal: Option<u8>,
+    },
+    Poll {
+        col: Option<usize>,
+        portal: Option<u8>,
+    },
+    Unwind {
+        col: Option<usize>,
+        portal: Option<u8>,
+    },
+    Push {
+        col: usize,
+        portal: u8,
+    },
+    PollPosition {
+        col: usize,
+        portal: u8,
+    },
     HomeAndZeroLocal,
     /// Raw broadcast body as JSON, encoded to msgpack by the model.
-    Broadcast { body: Json_, collateable: Option<bool> },
-    Marker { text: String },
+    Broadcast {
+        body: Json_,
+        collateable: Option<bool>,
+    },
+    Marker {
+        text: String,
+    },
     SaveConfig,
     RebuildColumns,
     /// Apply a JSON fragment to a renderer source (any key its deserialise accepts —
     /// the page's file picker writes `{"file": "<path>"}` through this).
-    SetSourceParams { index: usize, params: Json_ },
+    SetSourceParams {
+        index: usize,
+        params: Json_,
+    },
 }
 
 fn scope(col: Option<usize>, portal: Option<u8>) -> Scope {
@@ -446,28 +534,55 @@ async fn command(
 ) -> Json<Json_> {
     let queued = match request {
         ApiCommand::SetPosition { col, portal, x, y } => {
-            shared.queue(Command::SetPilotPosition { col, portal, position: vec2(x, y) });
+            shared.queue(Command::SetPilotPosition {
+                col,
+                portal,
+                position: vec2(x, y),
+            });
             true
         }
-        ApiCommand::SetPolar { col, portal, r, theta } => {
-            shared.queue(Command::SetPilotPolar { col, portal, polar: vec2(r, theta) });
+        ApiCommand::SetPolar {
+            col,
+            portal,
+            r,
+            theta,
+        } => {
+            shared.queue(Command::SetPilotPolar {
+                col,
+                portal,
+                polar: vec2(r, theta),
+            });
             true
         }
         ApiCommand::SetAxes { col, portal, a, b } => {
-            shared.queue(Command::SetPilotAxes { col, portal, axes: vec2(a, b) });
+            shared.queue(Command::SetPilotAxes {
+                col,
+                portal,
+                axes: vec2(a, b),
+            });
             true
         }
         ApiCommand::PilotAll { col, x, y } => {
-            shared.queue(Command::PilotAll { col, position: vec2(x, y) });
+            shared.queue(Command::PilotAll {
+                col,
+                position: vec2(x, y),
+            });
             true
         }
-        ApiCommand::Action { action, col, portal } => match action_by_osc_name(&action) {
+        ApiCommand::Action {
+            action,
+            col,
+            portal,
+        } => match action_by_osc_name(&action) {
             Some(kind) => {
-                shared.queue(Command::PerformAction { scope: scope(col, portal), action: kind });
+                shared.queue(Command::PerformAction {
+                    scope: scope(col, portal),
+                    action: kind,
+                });
                 true
             }
             None => {
-                return Json(json!({ "ok": false, "error": format!("unknown action: {action}") }))
+                return Json(json!({ "ok": false, "error": format!("unknown action: {action}") }));
             }
         },
         ApiCommand::Poll { col, portal } => {

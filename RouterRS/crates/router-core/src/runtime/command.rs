@@ -19,32 +19,72 @@ pub enum Scope {
 
 pub enum Command {
     // pilot targets
-    SetPilotPosition { col: usize, portal: u8, position: Vec2 },
-    SetPilotPolar { col: usize, portal: u8, polar: Vec2 },
-    SetPilotAxes { col: usize, portal: u8, axes: Vec2 },
+    SetPilotPosition {
+        col: usize,
+        portal: u8,
+        position: Vec2,
+    },
+    SetPilotPolar {
+        col: usize,
+        portal: u8,
+        polar: Vec2,
+    },
+    SetPilotAxes {
+        col: usize,
+        portal: u8,
+        axes: Vec2,
+    },
     /// Cyclic set addressed by portal *vector index* (OSC /axesMove* routes).
-    SetAxesCyclicByIndex { col: usize, portal_index: usize, axes: Vec2 },
+    SetAxesCyclicByIndex {
+        col: usize,
+        portal_index: usize,
+        axes: Vec2,
+    },
     Unwind(Scope),
-    ResetLocal { col: usize, portal: u8 },
-    TakeCurrentPosition { col: usize, portal: u8 },
+    ResetLocal {
+        col: usize,
+        portal: u8,
+    },
+    TakeCurrentPosition {
+        col: usize,
+        portal: u8,
+    },
 
     /// The "Pilot all" drag pad: broadcast one collateable `{"m":[a,b]}` computed from a
     /// unit-circle position through the **first portal's** pilot (its offset applies to
     /// every unit — BUG-COMPAT with the C++ `Installation`/`Column` pads).
     /// `col: None` = every column.
-    PilotAll { col: Option<usize>, position: Vec2 },
+    PilotAll {
+        col: Option<usize>,
+        position: Vec2,
+    },
 
     // actions & polling
-    PerformAction { scope: Scope, action: ActionKind },
+    PerformAction {
+        scope: Scope,
+        action: ActionKind,
+    },
     Poll(Scope),
-    PollPosition { col: usize, portal: u8 },
-    Push { col: usize, portal: u8 },
+    PollPosition {
+        col: usize,
+        portal: u8,
+    },
+    Push {
+        col: usize,
+        portal: u8,
+    },
     HomeAndZeroLocal,
 
     // bulk hardware settings
-    PushMotionProfileAll { max_velocity: i32, acceleration: Option<i32> },
+    PushMotionProfileAll {
+        max_velocity: i32,
+        acceleration: Option<i32>,
+    },
     SetCurrentAll(f32),
-    Broadcast { body: Value, collateable: bool },
+    Broadcast {
+        body: Value,
+        collateable: bool,
+    },
 
     // installation settings
     SetTransmitMode(ImageTransmit),
@@ -53,11 +93,32 @@ pub enum Command {
     ClearOutbox(usize),
 
     // per-portal parameters & submodule commands (GUI inspector)
-    SetPilotOffset { col: usize, portal: u8, offset: f32 },
-    SetPilotSendPeriodically { col: usize, portal: u8, enabled: bool },
-    SeeThroughLocal { col: usize, portal: u8 },
-    SetPollRegularly { col: usize, portal: u8, enabled: bool, interval_s: f32 },
-    Mc { col: usize, portal: u8, axis: usize, kind: McCommand },
+    SetPilotOffset {
+        col: usize,
+        portal: u8,
+        offset: f32,
+    },
+    SetPilotSendPeriodically {
+        col: usize,
+        portal: u8,
+        enabled: bool,
+    },
+    SeeThroughLocal {
+        col: usize,
+        portal: u8,
+    },
+    SetPollRegularly {
+        col: usize,
+        portal: u8,
+        enabled: bool,
+        interval_s: f32,
+    },
+    Mc {
+        col: usize,
+        portal: u8,
+        axis: usize,
+        kind: McCommand,
+    },
     SetMotionProfile {
         col: usize,
         portal: u8,
@@ -66,52 +127,130 @@ pub enum Command {
         acceleration: i32,
         min_velocity: i32,
     },
-    MdTestRoutine { col: usize, portal: u8, axis: usize },
-    MdTestTimer { col: usize, portal: u8, axis: usize },
-    SetPortalCurrent { col: usize, portal: u8, amps: f32 },
-    SetPortalMicrostep { col: usize, portal: u8, resolution: u32 },
+    MdTestRoutine {
+        col: usize,
+        portal: u8,
+        axis: usize,
+    },
+    MdTestTimer {
+        col: usize,
+        portal: u8,
+        axis: usize,
+    },
+    SetPortalCurrent {
+        col: usize,
+        portal: u8,
+        amps: f32,
+    },
+    SetPortalMicrostep {
+        col: usize,
+        portal: u8,
+        resolution: u32,
+    },
 
     // column / connection management
-    SetScheduledPoll { col: usize, enabled: bool, period_s: f32 },
-    Rs485Connect { col: usize, settings: serde_json::Value },
-    Rs485Disconnect { col: usize },
-    Rs485ClearCounters { col: usize },
+    SetScheduledPoll {
+        col: usize,
+        enabled: bool,
+        period_s: f32,
+    },
+    Rs485Connect {
+        col: usize,
+        settings: serde_json::Value,
+    },
+    Rs485Disconnect {
+        col: usize,
+    },
+    Rs485ClearCounters {
+        col: usize,
+    },
 
     // installation parameters
-    SetArrangement { columns: usize, rows: usize, column_width: usize, flipped: bool },
-    SetMessaging { period_s: f32, keyframe_batch_size: usize, keyframe_velocities: bool },
+    SetArrangement {
+        columns: usize,
+        rows: usize,
+        column_width: usize,
+        flipped: bool,
+    },
+    SetMessaging {
+        period_s: f32,
+        keyframe_batch_size: usize,
+        keyframe_velocities: bool,
+    },
 
     // firmware update (None = all connected columns, mass parameters)
-    FwUpload { col: Option<usize>, path: std::path::PathBuf },
-    FwErase { col: Option<usize> },
-    FwRun { col: Option<usize> },
+    FwUpload {
+        col: Option<usize>,
+        path: std::path::PathBuf,
+    },
+    FwErase {
+        col: Option<usize>,
+    },
+    FwRun {
+        col: Option<usize>,
+    },
 
     // RS485 repeater control plane (V3 only; V1/V2 buses have no repeaters).
     // `repeater: None` addresses every repeater, which is only legal for verbs
     // that answer nothing -- the firmware refuses the rest on the broadcast
     // address, because six simultaneous replies on a half-duplex bus collide.
-    RepeaterStatus { col: usize, repeater: Option<u8> },
-    RepeaterSetIndex { col: usize, mac: [u8; 6], index: u8 },
-    RepeaterRelearn { col: usize, repeater: u8 },
-    RepeaterResetCounters { col: usize, repeater: u8 },
-    RepeaterReboot { col: usize, repeater: u8 },
+    RepeaterStatus {
+        col: usize,
+        repeater: Option<u8>,
+    },
+    RepeaterSetIndex {
+        col: usize,
+        mac: [u8; 6],
+        index: u8,
+    },
+    RepeaterRelearn {
+        col: usize,
+        repeater: u8,
+    },
+    RepeaterResetCounters {
+        col: usize,
+        repeater: u8,
+    },
+    RepeaterReboot {
+        col: usize,
+        repeater: u8,
+    },
     /// Starts a parallel branch sweep on every repeater, then reads each in turn.
-    RepeaterSnapshot { col: usize },
+    RepeaterSnapshot {
+        col: usize,
+    },
     /// Uploads an image to one repeater, or rolls through all six when `None`.
     /// Rolling unicast is the default because a broadcast pass pauses every bridge
     /// at once and blacks out the whole installation for the duration.
-    RepeaterOta { col: usize, repeater: Option<u8>, path: std::path::PathBuf },
-    RepeaterOtaAbort { col: usize, repeater: Option<u8> },
+    RepeaterOta {
+        col: usize,
+        repeater: Option<u8>,
+        path: std::path::PathBuf,
+    },
+    RepeaterOtaAbort {
+        col: usize,
+        repeater: Option<u8>,
+    },
 
     // image sources
-    SourceAdd { type_name: String },
-    SourceRemove { index: usize },
+    SourceAdd {
+        type_name: String,
+    },
+    SourceRemove {
+        index: usize,
+    },
     /// Apply a JSON fragment to a source (routes through its deserialise,
     /// so any parameter key works: {"alpha": 0.5}, {"text": "HI"}, ...).
-    SourceSetParams { index: usize, params: serde_json::Value },
+    SourceSetParams {
+        index: usize,
+        params: serde_json::Value,
+    },
 
     /// Clear one portal's firmware log ring (the C++ Logger panel's Clear button).
-    ClearPortalLog { col: usize, portal: u8 },
+    ClearPortalLog {
+        col: usize,
+        portal: u8,
+    },
 
     // misc
     Marker(String),

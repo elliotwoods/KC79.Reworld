@@ -158,7 +158,9 @@ pub fn check_trailer(msgpack: &[u8]) -> Trailer {
     let found = u16::from_be_bytes([msgpack[covered + 1], msgpack[covered + 2]]);
     let expected = crc16_ccitt_false(&msgpack[..covered]);
     if expected == found {
-        Trailer::Ok { seq: msgpack[tail + 1] }
+        Trailer::Ok {
+            seq: msgpack[tail + 1],
+        }
     } else {
         Trailer::Bad { expected, found }
     }
@@ -216,8 +218,8 @@ pub fn encode_reply_fix8(source: i8, body: &Value) -> Vec<u8> {
 /// knows whether it is talking to hardware that emits trailers at all.
 pub fn decode_envelope(msgpack: &[u8]) -> Result<Envelope, ProtoError> {
     let mut cursor = msgpack;
-    let value = rmpv::decode::read_value(&mut cursor)
-        .map_err(|e| ProtoError::Msgpack(e.to_string()))?;
+    let value =
+        rmpv::decode::read_value(&mut cursor).map_err(|e| ProtoError::Msgpack(e.to_string()))?;
     let Value::Array(mut items) = value else {
         return Err(ProtoError::BadEnvelope);
     };
@@ -252,7 +254,11 @@ mod tests {
     }
 
     fn hex(bytes: &[u8]) -> String {
-        bytes.iter().map(|b| format!("{b:02X}")).collect::<Vec<_>>().join(" ")
+        bytes
+            .iter()
+            .map(|b| format!("{b:02X}"))
+            .collect::<Vec<_>>()
+            .join(" ")
     }
 
     /// The captured wire frame from `IPython/2024-11-23 - COBS issues/
@@ -270,10 +276,14 @@ mod tests {
         let envelope = decode_envelope(&payload).unwrap();
         assert_eq!(envelope.target, 0, "addressed to host");
         assert_eq!(envelope.source, 1, "from portal 1");
-        let Value::Map(entries) = &envelope.body else { panic!("body not a map") };
+        let Value::Map(entries) = &envelope.body else {
+            panic!("body not a map")
+        };
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].0.as_str(), Some("p"));
-        let Value::Array(p) = &entries[0].1 else { panic!("p not an array") };
+        let Value::Array(p) = &entries[0].1 else {
+            panic!("p not an array")
+        };
         let values: Vec<i64> = p.iter().map(|v| v.as_i64().unwrap()).collect();
         assert_eq!(values, vec![94_848, 0, 94_848, 0]);
     }
@@ -309,7 +319,10 @@ mod tests {
 
     #[test]
     fn roundtrip_both_encodings() {
-        let body = Value::Map(vec![(key("m"), Value::Array(vec![Value::from(-94_848), Value::from(123)]))]);
+        let body = Value::Map(vec![(
+            key("m"),
+            Value::Array(vec![Value::from(-94_848), Value::from(123)]),
+        )]);
         for bytes in [
             encode_envelope(5, &body),
             encode_envelope_fix8_value(5, &body),
@@ -318,7 +331,11 @@ mod tests {
             assert_eq!(env.target, 5);
             assert_eq!(env.source, 0);
             assert_eq!(env.body, body);
-            assert_eq!(env.trailer, Trailer::Absent, "a 3-element frame has no trailer");
+            assert_eq!(
+                env.trailer,
+                Trailer::Absent,
+                "a 3-element frame has no trailer"
+            );
         }
     }
 
@@ -356,14 +373,20 @@ mod tests {
     /// The trailer survives COBS framing and decoding, which is the only form it is ever seen in.
     #[test]
     fn a_trailered_frame_survives_framing() {
-        let body = Value::Map(vec![(key("bl"), Value::Map(vec![(key("q"), Value::from("run"))]))]);
+        let body = Value::Map(vec![(
+            key("bl"),
+            Value::Map(vec![(key("q"), Value::from("run"))]),
+        )]);
         let msgpack = encode_envelope_trailer(-1, &body, 0);
         // Also firmware-computed, same method as `bootloader_status_request_bytes`.
         assert_eq!(&msgpack[msgpack.len() - 3..], &[0xCD, 0xB9, 0x88]);
         let framed = encode_frame(&msgpack);
         assert_eq!(*framed.first().unwrap(), 0, "delimited at the front");
         assert_eq!(*framed.last().unwrap(), 0, "delimited at the back");
-        assert!(!framed[1..framed.len() - 1].contains(&0), "no embedded zero");
+        assert!(
+            !framed[1..framed.len() - 1].contains(&0),
+            "no embedded zero"
+        );
 
         let decoded = cobs_decode(&framed[1..framed.len() - 1]).unwrap();
         assert_eq!(decoded, msgpack);
@@ -376,7 +399,10 @@ mod tests {
     /// frame that failed -- a caller that matched on seq alone would otherwise accept it.
     #[test]
     fn every_single_byte_corruption_is_rejected() {
-        let body = Value::Map(vec![(key("bl"), Value::Map(vec![(key("q"), Value::from("map"))]))]);
+        let body = Value::Map(vec![(
+            key("bl"),
+            Value::Map(vec![(key("q"), Value::from("map"))]),
+        )]);
         let clean = encode_envelope_trailer(9, &body, 200);
         assert_eq!(check_trailer(&clean), Trailer::Ok { seq: 200 });
 
@@ -433,7 +459,10 @@ mod tests {
     /// Replies come back with the firmware's forced-int8 header; the trailer works the same way.
     #[test]
     fn a_reply_carries_its_own_trailer() {
-        let body = Value::Map(vec![(key("bl"), Value::Map(vec![(key("ok"), Value::from(true))]))]);
+        let body = Value::Map(vec![(
+            key("bl"),
+            Value::Map(vec![(key("ok"), Value::from(true))]),
+        )]);
         let msgpack = encode_reply_trailer(4, &body, 11);
         assert_eq!(&msgpack[..5], &[0x95, 0xD0, 0x00, 0xD0, 0x04]);
         let env = decode_envelope(&msgpack).unwrap();

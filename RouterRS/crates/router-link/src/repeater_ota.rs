@@ -162,7 +162,8 @@ impl RepeaterImage {
         let framing = 24.0; // envelope, verb, bin header, CRC, COBS
         let per_chunk = self.chunk_bytes as f32 + framing;
         let bits = per_chunk * 10.0 * self.chunk_count() as f32;
-        bits / 115_200.0 + (self.chunk_count() as f32 * params.wait_between_chunks_ms as f32) / 1000.0
+        bits / 115_200.0
+            + (self.chunk_count() as f32 * params.wait_between_chunks_ms as f32) / 1000.0
     }
 }
 
@@ -805,12 +806,7 @@ fn run_session(
                 &format!("asking repeater {name} which chunks landed"),
             );
             request_map(&*rs485, target, params);
-            let reply = expect(
-                rs485,
-                RepeaterVerb::OtaMap,
-                Duration::from_secs(15),
-                &name,
-            )?;
+            let reply = expect(rs485, RepeaterVerb::OtaMap, Duration::from_secs(15), &name)?;
             let Some(Value::Binary(bitmap)) = payload_field(&reply.payload, "map") else {
                 return Err(OtaError::NoBitmap { target: name });
             };
@@ -904,6 +900,13 @@ fn run_session(
             overall(OtaPhase::Boot, 0.0),
             "rebooting into the new slot",
         );
+        // Give the repeater a breath first. Its reply to `ota-end` ends with its driver
+        // letting go of the line, its receiver samples one byte of debris as it comes back,
+        // and a frame arriving within its 20 ms incomplete-frame window is glued to that
+        // debris and dies -- which is how four consecutive updates on the bench committed
+        // and then never rebooted. The firmware now discards debris in its own post-transmit
+        // shadow; this pause keeps the sequence working on bridges that predate that fix.
+        std::thread::sleep(Duration::from_millis(50));
         boot(&*rs485, &stream_target);
         drain(
             rs485,
@@ -974,6 +977,27 @@ pub fn set_index(
     ));
     let reply = expect(rs485, RepeaterVerb::SetIndex, timeout, &name)?;
     require_ok(&reply, RepeaterVerb::SetIndex, &name)?;
+    Ok(reply)
+}
+
+/// `set-polarity`: how one side of a repeater decides its UART polarity. Acknowledged; the
+/// caller reads `status` afterwards for the resulting `inv`/`pol`/`lk` per side.
+pub fn set_polarity(
+    rs485: &mut Rs485,
+    target: &RepeaterTarget,
+    side: u8,
+    mode: router_proto::repeater::PolarityMode,
+    timeout: Duration,
+) -> Result<RepeaterReply, OtaError> {
+    let name = describe_target(target);
+    rs485.transmit(control_packet(
+        target,
+        RepeaterVerb::SetPolarity,
+        Some(router_proto::repeater::set_polarity_payload(side, mode)),
+        timeout.as_millis() as u32,
+    ));
+    let reply = expect(rs485, RepeaterVerb::SetPolarity, timeout, &name)?;
+    require_ok(&reply, RepeaterVerb::SetPolarity, &name)?;
     Ok(reply)
 }
 
@@ -1072,7 +1096,9 @@ mod tests {
         );
         // Straddles the padding boundary, the case that catches length-encoding bugs.
         assert_eq!(
-            hex(&sha256(b"abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq")),
+            hex(&sha256(
+                b"abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq"
+            )),
             "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1"
         );
     }
@@ -1180,10 +1206,10 @@ mod tests {
 mod session_tests {
     use super::*;
     use crate::rs485::device::SerialDevice;
-    use std::collections::BTreeMap;
-    use router_proto::repeater::{repeater_address, REPEATER_ALL};
     use router_proto::envelope::encode_reply_fix8;
+    use router_proto::repeater::{repeater_address, REPEATER_ALL};
     use router_proto::{decode_envelope, encode_frame, FrameAccumulator};
+    use std::collections::BTreeMap;
     use std::sync::{Arc, Mutex};
 
     /// What one modelled repeater does with what it is sent.
@@ -1430,7 +1456,10 @@ mod session_tests {
 
     /// Eight chunks of 64 bytes: enough for indices to be meaningful, small enough that
     /// the whole suite runs in well under a second.
-    fn fixture(behaviour: Behaviour, indices: &[u8]) -> (Rs485, ScriptedBus, RepeaterImage, RepeaterOtaParams) {
+    fn fixture(
+        behaviour: Behaviour,
+        indices: &[u8],
+    ) -> (Rs485, ScriptedBus, RepeaterImage, RepeaterOtaParams) {
         let params = RepeaterOtaParams {
             chunk_bytes: 64,
             wait_between_chunks_ms: 0,
@@ -1646,7 +1675,10 @@ mod session_tests {
         let log = bus.0.lock().unwrap().log.clone();
         for (verb, address) in &log {
             if verb.starts_with("ota-data:") {
-                assert_eq!(*address, REPEATER_ALL, "the data pass is the broadcast half");
+                assert_eq!(
+                    *address, REPEATER_ALL,
+                    "the data pass is the broadcast half"
+                );
             } else {
                 // Protocol.md 12: the firmware refuses a reply-bearing verb sent to
                 // REPEATER_ALL, so every one of these has to be unicast even here.
@@ -1695,7 +1727,12 @@ mod session_tests {
         assert_eq!(packet.custom_wait_time_ms, Some(0));
 
         // An indexed one still does, because its reply has a source the worker can match.
-        let packet = control_packet(&RepeaterTarget::Index(1), RepeaterVerb::OtaBegin, None, 8000);
+        let packet = control_packet(
+            &RepeaterTarget::Index(1),
+            RepeaterVerb::OtaBegin,
+            None,
+            8000,
+        );
         assert!(packet.needs_ack);
         assert_eq!(packet.custom_wait_time_ms, Some(8000));
 

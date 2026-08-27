@@ -11,7 +11,7 @@
 
 use std::path::{Path, PathBuf};
 
-use router_link::repeater_ota::{sha256, RepeaterOtaParams, APP_SLOT_BYTES};
+use router_link::repeater_ota::{APP_SLOT_BYTES, RepeaterOtaParams, sha256};
 use serde::Serialize;
 
 /// Where PlatformIO leaves the repeater build, relative to a repository-shaped root.
@@ -90,10 +90,7 @@ pub fn classify(bytes: &[u8]) -> Result<RepeaterImageKind, String> {
         && bytes[APP_OFFSET] == ESP_MAGIC;
     if merged {
         if bytes.len() > FLASH_BYTES {
-            return Err(format!(
-                "{} bytes will not fit a 4 MB part",
-                bytes.len()
-            ));
+            return Err(format!("{} bytes will not fit a 4 MB part", bytes.len()));
         }
         return Ok(RepeaterImageKind::Factory);
     }
@@ -225,8 +222,9 @@ fn read_artefact(path: &Path, id: &str, label: &str) -> Result<RepeaterArtefact,
         RepeaterImageKind::Application => {
             let params = RepeaterOtaParams::default();
             let chunks = bytes.len().div_ceil(params.chunk_bytes);
-            let image = router_link::repeater_ota::RepeaterImage::new(bytes.clone(), params.chunk_bytes)
-                .map_err(|error| error.to_string())?;
+            let image =
+                router_link::repeater_ota::RepeaterImage::new(bytes.clone(), params.chunk_bytes)
+                    .map_err(|error| error.to_string())?;
             (Some(chunks), Some(image.estimated_seconds(&params)))
         }
         RepeaterImageKind::Factory => (None, None),
@@ -328,9 +326,22 @@ mod tests {
 
     #[test]
     fn another_espressif_part_is_refused_and_named() {
-        let error = classify(&application(1024).into_iter().enumerate().map(|(i, b)| {
-            if i == 12 { 9 } else if i == 13 { 0 } else { b }
-        }).collect::<Vec<_>>()).unwrap_err();
+        let error = classify(
+            &application(1024)
+                .into_iter()
+                .enumerate()
+                .map(|(i, b)| {
+                    if i == 12 {
+                        9
+                    } else if i == 13 {
+                        0
+                    } else {
+                        b
+                    }
+                })
+                .collect::<Vec<_>>(),
+        )
+        .unwrap_err();
         assert!(error.contains("ESP32-S3"), "{error}");
     }
 
@@ -353,10 +364,7 @@ mod tests {
             return;
         };
         assert_eq!(bytes[0], ESP_MAGIC);
-        assert_eq!(
-            u16::from_le_bytes([bytes[12], bytes[13]]),
-            CHIP_ID_ESP32C3
-        );
+        assert_eq!(u16::from_le_bytes([bytes[12], bytes[13]]), CHIP_ID_ESP32C3);
         assert_eq!(
             bytes[PARTITION_TABLE_OFFSET..PARTITION_TABLE_OFFSET + 2],
             PARTITION_TABLE_MAGIC
@@ -382,10 +390,16 @@ mod tests {
         let discovery = discover_in(std::path::Path::new("/nonexistent-tree"));
         assert_eq!(discovery.found.len(), 0);
         assert_eq!(discovery.missing.len(), 2);
-        assert!(discovery.missing[0].hint.contains("pio run -d RS485Repeater"));
-        assert!(discovery.missing[0]
-            .path
-            .to_string_lossy()
-            .contains("firmware.factory.bin"));
+        assert!(
+            discovery.missing[0]
+                .hint
+                .contains("pio run -d RS485Repeater")
+        );
+        assert!(
+            discovery.missing[0]
+                .path
+                .to_string_lossy()
+                .contains("firmware.factory.bin")
+        );
     }
 }

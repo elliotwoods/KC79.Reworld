@@ -26,7 +26,11 @@ pub mod value;
 
 pub use cobs::{cobs_decode, cobs_encode, encode_frame, FrameAccumulator};
 pub use crc::{crc16_ccitt_false, crc32c};
-pub use envelope::{decode_envelope, encode_envelope, encode_envelope_fix8, Envelope, BROADCAST, HOST};
+pub use envelope::{
+    decode_envelope, encode_envelope, encode_envelope_fix8, Envelope, BROADCAST, HOST,
+};
 pub use error::ProtoError;
-pub use repeater::{repeater_address, repeater_index, RepeaterTarget, RepeaterVerb, REPEATER_ALL, REPEATER_COUNT};
+pub use repeater::{
+    repeater_address, repeater_index, RepeaterTarget, RepeaterVerb, REPEATER_ALL, REPEATER_COUNT,
+};
 pub use rmpv::Value;

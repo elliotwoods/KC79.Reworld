@@ -69,7 +69,10 @@ mod tests {
     #[test]
     fn the_firmware_crc32c_uses_the_castagnoli_polynomial() {
         const HEADER: &str = include_str!("../../../../PortalBootloader/include/portal_crc32c.h");
-        assert!(HEADER.contains("0x82F63B78"), "the firmware header is not CRC-32C");
+        assert!(
+            HEADER.contains("0x82F63B78"),
+            "the firmware header is not CRC-32C"
+        );
         assert!(
             !HEADER.contains("0xEDB88320"),
             "the firmware header mentions the zlib polynomial"

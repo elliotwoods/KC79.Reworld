@@ -26,9 +26,13 @@ pub enum Event {
         totals: Totals,
     },
     /// Runtime configuration change.
-    AppConfig { config: serde_json::Value },
+    AppConfig {
+        config: serde_json::Value,
+    },
     /// Operator annotation from the GUI.
-    Marker { label: String },
+    Marker {
+        label: String,
+    },
 
     DeviceConnect {
         col: u8,
@@ -52,15 +56,26 @@ pub enum Event {
         waited_ms: u32,
     },
     /// Reserved for protocol hardening stage 3 (strict ACK).
-    AckNack { col: u8, portal: u8, addr: String },
-    CobsError { col: u8, detail: String },
+    AckNack {
+        col: u8,
+        portal: u8,
+        addr: String,
+    },
+    CobsError {
+        col: u8,
+        detail: String,
+    },
     MsgpackError {
         col: u8,
         detail: String,
         hex_prefix: String,
     },
     /// Reserved for protocol hardening stage 2 (payload CRC).
-    CrcError { col: u8, expected: u16, got: u16 },
+    CrcError {
+        col: u8,
+        expected: u16,
+        got: u16,
+    },
 
     /// Sampled full portal status (on change, else at most 1/minute).
     PortalStatus {
@@ -129,7 +144,9 @@ pub enum Event {
     },
 
     /// Emitted by the writer after channel overflow recovers.
-    DroppedEvents { count: u64 },
+    DroppedEvents {
+        count: u64,
+    },
 }
 
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq)]

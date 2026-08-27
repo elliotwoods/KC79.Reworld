@@ -57,7 +57,10 @@ pub enum ElfError {
     /// Parsed, and nothing in it is loadable -- an object file, or debug info alone.
     NoLoadableSegments,
     /// Loadable, but not describing one image in this part's flash.
-    Span { base: u32, end: u64 },
+    Span {
+        base: u32,
+        end: u64,
+    },
 }
 
 impl std::fmt::Display for ElfError {
@@ -181,8 +184,8 @@ mod tests {
     /// independent implementations checked against one artefact neither of them produced.
     #[test]
     fn flattening_the_reference_elf_reproduces_the_reference_bin() {
-        let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../../PortalBootloader/reference");
+        let dir =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../PortalBootloader/reference");
         let Ok(elf) = std::fs::read(dir.join("BootloaderRS485-2023-08-26.elf")) else {
             eprintln!("skipped: PortalBootloader/reference is not present");
             return;
@@ -191,7 +194,10 @@ mod tests {
         let (base, image) = flatten(&elf).expect("the reference ELF flattens");
         assert_eq!(base, layout::FLASH_BASE);
         assert_eq!(image.len(), bin.len());
-        assert!(image == bin, "the flattened image differs from the committed .bin");
+        assert!(
+            image == bin,
+            "the flattened image differs from the committed .bin"
+        );
     }
 
     #[test]

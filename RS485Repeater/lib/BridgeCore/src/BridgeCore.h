@@ -79,6 +79,21 @@ struct DirectionStats {
     uint64_t emptyFrames = 0;
     uint64_t queueDrops = 0;
     uint32_t queueHighWater = 0;
+    /// Complete frames whose envelope decoded and parsed. The one counter a polarity hunter
+    /// can trust: undecodable traffic and turnaround glitches never reach it.
+    uint64_t validFrames = 0;
+    /// Bytes discarded because they arrived inside this side's post-transmit shadow with no
+    /// frame in progress. When a half-duplex transceiver's driver lets go, the receiver comes
+    /// back to a line nobody is driving and samples debris; a byte that opens a partial frame
+    /// there glues itself to the front of the next genuine frame and kills it. Measured on the
+    /// bench 2026-08-26: the reply to `ota-end` left exactly such a byte behind, and the host's
+    /// `ota-boot`, arriving 5-20 ms later, died against it on every single update.
+    uint64_t shadowBytes = 0;
+    /// Delimiters that arrived mid-frame and were skipped because what they closed was not a
+    /// COBS frame. A host adapter whose FIFO runs dry lets its driver go between two USB
+    /// packets of one frame; on a pair landed the wrong way round the undriven line reads
+    /// as a break, and a break is a zero.
+    uint64_t phantomDelimiters = 0;
 };
 
 struct RouterStats {
@@ -173,6 +188,14 @@ public:
     void ingest(Side source, const uint8_t* bytes, size_t count, uint32_t nowUs);
     void expireIncomplete(uint32_t nowUs);
 
+    /// Declare that this side's own transmission has just ended. For the next
+    /// `turnaroundShadowUs` microseconds, bytes arriving on it with no frame in progress are
+    /// discarded as turnaround debris rather than allowed to open a partial frame.
+    /// A `nowUs` of 0 leaves the shadow unarmed (the native tests' resting state).
+    void noteTransmissionEnd(Side side, uint32_t nowUs);
+    void setTurnaroundShadowUs(uint32_t microseconds) { turnaroundShadowUs_ = microseconds; }
+    uint32_t turnaroundShadowUs() const { return turnaroundShadowUs_; }
+
     bool nextFrame(FrameView& view);
     void completeTransmission(Side source, bool success = true);
 
@@ -192,6 +215,10 @@ public:
     /// lets a paused repeater still be told to resume.
     void setForwardingPaused(bool paused) { forwardingPaused_ = paused; }
     bool forwardingPaused() const { return forwardingPaused_; }
+
+    /// Drop whatever part of a frame has accumulated on `source`. Used when that side's
+    /// UART polarity is flipped: the bytes gathered so far were decoded the wrong way up.
+    void abandonPartial(Side source);
 
     /// Forget the local block. The snapshot sweep stops until an index is provisioned.
     void clearLocalBlock();
@@ -227,6 +254,8 @@ private:
         size_t size = 0;
         uint32_t lastByteUs = 0;
         bool discardingOversize = false;
+        /// Phantom delimiters skipped inside the frame being assembled.
+        uint8_t phantoms = 0;
     };
 
     struct StoredFrame {
@@ -278,6 +307,9 @@ private:
     EnvelopeInfo inspectEnvelope(const uint8_t* data, size_t size);
 
     uint32_t idleTimeoutUs_;
+    uint32_t turnaroundShadowUs_ = 3000;
+    /// `shadowUntilUs_[i]` is the end of side i+1's post-transmit shadow; 0 = unarmed.
+    uint32_t shadowUntilUs_[2] = {0, 0};
     Accumulator sideOneAccumulator_;
     Accumulator sideTwoAccumulator_;
     FrameQueue oneToTwoQueue_;

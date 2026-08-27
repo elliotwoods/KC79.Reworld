@@ -220,7 +220,7 @@ describe('linkBlocker', () => {
 });
 
 describe('serialState', () => {
-  const board: SerialView = { dbOk: true, boardPresent: true, identity: 'existing-on-board', boardSerial: 73001, entered: 73001, pending: false };
+  const board: SerialView = { dbOk: true, boardPresent: true, identity: 'existing-on-board', boardSerial: 73001, entered: 73001, pending: false, dbSerial: 73001, heldBy: '' };
   const every: SerialView[] = [
     board,
     { ...board, entered: 73002 },
@@ -230,7 +230,9 @@ describe('serialState', () => {
     { ...board, identity: 'unknown', boardSerial: 0 },
     { ...board, identity: 'corrupt', boardSerial: 0 },
     { ...board, identity: 'foreign-uid' },
-    { ...board, identity: 'blank', boardSerial: 0, entered: 42 },
+    { ...board, identity: 'blank', boardSerial: 0, entered: 42, dbSerial: 0 },
+    { ...board, identity: 'blank', boardSerial: 0, dbSerial: 73001 },
+    { ...board, entered: 73002, heldBy: '00220016-30355107-35303836' },
   ];
 
   it('never returns a blank word or detail, and the detail never repeats the badge', () => {
@@ -248,12 +250,30 @@ describe('serialState', () => {
     expect(serialState(board)).toMatchObject({ word: 'on board', detail: 'board: 73001', tone: 'ok', changed: false });
   });
 
+  it('names the holder when the entered serial belongs to another MCU', () => {
+    const clash = serialState({ ...board, entered: 73002, heldBy: '00220016-30355107-35303836' });
+    expect(clash).toMatchObject({ word: 'conflict', tone: 'error' });
+    expect(clash.detail).toContain('35303836');
+    expect(clash.hint).toContain('00220016-30355107-35303836');
+  });
+
+  // The regression that issues one MCU two serials: a provisioned board that was later erased
+  // reads `blank`, and calling that "fresh" invites accepting a brand-new number for it.
+  it('distinguishes an erased board the registry knows from a genuinely fresh one', () => {
+    expect(serialState({ ...board, identity: 'blank', boardSerial: 0, dbSerial: 0, entered: 42 }))
+      .toMatchObject({ word: 'fresh', tone: 'idle' });
+    const erased = serialState({ ...board, identity: 'blank', boardSerial: 0, dbSerial: 73001 });
+    expect(erased).toMatchObject({ word: 'erased', tone: 'warn' });
+    expect(erased.detail).toContain('73001');
+  });
+
   it('reads CHANGED when they differ, and the detail names the board serial', () => {
     expect(serialState({ ...board, entered: 73002 })).toMatchObject({ word: 'changed', detail: 'board: 73001', tone: 'warn', changed: true });
   });
 
   it('reads FRESH on a blank board and does not call it changed', () => {
-    const value = serialState({ ...board, identity: 'blank', boardSerial: 0, entered: 42 });
+    // `dbSerial: 0` is what makes it fresh rather than erased: no flash serial AND no registry row.
+    const value = serialState({ ...board, identity: 'blank', boardSerial: 0, entered: 42, dbSerial: 0 });
     expect(value.word).toBe('fresh');
     expect(value.tone).toBe('idle');
     expect(value.changed).toBe(false);

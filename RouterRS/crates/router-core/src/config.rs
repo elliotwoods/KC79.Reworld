@@ -90,7 +90,13 @@ pub struct ArrangementConfig {
 
 impl Default for ArrangementConfig {
     fn default() -> Self {
-        Self { columns: 32, rows: 24, column_width: 1, panel_height: 0, flipped: false }
+        Self {
+            columns: 32,
+            rows: 24,
+            column_width: 1,
+            panel_height: 0,
+            flipped: false,
+        }
     }
 }
 
@@ -162,7 +168,10 @@ pub struct AppConfig {
 
 impl Default for ServerConfig {
     fn default() -> Self {
-        Self { enabled: true, port: 0 }
+        Self {
+            enabled: true,
+            port: 0,
+        }
     }
 }
 
@@ -185,7 +194,13 @@ impl AppConfig {
             .and_then(|s| s.as_array())
             .cloned()
             .unwrap_or_default();
-        Self { installation, osc, rest, renderer_sources, raw: doc }
+        Self {
+            installation,
+            osc,
+            rest,
+            renderer_sources,
+            raw: doc,
+        }
     }
 
     pub fn load(path: &Path) -> std::io::Result<Self> {
@@ -207,9 +222,7 @@ impl AppConfig {
 
         // Installation
         {
-            let inst_entry = root
-                .entry("Installation")
-                .or_insert_with(|| json!({}));
+            let inst_entry = root.entry("Installation").or_insert_with(|| json!({}));
             if !inst_entry.is_object() {
                 *inst_entry = json!({});
             }
@@ -237,13 +250,21 @@ impl AppConfig {
                     "Keyframe velocities": m.keyframe_velocities,
                 }),
             );
-            merge_object(inst, "image", json!({ "Enabled": self.installation.image_enabled }));
+            merge_object(
+                inst,
+                "image",
+                json!({ "Enabled": self.installation.image_enabled }),
+            );
             let columns: Vec<Json> = self
                 .installation
                 .columns
                 .iter()
                 .map(|c| {
-                    let mut col = if c.raw.is_object() { c.raw.clone() } else { json!({}) };
+                    let mut col = if c.raw.is_object() {
+                        c.raw.clone()
+                    } else {
+                        json!({})
+                    };
                     let obj = col.as_object_mut().unwrap();
                     obj.insert("Count X".into(), json!(c.count_x));
                     obj.insert("Count Y".into(), json!(c.count_y));
@@ -339,8 +360,11 @@ fn parse_installation(json: &Json) -> InstallationConfig {
                 .and_then(ImageTransmit::from_config_str)
                 .unwrap_or(d.transmit),
             period_s: get_f32(messaging, "Period [s]", d.period_s),
-            keyframe_batch_size: get_i64(messaging, "Keyframe batch size", d.keyframe_batch_size as i64)
-                as usize,
+            keyframe_batch_size: get_i64(
+                messaging,
+                "Keyframe batch size",
+                d.keyframe_batch_size as i64,
+            ) as usize,
             keyframe_velocities: get_bool(messaging, "Keyframe velocities", d.keyframe_velocities),
         };
     }
@@ -382,7 +406,10 @@ fn parse_column(json: &Json, common: Option<&Json>) -> ColumnConfig {
 }
 
 fn parse_server(json: Option<&Json>, default_port: u16) -> ServerConfig {
-    let mut config = ServerConfig { enabled: true, port: default_port };
+    let mut config = ServerConfig {
+        enabled: true,
+        port: default_port,
+    };
     if let Some(json) = json {
         config.enabled = get_bool(json, "Enabled", true);
         config.port = get_i64(json, "Port", default_port as i64) as u16;
@@ -395,10 +422,7 @@ mod tests {
     use super::*;
 
     fn sample() -> Json {
-        serde_json::from_str(include_str!(
-            "../../../tests-fixtures/config.sample.json"
-        ))
-        .unwrap()
+        serde_json::from_str(include_str!("../../../tests-fixtures/config.sample.json")).unwrap()
     }
 
     #[test]
@@ -407,7 +431,10 @@ mod tests {
         assert_eq!(config.installation.arrangement.columns, 4);
         assert_eq!(config.installation.arrangement.rows, 6);
         assert_eq!(config.installation.arrangement.column_width, 3);
-        assert_eq!(config.installation.messaging.transmit, ImageTransmit::Keyframe);
+        assert_eq!(
+            config.installation.messaging.transmit,
+            ImageTransmit::Keyframe
+        );
         assert_eq!(config.installation.messaging.keyframe_batch_size, 8);
         assert_eq!(config.osc.port, 4000);
         assert_eq!(config.rest.port, 8080);
@@ -493,6 +520,9 @@ mod tests {
         assert_eq!(config.installation.arrangement.rows, 24);
         assert_eq!(config.osc.port, 4000);
         assert_eq!(config.rest.port, 8080);
-        assert_eq!(config.installation.messaging.transmit, ImageTransmit::Individual);
+        assert_eq!(
+            config.installation.messaging.transmit,
+            ImageTransmit::Individual
+        );
     }
 }

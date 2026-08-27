@@ -95,7 +95,9 @@ impl Rs485 {
 
     fn try_open(&mut self) {
         self.last_attempt = Some(Instant::now());
-        let Some(settings) = &self.settings else { return };
+        let Some(settings) = &self.settings else {
+            return;
+        };
         match create_device(settings) {
             Ok(device) => self.open_device(device),
             Err(e) => {
@@ -143,7 +145,11 @@ impl Rs485 {
         // flag alone is not enough — a freshly spawned worker hasn't set it
         // yet, and joining a live worker would deadlock
         if let Some(worker) = &mut self.worker {
-            let finished = worker.join.as_ref().map(|j| j.is_finished()).unwrap_or(true);
+            let finished = worker
+                .join
+                .as_ref()
+                .map(|j| j.is_finished())
+                .unwrap_or(true);
             if finished {
                 if let Some(join) = worker.join.take() {
                     let _ = join.join();
@@ -213,7 +219,13 @@ impl Rs485 {
         };
         let shared = &worker.shared;
         let now = shared.started.elapsed().as_millis() as u64;
-        let age = |stamp: u64| if stamp == 0 { None } else { Some(now.saturating_sub(stamp)) };
+        let age = |stamp: u64| {
+            if stamp == 0 {
+                None
+            } else {
+                Some(now.saturating_sub(stamp))
+            }
+        };
         Rs485Stats {
             connected: shared.connected.load(Ordering::Acquire),
             device_description: worker.description.clone(),

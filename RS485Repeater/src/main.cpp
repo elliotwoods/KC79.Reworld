@@ -14,6 +14,7 @@
 #include "EspOtaTarget.h"
 #include "OtaSession.h"
 #include "Persistence.h"
+#include "Polarity.h"
 #include "SnapshotEngine.h"
 #include "Wire.h"
 
@@ -59,6 +60,19 @@ constexpr uint32_t DATA_LED_HOLD_MS = 100;
 constexpr bool SIDE1_INVERTED = REPEATER_SIDE1_INVERT != 0;
 constexpr bool SIDE2_INVERTED = REPEATER_SIDE2_INVERT != 0;
 
+/// Bytes and UART errors arriving this soon after this side's own driver let go are the
+/// turnaround glitch of a floating line, not traffic. They are excluded from the polarity
+/// evidence and counted as turnaround events rather than UART errors. Three milliseconds:
+/// the glitch is one byte time, and the earliest genuine reply -- a bootloader's, behind its
+/// 5 ms guard -- is later than that.
+constexpr uint32_t TURNAROUND_SHADOW_US = 3000;
+
+/// Whether the UART peripheral drives DE/RE# itself (its RS485 half-duplex mode, with RTS
+/// as the enable) rather than the loop toggling the GPIO around each write. Hardware timing
+/// drops the driver the instant the stop bit is out, which closes the deaf window that the
+/// head of a fast responder's reply used to fall into. The persisted `de-mode` overrides it.
+constexpr bool DEFAULT_HARDWARE_DE = true;
+
 /// How long the application must run before it is considered to have started
 /// successfully, clearing the unhealthy-boot counter.
 constexpr uint32_t HEALTHY_UPTIME_MS = 30000;
@@ -71,6 +85,16 @@ repeater::FrameRouter router(repeater::FRAME_IDLE_TIMEOUT_US);
 std::atomic<uint32_t> uartErrors[2] = {0, 0};
 std::atomic<uint32_t> turnaroundEvents[2] = {0, 0};
 std::atomic<bool> transmitting[2] = {false, false};
+/// `micros()` when each side's driver was last released; the shadow window starts here.
+std::atomic<uint32_t> lastTxEndUs[2] = {0, 0};
+/// UART errors and bytes outside the shadow window: what the polarity hunter is shown.
+std::atomic<uint32_t> evidenceErrors[2] = {0, 0};
+uint64_t evidenceBytes[2] = {0, 0};
+/// The polarity each UART is running at right now. Starts from the persisted last-good
+/// value (or the build flag), and moves when the hunter says so.
+bool sideInverted[2] = {SIDE1_INVERTED, SIDE2_INVERTED};
+bool hardwareDe = DEFAULT_HARDWARE_DE;
+repeater::PolarityHunter polarity[2];
 uint32_t lastActivityMs = 0;
 uint32_t lastHeartbeatMs = 0;
 bool heartbeatState = false;
@@ -178,17 +202,113 @@ uart_port_t uartNumberFor(repeater::Side destination) {
     return destination == repeater::Side::One ? UART_NUM_0 : UART_NUM_1;
 }
 
+uint8_t sideIndex(repeater::Side side) { return side == repeater::Side::Two ? 1 : 0; }
+repeater::Side sideFromIndex(uint8_t index) { return index == 1 ? repeater::Side::Two : repeater::Side::One; }
+uint8_t rxPinFor(repeater::Side side) { return side == repeater::Side::Two ? PIN_MAX2_RO : PIN_MAX1_RO; }
+uint8_t derePinFor(repeater::Side side) { return side == repeater::Side::Two ? PIN_MAX2_DERE : PIN_MAX1_DERE; }
+
 void setTransmitting(repeater::Side destination, bool enabled) {
-    const bool isTwo = destination == repeater::Side::Two;
-    const uint8_t index = isTwo ? 1 : 0;
-    const uint8_t derePin = isTwo ? PIN_MAX2_DERE : PIN_MAX1_DERE;
+    const uint8_t index = sideIndex(destination);
     if(enabled) {
         transmitting[index].store(true);
     }
-    digitalWrite(derePin, enabled ? HIGH : LOW);
+    // With hardware driver-enable the peripheral owns the pin; the flag is still kept so a
+    // UART error during our own transmission is classified as a turnaround event.
+    if(!hardwareDe) digitalWrite(derePinFor(destination), enabled ? HIGH : LOW);
     if(!enabled) {
+        lastTxEndUs[index].store(micros());
         transmitting[index].store(false);
     }
+}
+
+/// True inside the post-transmit shadow window on `index`, when the receiver may still be
+/// looking at a line nobody is driving.
+bool inTurnaroundShadow(uint8_t index) {
+    return transmitting[index].load()
+        || static_cast<uint32_t>(micros() - lastTxEndUs[index].load()) < TURNAROUND_SHADOW_US;
+}
+
+void noteReceiveError(uint8_t index) {
+    if(inTurnaroundShadow(index)) {
+        turnaroundEvents[index].fetch_add(1);
+    }
+    else {
+        uartErrors[index].fetch_add(1);
+        evidenceErrors[index].fetch_add(1);
+    }
+}
+
+/// Put one UART at the given polarity, live. Both RXD and TXD invert together -- the pair is
+/// swapped, so both directions are -- and the RX pin's idle bias follows, so the floating
+/// interval while the transceiver transmits still reads as idle rather than as a break.
+void applyPolarity(repeater::Side side, bool inverted) {
+    const uint8_t index = sideIndex(side);
+    uart_set_line_inverse(uartNumberFor(side),
+        inverted ? (UART_SIGNAL_RXD_INV | UART_SIGNAL_TXD_INV) : UART_SIGNAL_INV_DISABLE);
+    gpio_set_pull_mode(static_cast<gpio_num_t>(rxPinFor(side)),
+        inverted ? GPIO_PULLDOWN_ONLY : GPIO_PULLUP_ONLY);
+    uart_flush_input(uartNumberFor(side));
+    router.abandonPartial(side);
+    sideInverted[index] = inverted;
+}
+
+repeater::PolarityEvidence evidenceFor(uint8_t index) {
+    const auto& stats = router.stats();
+    repeater::PolarityEvidence evidence;
+    evidence.rxBytes = evidenceBytes[index];
+    evidence.validFrames = index == 0 ? stats.oneToTwo.validFrames : stats.twoToOne.validFrames;
+    evidence.uartErrors = evidenceErrors[index].load();
+    return evidence;
+}
+
+/// Change one side's polarity mode, persist it, and put the UART where the mode says.
+void setPolarityMode(uint8_t index, repeater::PolarityMode mode) {
+    bool inverted = sideInverted[index];
+    if(mode == repeater::PolarityMode::Normal) inverted = false;
+    else if(mode == repeater::PolarityMode::Inverted) inverted = true;
+    polarity[index].configure(mode, inverted, evidenceFor(index), millis());
+    applyPolarity(sideFromIndex(index), inverted);
+    repeater::persistence::setPolarityMode(index + 1, static_cast<uint8_t>(mode));
+    if(mode != repeater::PolarityMode::Auto) repeater::persistence::setPolarityInverted(index + 1, inverted);
+}
+
+/// Hand DE/RE# to the UART peripheral (RS485 half-duplex mode, RTS as the enable) or take it
+/// back as a GPIO the loop drives. Either can be applied live between frames.
+void applyDriverEnableMode(bool hardware) {
+    for(uint8_t index = 0; index < 2; ++index) {
+        const repeater::Side side = sideFromIndex(index);
+        const uart_port_t uart = uartNumberFor(side);
+        const uint8_t pin = derePinFor(side);
+        if(hardware) {
+            uart_set_pin(uart, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE, pin, UART_PIN_NO_CHANGE);
+            uart_set_mode(uart, UART_MODE_RS485_HALF_DUPLEX);
+        }
+        else {
+            uart_set_mode(uart, UART_MODE_UART);
+            gpio_reset_pin(static_cast<gpio_num_t>(pin));
+            pinMode(pin, OUTPUT);
+            digitalWrite(pin, LOW);
+        }
+    }
+    hardwareDe = hardware;
+}
+
+void printPolarity(const char* type) {
+    if(!Serial || Serial.availableForWrite() < 64) return;
+    Serial.printf("{\"type\":\"%s\",\"de_hardware\":%s", type, hardwareDe ? "true" : "false");
+    for(uint8_t index = 0; index < 2; ++index) {
+        Serial.printf(
+            ",\"side%u\":{\"mode\":\"%s\",\"inverted\":%s,\"locked\":%s,\"flips\":%lu,"
+            "\"evidence_bytes\":%llu,\"evidence_errors\":%lu}",
+            static_cast<unsigned>(index + 1),
+            repeater::polarityModeName(polarity[index].mode()),
+            sideInverted[index] ? "true" : "false",
+            polarity[index].locked() ? "true" : "false",
+            static_cast<unsigned long>(polarity[index].flips()),
+            evidenceBytes[index],
+            static_cast<unsigned long>(evidenceErrors[index].load()));
+    }
+    Serial.printf("}\n");
 }
 
 void printStatus(const char* type) {
@@ -198,58 +318,57 @@ void printStatus(const char* type) {
     const auto& stats = router.stats();
     Serial.printf(
         "{\"type\":\"%s\",\"version\":\"%s\",\"build\":\"%s\","
-        "\"baud\":%lu,\"routing\":{\"mode\":\"%s\",\"range_start\":%u,"
+        "\"baud\":%lu,\"de_hardware\":%s,\"routing\":{\"mode\":\"%s\",\"range_start\":%u,"
         "\"range_end\":%u,\"relayed_control\":%llu,"
-        "\"filtered_host_frames\":%llu,\"parse_errors\":%llu},"
-        "\"side1\":{\"inverted\":%s,\"rx_bytes\":%llu,\"received_frames\":%llu,"
-        "\"forwarded_bytes\":%llu,\"frames\":%llu,\"incomplete\":%llu,"
-        "\"oversized\":%llu,\"empty_frames\":%llu,\"queue_depth\":%u,\"queue_high_water\":%u,\"queue_drops\":%llu,"
-        "\"uart_errors\":%lu,\"turnaround_events\":%lu},"
-        "\"side2\":{\"inverted\":%s,\"rx_bytes\":%llu,\"received_frames\":%llu,"
-        "\"forwarded_bytes\":%llu,\"frames\":%llu,\"incomplete\":%llu,"
-        "\"oversized\":%llu,\"empty_frames\":%llu,\"queue_depth\":%u,\"queue_high_water\":%u,\"queue_drops\":%llu,"
-        "\"uart_errors\":%lu,\"turnaround_events\":%lu},"
-        "\"tx_errors\":%llu,\"consumed_inner\":%llu,\"originated\":%llu,"
-        "\"originate_drops\":%llu,\"last_activity_ms\":%lu,"
-        "\"index\":%d,\"mac\":\"%02x:%02x:%02x:%02x:%02x:%02x\",\"event_seq\":%lu,"
-        "\"health\":{\"reset_reason\":\"%s\",\"boots\":%lu,\"unhealthy_boots\":%lu,"
-        "\"min_free_heap\":%lu,\"uptime_ms\":%llu,\"core_dump\":%s}}\n",
+        "\"filtered_host_frames\":%llu,\"parse_errors\":%llu},",
         type,
         REPEATER_VERSION,
         REPEATER_BUILD_ID,
         static_cast<unsigned long>(RS485_BAUD),
+        hardwareDe ? "true" : "false",
         repeater::blockStateName(router.blockState()),
         static_cast<unsigned>(router.localRangeStart()),
         static_cast<unsigned>(router.localRangeEnd()),
         stats.relayedControlFrames,
         stats.filteredHostFrames,
-        stats.parseErrors,
-        SIDE1_INVERTED ? "true" : "false",
-        stats.oneToTwo.rxBytes,
-        stats.oneToTwo.receivedFrames,
-        stats.oneToTwo.forwardedBytes,
-        stats.oneToTwo.forwardedFrames,
-        stats.oneToTwo.incompleteFrames,
-        stats.oneToTwo.oversizedFrames,
-        stats.oneToTwo.emptyFrames,
-        static_cast<unsigned>(router.queueDepth(repeater::Side::One)),
-        static_cast<unsigned>(stats.oneToTwo.queueHighWater),
-        stats.oneToTwo.queueDrops,
-        static_cast<unsigned long>(uartErrors[0].load()),
-        static_cast<unsigned long>(turnaroundEvents[0].load()),
-        SIDE2_INVERTED ? "true" : "false",
-        stats.twoToOne.rxBytes,
-        stats.twoToOne.receivedFrames,
-        stats.twoToOne.forwardedBytes,
-        stats.twoToOne.forwardedFrames,
-        stats.twoToOne.incompleteFrames,
-        stats.twoToOne.oversizedFrames,
-        stats.twoToOne.emptyFrames,
-        static_cast<unsigned>(router.queueDepth(repeater::Side::Two)),
-        static_cast<unsigned>(stats.twoToOne.queueHighWater),
-        stats.twoToOne.queueDrops,
-        static_cast<unsigned long>(uartErrors[1].load()),
-        static_cast<unsigned long>(turnaroundEvents[1].load()),
+        stats.parseErrors);
+    for(uint8_t index = 0; index < 2; ++index) {
+        const repeater::Side side = sideFromIndex(index);
+        const auto& dir = index == 0 ? stats.oneToTwo : stats.twoToOne;
+        Serial.printf(
+            "\"side%u\":{\"inverted\":%s,\"polarity\":\"%s\",\"locked\":%s,\"flips\":%lu,"
+            "\"rx_bytes\":%llu,\"received_frames\":%llu,\"valid_frames\":%llu,"
+            "\"forwarded_bytes\":%llu,\"frames\":%llu,\"incomplete\":%llu,"
+            "\"oversized\":%llu,\"empty_frames\":%llu,\"phantom_delimiters\":%llu,\"shadow_bytes\":%llu,"
+            "\"queue_depth\":%u,\"queue_high_water\":%u,\"queue_drops\":%llu,"
+            "\"uart_errors\":%lu,\"turnaround_events\":%lu},",
+            static_cast<unsigned>(index + 1),
+            sideInverted[index] ? "true" : "false",
+            repeater::polarityModeName(polarity[index].mode()),
+            polarity[index].locked() ? "true" : "false",
+            static_cast<unsigned long>(polarity[index].flips()),
+            dir.rxBytes,
+            dir.receivedFrames,
+            dir.validFrames,
+            dir.forwardedBytes,
+            dir.forwardedFrames,
+            dir.incompleteFrames,
+            dir.oversizedFrames,
+            dir.emptyFrames,
+            dir.phantomDelimiters,
+            dir.shadowBytes,
+            static_cast<unsigned>(router.queueDepth(side)),
+            static_cast<unsigned>(dir.queueHighWater),
+            dir.queueDrops,
+            static_cast<unsigned long>(uartErrors[index].load()),
+            static_cast<unsigned long>(turnaroundEvents[index].load()));
+    }
+    Serial.printf(
+        "\"tx_errors\":%llu,\"consumed_inner\":%llu,\"originated\":%llu,"
+        "\"originate_drops\":%llu,\"last_activity_ms\":%lu,"
+        "\"index\":%d,\"mac\":\"%02x:%02x:%02x:%02x:%02x:%02x\",\"event_seq\":%lu,"
+        "\"health\":{\"reset_reason\":\"%s\",\"boots\":%lu,\"unhealthy_boots\":%lu,"
+        "\"min_free_heap\":%lu,\"uptime_ms\":%llu,\"core_dump\":%s}}\n",
         stats.txErrors,
         stats.consumedInnerFrames,
         stats.originatedFrames,
@@ -270,10 +389,13 @@ void printStatus(const char* type) {
 /// The wire form of everything the USB `status` command reports. Keys are short
 /// because this crosses a 115200 bus; the host-side decoder names them.
 void writeDirectionStats(repeater::wire::MsgpackWriter& out, const repeater::DirectionStats& dir,
-    size_t queueDepth, uint32_t uartErrorCount, uint32_t turnaroundCount) {
-    out.mapHeader(12);
+    size_t queueDepth, uint32_t uartErrorCount, uint32_t turnaroundCount, uint8_t index) {
+    out.mapHeader(19);
     out.key("rx"); out.uinteger(dir.rxBytes);
+    out.key("ph"); out.uinteger(dir.phantomDelimiters);
+    out.key("sh"); out.uinteger(dir.shadowBytes);
     out.key("rf"); out.uinteger(dir.receivedFrames);
+    out.key("vf"); out.uinteger(dir.validFrames);
     out.key("fb"); out.uinteger(dir.forwardedBytes);
     out.key("ff"); out.uinteger(dir.forwardedFrames);
     out.key("inc"); out.uinteger(dir.incompleteFrames);
@@ -284,13 +406,20 @@ void writeDirectionStats(repeater::wire::MsgpackWriter& out, const repeater::Dir
     out.key("qdr"); out.uinteger(dir.queueDrops);
     out.key("ue"); out.uinteger(uartErrorCount);
     out.key("te"); out.uinteger(turnaroundCount);
+    // Polarity: what the UART is running at, how it was decided, and whether the wire has
+    // confirmed it. `flp` counts hunts, so a host can see a side that keeps changing its mind.
+    out.key("inv"); out.boolean(sideInverted[index]);
+    out.key("pol"); out.uinteger(static_cast<uint8_t>(polarity[index].mode()));
+    out.key("lk"); out.boolean(polarity[index].locked());
+    out.key("flp"); out.uinteger(polarity[index].flips());
 }
 
 void writeStatusPayload(repeater::wire::MsgpackWriter& out) {
     const auto& stats = router.stats();
 
-    out.mapHeader(13);
+    out.mapHeader(14);
     out.key("proto"); out.uinteger(repeater::CONTROL_PROTO_VERSION);
+    out.key("dehw"); out.boolean(hardwareDe);
     out.key("ver"); out.string(REPEATER_VERSION);
     out.key("build"); out.string(REPEATER_BUILD_ID);
     out.key("mac"); out.binary(macAddress, sizeof(macAddress));
@@ -303,10 +432,10 @@ void writeStatusPayload(repeater::wire::MsgpackWriter& out) {
 
     out.key("s1");
     writeDirectionStats(out, stats.oneToTwo, router.queueDepth(repeater::Side::One),
-        uartErrors[0].load(), turnaroundEvents[0].load());
+        uartErrors[0].load(), turnaroundEvents[0].load(), 0);
     out.key("s2");
     writeDirectionStats(out, stats.twoToOne, router.queueDepth(repeater::Side::Two),
-        uartErrors[1].load(), turnaroundEvents[1].load());
+        uartErrors[1].load(), turnaroundEvents[1].load(), 1);
 
     out.key("flt");
     out.mapHeader(3);
@@ -478,6 +607,18 @@ void replyWithOtaState(repeater::ControlVerb verb, repeater::OtaResult result) {
     sendControlReply();
 }
 
+void resetCounters() {
+    router.resetStats();
+    for(uint8_t index = 0; index < 2; ++index) {
+        uartErrors[index].store(0);
+        turnaroundEvents[index].store(0);
+        evidenceErrors[index].store(0);
+        evidenceBytes[index] = 0;
+    }
+    // The hunters read those counters; a reset must rebase them, never persuade them.
+    for(uint8_t index = 0; index < 2; ++index) polarity[index].observe(evidenceFor(index), millis());
+}
+
 void handleControlRequest(const repeater::ControlRequest& request) {
     using repeater::ControlVerb;
 
@@ -498,14 +639,43 @@ void handleControlRequest(const repeater::ControlRequest& request) {
         break;
 
     case ControlVerb::ResetCounters:
-        router.resetStats();
-        uartErrors[0].store(0);
-        uartErrors[1].store(0);
-        turnaroundEvents[0].store(0);
-        turnaroundEvents[1].store(0);
+        resetCounters();
         controlPlane.beginReply(request.verb, true);
         sendControlReply();
         break;
+
+    case ControlVerb::SetPolarity: {
+        // `[side, mode]`, mode as 0/1/2 or "normal"/"inverted"/"auto".
+        bool ok = false;
+        if(request.payload != nullptr) {
+            repeater::wire::MsgpackCursor cursor(request.payload, request.payloadSize);
+            uint32_t count = 0;
+            int64_t side = 0;
+            repeater::PolarityMode mode;
+            if(cursor.readArraySize(count) && count >= 2 && cursor.readInteger(side)
+                && (side == 1 || side == 2)) {
+                repeater::wire::MsgpackCursor probe = cursor;
+                int64_t value = 0;
+                const uint8_t* name = nullptr;
+                uint32_t nameLength = 0;
+                char text[16] = {};
+                if(probe.readInteger(value)) {
+                    ok = repeater::polarityModeFromValue(static_cast<int>(value), mode);
+                }
+                else if(cursor.readString(name, nameLength) && nameLength < sizeof(text)) {
+                    memcpy(text, name, nameLength);
+                    ok = repeater::polarityModeFromName(text, mode);
+                }
+                if(ok) {
+                    setPolarityMode(static_cast<uint8_t>(side - 1), mode);
+                    eventSeq++;
+                }
+            }
+        }
+        controlPlane.beginReply(request.verb, ok);
+        sendControlReply();
+        break;
+    }
 
     case ControlVerb::SetIndex: {
         int64_t value = 0;
@@ -804,15 +974,19 @@ void serviceUsbDiagnostics() {
     if(bootRecordPending && Serial && Serial.availableForWrite() >= 64) {
         Serial.printf(
             "{\"type\":\"boot\",\"version\":\"%s\",\"build\":\"%s\","
-            "\"chip\":\"ESP32-C3\",\"baud\":%lu,"
+            "\"chip\":\"ESP32-C3\",\"baud\":%lu,\"de_hardware\":%s,"
             "\"side1_inverted\":%s,\"side2_inverted\":%s,"
+            "\"side1_polarity\":\"%s\",\"side2_polarity\":\"%s\","
             "\"pins\":{\"side1_rx\":20,\"side1_tx\":21,\"side1_de\":7,"
             "\"side2_rx\":6,\"side2_tx\":4,\"side2_de\":5}}\n",
             REPEATER_VERSION,
             REPEATER_BUILD_ID,
             static_cast<unsigned long>(RS485_BAUD),
-            SIDE1_INVERTED ? "true" : "false",
-            SIDE2_INVERTED ? "true" : "false");
+            hardwareDe ? "true" : "false",
+            sideInverted[0] ? "true" : "false",
+            sideInverted[1] ? "true" : "false",
+            repeater::polarityModeName(polarity[0].mode()),
+            repeater::polarityModeName(polarity[1].mode()));
         bootRecordPending = false;
     }
 
@@ -827,12 +1001,47 @@ void serviceUsbDiagnostics() {
                 printStatus("version");
             }
             else if(commandLine == "reset-counters") {
-                router.resetStats();
-                uartErrors[0].store(0);
-                uartErrors[1].store(0);
-                turnaroundEvents[0].store(0);
-                turnaroundEvents[1].store(0);
+                resetCounters();
                 printStatus("counters-reset");
+            }
+            else if(commandLine.startsWith("polarity")) {
+                // `polarity` reports; `polarity <1|2> <auto|normal|inverted>` sets and persists.
+                String args = commandLine.substring(8);
+                args.trim();
+                if(args.length() > 0) {
+                    const int space = args.indexOf(' ');
+                    const long side = (space < 0 ? args : args.substring(0, space)).toInt();
+                    String modeName = space < 0 ? String("") : args.substring(space + 1);
+                    modeName.trim();
+                    repeater::PolarityMode mode;
+                    if((side == 1 || side == 2) && repeater::polarityModeFromName(modeName.c_str(), mode)) {
+                        setPolarityMode(static_cast<uint8_t>(side - 1), mode);
+                        eventSeq++;
+                    }
+                    else if(Serial.availableForWrite() >= 80) {
+                        Serial.printf(
+                            "{\"type\":\"error\",\"message\":\"polarity <1|2> <auto|normal|inverted>\"}\n");
+                        commandLine = "";
+                        continue;
+                    }
+                }
+                printPolarity("polarity");
+            }
+            else if(commandLine.startsWith("de-mode")) {
+                // `de-mode` reports; `de-mode hw|sw` chooses who drives DE/RE# and persists it.
+                String args = commandLine.substring(7);
+                args.trim();
+                if(args == "hw" || args == "sw") {
+                    applyDriverEnableMode(args == "hw");
+                    repeater::persistence::setHardwareDriverEnable(hardwareDe);
+                    eventSeq++;
+                }
+                else if(args.length() > 0 && Serial.availableForWrite() >= 64) {
+                    Serial.printf("{\"type\":\"error\",\"message\":\"de-mode hw|sw\"}\n");
+                    commandLine = "";
+                    continue;
+                }
+                printPolarity("de-mode");
             }
             else if(commandLine == "relearn") {
                 router.clearLocalBlock();
@@ -969,8 +1178,26 @@ void receiveAvailable(repeater::Side side, HardwareSerial& serial) {
         buffer[count++] = static_cast<uint8_t>(value);
     }
     if(count > 0) {
+        const uint8_t index = sideIndex(side);
+        if(!inTurnaroundShadow(index)) evidenceBytes[index] += count;
         router.ingest(side, buffer, count, micros());
         lastActivityMs = millis();
+    }
+}
+
+/// Let each side's polarity hunter look at what the wire delivered, and act on its verdict.
+void servicePolarity() {
+    const uint32_t now = millis();
+    for(uint8_t index = 0; index < 2; ++index) {
+        if(polarity[index].observe(evidenceFor(index), now)) {
+            applyPolarity(sideFromIndex(index), polarity[index].inverted());
+            eventSeq++;
+        }
+        if(polarity[index].takeLockEvent()) {
+            // The wire has just proven this polarity; remember it for the next boot.
+            repeater::persistence::setPolarityInverted(index + 1, polarity[index].inverted());
+            eventSeq++;
+        }
     }
 }
 
@@ -1002,6 +1229,7 @@ void serviceBridge() {
         pdMS_TO_TICKS(TX_DONE_TIMEOUT_MS)) == ESP_OK;
     delayMicroseconds(DE_RELEASE_GUARD_US);
     setTransmitting(frame.destination, false);
+    router.noteTransmissionEnd(frame.destination, micros());
     const bool ok = written == frame.size && drained;
     if(frame.source == repeater::Side::None) router.completeOriginated(frame.destination, ok);
     else router.completeTransmission(frame.source, ok);
@@ -1059,12 +1287,8 @@ void setup() {
     Serial0.setTxBufferSize(TX_BUFFER_BYTES);
     Serial1.setRxBufferSize(RX_BUFFER_BYTES);
     Serial1.setTxBufferSize(TX_BUFFER_BYTES);
-    Serial0.onReceiveError([](hardwareSerial_error_t) {
-        (transmitting[0].load() ? turnaroundEvents[0] : uartErrors[0]).fetch_add(1);
-    });
-    Serial1.onReceiveError([](hardwareSerial_error_t) {
-        (transmitting[1].load() ? turnaroundEvents[1] : uartErrors[1]).fetch_add(1);
-    });
+    Serial0.onReceiveError([](hardwareSerial_error_t) { noteReceiveError(0); });
+    Serial1.onReceiveError([](hardwareSerial_error_t) { noteReceiveError(1); });
     Serial0.begin(
         RS485_BAUD, SERIAL_8N1, PIN_MAX1_RO, PIN_MAX1_DI, SIDE1_INVERTED);
     Serial1.begin(
@@ -1072,12 +1296,23 @@ void setup() {
 
     // HardwareSerial::begin() configures the GPIO matrix and clears the pulls,
     // so apply the idle bias after each UART has claimed its RX pin.
-    gpio_set_pull_mode(
-        static_cast<gpio_num_t>(PIN_MAX1_RO),
-        SIDE1_INVERTED ? GPIO_PULLDOWN_ONLY : GPIO_PULLUP_ONLY);
-    gpio_set_pull_mode(
-        static_cast<gpio_num_t>(PIN_MAX2_RO),
-        SIDE2_INVERTED ? GPIO_PULLDOWN_ONLY : GPIO_PULLUP_ONLY);
+    // Polarity: the persisted mode and last-proven inversion for each side, applied live on
+    // top of whatever the build flags told `begin()`. Auto is the default; a unit that has
+    // never locked starts from the build flag and lets the first host frames decide.
+    for(uint8_t index = 0; index < 2; ++index) {
+        const uint8_t side = index + 1;
+        const bool buildInverted = index == 0 ? SIDE1_INVERTED : SIDE2_INVERTED;
+        repeater::PolarityMode mode = repeater::PolarityMode::Auto;
+        repeater::polarityModeFromValue(
+            repeater::persistence::polarityMode(side, static_cast<uint8_t>(repeater::PolarityMode::Auto)), mode);
+        bool inverted = repeater::persistence::polarityInverted(side, buildInverted);
+        if(mode == repeater::PolarityMode::Normal) inverted = false;
+        else if(mode == repeater::PolarityMode::Inverted) inverted = true;
+        polarity[index].configure(mode, inverted, repeater::PolarityEvidence{}, millis());
+        applyPolarity(sideFromIndex(index), inverted);
+    }
+
+    applyDriverEnableMode(repeater::persistence::hardwareDriverEnable(DEFAULT_HARDWARE_DE));
 
     Serial.begin(115200);
     commandLine.reserve(64);
@@ -1090,6 +1325,7 @@ void setup() {
 
 void loop() {
     serviceBridge();
+    servicePolarity();
     serviceUsbDiagnostics();
     serviceTxTest();
     serviceIdentity();

@@ -130,9 +130,7 @@ impl ImageSource for Gradient {
                             a
                         }
                     }
-                    Wave::Sine => {
-                        (thi * self.frequency * std::f32::consts::PI).sin() * 0.5 + 0.5
-                    }
+                    Wave::Sine => (thi * self.frequency * std::f32::consts::PI).sin() * 0.5 + 0.5,
                     Wave::Sawtooth => (thi * self.frequency) % 1.0,
                 };
 

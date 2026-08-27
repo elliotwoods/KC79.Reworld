@@ -52,7 +52,11 @@ fn http_get(port: u16, path: &str) -> (u16, String) {
         .set_read_timeout(Some(Duration::from_secs(5)))
         .unwrap();
     use std::io::Write;
-    write!(stream, "GET {path} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n").unwrap();
+    write!(
+        stream,
+        "GET {path} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"
+    )
+    .unwrap();
     let mut response = String::new();
     stream.read_to_string(&mut response).unwrap();
     let status: u16 = response
@@ -74,7 +78,10 @@ fn set_position_flows_to_simulated_hardware() {
 
     assert!(
         wait_until(Duration::from_secs(5), || {
-            { let s = handle.snapshot(); !s.columns.is_empty() && s.columns.iter().all(|c| c.stats.connected) }
+            {
+                let s = handle.snapshot();
+                !s.columns.is_empty() && s.columns.iter().all(|c| c.stats.connected)
+            }
         }),
         "columns connect to simulator"
     );
@@ -120,7 +127,10 @@ fn set_position_flows_to_simulated_hardware() {
 fn poll_populates_reported_state() {
     let handle = spawn_sim_runtime(0, 0);
     assert!(wait_until(Duration::from_secs(5), || {
-        { let s = handle.snapshot(); !s.columns.is_empty() && s.columns.iter().all(|c| c.stats.connected) }
+        {
+            let s = handle.snapshot();
+            !s.columns.is_empty() && s.columns.iter().all(|c| c.stats.connected)
+        }
     }));
 
     handle.send(Command::Poll(Scope::All));
@@ -135,7 +145,10 @@ fn poll_populates_reported_state() {
         "all portals report firmware version after poll"
     );
     let snap = handle.snapshot();
-    assert_eq!(snap.columns[0].portals[0].version.as_deref(), Some("sim-1.0"));
+    assert_eq!(
+        snap.columns[0].portals[0].version.as_deref(),
+        Some("sim-1.0")
+    );
 
     handle.shutdown();
 }
@@ -145,7 +158,10 @@ fn rest_endpoints_match_cpp_contract() {
     let rest_port = 18_080;
     let handle = spawn_sim_runtime(rest_port, 0);
     assert!(wait_until(Duration::from_secs(5), || {
-        { let s = handle.snapshot(); !s.columns.is_empty() && s.columns.iter().all(|c| c.stats.connected) }
+        {
+            let s = handle.snapshot();
+            !s.columns.is_empty() && s.columns.iter().all(|c| c.stats.connected)
+        }
     }));
 
     // health
@@ -184,7 +200,10 @@ fn osc_move_and_action_routes() {
     let osc_port = 14_000;
     let handle = spawn_sim_runtime(0, osc_port);
     assert!(wait_until(Duration::from_secs(5), || {
-        { let s = handle.snapshot(); !s.columns.is_empty() && s.columns.iter().all(|c| c.stats.connected) }
+        {
+            let s = handle.snapshot();
+            !s.columns.is_empty() && s.columns.iter().all(|c| c.stats.connected)
+        }
     }));
 
     let socket = UdpSocket::bind("127.0.0.1:0").unwrap();
@@ -243,7 +262,10 @@ fn dead_portal_times_out_and_healthy_ones_answer() {
         reporter: Reporter::disabled(),
     });
     assert!(wait_until(Duration::from_secs(5), || {
-        { let s = handle.snapshot(); !s.columns.is_empty() && s.columns.iter().all(|c| c.stats.connected) }
+        {
+            let s = handle.snapshot();
+            !s.columns.is_empty() && s.columns.iter().all(|c| c.stats.connected)
+        }
     }));
 
     handle.send(Command::Poll(Scope::Column(0)));
@@ -260,7 +282,10 @@ fn dead_portal_times_out_and_healthy_ones_answer() {
         "dead portal 2 times out, portals 1 and 3 answer"
     );
     let snap = handle.snapshot();
-    assert!(snap.columns[0].portals[1].version.is_none(), "dead portal has no reported state");
+    assert!(
+        snap.columns[0].portals[1].version.is_none(),
+        "dead portal has no reported state"
+    );
 
     handle.shutdown();
 }

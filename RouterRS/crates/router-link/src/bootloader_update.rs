@@ -101,9 +101,8 @@ pub fn validate(image: &[u8]) -> Result<(), BlImageError> {
             limit: MAX_BYTES,
         });
     }
-    let word = |at: usize| {
-        u32::from_le_bytes([image[at], image[at + 1], image[at + 2], image[at + 3]])
-    };
+    let word =
+        |at: usize| u32::from_le_bytes([image[at], image[at + 1], image[at + 2], image[at + 3]]);
     if image.len() < 8 {
         return Err(BlImageError::BadResetVector {
             vector: 0,
@@ -116,7 +115,8 @@ pub fn validate(image: &[u8]) -> Result<(), BlImageError> {
     }
     let vector = word(4);
     let entry = vector & !1;
-    if vector & 1 == 0 || !(layout::FLASH_BASE..layout::FLASH_BASE + MAX_BYTES as u32).contains(&entry)
+    if vector & 1 == 0
+        || !(layout::FLASH_BASE..layout::FLASH_BASE + MAX_BYTES as u32).contains(&entry)
     {
         return Err(BlImageError::BadResetVector {
             vector,
@@ -189,7 +189,9 @@ pub enum BlPhase {
     /// Leave any bootloader the board may be sitting in: only the application can do this.
     Escape,
     Begin,
-    Data { next: usize },
+    Data {
+        next: usize,
+    },
     Commit,
     /// The reset, the new bootloader's startup, and the recall when one is needed.
     Settle,
@@ -240,7 +242,9 @@ pub struct BootloaderUpdate {
 impl BootloaderUpdate {
     pub fn new(image: &[u8], params: BlUpdateParams) -> Result<Self, BlImageError> {
         let image = prepare(image)?;
-        let chunk = params.chunk_bytes.clamp(layout::FLASH_GRANULE, layout::BL_CHUNK_MAX);
+        let chunk = params
+            .chunk_bytes
+            .clamp(layout::FLASH_GRANULE, layout::BL_CHUNK_MAX);
         let chunk = chunk - (chunk % layout::FLASH_GRANULE);
         let params = BlUpdateParams {
             chunk_bytes: chunk,
@@ -271,7 +275,12 @@ impl BootloaderUpdate {
         self.crc32
     }
 
-    pub fn tick(&mut self, bus: &dyn FwBus, now: Instant, envelopes: &[Envelope]) -> BlUpdateProgress {
+    pub fn tick(
+        &mut self,
+        bus: &dyn FwBus,
+        now: Instant,
+        envelopes: &[Envelope],
+    ) -> BlUpdateProgress {
         let answer = self.ingest(envelopes);
         match answer {
             Some(Answer::Ack) => self.advance(now),
@@ -453,7 +462,10 @@ impl BootloaderUpdate {
             }
             BlPhase::Confirm => {
                 let seq = self.next_seq();
-                self.send(bus, bootloader::status(self.params.id, BlSelector::None, seq));
+                self.send(
+                    bus,
+                    bootloader::status(self.params.id, BlSelector::None, seq),
+                );
                 self.pending = Some(Pending {
                     seq,
                     deadline: now
@@ -834,7 +846,10 @@ mod tests {
         }
         assert!(progress.done && !progress.ok);
         assert_eq!(
-            h.names().iter().filter(|name| *name == "blimg.begin").count(),
+            h.names()
+                .iter()
+                .filter(|name| *name == "blimg.begin")
+                .count(),
             3
         );
         assert!(progress.detail.contains("no reply"), "{}", progress.detail);
@@ -872,13 +887,19 @@ mod tests {
         let progress = run_happy(&mut h);
         assert!(progress.done && progress.ok, "{}", progress.detail);
         let names = h.names();
-        let commit = names.iter().position(|name| name == "blimg.commit").unwrap();
+        let commit = names
+            .iter()
+            .position(|name| name == "blimg.commit")
+            .unwrap();
         let status = names.iter().rposition(|name| name == "bl.status").unwrap();
         let recalls = names[commit..status]
             .iter()
             .filter(|name| *name == "FW!KC79")
             .count();
-        assert!(recalls > 10, "only {recalls} recall words before the status");
+        assert!(
+            recalls > 10,
+            "only {recalls} recall words before the status"
+        );
     }
 
     #[test]

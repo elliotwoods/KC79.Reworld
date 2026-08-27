@@ -48,7 +48,8 @@ usage:
                                                            [--gap 2] [--no-boot] [--dry-run]
   flash_repeater --port <usb-serial-number> status [--index N]
   flash_repeater --port <usb-serial-number> abort  [--index N]
-  flash_repeater --port <usb-serial-number> probe  [--first N] [--keep]";
+  flash_repeater --port <usb-serial-number> probe  [--first N] [--keep]
+  flash_repeater --port <usb-serial-number> polarity --side 1|2 --mode auto|normal|inverted [--index N]";
 
 fn find_port(serial_number: &str) -> Option<String> {
     serialport::available_ports()
@@ -71,7 +72,9 @@ struct Args {
 
 impl Args {
     fn parse() -> Self {
-        const VALUED: [&str; 5] = ["--port", "--index", "--chunk", "--gap", "--first"];
+        const VALUED: [&str; 7] = [
+            "--port", "--index", "--chunk", "--gap", "--first", "--side", "--mode",
+        ];
         let mut positional = Vec::new();
         let mut flags = std::collections::HashMap::new();
         let mut args = std::env::args().skip(1);
@@ -209,6 +212,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             Ok(())
         }
         "probe" => probe(&args, &serial_number, &targets),
+        "polarity" => {
+            // A wiring fact the repeater can absorb in software: with `auto` (the firmware
+            // default) it flips a side whose traffic arrives as UART errors and locks once
+            // frames decode; `normal`/`inverted` pin it for a documented installation.
+            let side: u8 = args.value("--side").ok_or("polarity needs --side 1|2")?.parse()?;
+            let mode = args
+                .value("--mode")
+                .and_then(router_proto::repeater::PolarityMode::from_str)
+                .ok_or("polarity needs --mode auto|normal|inverted")?;
+            let mut rs485 = open_bus(&serial_number)?;
+            for target in &targets {
+                match ota::set_polarity(&mut rs485, target, side, mode, Duration::from_secs(3)) {
+                    Ok(_) => match ota::read_status(&mut rs485, target, Duration::from_secs(3)) {
+                        Ok(reply) => println!("{reply:#?}"),
+                        Err(error) => println!("set, but status unreadable: {error}"),
+                    },
+                    Err(error) => println!("{error}"),
+                }
+            }
+            rs485.close();
+            Ok(())
+        }
         path => flash(path, &args, &serial_number, &targets),
     }
 }
@@ -253,7 +278,10 @@ fn probe(
         wire * 3 + Duration::from_secs(30),
         Duration::from_millis(params.settle_after_burst_ms as u64),
     );
-    println!("stream   {queued} chunk(s) of {} bytes sent", params.chunk_bytes);
+    println!(
+        "stream   {queued} chunk(s) of {} bytes sent",
+        params.chunk_bytes
+    );
 
     ota::request_map(&rs485, target, &params);
     match ota::await_reply(&mut rs485, RepeaterVerb::OtaMap, Duration::from_secs(6)) {

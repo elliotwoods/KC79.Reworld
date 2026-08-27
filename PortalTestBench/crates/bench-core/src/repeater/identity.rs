@@ -96,8 +96,7 @@ pub fn choose_port(candidates: &[RepeaterPort], hint: &str) -> Result<RepeaterPo
     }
     match candidates {
         [] => Err(
-            "no ESP32-C3 is attached. Plug the repeater's USB cable into this machine."
-                .to_string(),
+            "no ESP32-C3 is attached. Plug the repeater's USB cable into this machine.".to_string(),
         ),
         [only] => Ok(only.clone()),
         many => Err(format!(
@@ -165,7 +164,12 @@ mod tests {
     #[test]
     fn only_the_usb_serial_jtag_interface_is_a_candidate() {
         let survey = survey(vec![
-            port("/dev/cu.usbserial-B003ASAG", 0x0403, 0x6001, Some("B003ASAG")),
+            port(
+                "/dev/cu.usbserial-B003ASAG",
+                0x0403,
+                0x6001,
+                Some("B003ASAG"),
+            ),
             port("/dev/cu.usbmodem8411403", 0x0483, 0x374b, Some("066AFF32")),
             port(
                 "/dev/cu.usbmodem8411301",

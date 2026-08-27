@@ -21,8 +21,8 @@ use bench_core::engine::Effect;
 use bench_core::engine::Phase;
 use bench_core::plan::Plan;
 use bench_core::provisioning::{
-    Action as ProvisionAction, AttemptEvidence, DeviceEvidence, ProvisioningRepository,
-    Reservation, SqliteRepository,
+    Action as ProvisionAction, Association, AttemptEvidence, AttemptRecord, DeviceEvidence,
+    DeviceHistory, DeviceRecord, ProvisioningRepository, Reservation, SqliteRepository,
 };
 use bench_core::state::BenchState;
 use bench_core::state::FieldUpdatePhase;
@@ -65,6 +65,19 @@ pub enum Request {
     ReserveSerial {
         serial: Option<u32>,
         allow_reassignment: bool,
+    },
+    ReassignLibrarySerial {
+        serial: u32,
+        uid: String,
+    },
+    SupersedeLibraryBinding {
+        serial: u32,
+        uid: String,
+    },
+    AddLibraryNote {
+        serial: Option<u32>,
+        uid: Option<String>,
+        detail: String,
     },
     KeepOnboardSerial,
     UsePcbSerial(u32),
@@ -157,6 +170,28 @@ enum SurveyRefresh {
     Announce,
 }
 
+/// A serial the board on the fixture could be given, and what taking it would cost.
+///
+/// The panel's whole job is to turn "serial 9 is taken" into a choice between named numbers. Each
+/// candidate is therefore self-describing: the number, where the claim comes from, who is standing
+/// in the way, and which action applies it in one press. The page renders these rather than
+/// deriving them, so the rule that decides what is offered lives next to the rule that enforces it.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+pub struct SerialCandidate {
+    /// `on-board`, `registry` or `next-free`.
+    pub source: String,
+    pub serial: u32,
+    /// The MCU already holding this number, when that is not the one on the fixture.
+    pub blocked_by: Option<String>,
+    /// Whether taking it renumbers this board or moves the number off another MCU. Both are
+    /// deliberate acts, and the button that does them says so.
+    pub needs_override: bool,
+    /// The `/actions/*` name that applies this candidate in a single press.
+    pub action: String,
+    /// One line of consequence, written where the rule is, not in the page.
+    pub detail: String,
+}
+
 #[derive(Clone, Debug, serde::Serialize)]
 pub struct ProvisionSnapshot {
     pub database_ok: bool,
@@ -164,6 +199,32 @@ pub struct ProvisionSnapshot {
     pub next_serial: u32,
     pub serial_to_provision: u32,
     pub on_board_serial: Option<u32>,
+    /// What the registry already holds for the MCU on the fixture, independent of what its flash
+    /// says. The two disagree exactly when something interesting happened -- a board erased since
+    /// it was provisioned reads blank but is still bound here -- so both are shown, never merged.
+    pub database_serial: Option<u32>,
+    pub database_status: String,
+    /// Which MCU currently holds the number in the Serial Number box, when that is not this one.
+    /// The whole of the "already associated with a different MCU" refusal, in the panel, before
+    /// the operator presses anything.
+    pub entered_serial_holder: Option<String>,
+    pub registry: Vec<Association>,
+    pub devices: Vec<DeviceRecord>,
+    pub attempts: Vec<AttemptRecord>,
+    /// Every serial this board could be given, best first. Empty until a device has been read.
+    pub candidates: Vec<SerialCandidate>,
+    /// Which of `candidates` the bench would take on its own: the first that renumbers nothing.
+    pub suggested_serial: Option<u32>,
+    /// The lowest number nothing holds. Published in its own right so the strip can show all three
+    /// sources at once, including when no candidate list has been built yet.
+    pub next_free_serial: u32,
+    /// What this bench saw of this MCU before today, whether or not it ever held a serial. `None`
+    /// means genuinely new; `Some` with no `database_serial` means seen and never registered --
+    /// two states an operator must never have to guess between.
+    pub device_history: Option<DeviceHistory>,
+    /// `/provision/prefer_registry_serial`, mirrored so an agent reading this document sees the
+    /// same standing preference the page's padlock shows.
+    pub prefer_registry_serial: bool,
     pub identity_state: String,
     pub reservation: String,
     pub pending_replug: bool,
@@ -182,6 +243,17 @@ impl Default for ProvisionSnapshot {
             next_serial: 1,
             serial_to_provision: 1,
             on_board_serial: None,
+            database_serial: None,
+            database_status: String::new(),
+            entered_serial_holder: None,
+            registry: Vec::new(),
+            devices: Vec::new(),
+            attempts: Vec::new(),
+            candidates: Vec::new(),
+            suggested_serial: None,
+            next_free_serial: 1,
+            device_history: None,
+            prefer_registry_serial: false,
             identity_state: "unknown".into(),
             reservation: String::new(),
             pending_replug: false,
@@ -756,6 +828,9 @@ impl Worker {
             }
             "keep_onboard_serial" => self.keep_onboard_serial(now),
             "use_pcb_serial" => self.authorize_pcb_serial(now),
+            "use_database_serial" => self.apply_serial_candidate(now, "registry"),
+            "take_onboard_serial" => self.apply_serial_candidate(now, "on-board"),
+            "take_next_free_serial" => self.apply_serial_candidate(now, "next-free"),
             "read_settings" => self.read_flash_settings(now),
             "write_settings" => self.write_flash_settings(now),
             "reset_mcu" => self.reset_mcu(now, true),
@@ -1380,7 +1455,51 @@ impl Worker {
             .as_ref()
             .and_then(|repo| repo.next_serial().ok())
             .unwrap_or(1);
-        let serial = mcu.provision_serial.unwrap_or(next);
+        let bound = self
+            .provisioning
+            .as_ref()
+            .and_then(|repo| repo.serial_for_uid(&mcu.uid).ok().flatten());
+        // The board's own flash first, the registry second, a fresh number only when neither has
+        // ever seen this MCU. The middle case is the one that used to be missing and the one that
+        // does the damage: a board erased since it was provisioned reads `blank`, so the old code
+        // offered `next_serial` and quietly issued a *second* number to an MCU that already had
+        // one -- the registry grows a duplicate, and the board comes back wearing the wrong badge.
+        //
+        // The padlock inverts the first two. Locked on, the registry outranks the board's own
+        // flash for every board read -- which is what re-flashing a tray of already-registered
+        // modules wants, and emphatically not what first provisioning wants. Hence a lock the
+        // operator sets, exactly like the module-settings one beside it.
+        let prefer_registry =
+            schema::get_bool(&self.bus, self.params.provision.prefer_registry_serial);
+        let (serial, source) = serial_to_offer(
+            mcu.provision_serial,
+            bound.as_ref().map(|bound| bound.serial),
+            next,
+            prefer_registry,
+        );
+        if source == "registry" && prefer_registry && mcu.provision_serial != Some(serial) {
+            self.bench.note(
+                now,
+                bench_core::LOG_LEVEL_STATUS,
+                format!(
+                    "device {}: registry serial preference is locked on, so serial {serial} is taken from the registry over the board's own {}",
+                    short_uid(&mcu.uid),
+                    mcu.provision_serial
+                        .map(|held| held.to_string())
+                        .unwrap_or_else(|| "blank page".into())
+                ),
+            );
+        } else if source == "registry" {
+            self.bench.note(
+                now,
+                bench_core::LOG_LEVEL_STATUS,
+                format!(
+                    "device {}: flash carries no serial, but the registry has it as serial {serial} ({}); offering that rather than a new number",
+                    short_uid(&mcu.uid),
+                    bound.as_ref().map(|b| b.status.as_str()).unwrap_or("")
+                ),
+            );
+        }
         let _ = self.bus.set(
             self.params.provision.serial_to_provision,
             Value::I64(i64::from(serial)),
@@ -1509,6 +1628,96 @@ impl Worker {
                 "",
             );
         }
+        self.refresh_provision_snapshot();
+    }
+
+    /// Adopt the number the registry already holds for the MCU on the fixture.
+    ///
+    /// The counterpart to `keep_onboard_serial` for the case its precondition cannot cover: a
+    /// board whose identity page was erased has no on-board serial to keep, yet is not a new
+    /// board. Without this the only offer is `next_serial`, and taking it issues a second number
+    /// to an MCU that already has one.
+    ///
+    /// No override is armed. This *agrees* with the registry, so the reservation resumes rather
+    /// than reassigns -- the one path here that needs no permission to overwrite anything.
+    /// Apply one of the offered candidates in a single press.
+    ///
+    /// One body behind all three buttons, because the hard part is identical for each: the number
+    /// has to be written to the box, and the override has to be armed *exactly* when taking it
+    /// would renumber this board or move the number off another MCU -- no more, so a routine
+    /// agreement stays a safe act, and no less, so a legitimate choice is not refused a moment
+    /// later by a rule the operator has already answered.
+    ///
+    /// Reading the candidate from the freshly built list rather than recomputing it here is what
+    /// makes the button honest: the page offered a number with a stated consequence, and this
+    /// applies that same number with that same consequence.
+    fn apply_serial_candidate(&mut self, now: u64, source: &str) {
+        let Some(mcu) = self.flash.snapshot().mcu.clone() else {
+            self.bench
+                .note(now, bench_core::LOG_LEVEL_WARNING, "read a device first");
+            return;
+        };
+        self.refresh_provision_snapshot();
+        let candidate = self
+            .shared
+            .provision
+            .lock()
+            .unwrap()
+            .candidates
+            .iter()
+            .find(|candidate| candidate.source == source)
+            .cloned();
+        let Some(candidate) = candidate else {
+            self.bench.note(
+                now,
+                bench_core::LOG_LEVEL_WARNING,
+                match source {
+                    "registry" => format!(
+                        "device {} is not in the provisioning registry; there is no remembered serial to take",
+                        short_uid(&mcu.uid)
+                    ),
+                    "on-board" => format!(
+                        "device {} carries no serial on its identity page",
+                        short_uid(&mcu.uid)
+                    ),
+                    _ => "no serial to take".to_string(),
+                },
+            );
+            return;
+        };
+        let _ = self.bus.set(
+            self.params.provision.serial_to_provision,
+            Value::I64(i64::from(candidate.serial)),
+        );
+        self.override_once = candidate.needs_override;
+        let moved = candidate
+            .blocked_by
+            .as_deref()
+            .map(|uid| format!(" (moving it off MCU {})", short_uid(uid)))
+            .unwrap_or_default();
+        if let Some(repository) = self.provisioning.as_mut() {
+            let _ = repository.record_action(
+                Some(candidate.serial),
+                Some(&mcu.uid),
+                "serial-candidate-taken",
+                "operator",
+                &format!("{}{moved}", candidate.source),
+            );
+        }
+        self.bench.note(
+            now,
+            if candidate.blocked_by.is_some() {
+                bench_core::LOG_LEVEL_WARNING
+            } else {
+                bench_core::LOG_LEVEL_STATUS
+            },
+            format!(
+                "device {}: taking {} serial {}{moved}",
+                short_uid(&mcu.uid),
+                candidate.source,
+                candidate.serial
+            ),
+        );
         self.refresh_provision_snapshot();
     }
 
@@ -1986,7 +2195,10 @@ impl Worker {
         };
         if let Some(repository) = self.provisioning.as_ref() {
             snapshot.next_serial = repository.next_serial().unwrap_or(1);
-            snapshot.history = repository.history(None, None, 250).unwrap_or_default();
+            snapshot.history = repository.history(None, None, 20_000).unwrap_or_default();
+            snapshot.registry = repository.associations(20_000).unwrap_or_default();
+            snapshot.devices = repository.devices(20_000).unwrap_or_default();
+            snapshot.attempts = repository.attempts(20_000).unwrap_or_default();
         }
         self.next_serial_seen = snapshot.next_serial;
         let _ = self.bus.set(
@@ -1996,13 +2208,55 @@ impl Worker {
         snapshot.serial_to_provision =
             schema::get_i64(&self.bus, self.params.provision.serial_to_provision)
                 .clamp(1, i64::from(u32::MAX) - 1) as u32;
-        if let Some(mcu) = self.flash.snapshot().mcu.as_ref() {
+        if let Some(mcu) = self.flash.snapshot().mcu.clone() {
             snapshot.on_board_serial = mcu.provision_serial;
             snapshot.identity_state = mcu.identity_state.clone();
             snapshot.operating_current_ma = mcu.operating_current_ma;
             snapshot.full_current_home_recovery = mcu.full_current_home_recovery;
             snapshot.settings_source = mcu.settings_source.clone();
+            if let Some(bound) = self
+                .provisioning
+                .as_ref()
+                .and_then(|repo| repo.serial_for_uid(&mcu.uid).ok().flatten())
+            {
+                snapshot.database_serial = Some(bound.serial);
+                snapshot.database_status = bound.status;
+            }
+            // Name the other MCU *before* the operator presses flash. The refusal that sends
+            // people to a SQLite prompt says only that the number is taken; the row that already
+            // holds it is one lookup away, and knowing which board it is decides whether this is
+            // a mistyped number or a serial that genuinely needs moving.
+            snapshot.entered_serial_holder = snapshot
+                .registry
+                .iter()
+                .find(|row| {
+                    row.active && row.serial == snapshot.serial_to_provision && row.uid != mcu.uid
+                })
+                .map(|row| row.uid.clone());
+            snapshot.device_history = self
+                .provisioning
+                .as_ref()
+                .and_then(|repo| repo.device_history(&mcu.uid).ok().flatten());
+            snapshot.next_free_serial = first_free_serial(snapshot.next_serial, &snapshot.registry);
+            snapshot.candidates = serial_candidates(
+                &mcu.uid,
+                snapshot.on_board_serial,
+                snapshot.database_serial,
+                snapshot.next_serial,
+                &snapshot.registry,
+            );
+            // The suggestion is the first candidate that takes nothing from anybody. A blocked
+            // number can still be chosen -- it is right there in the list -- but it is chosen, not
+            // arrived at.
+            snapshot.suggested_serial = snapshot
+                .candidates
+                .iter()
+                .find(|candidate| candidate.blocked_by.is_none())
+                .or_else(|| snapshot.candidates.first())
+                .map(|candidate| candidate.serial);
         }
+        snapshot.prefer_registry_serial =
+            schema::get_bool(&self.bus, self.params.provision.prefer_registry_serial);
         snapshot.pending_replug =
             self.pending_provision.is_some() && self.flash.snapshot().needs_replug;
         snapshot.override_authorized = self.override_once;
@@ -2178,11 +2432,22 @@ impl Worker {
                     self.refresh_provision_snapshot();
                 }
                 Request::SetNextSerial(serial) => {
-                    if let Some(repository) = self.provisioning.as_mut()
-                        && let Err(error) = repository.set_next_at_least(serial)
-                    {
-                        self.bench
-                            .note(now, bench_core::LOG_LEVEL_ERROR, error.to_string());
+                    if let Some(repository) = self.provisioning.as_mut() {
+                        match repository.set_next_at_least(serial) {
+                            Ok(next) => {
+                                let _ = repository.record_action(
+                                    Some(next),
+                                    None,
+                                    "library-next-serial-advanced",
+                                    "operator",
+                                    "allocation floor advanced; existing records unchanged",
+                                );
+                            }
+                            Err(error) => {
+                                self.bench
+                                    .note(now, bench_core::LOG_LEVEL_ERROR, error.to_string())
+                            }
+                        }
                     }
                     self.refresh_provision_snapshot();
                 }
@@ -2209,6 +2474,90 @@ impl Worker {
                         ),
                         Err(error) => self.bench.note(now, bench_core::LOG_LEVEL_ERROR, error),
                     }
+                    self.refresh_provision_snapshot();
+                }
+                Request::ReassignLibrarySerial { serial, uid } => {
+                    let result = self
+                        .provisioning
+                        .as_mut()
+                        .ok_or_else(|| self.database_error.clone())
+                        .and_then(|repository| {
+                            repository
+                                .reassign_serial(serial, &uid)
+                                .map(|_| ())
+                                .map_err(|error| error.to_string())
+                        });
+                    let (level, message) = match result {
+                        Ok(()) => (
+                            bench_core::LOG_LEVEL_STATUS,
+                            format!(
+                                "registry: serial {serial} reassigned to {uid}; physical board not written"
+                            ),
+                        ),
+                        Err(error) => (
+                            bench_core::LOG_LEVEL_ERROR,
+                            format!("registry correction refused: {error}"),
+                        ),
+                    };
+                    self.bench.note(now, level, message);
+                    self.refresh_provision_snapshot();
+                }
+                Request::SupersedeLibraryBinding { serial, uid } => {
+                    let result = self
+                        .provisioning
+                        .as_mut()
+                        .ok_or_else(|| self.database_error.clone())
+                        .and_then(|repository| {
+                            repository
+                                .supersede_binding(serial, &uid)
+                                .map_err(|error| error.to_string())
+                        });
+                    let (level, message) = match result {
+                        Ok(()) => (
+                            bench_core::LOG_LEVEL_STATUS,
+                            format!(
+                                "registry: released serial {serial} from {uid}; physical board not written"
+                            ),
+                        ),
+                        Err(error) => (
+                            bench_core::LOG_LEVEL_ERROR,
+                            format!("registry correction refused: {error}"),
+                        ),
+                    };
+                    self.bench.note(now, level, message);
+                    self.refresh_provision_snapshot();
+                }
+                Request::AddLibraryNote {
+                    serial,
+                    uid,
+                    detail,
+                } => {
+                    let result = self
+                        .provisioning
+                        .as_mut()
+                        .ok_or_else(|| self.database_error.clone())
+                        .and_then(|repository| {
+                            repository
+                                .record_action(
+                                    serial,
+                                    uid.as_deref(),
+                                    "library-note",
+                                    "operator",
+                                    &detail,
+                                )
+                                .map_err(|error| error.to_string())
+                        });
+                    let (level, message) = match result {
+                        Ok(()) => (
+                            bench_core::LOG_LEVEL_STATUS,
+                            "hardware library note added".to_string(),
+                        ),
+                        Err(error) => (
+                            bench_core::LOG_LEVEL_ERROR,
+                            format!("library note refused: {error}"),
+                        ),
+                    };
+                    self.bench.note(now, level, message);
                     self.refresh_provision_snapshot();
                 }
                 Request::KeepOnboardSerial => self.keep_onboard_serial(now),
@@ -2332,10 +2681,9 @@ impl Worker {
             .collect::<Vec<_>>()
             .join(", ");
         text(self.params.rs485_discovered, &discovered);
-        if let Some(target) = target_to_publish(
-            state.channels.rs485.selected_target,
-            self.rs485_target_seen,
-        ) {
+        if let Some(target) =
+            target_to_publish(state.channels.rs485.selected_target, self.rs485_target_seen)
+        {
             set(self.params.rs485_target, Value::I32(i32::from(target)));
             self.rs485_target_seen = Some(target);
         }
@@ -2573,6 +2921,21 @@ impl Worker {
             p.provision.on_board_serial,
             Value::I64(i64::from(provision.on_board_serial.unwrap_or(0))),
         );
+        let _ = self.bus.set(
+            p.provision.database_serial,
+            Value::I64(i64::from(provision.database_serial.unwrap_or(0))),
+        );
+        let _ = self
+            .bus
+            .set_text(p.provision.database_status, &provision.database_status);
+        let _ = self.bus.set_text(
+            p.provision.entered_serial_holder,
+            provision.entered_serial_holder.as_deref().unwrap_or(""),
+        );
+        let _ = self.bus.set(
+            p.provision.suggested_serial,
+            Value::I64(i64::from(provision.suggested_serial.unwrap_or(0))),
+        );
         let _ = self
             .bus
             .set_text(p.provision.identity_state, &provision.identity_state);
@@ -2698,6 +3061,128 @@ impl Worker {
 
 fn short_uid(uid: &str) -> &str {
     uid.get(uid.len().saturating_sub(8)..).unwrap_or(uid)
+}
+
+/// Which number to put in the box when a board is read, and where it came from.
+///
+/// Three sources in a fixed order, with one operator-set inversion:
+///
+/// * the board's own identity page, which is right for a board that still carries its serial;
+/// * the registry, which is the only source that can be right about a board whose page was
+///   erased -- this arm is what stops a re-read board being issued a *second* number;
+/// * a fresh number, only when neither has ever seen this MCU.
+///
+/// `prefer_registry` lifts the registry above the board's flash. That is what a tray of already
+/// registered modules being re-flashed wants, and exactly what first provisioning must not do,
+/// which is why it is a padlock rather than a default.
+fn serial_to_offer(
+    on_board: Option<u32>,
+    registry_serial: Option<u32>,
+    next: u32,
+    prefer_registry: bool,
+) -> (u32, &'static str) {
+    match (on_board, registry_serial) {
+        (_, Some(serial)) if prefer_registry => (serial, "registry"),
+        (Some(serial), _) => (serial, "on-board"),
+        (None, Some(serial)) => (serial, "registry"),
+        (None, None) => (next, "next available"),
+    }
+}
+
+/// The lowest number at or above `from` that no live association holds.
+///
+/// `next_serial` is normally already free -- the counter is kept above every association -- but it
+/// is operator-editable, and offering a number the unique index will reject is worse than counting
+/// past it. Superseded rows are skipped: releasing a serial is exactly what superseding means.
+fn first_free_serial(from: u32, registry: &[Association]) -> u32 {
+    let mut serial = from.max(1);
+    while registry
+        .iter()
+        .any(|row| row.active && row.serial == serial)
+    {
+        match serial.checked_add(1) {
+            Some(next) => serial = next,
+            None => return from.max(1),
+        }
+    }
+    serial
+}
+
+/// Every serial the board on the fixture could be given, best first.
+///
+/// Ordering is the recommendation. The registry comes first because it is the durable record and
+/// the only source that can be right about a board whose flash was erased; the board's own claim
+/// second; a fresh number last, because issuing one to an MCU that already has a serial is the
+/// mistake this whole panel exists to prevent.
+///
+/// Deduplicated by number, so the common case -- flash and registry agreeing -- offers one button
+/// rather than two identical ones. A candidate that renumbers nothing is preferred as the
+/// suggestion even when a blocked candidate outranks it: taking a number off another MCU is never
+/// something the bench should arrive at on its own.
+///
+/// Stated as a plain function for the reason `adopt_selector` is: the page, the suggestion and any
+/// agent driving `/api/bench/provision` all have to see the same list, and this way the list can
+/// be tested with no database and no board.
+fn serial_candidates(
+    uid: &str,
+    on_board: Option<u32>,
+    registry_serial: Option<u32>,
+    next_serial: u32,
+    registry: &[Association],
+) -> Vec<SerialCandidate> {
+    let holder = |serial: u32| -> Option<String> {
+        registry
+            .iter()
+            .find(|row| row.active && row.serial == serial && row.uid != uid)
+            .map(|row| row.uid.clone())
+    };
+    let mut out: Vec<SerialCandidate> = Vec::new();
+    let mut push = |source: &str, serial: u32, action: &str, detail: String| {
+        if out.iter().any(|c| c.serial == serial) {
+            return;
+        }
+        let blocked_by = holder(serial);
+        out.push(SerialCandidate {
+            source: source.into(),
+            serial,
+            needs_override: blocked_by.is_some() || on_board.is_some_and(|held| held != serial),
+            blocked_by,
+            action: action.into(),
+            detail,
+        });
+    };
+    if let Some(serial) = registry_serial {
+        push(
+            "registry",
+            serial,
+            "use_database_serial",
+            "The number this MCU is already recorded against.".into(),
+        );
+    }
+    if let Some(serial) = on_board {
+        push(
+            "on-board",
+            serial,
+            "take_onboard_serial",
+            "The number written on this board's identity page.".into(),
+        );
+    }
+    let free = first_free_serial(next_serial, registry);
+    push(
+        "next-free",
+        free,
+        "take_next_free_serial",
+        "A new number, issued to this MCU for the first time.".into(),
+    );
+    for candidate in &mut out {
+        if candidate.blocked_by.is_some() {
+            candidate.detail = format!(
+                "{} Taking it moves the number off the other MCU.",
+                candidate.detail
+            );
+        }
+    }
+    out
 }
 
 fn short_hash_text(hash: &str) -> &str {
@@ -2922,6 +3407,150 @@ fn overall_flash_progress(step: &str, fraction: f64) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn row(serial: u32, uid: &str, active: bool) -> Association {
+        Association {
+            serial,
+            uid: uid.into(),
+            status: if active {
+                "provisioned".into()
+            } else {
+                "superseded".into()
+            },
+            active,
+            created_ms: 0,
+            updated_ms: 0,
+        }
+    }
+
+    /// The padlock's whole contract, and the regression underneath it.
+    #[test]
+    fn the_registry_outranks_the_board_only_when_the_padlock_is_on() {
+        // Unlocked: the board's own page wins, and a blank page falls through to the registry
+        // rather than to a fresh number. That fall-through is the bug that issued one MCU two
+        // serials.
+        assert_eq!(
+            serial_to_offer(Some(7), Some(4), 99, false),
+            (7, "on-board")
+        );
+        assert_eq!(serial_to_offer(None, Some(4), 99, false), (4, "registry"));
+        assert_eq!(
+            serial_to_offer(None, None, 99, false),
+            (99, "next available")
+        );
+
+        // Locked: the registry wins over a board that disagrees, and over one that is blank.
+        assert_eq!(serial_to_offer(Some(7), Some(4), 99, true), (4, "registry"));
+        assert_eq!(serial_to_offer(None, Some(4), 99, true), (4, "registry"));
+        // With nothing in the registry the lock changes nothing -- it cannot invent a number.
+        assert_eq!(serial_to_offer(Some(7), None, 99, true), (7, "on-board"));
+        assert_eq!(
+            serial_to_offer(None, None, 99, true),
+            (99, "next available")
+        );
+    }
+
+    /// The bench this panel was built for: a board whose flash claims a number the registry has
+    /// already given to somebody else. Every one of the three ways out has to be on offer, and the
+    /// one the bench would take on its own must not be the one that robs another MCU.
+    #[test]
+    fn a_blocked_on_board_serial_offers_all_three_ways_out_and_suggests_the_safe_one() {
+        let registry = [row(9, "SIM-UID", true)];
+        let candidates = serial_candidates("THIS-UID", Some(9), None, 10, &registry);
+
+        let sources: Vec<&str> = candidates.iter().map(|c| c.source.as_str()).collect();
+        assert_eq!(
+            sources,
+            ["on-board", "next-free"],
+            "no registry row for this MCU"
+        );
+
+        let blocked = &candidates[0];
+        assert_eq!(blocked.serial, 9);
+        assert_eq!(blocked.blocked_by.as_deref(), Some("SIM-UID"));
+        assert!(
+            blocked.needs_override,
+            "taking it moves 9 off the other MCU"
+        );
+        assert!(blocked.detail.contains("moves the number off"));
+
+        let fresh = &candidates[1];
+        assert_eq!((fresh.serial, fresh.blocked_by.as_deref()), (10, None));
+        assert!(
+            fresh.needs_override,
+            "10 renumbers a board whose flash says 9, so it is still a deliberate act"
+        );
+
+        let suggested = candidates.iter().find(|c| c.blocked_by.is_none()).unwrap();
+        assert_eq!(
+            suggested.serial, 10,
+            "never suggest taking a number off another MCU"
+        );
+    }
+
+    /// Flash and registry agreeing is the ordinary case, and must produce one button rather than
+    /// two identical ones -- and must not ask for an override to agree with itself.
+    #[test]
+    fn agreement_collapses_to_one_unblocked_candidate() {
+        let registry = [row(7, "THIS-UID", true)];
+        let candidates = serial_candidates("THIS-UID", Some(7), Some(7), 10, &registry);
+
+        assert_eq!(candidates.len(), 2, "the agreed number, and a fresh one");
+        assert_eq!(candidates[0].serial, 7);
+        assert_eq!(
+            candidates[0].source, "registry",
+            "the durable record is offered first"
+        );
+        assert!(
+            !candidates[0].needs_override,
+            "agreeing with the board renumbers nothing"
+        );
+        assert!(
+            candidates[0].blocked_by.is_none(),
+            "this MCU's own row never blocks it"
+        );
+    }
+
+    /// The erased board: flash blank, registry remembers. The registry number must lead, and must
+    /// be free of an override prompt -- there is nothing to renumber.
+    #[test]
+    fn an_erased_board_leads_with_the_number_the_registry_remembers() {
+        let registry = [row(4, "THIS-UID", true)];
+        let candidates = serial_candidates("THIS-UID", None, Some(4), 10, &registry);
+
+        assert_eq!(candidates[0].source, "registry");
+        assert_eq!(candidates[0].serial, 4);
+        assert!(!candidates[0].needs_override);
+        assert_eq!(
+            candidates[1].serial, 10,
+            "a fresh number is still offered, second"
+        );
+    }
+
+    /// `next_serial` is operator-editable, so it can point at a number already issued. Offering it
+    /// would be offering something the unique index rejects.
+    #[test]
+    fn the_fresh_number_counts_past_serials_already_issued() {
+        let registry = [
+            row(10, "OTHER", true),
+            row(11, "OTHER-2", true),
+            row(12, "X", false),
+        ];
+        assert_eq!(
+            first_free_serial(10, &registry),
+            12,
+            "12 was superseded, so it is free again"
+        );
+        assert_eq!(first_free_serial(1, &registry), 1);
+
+        let candidates = serial_candidates("THIS-UID", None, None, 10, &registry);
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(
+            (candidates[0].source.as_str(), candidates[0].serial),
+            ("next-free", 12)
+        );
+        assert!(candidates[0].blocked_by.is_none());
+    }
 
     /// Every enum this worker publishes must survive the name round trip. Keying a page on a
     /// discriminant is the failure these tables exist to prevent, and a name that does not

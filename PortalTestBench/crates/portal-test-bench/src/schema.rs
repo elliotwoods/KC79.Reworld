@@ -41,8 +41,12 @@ pub const SERIAL_DIALECTS: &[(u32, &str)] = &[(0, "none"), (1, "vcp"), (2, "benc
 // `sim` lives on this lane, not the serial one: the simulated module is `SimBus` behind an
 // ordinary `Rs485Link`, so it speaks the addressed protocol. The page hides the variant unless
 // the bench was started with `--simulate`.
-pub const RS485_TRANSPORTS: &[(u32, &str)] =
-    &[(0, "none"), (1, "rs485-serial"), (2, "rs485-tcp"), (3, "sim")];
+pub const RS485_TRANSPORTS: &[(u32, &str)] = &[
+    (0, "none"),
+    (1, "rs485-serial"),
+    (2, "rs485-tcp"),
+    (3, "sim"),
+];
 pub const CHANNELS: &[(u32, &str)] = &[(0, "serial"), (1, "rs485")];
 pub const LINE_ENDINGS: &[(u32, &str)] = &[(0, "none"), (1, "cr"), (2, "lf"), (3, "crlf")];
 
@@ -568,6 +572,52 @@ pub fn declare(builder: &mut SchemaBuilder, simulated: bool) -> Result<(), Strin
             .param("/provision/on_board_serial")
             .i64(0)
             .label("On-board serial")
+            .read_only()
+            .register(),
+    )?;
+    // What the registry holds for this MCU, which is not the same question as what its flash
+    // holds. Zero means "this MCU is not in the registry", which is distinct from serial 0 -- a
+    // serial is a positive u32, so the range never collides with the sentinel.
+    check(
+        builder
+            .param("/provision/database_serial")
+            .i64(0)
+            .label("Registry serial")
+            .read_only()
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/provision/database_status")
+            .text("")
+            .label("Registry status")
+            .read_only()
+            .register(),
+    )?;
+    // A standing preference, not a one-shot: locked on, every board read adopts the number the
+    // registry already holds for it, without anyone pressing anything. That is the right default
+    // for re-flashing a tray of boards that are already in the registry, and the wrong one for
+    // first provisioning -- so it is a padlock the operator sets, never something inferred.
+    check(
+        builder
+            .param("/provision/prefer_registry_serial")
+            .bool(false)
+            .label("Always take the registry serial")
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/provision/suggested_serial")
+            .i64(0)
+            .label("Suggested serial")
+            .read_only()
+            .register(),
+    )?;
+    check(
+        builder
+            .param("/provision/entered_serial_holder")
+            .text("")
+            .label("Entered serial is held by")
             .read_only()
             .register(),
     )?;
@@ -1317,6 +1367,11 @@ pub struct ProvisionParams {
     pub next_serial: ParamId,
     pub serial_to_provision: ParamId,
     pub on_board_serial: ParamId,
+    pub database_serial: ParamId,
+    pub database_status: ParamId,
+    pub entered_serial_holder: ParamId,
+    pub suggested_serial: ParamId,
+    pub prefer_registry_serial: ParamId,
     pub identity_state: ParamId,
     pub reservation: ParamId,
     pub pending_replug: ParamId,
@@ -1528,6 +1583,11 @@ impl Params {
                 next_serial: id("/provision/next_serial")?,
                 serial_to_provision: id("/provision/serial_to_provision")?,
                 on_board_serial: id("/provision/on_board_serial")?,
+                database_serial: id("/provision/database_serial")?,
+                database_status: id("/provision/database_status")?,
+                entered_serial_holder: id("/provision/entered_serial_holder")?,
+                suggested_serial: id("/provision/suggested_serial")?,
+                prefer_registry_serial: id("/provision/prefer_registry_serial")?,
                 identity_state: id("/provision/identity_state")?,
                 reservation: id("/provision/reservation")?,
                 pending_replug: id("/provision/pending_replug")?,
@@ -1656,6 +1716,9 @@ pub const ACTIONS: &[&str] = &[
     "flash_now",
     "keep_onboard_serial",
     "use_pcb_serial",
+    "use_database_serial",
+    "take_onboard_serial",
+    "take_next_free_serial",
     "read_settings",
     "write_settings",
     "reset_mcu",

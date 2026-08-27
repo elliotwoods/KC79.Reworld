@@ -34,20 +34,68 @@ inner reply, and then filters non-local unicasts and non-intersecting keyframes.
 and all firmware-update frames remain transparent. A reply from a conflicting ID block returns the
 unit to fail-open conflict mode until reboot or `relearn`.
 
-An earlier field setup used a host-side wiring orientation that was temporarily compensated with
-UART inversion in repeater v2.1.6. The V3 design and v2.2.0 production build use normal polarity on
-both sides (`REPEATER_SIDE1_INVERT=0` and `REPEATER_SIDE2_INVERT=0`). A/B labels are not consistent
-between RS485 vendors, so neither labels nor an absence of UART errors proves polarity. Do not
-persist a software-inversion override unless a scope or complete known-good frame proves that the
-installed differential pair is reversed and the exception is recorded for that installation.
+## Polarity is decided on the wire, per side
+
+A/B labels are not consistent between RS485 vendors, and a pair landed the wrong way round is a
+hardware fact an installation may not be able to change. Measured on the bench 2026-08-26: the
+host adapter on side 1 was wired with its pair swapped relative to the repeater's transceiver, so
+with both UARTs at normal polarity every host frame arrived as exactly one UART error and zero
+bytes, and everything relayed upstream reached the host as an inverted-polarity garble.
+
+Each side therefore runs a **polarity hunter** (`lib/BridgeCore/src/Polarity.*`), and the ESP32
+inverts RXD and TXD in hardware when it says so:
+
+- `auto` (the default): a side that has never decoded a frame at its current polarity flips after
+  two UART errors, at most once per 200 ms; once two frames decode it **locks**, and the proven
+  polarity is written to NVS so the next boot starts there. A locked side only re-hunts after
+  twelve errors with no valid frame among them -- more than any glitch burst seen on the bench,
+  less than a second of a host talking at the wrong polarity.
+- `normal` / `inverted`: pinned, for a documented installation override.
+
+Bytes and errors arriving within 3 ms of that side's own driver letting go are the turn-around
+glitch of a floating line, not traffic: they are excluded from the evidence and reported as
+`turnaround_events`, so a firmware upload -- thousands of frames out, nothing back for minutes --
+cannot talk a working side into flipping. `uart_errors` counts only errors outside that window.
+
+`REPEATER_SIDE1_INVERT` / `REPEATER_SIDE2_INVERT` in `platformio.ini` are now only the starting
+point for a unit that has never locked. The USB `polarity` command reports both sides
+(`mode`, `inverted`, `locked`, `flips`, the evidence counters); `polarity <1|2> <auto|normal|inverted>`
+sets and persists a mode, and the control-plane verb `set-polarity` does the same over RS485.
+`status` carries `inverted`/`polarity`/`locked`/`flips` per side.
 
 Because each MAX3362 has RE# tied to DE, its RO pin floats whenever that side transmits. The
-firmware enables an internal pulldown for the inverted UART and a pullup for the normal UART so
-those high-impedance intervals cannot be misreported as UART break/frame errors.
+firmware biases the ESP RX pin to that UART's idle level -- pulldown when inverted, pullup when
+not -- so those high-impedance intervals cannot be misreported as UART break/frame errors.
 
-The ESP32 UART may still raise a hardware event at the exact RE#/DE turn-around. Events received
-while that side is deliberately transmitting are reported separately as `turnaround_events`;
-`uart_errors` only counts errors while the receiver is active.
+## Driver-enable is timed by the UART
+
+By default (`de-mode hw`) each side's DE/RE# is driven by the UART peripheral in its RS485
+half-duplex mode, with RTS as the enable: the driver drops the instant the stop bit is out and the
+receiver is back before a fast responder's first byte. The old GPIO path, where the loop waited for
+`uart_wait_tx_done` and then dropped the pin, left the receiver deaf for milliseconds after every
+relayed frame and lost the head of the reply behind it. `de-mode sw` persists the GPIO path as a
+fallback and takes effect at once; `status` reports `de_hardware`.
+
+## A phantom delimiter is skipped, once
+
+A COBS delimiter that closes something which is not a COBS frame is taken -- once per frame -- to
+be a phantom rather than an end, and the frame stays open. A host adapter whose FIFO runs dry lets
+its driver go between two USB packets of one frame; on an inverted pair that undriven gap reads as
+a break, and a break is a zero. If the next delimiter does not close a frame either, the bytes were
+corrupt rather than split and the frame is given up without swallowing the one behind it. Counted
+as `phantom_delimiters` per side. (The host-side cause -- pacing frames by sleeping after a write
+that has not reached the wire -- is fixed in RouterRS by draining the port before the gap; the
+repeater's tolerance is the belt to that brace.)
+
+## Turnaround debris cannot open a frame
+
+When one of the repeater's own transmissions ends and its driver lets go, the receiver comes back
+to a line nobody is driving and samples a byte of debris. Left alone, that byte opened a partial
+frame, and any host request arriving within the 20 ms incomplete-frame window was glued to it and
+died -- which is exactly what `ota-boot`, sent milliseconds after the `ota-end` reply, did on four
+consecutive bench updates. Bytes arriving inside a 3 ms post-transmit shadow while no frame is in
+progress are now discarded (`shadow_bytes` per side); a frame already being received is never
+touched. The same shadow keeps those bytes out of the polarity evidence.
 
 ## Topology, pins, and serial-device identity
 
@@ -115,6 +163,12 @@ USB CDC is independent of both RS485 UARTs. Open `/dev/cu.usbmodem*` at 115200 a
 - `set-index N` — set it to 1..6, or 0 to unprovision
 - `ota-state` — running slot, session progress, whether relaying is paused
 - `rollback` — revert to the other slot and reboot
+- `polarity` — both sides' polarity mode, current inversion, lock state and evidence;
+  `polarity <1|2> <auto|normal|inverted>` sets and persists one side's mode
+- `de-mode` — who drives DE/RE#; `de-mode hw|sw` sets and persists it
+- `idle-timeout [us]` — the unterminated-frame timeout, adjustable live
+- `tx-test <1|2> [count] [portal-id]` — put inert frames, or a unicast poll, on one bus from the
+  repeater itself
 
 The console deliberately stays a diagnostic surface: everything bulk goes over RS485. `set-index` is
 here because a repeater has to be given its identity at commissioning, before it has one to be
@@ -127,8 +181,19 @@ mode/range, filter counts, queue depths/high-water marks/drops, parse failures, 
 oversized frames, UART errors, and transmission errors. Healthy V3 traffic learns the expected
 range and leaves every error/drop counter at zero.
 
-`reset-counters` does not forget the learned range. `relearn` does: it returns the router to
-transparent mode until a valid inner reply identifies the local nine-ID block.
+`reset-counters` does not forget the learned range, and it rebases rather than persuades the
+polarity hunters. `relearn` clears the range.
+
+### If the USB console is silent
+
+A silent console is not a dead repeater. On 2026-08-26 the C3's USB-JTAG stopped accepting bytes
+(`tcdrain` hung, esptool got "No serial data received") while the relay kept running. Prove the
+relay first: send a byte burst *without* a COBS delimiter from one side and the same burst *with*
+one, and watch the other side -- only the delimited one is relayed. Then reset the USB device from
+the host without unplugging it (`libusb_reset_device` on VID 303A PID 1001); after that both the
+console and esptool answer. Hold the console open in one long-lived process rather than opening
+and closing it per command: the C3 resets on a DTR-low/RTS-high transition, and with DTR
+deasserted it NAKs writes, which is how the wedge was produced in the first place.
 
 ## Commissioning and upstream diagnosis
 

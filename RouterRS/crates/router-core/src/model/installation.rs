@@ -188,7 +188,11 @@ impl Installation {
         self.columns.get_mut(index)
     }
 
-    pub fn portal(&mut self, column_index: usize, target: u8) -> Option<&mut super::portal::Portal> {
+    pub fn portal(
+        &mut self,
+        column_index: usize,
+        target: u8,
+    ) -> Option<&mut super::portal::Portal> {
         self.columns
             .get_mut(column_index)
             .and_then(|c| c.portal_by_target(target))

@@ -72,7 +72,10 @@ pub fn portal_cell(index: usize, count_x: usize, panel_height: usize) -> (usize,
     let per_panel = count_x * panel_height;
     let panel = index / per_panel;
     let within = index % per_panel;
-    (within / panel_height, panel * panel_height + within % panel_height)
+    (
+        within / panel_height,
+        panel * panel_height + within % panel_height,
+    )
 }
 
 impl Column {
@@ -179,7 +182,12 @@ impl Column {
         let (fresh_logs, report) = portal.process_incoming(&envelope.body);
 
         // reporting hooks
-        for LogMessage { message, level, timestamp_ms } in fresh_logs {
+        for LogMessage {
+            message,
+            level,
+            timestamp_ms,
+        } in fresh_logs
+        {
             if level >= router_report::events::LEVEL_WARNING || reporter.is_verbose() {
                 reporter.emit(Event::PortalLog {
                     col,
@@ -240,7 +248,8 @@ impl Column {
                 .to_string(),
             _ => String::new(),
         };
-        self.rs485.transmit(Packet::broadcast(body, address, collateable));
+        self.rs485
+            .transmit(Packet::broadcast(body, address, collateable));
     }
 
     pub fn broadcast_action(&mut self, action: ActionKind) {
@@ -253,8 +262,11 @@ impl Column {
     pub fn poll_all(&mut self) {
         self.last_poll_all = Some(Instant::now());
         for portal in &mut self.portals {
-            self.rs485
-                .transmit(Packet::from_body(portal.target as i8, &commands::poll(), "poll"));
+            self.rs485.transmit(Packet::from_body(
+                portal.target as i8,
+                &commands::poll(),
+                "poll",
+            ));
             portal.last_tx = Some(Instant::now());
         }
     }
@@ -283,8 +295,14 @@ impl Column {
                 continue;
             };
             let x = self.index * self.count_x + i;
-            let y = if self.flipped { row } else { self.count_y - 1 - row };
-            let Some(rgb) = pixels.get(x, y) else { continue };
+            let y = if self.flipped {
+                row
+            } else {
+                self.count_y - 1 - row
+            };
+            let Some(rgb) = pixels.get(x, y) else {
+                continue;
+            };
             portal.pilot.set_position(vec2(rgb[0], rgb[1]));
             portal.pilot.update([
                 super::pilot::AxisReported {
@@ -395,10 +413,26 @@ mod panel_layout_tests {
     /// bottom.
     #[test]
     fn six_panels_stack_bottom_upwards() {
-        assert_eq!(portal_cell(9, 3, 3), (0, 3), "id 10 is the bottom left of panel 2");
-        assert_eq!(portal_cell(17, 3, 3), (2, 5), "id 18 is the top right of panel 2");
-        assert_eq!(portal_cell(45, 3, 3), (0, 15), "id 46 is the bottom left of panel 6");
-        assert_eq!(portal_cell(53, 3, 3), (2, 17), "id 54 is the top of the wall");
+        assert_eq!(
+            portal_cell(9, 3, 3),
+            (0, 3),
+            "id 10 is the bottom left of panel 2"
+        );
+        assert_eq!(
+            portal_cell(17, 3, 3),
+            (2, 5),
+            "id 18 is the top right of panel 2"
+        );
+        assert_eq!(
+            portal_cell(45, 3, 3),
+            (0, 15),
+            "id 46 is the bottom left of panel 6"
+        );
+        assert_eq!(
+            portal_cell(53, 3, 3),
+            (2, 17),
+            "id 54 is the top of the wall"
+        );
     }
 
     /// Every cell of the stack is used exactly once, so no board hides behind another.
@@ -407,7 +441,11 @@ mod panel_layout_tests {
         let mut seen = std::collections::HashSet::new();
         for index in 0..54 {
             let (gx, row) = portal_cell(index, 3, 3);
-            assert!(gx < 3 && row < 18, "id {} lands outside the wall", index + 1);
+            assert!(
+                gx < 3 && row < 18,
+                "id {} lands outside the wall",
+                index + 1
+            );
             assert!(seen.insert((gx, row)), "duplicate cell at id {}", index + 1);
         }
         assert_eq!(seen.len(), 54);

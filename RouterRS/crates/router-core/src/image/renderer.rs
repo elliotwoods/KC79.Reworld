@@ -30,7 +30,9 @@ impl Renderer {
                 renderer.sources.push(source);
             }
         }
-        renderer.layers.resize_with(renderer.sources.len(), PixelsF32::default);
+        renderer
+            .layers
+            .resize_with(renderer.sources.len(), PixelsF32::default);
         renderer
     }
 
@@ -52,7 +54,8 @@ impl Renderer {
             height: settings.height,
             time: settings.time,
         };
-        self.layers.resize_with(self.sources.len(), PixelsF32::default);
+        self.layers
+            .resize_with(self.sources.len(), PixelsF32::default);
 
         // Render individual source layers
         for (source, layer) in self.sources.iter_mut().zip(&mut self.layers) {
@@ -158,7 +161,11 @@ mod tests {
         gradient.speed = 0.0;
         renderer.add_source(Box::new(gradient));
 
-        let settings = RenderSettings { width: 4, height: 4, time: 0.0 };
+        let settings = RenderSettings {
+            width: 4,
+            height: 4,
+            time: 0.0,
+        };
         renderer.render(&settings);
         assert_eq!(renderer.pixels.width, 4);
 
@@ -179,7 +186,11 @@ mod tests {
         let mut gradient = Gradient::default();
         gradient.base.visible = false;
         renderer.add_source(Box::new(gradient));
-        renderer.render(&RenderSettings { width: 4, height: 4, time: 0.0 });
+        renderer.render(&RenderSettings {
+            width: 4,
+            height: 4,
+            time: 0.0,
+        });
         assert!(renderer.pixels.data.iter().all(|v| *v == 0.0));
     }
 

@@ -200,7 +200,12 @@ pub fn mc_move_with_profile(
 }
 
 /// `{"motionControlX": {"motionProfile": [maxVelocity, acceleration, minVelocity]}}`.
-pub fn mc_motion_profile(axis: Axis, max_velocity: i32, acceleration: i32, min_velocity: i32) -> Value {
+pub fn mc_motion_profile(
+    axis: Axis,
+    max_velocity: i32,
+    acceleration: i32,
+    min_velocity: i32,
+) -> Value {
     mc(
         axis,
         "motionProfile",
@@ -392,7 +397,10 @@ impl ActionKind {
     }
 
     pub fn by_osc_address(address: &str) -> Option<ActionKind> {
-        Self::ALL.iter().copied().find(|a| a.osc_address() == address)
+        Self::ALL
+            .iter()
+            .copied()
+            .find(|a| a.osc_address() == address)
     }
 
     pub fn by_caption(caption: &str) -> Option<ActionKind> {
@@ -406,7 +414,11 @@ mod tests {
     use crate::value::dump_to_vec;
 
     fn hex(bytes: &[u8]) -> String {
-        bytes.iter().map(|b| format!("{b:02X}")).collect::<Vec<_>>().join(" ")
+        bytes
+            .iter()
+            .map(|b| format!("{b:02X}"))
+            .collect::<Vec<_>>()
+            .join(" ")
     }
 
     #[test]
@@ -452,17 +464,28 @@ mod tests {
     fn keyframe_body_shape() {
         let body = keyframe(
             1,
-            &[KeyframeValue::PosVel(100, -100, 5, -5), KeyframeValue::Pos(1, 2)],
+            &[
+                KeyframeValue::PosVel(100, -100, 5, -5),
+                KeyframeValue::Pos(1, 2),
+            ],
         );
         let Value::Map(entries) = &body else { panic!() };
-        let Value::Map(kf) = &entries[0].1 else { panic!() };
+        let Value::Map(kf) = &entries[0].1 else {
+            panic!()
+        };
         assert_eq!(kf[0].0.as_str(), Some("startIndex"));
         assert_eq!(kf[0].1.as_u64(), Some(1));
-        let Value::Array(values) = &kf[1].1 else { panic!() };
+        let Value::Array(values) = &kf[1].1 else {
+            panic!()
+        };
         assert_eq!(values.len(), 2);
-        let Value::Array(first) = &values[0] else { panic!() };
+        let Value::Array(first) = &values[0] else {
+            panic!()
+        };
         assert_eq!(first.len(), 4);
-        let Value::Array(second) = &values[1] else { panic!() };
+        let Value::Array(second) = &values[1] else {
+            panic!()
+        };
         assert_eq!(second.len(), 2);
     }
 

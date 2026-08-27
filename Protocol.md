@@ -215,13 +215,17 @@ Frames and queues are bounded: incomplete, oversized, or queue-overflowed
 traffic is discarded as a complete unit and exposed in USB diagnostics;
 partial commands are never forwarded.
 
-The V3 design uses the same A/B polarity on both repeater sides, so the
-production firmware is built with both ESP32 UARTs uninverted. Repeater
-v2.1.6 temporarily inverted side 1 to compensate for one field/bench wiring
-orientation. Do not infer electrical polarity from an adapter's A/B labels:
-vendors use conflicting A/B conventions. Verify it with a known-good frame or
-at the transceiver pins. Software inversion is a diagnostic or an explicitly
-documented installation override, not a substitute for proving the wiring.
+Do not infer electrical polarity from an adapter's A/B labels: vendors use
+conflicting A/B conventions, and a pair landed the wrong way round may be a
+hardware fact an installation cannot change. Since 2026-08-26 the repeater
+absorbs it: each side runs a polarity hunter (`auto` mode, the default) that
+flips that UART's RXD/TXD inversion when traffic arrives only as UART errors,
+locks once frames decode, and persists the proven value to NVS. A side can be
+pinned `normal`/`inverted` as a documented installation override, over USB
+(`polarity`) or in band (`set-polarity`, §11). `status` reports each side's
+mode, current inversion, lock state and flip count; a side whose `flips` keeps
+climbing without locking decodes at neither polarity, which is an electrical
+fault, not a polarity choice.
 
 At boot the repeater is transparent. A valid inner reply `[0, source, ...]`
 teaches it which contiguous nine-ID block is local. It then forwards only
@@ -282,7 +286,7 @@ fixed wire settings and pin names are:
 | MAX3362 `RO` → ESP RX | GPIO20 | GPIO6 |
 | ESP TX → MAX3362 `DI` | GPIO21 | GPIO4 |
 | tied `DE`/`RE#` | GPIO7 | GPIO5 |
-| production inversion | off | off |
+| polarity | decided on the wire (`auto`), persisted | decided on the wire (`auto`), persisted |
 
 The tied `DE`/`RE#` signal is LOW while receiving and HIGH while
 transmitting. The receiver output floats while transmitting, so firmware
@@ -301,8 +305,9 @@ Use this commissioning order:
 3. Confirm the adapter uses automatic half-duplex direction control. The
    Router transports do not toggle a DE pin; an adapter that requires manual
    RTS direction must be configured to do that itself or is not compatible.
-4. Query repeater USB `version`, verify v2.2.0 or later, 115200 baud, and the
-   intended `side1.inverted`/`side2.inverted` values. Run `reset-counters`.
+4. Query repeater USB `version`, verify v2.2.0 or later, 115200 baud, and each
+   side's polarity state (`polarity`: mode, inverted, locked). Run
+   `reset-counters`.
 5. Send one known-good, non-motion frame at 115200/8N1 and wait for its reply
    before sending another. Do not begin with a burst discovery: a burst can
    fill the four-frame queue and obscure the electrical result.
@@ -986,7 +991,12 @@ the one just uploaded.
 On Reworld V3 the repeaters do not filter or reinterpret any of this: every word
 and every upload frame is relayed down the chain as received, at the same 115200
 baud. Use the firmware updater's own pacing; the 5 ms V3 broadcast gap does not
-override a packet's explicit wait.
+override a packet's explicit wait. That pacing is only real if each frame has
+left the port before the gap starts: RouterRS drains the port (`tcdrain`) after
+every write, because a host that merely sleeps after `write()` fills the OS
+buffer within seconds and from then on the adapter's FIFO runs dry mid-frame and
+its driver-enable drops — invisible on a pair at the receiver's polarity, fatal
+on one the repeater is absorbing by inversion (§2).
 
 Because the panels are chained rather than starred, a frame is stored and
 forwarded once per panel, so its delivery time grows with depth — roughly
@@ -1259,10 +1269,14 @@ Only `snap-start`, `ota-data`, `ota-boot` and `ota-abort` may be broadcast.
 | `set-index` | `int` 0–6 | ack; usually MAC-addressed |
 | `snap-start` | `int` collect ms (optional) | none — broadcast |
 | `snap-read` | — | the branch's stored replies, then a summary |
+| `set-polarity` | `[side, mode]` — side 1\|2, mode 0 normal / 1 inverted / 2 auto | ack |
 | `ota-*` | see §12 | see §12 |
 
-The `status` payload reports `proto` (control-plane version), `ver`, `build`,
-`mac`, `idx`, `mode`, `range`, per-side counters under `s1`/`s2`, filter counts
+The `status` payload reports `proto` (control-plane version), `dehw` (whether
+the UART peripheral times driver-enable), `ver`, `build`, `mac`, `idx`, `mode`,
+`range`, per-side counters under `s1`/`s2` — including `vf` (frames that parsed),
+`ph` (phantom delimiters skipped), and the polarity fields `inv`/`pol`/`lk`/`flp`
+— filter counts
 under `flt`, plane counters under `plane`, a monotonic `ev` event counter, and a
 `health` map carrying `rst` (reset reason), `boots`, `unhealthy`, `heap`, `up`
 (64-bit uptime — `millis()` wraps every 49.7 days and this installation runs for

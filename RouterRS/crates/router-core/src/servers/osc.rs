@@ -108,7 +108,9 @@ fn arg_float(message: &OscMessage, index: usize) -> Option<f32> {
 
 fn is_integer(s: &str) -> bool {
     // C++: ofToString(ofToInt(s)) == s
-    s.parse::<i64>().map(|v| v.to_string() == s).unwrap_or(false)
+    s.parse::<i64>()
+        .map(|v| v.to_string() == s)
+        .unwrap_or(false)
 }
 
 // ------------------------------------------------------------- routing

@@ -37,6 +37,16 @@ pub fn routes(shared: Arc<Shared>) -> Router {
         .route("/api/bench/firmware/dropped", delete(forget_firmware))
         .route("/api/bench/provision", get(provision))
         .route("/api/bench/provision/history", get(provision_history))
+        .route("/api/bench/provision/registry", get(provision_registry))
+        .route("/api/bench/provision/library", get(provision_library))
+        .route(
+            "/api/bench/provision/library/export.json",
+            get(export_library_json),
+        )
+        .route(
+            "/api/bench/provision/library/export.csv",
+            get(export_library_csv),
+        )
         .route("/api/bench/run", post(run))
         .route("/api/bench/abort", post(abort))
         .route("/api/bench/command", post(command))
@@ -284,6 +294,141 @@ async fn provision_history(
         .cloned()
         .collect::<Vec<_>>();
     Json(serde_json::json!({ "actions": actions }))
+}
+
+#[derive(serde::Deserialize)]
+struct ProvisionRegistryQuery {
+    #[serde(default)]
+    q: Option<String>,
+    /// Hide superseded rows. Off by default: the moves are most of why anyone opens this.
+    #[serde(default)]
+    active_only: bool,
+}
+
+/// Every serial the registry has issued, as the worker last read it.
+///
+/// A mirror read like [`ports`], for the same reason -- the worker owns the SQLite handle, and a
+/// request thread querying it would race the reservation it is in the middle of committing.
+async fn provision_registry(
+    State(shared): State<Arc<Shared>>,
+    Query(query): Query<ProvisionRegistryQuery>,
+) -> impl IntoResponse {
+    let provision = shared.provision.lock().unwrap();
+    let needle = query.q.as_deref().unwrap_or("").to_ascii_lowercase();
+    let rows = provision
+        .registry
+        .iter()
+        .filter(|row| !query.active_only || row.active)
+        .filter(|row| {
+            needle.is_empty()
+                || row.uid.to_ascii_lowercase().contains(&needle)
+                || row.serial.to_string().contains(&needle)
+                || row.status.contains(&needle)
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    Json(serde_json::json!({
+        "associations": rows,
+        "next_serial": provision.next_serial,
+        "database_ok": provision.database_ok,
+    }))
+}
+
+async fn provision_library(State(shared): State<Arc<Shared>>) -> impl IntoResponse {
+    let provision = shared.provision.lock().unwrap();
+    let mut known = provision
+        .devices
+        .iter()
+        .map(|row| row.uid.as_str())
+        .collect::<Vec<_>>();
+    known.extend(provision.registry.iter().map(|row| row.uid.as_str()));
+    known.extend(provision.attempts.iter().map(|row| row.uid.as_str()));
+    known.sort_unstable();
+    known.dedup();
+    let active = provision.registry.iter().filter(|row| row.active).count();
+    let provisioned = provision
+        .registry
+        .iter()
+        .filter(|row| row.active && row.status == "provisioned")
+        .count();
+    let attention = provision
+        .registry
+        .iter()
+        .filter(|row| row.active && matches!(row.status.as_str(), "reserved" | "failed"))
+        .count();
+    Json(serde_json::json!({
+        "database_ok": provision.database_ok,
+        "database_error": provision.database_error,
+        "next_serial": provision.next_serial,
+        "summary": { "devices": known.len(), "active": active, "provisioned": provisioned, "attention": attention },
+        "devices": provision.devices,
+        "associations": provision.registry,
+        "attempts": provision.attempts,
+        "actions": provision.history,
+    }))
+}
+
+async fn export_library_json(State(shared): State<Arc<Shared>>) -> impl IntoResponse {
+    let provision = shared.provision.lock().unwrap().clone();
+    let body = serde_json::to_string_pretty(&provision).unwrap_or_else(|_| "{}".into());
+    (
+        [
+            (header::CONTENT_TYPE, "application/json; charset=utf-8"),
+            (
+                header::CONTENT_DISPOSITION,
+                "attachment; filename=\"portal-hardware-library.json\"",
+            ),
+        ],
+        body,
+    )
+}
+
+fn csv_field(value: &str) -> String {
+    format!("\"{}\"", value.replace('"', "\"\""))
+}
+
+async fn export_library_csv(State(shared): State<Arc<Shared>>) -> impl IntoResponse {
+    let provision = shared.provision.lock().unwrap();
+    let mut body = String::from(
+        "uid,serial,status,active,idcode,dev_id,flash_kb,probe,last_seen_ms,latest_firmware,latest_outcome\n",
+    );
+    for device in &provision.devices {
+        let binding = provision
+            .registry
+            .iter()
+            .find(|row| row.uid == device.uid && row.active);
+        let attempt = provision.attempts.iter().find(|row| row.uid == device.uid);
+        body.push_str(&format!(
+            "{},{},{},{},{},{},{},{},{},{},{}\n",
+            csv_field(&device.uid),
+            binding
+                .map(|row| row.serial.to_string())
+                .unwrap_or_default(),
+            csv_field(binding.map(|row| row.status.as_str()).unwrap_or("unbound")),
+            binding.is_some(),
+            csv_field(&device.idcode),
+            csv_field(&device.dev_id),
+            device.flash_kb,
+            csv_field(&device.probe_name),
+            device.last_seen_ms,
+            csv_field(
+                attempt
+                    .map(|row| row.firmware_version.as_str())
+                    .unwrap_or("")
+            ),
+            csv_field(attempt.map(|row| row.outcome.as_str()).unwrap_or(""))
+        ));
+    }
+    (
+        [
+            (header::CONTENT_TYPE, "text/csv; charset=utf-8"),
+            (
+                header::CONTENT_DISPOSITION,
+                "attachment; filename=\"portal-hardware-library.csv\"",
+            ),
+        ],
+        body,
+    )
 }
 
 #[derive(serde::Deserialize)]
@@ -577,6 +722,21 @@ enum CommandBody {
         #[serde(default)]
         allow_reassignment: bool,
     },
+    ReassignLibrarySerial {
+        serial: u32,
+        uid: String,
+    },
+    SupersedeLibraryBinding {
+        serial: u32,
+        uid: String,
+    },
+    AddLibraryNote {
+        #[serde(default)]
+        serial: Option<u32>,
+        #[serde(default)]
+        uid: Option<String>,
+        detail: String,
+    },
     KeepOnboardSerial,
     UsePcbSerial {
         serial: u32,
@@ -704,6 +864,37 @@ async fn command(
             serial,
             allow_reassignment,
         },
+        CommandBody::ReassignLibrarySerial { serial, uid } => {
+            if serial == 0 || uid.trim().is_empty() {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(serde_json::json!({"error":"serial and uid are required"})),
+                )
+                    .into_response();
+            }
+            Request::ReassignLibrarySerial { serial, uid }
+        }
+        CommandBody::SupersedeLibraryBinding { serial, uid } => {
+            Request::SupersedeLibraryBinding { serial, uid }
+        }
+        CommandBody::AddLibraryNote {
+            serial,
+            uid,
+            detail,
+        } => {
+            if detail.trim().is_empty() {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(serde_json::json!({"error":"note must not be empty"})),
+                )
+                    .into_response();
+            }
+            Request::AddLibraryNote {
+                serial,
+                uid,
+                detail,
+            }
+        }
         CommandBody::KeepOnboardSerial => Request::KeepOnboardSerial,
         CommandBody::UsePcbSerial { serial } => Request::UsePcbSerial(serial),
         CommandBody::ReadSettings => Request::ReadSettings,
@@ -910,6 +1101,21 @@ mod tests {
                 allow_reassignment: true
             }
         ));
+
+        let body: CommandBody = serde_json::from_value(serde_json::json!({
+            "op": "reassign_library_serial", "serial": 9, "uid": "MCU-A"
+        }))
+        .unwrap();
+        assert!(matches!(
+            body,
+            CommandBody::ReassignLibrarySerial { serial: 9, .. }
+        ));
+
+        let body: CommandBody = serde_json::from_value(serde_json::json!({
+            "op": "add_library_note", "uid": "MCU-A", "detail": "inspected connector"
+        }))
+        .unwrap();
+        assert!(matches!(body, CommandBody::AddLibraryNote { .. }));
 
         let body: CommandBody = serde_json::from_value(serde_json::json!({
             "op": "write_settings", "current_ma": 250, "recovery": false

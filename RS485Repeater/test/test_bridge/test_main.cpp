@@ -500,9 +500,13 @@ void test_a_run_of_delimiters_between_frames_is_absorbed() {
 
 void test_a_frame_split_across_a_usb_packet_gap_still_arrives() {
     FrameRouter router(20000);
-    auto frame = envelope(1, 0);
-    // Padded past the two-USB-packet boundary where the gap appears in practice.
-    while(frame.size() < 160) frame.insert(frame.end() - 1, 0x7F);
+    // A genuine long frame -- the body is padded *before* COBS encoding, because a frame
+    // padded after encoding is not a COBS frame at all, and since phantom-delimiter handling
+    // such a fake is held for a second delimiter rather than relayed at its first.
+    std::vector<uint8_t> raw{0x93, 0x01, 0x00, 0xC4, 150};
+    raw.insert(raw.end(), 150, 0x7F);
+    const auto frame = cobsFrame(raw);
+    TEST_ASSERT_GREATER_THAN_size_t(150, frame.size());
 
     const size_t half = 64;
     router.ingest(Side::One, frame.data(), half, 1000);
@@ -531,6 +535,112 @@ void test_a_stream_that_stops_is_still_abandoned() {
     TEST_ASSERT_EQUAL_UINT64(1, router.stats().oneToTwo.incompleteFrames);
 }
 
+/// A host adapter let its driver go between two USB packets of one frame; on an inverted
+/// pair that is a break, and a break is a zero. The frame's own delimiter still arrives.
+void test_a_phantom_delimiter_inside_a_frame_is_skipped_and_the_frame_still_arrives() {
+    FrameRouter router;
+    const auto frame = envelope(-1, 0);
+    // Split the frame after its second byte and drop a zero into the gap.
+    std::vector<uint8_t> head(frame.begin(), frame.begin() + 2);
+    std::vector<uint8_t> tail(frame.begin() + 2, frame.end());
+    ingest(router, Side::One, head, 1);
+    ingest(router, Side::One, {0x00}, 2);
+    ingest(router, Side::One, tail, 3);
+    TEST_ASSERT_EQUAL_UINT64(1, router.stats().oneToTwo.phantomDelimiters);
+    TEST_ASSERT_EQUAL_UINT64(1, router.stats().oneToTwo.receivedFrames);
+    TEST_ASSERT_EQUAL_UINT64(1, router.stats().oneToTwo.validFrames);
+    FrameView view;
+    TEST_ASSERT_TRUE(router.nextFrame(view));
+    TEST_ASSERT_EQUAL_size_t(frame.size(), view.size);
+    TEST_ASSERT_EQUAL_MEMORY(frame.data(), view.data, frame.size());
+}
+
+/// Two delimiters that each close nothing decodable: the bytes were corrupt, not split, and
+/// the frame behind them must not be swallowed with them.
+void test_a_second_phantom_gives_up_on_the_frame_without_eating_the_next_one() {
+    FrameRouter router;
+    const std::vector<uint8_t> junk{0x09, 0x11, 0x22, 0x00}; // code 9 promises eight bytes
+    ingest(router, Side::One, junk, 1);
+    TEST_ASSERT_EQUAL_UINT64(1, router.stats().oneToTwo.phantomDelimiters);
+    TEST_ASSERT_EQUAL_UINT64(0, router.stats().oneToTwo.receivedFrames);
+    ingest(router, Side::One, {0x33, 0x00}, 2);
+    // Given up: counted as a received (undecodable, fail-open) frame, and the accumulator is empty.
+    TEST_ASSERT_EQUAL_UINT64(1, router.stats().oneToTwo.receivedFrames);
+    TEST_ASSERT_EQUAL_UINT64(1, router.stats().parseErrors);
+    const auto good = envelope(-1, 0);
+    ingest(router, Side::One, good, 3);
+    TEST_ASSERT_EQUAL_UINT64(2, router.stats().oneToTwo.receivedFrames);
+    TEST_ASSERT_EQUAL_UINT64(1, router.stats().oneToTwo.validFrames);
+    FrameView view;
+    TEST_ASSERT_TRUE(router.nextFrame(view)); // the junk, fail-open
+    router.completeTransmission(Side::One);
+    TEST_ASSERT_TRUE(router.nextFrame(view));
+    TEST_ASSERT_EQUAL_size_t(good.size(), view.size);
+    TEST_ASSERT_EQUAL_MEMORY(good.data(), view.data, good.size());
+}
+
+/// Ordinary traffic is untouched: back-to-back genuine frames still separate at their own
+/// delimiters, and a bare delimiter is still absorbed rather than mistaken for a phantom.
+void test_genuine_frames_and_bare_delimiters_are_unaffected_by_phantom_handling() {
+    FrameRouter router;
+    const auto a = envelope(3, 0);
+    const auto b = envelope(4, 0);
+    ingest(router, Side::One, a, 1);
+    ingest(router, Side::One, {0x00}, 2);
+    ingest(router, Side::One, b, 3);
+    TEST_ASSERT_EQUAL_UINT64(0, router.stats().oneToTwo.phantomDelimiters);
+    TEST_ASSERT_EQUAL_UINT64(2, router.stats().oneToTwo.receivedFrames);
+    TEST_ASSERT_EQUAL_UINT64(1, router.stats().oneToTwo.emptyFrames);
+    TEST_ASSERT_EQUAL_UINT64(2, router.stats().oneToTwo.validFrames);
+}
+
+/// The bench failure that cost four OTA attempts: the reply to `ota-end` left one debris byte
+/// on the wire as its driver let go, the host's `ota-boot` arrived 5-20 ms later, was glued to
+/// it, failed COBS at its delimiter and died. Bytes landing in the post-transmit shadow with
+/// nothing in progress are debris; a frame arriving after the shadow is untouched.
+void test_turnaround_debris_after_own_transmission_cannot_open_a_frame() {
+    FrameRouter router;
+    const auto reply = envelope(0, -3);
+    ingest(router, Side::Two, reply, 1000); // something to transmit on side 1
+    FrameView view;
+    TEST_ASSERT_TRUE(router.nextFrame(view));
+    router.completeTransmission(Side::Two);
+    router.noteTransmissionEnd(Side::One, 50000); // our side-1 driver just let go
+
+    ingest(router, Side::One, {0xE7}, 51000);     // debris, 1 ms into the shadow
+    TEST_ASSERT_EQUAL_UINT64(1, router.stats().oneToTwo.shadowBytes);
+
+    const auto request = envelope(-1, 0);
+    ingest(router, Side::One, request, 58000);    // the host's next frame, 8 ms later
+    TEST_ASSERT_EQUAL_UINT64(1, router.stats().oneToTwo.receivedFrames);
+    TEST_ASSERT_EQUAL_UINT64(1, router.stats().oneToTwo.validFrames);
+    TEST_ASSERT_EQUAL_UINT64(0, router.stats().oneToTwo.phantomDelimiters);
+    TEST_ASSERT_TRUE(router.nextFrame(view));
+    TEST_ASSERT_EQUAL_size_t(request.size(), view.size);
+    TEST_ASSERT_EQUAL_MEMORY(request.data(), view.data, request.size());
+}
+
+/// A genuinely fast responder is not debris: bytes continuing a frame already in progress are
+/// never shadow-dropped, and an unarmed router (no transmission recorded) drops nothing.
+void test_the_shadow_only_drops_bytes_that_would_open_a_frame() {
+    FrameRouter router;
+    const auto frame = envelope(-1, 0);
+    // Half the frame arrives, then our own transmission on the same side ends mid-reception --
+    // impossible on the real bridge, but the guard must still not eat the tail.
+    std::vector<uint8_t> head(frame.begin(), frame.begin() + 3);
+    std::vector<uint8_t> tail(frame.begin() + 3, frame.end());
+    ingest(router, Side::One, head, 1000);
+    router.noteTransmissionEnd(Side::One, 1500);
+    ingest(router, Side::One, tail, 2000);
+    TEST_ASSERT_EQUAL_UINT64(1, router.stats().oneToTwo.receivedFrames);
+    TEST_ASSERT_EQUAL_UINT64(0, router.stats().oneToTwo.shadowBytes);
+
+    FrameRouter unarmed;
+    ingest(unarmed, Side::One, frame, 10); // early micros, nothing transmitted yet
+    TEST_ASSERT_EQUAL_UINT64(1, unarmed.stats().oneToTwo.receivedFrames);
+    TEST_ASSERT_EQUAL_UINT64(0, unarmed.stats().oneToTwo.shadowBytes);
+}
+
 int main(int, char**) {
     UNITY_BEGIN();
     RUN_TEST(test_complete_frames_are_stored_before_forwarding);
@@ -555,5 +665,10 @@ int main(int, char**) {
     RUN_TEST(test_claimed_inner_replies_are_not_relayed_upstream);
     RUN_TEST(test_a_block_start_must_be_a_legal_one);
     RUN_TEST(test_maintenance_pause_stops_relaying_but_not_the_control_plane);
+    RUN_TEST(test_a_phantom_delimiter_inside_a_frame_is_skipped_and_the_frame_still_arrives);
+    RUN_TEST(test_a_second_phantom_gives_up_on_the_frame_without_eating_the_next_one);
+    RUN_TEST(test_genuine_frames_and_bare_delimiters_are_unaffected_by_phantom_handling);
+    RUN_TEST(test_turnaround_debris_after_own_transmission_cannot_open_a_frame);
+    RUN_TEST(test_the_shadow_only_drops_bytes_that_would_open_a_frame);
     return UNITY_END();
 }

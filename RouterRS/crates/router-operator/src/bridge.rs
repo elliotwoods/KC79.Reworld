@@ -361,7 +361,9 @@ impl Bridge {
         self.actions.clear();
         for decl in self.bus.schema().params() {
             let path = decl.path.as_str();
-            let Some((prefix, leaf)) = path.split_once("/actions/") else { continue };
+            let Some((prefix, leaf)) = path.split_once("/actions/") else {
+                continue;
+            };
             let target = if prefix == "/installation" {
                 ActionTarget::Installation(leaf.into())
             } else if prefix == "/bulk" {
@@ -391,8 +393,14 @@ impl Bridge {
             } else {
                 continue;
             };
-            let Some(id) = self.bus.id_of(path) else { continue };
-            self.actions.push(ActionBinding { id, last: i64_of(self.bus.get(id)), target });
+            let Some(id) = self.bus.id_of(path) else {
+                continue;
+            };
+            self.actions.push(ActionBinding {
+                id,
+                last: i64_of(self.bus.get(id)),
+                target,
+            });
         }
 
         self.texts.clear();
@@ -400,7 +408,9 @@ impl Bridge {
         self.mirrors.installation = self.read_installation_bus();
         self.mirrors.installation_model = self.mirrors.installation.clone();
         self.mirrors.pilot_all = vec2_of(self.bus.get(self.params.installation_pilot_all));
-        self.mirrors.columns = (0..self.params.columns.len()).map(|i| self.read_column_bus(i)).collect();
+        self.mirrors.columns = (0..self.params.columns.len())
+            .map(|i| self.read_column_bus(i))
+            .collect();
         self.mirrors.columns_model = self.mirrors.columns.clone();
         self.mirrors.column_pads = vec![[0.0, 0.0]; self.params.columns.len()];
         self.mirrors.portal = self.read_portal_bus();
@@ -409,7 +419,9 @@ impl Bridge {
             i32_of(self.bus.get(self.params.select_col)),
             i32_of(self.bus.get(self.params.select_portal)),
         );
-        self.mirrors.sources = (0..self.params.sources.len()).map(|i| self.read_source_bus(i)).collect();
+        self.mirrors.sources = (0..self.params.sources.len())
+            .map(|i| self.read_source_bus(i))
+            .collect();
         self.mirrors.sources_model = self.mirrors.sources.clone();
         self.mirrors.verbose = bool_of(self.bus.get(self.params.report_verbose));
         self.last_generation = 0; // force a republish on the new epoch
@@ -420,7 +432,11 @@ impl Bridge {
             return;
         }
         let live_shape = Shape {
-            columns: snap.columns.iter().map(|c| (c.count_x, c.count_y)).collect(),
+            columns: snap
+                .columns
+                .iter()
+                .map(|c| (c.count_x, c.count_y))
+                .collect(),
             resolution: (snap.preview.width, snap.preview.height),
             sources: snap
                 .sources
@@ -473,7 +489,10 @@ impl Bridge {
         for binding in &mut self.actions {
             let value = i64_of(self.bus.get(binding.id));
             if value > binding.last {
-                fired.push((binding.target.clone(), (value - binding.last).min(MAX_FIRES_PER_TICK)));
+                fired.push((
+                    binding.target.clone(),
+                    (value - binding.last).min(MAX_FIRES_PER_TICK),
+                ));
             }
             binding.last = value;
         }
@@ -496,7 +515,10 @@ impl Bridge {
                 "save_config" => send(Command::SaveConfig),
                 other => {
                     if let Some(kind) = action_kind(other) {
-                        send(Command::PerformAction { scope: Scope::All, action: kind });
+                        send(Command::PerformAction {
+                            scope: Scope::All,
+                            action: kind,
+                        });
                     }
                 }
             },
@@ -533,9 +555,10 @@ impl Bridge {
                         .and_then(|c| self.bus.text(c.device, |s| s.to_string()).ok())
                         .unwrap_or_default();
                     match serde_json::from_str::<serde_json::Value>(&text) {
-                        Ok(settings) if settings.is_object() => {
-                            send(Command::Rs485Connect { col: *col, settings })
-                        }
+                        Ok(settings) if settings.is_object() => send(Command::Rs485Connect {
+                            col: *col,
+                            settings,
+                        }),
                         _ => tracing::warn!("column {col}: device settings are not valid JSON"),
                     }
                 }
@@ -544,7 +567,10 @@ impl Bridge {
                 "clear_counters" => send(Command::Rs485ClearCounters { col: *col }),
                 other => {
                     if let Some(kind) = action_kind(other) {
-                        send(Command::PerformAction { scope: Scope::Column(*col), action: kind });
+                        send(Command::PerformAction {
+                            scope: Scope::Column(*col),
+                            action: kind,
+                        });
                     }
                 }
             },
@@ -572,7 +598,12 @@ impl Bridge {
             ActionTarget::PortalAxis(axis, leaf) => {
                 let (col, portal) = self.selection();
                 let axis = *axis;
-                let mc = |kind: McCommand| Command::Mc { col, portal, axis, kind };
+                let mc = |kind: McCommand| Command::Mc {
+                    col,
+                    portal,
+                    axis,
+                    kind,
+                };
                 match leaf.as_str() {
                     "zero_position" => send(mc(McCommand::ZeroCurrentPosition)),
                     "measure_backlash" => send(mc(McCommand::MeasureBacklash)),
@@ -594,7 +625,9 @@ impl Bridge {
                     "add_spout" => "Spout",
                     _ => return,
                 };
-                send(Command::SourceAdd { type_name: type_name.into() });
+                send(Command::SourceAdd {
+                    type_name: type_name.into(),
+                });
             }
             ActionTarget::Source(index, leaf) => match leaf.as_str() {
                 "remove" => send(Command::SourceRemove { index: *index }),
@@ -697,18 +730,38 @@ impl Bridge {
         } else {
             let model_now = Self::installation_from_model(snap);
             if model_now != self.mirrors.installation_model && snap.generation != 0 {
-                let _ = self.bus.set(p.arrangement_columns, Value::I32(model_now.columns));
-                let _ = self.bus.set(p.arrangement_rows, Value::I32(model_now.rows));
-                let _ = self.bus.set(p.arrangement_column_width, Value::I32(model_now.column_width));
-                let _ = self.bus.set(p.arrangement_panel_height, Value::I32(model_now.panel_height));
-                let _ = self.bus.set(p.arrangement_flipped, Value::Bool(model_now.flipped));
-                let _ = self.bus.set(p.messaging_transmit, Value::Enum(model_now.transmit));
-                let _ = self.bus.set(p.messaging_period_s, Value::F32(model_now.period_s));
-                let _ = self.bus.set(p.messaging_keyframe_batch, Value::I32(model_now.keyframe_batch));
                 let _ = self
                     .bus
-                    .set(p.messaging_keyframe_velocities, Value::Bool(model_now.keyframe_velocities));
-                let _ = self.bus.set(p.image_enabled, Value::Bool(model_now.image_enabled));
+                    .set(p.arrangement_columns, Value::I32(model_now.columns));
+                let _ = self.bus.set(p.arrangement_rows, Value::I32(model_now.rows));
+                let _ = self.bus.set(
+                    p.arrangement_column_width,
+                    Value::I32(model_now.column_width),
+                );
+                let _ = self.bus.set(
+                    p.arrangement_panel_height,
+                    Value::I32(model_now.panel_height),
+                );
+                let _ = self
+                    .bus
+                    .set(p.arrangement_flipped, Value::Bool(model_now.flipped));
+                let _ = self
+                    .bus
+                    .set(p.messaging_transmit, Value::Enum(model_now.transmit));
+                let _ = self
+                    .bus
+                    .set(p.messaging_period_s, Value::F32(model_now.period_s));
+                let _ = self.bus.set(
+                    p.messaging_keyframe_batch,
+                    Value::I32(model_now.keyframe_batch),
+                );
+                let _ = self.bus.set(
+                    p.messaging_keyframe_velocities,
+                    Value::Bool(model_now.keyframe_velocities),
+                );
+                let _ = self
+                    .bus
+                    .set(p.image_enabled, Value::Bool(model_now.image_enabled));
                 self.mirrors.installation = model_now.clone();
                 self.mirrors.installation_model = model_now;
             }
@@ -717,15 +770,18 @@ impl Bridge {
         // The pilot-all pad: pure control, no model echo. Stream while it moves.
         let pad = vec2_of(self.bus.get(self.params.installation_pilot_all));
         if pad != self.mirrors.pilot_all {
-            let _ = self
-                .tx
-                .send(Command::PilotAll { col: None, position: vec2(pad[0], pad[1]) });
+            let _ = self.tx.send(Command::PilotAll {
+                col: None,
+                position: vec2(pad[0], pad[1]),
+            });
             self.mirrors.pilot_all = pad;
         }
     }
 
     fn read_column_bus(&self, i: usize) -> ColumnState {
-        let Some(c) = self.params.columns.get(i) else { return ColumnState::default() };
+        let Some(c) = self.params.columns.get(i) else {
+            return ColumnState::default();
+        };
         ColumnState {
             scheduled_poll_enabled: bool_of(self.bus.get(c.scheduled_poll_enabled)),
             scheduled_poll_period_s: f32_of(self.bus.get(c.scheduled_poll_period_s)),
@@ -752,12 +808,14 @@ impl Bridge {
                 };
                 if Some(&model_now) != self.mirrors.columns_model.get(i) {
                     if let Some(c) = self.params.columns.get(i) {
-                        let _ = self
-                            .bus
-                            .set(c.scheduled_poll_enabled, Value::Bool(model_now.scheduled_poll_enabled));
-                        let _ = self
-                            .bus
-                            .set(c.scheduled_poll_period_s, Value::F32(model_now.scheduled_poll_period_s));
+                        let _ = self.bus.set(
+                            c.scheduled_poll_enabled,
+                            Value::Bool(model_now.scheduled_poll_enabled),
+                        );
+                        let _ = self.bus.set(
+                            c.scheduled_poll_period_s,
+                            Value::F32(model_now.scheduled_poll_period_s),
+                        );
                     }
                     if let Some(slot) = self.mirrors.columns.get_mut(i) {
                         *slot = model_now.clone();
@@ -772,9 +830,10 @@ impl Bridge {
             if let Some(c) = self.params.columns.get(i) {
                 let pad = vec2_of(self.bus.get(c.pilot_all));
                 if Some(&pad) != self.mirrors.column_pads.get(i) {
-                    let _ = self
-                        .tx
-                        .send(Command::PilotAll { col: Some(i), position: vec2(pad[0], pad[1]) });
+                    let _ = self.tx.send(Command::PilotAll {
+                        col: Some(i),
+                        position: vec2(pad[0], pad[1]),
+                    });
                     if let Some(slot) = self.mirrors.column_pads.get_mut(i) {
                         *slot = pad;
                     }
@@ -811,7 +870,12 @@ impl Bridge {
     }
 
     fn portal_from_model(snap: &UiSnapshot, col: usize, target: u8) -> Option<PortalDesired> {
-        let portal = snap.columns.get(col)?.portals.iter().find(|p| p.target == target)?;
+        let portal = snap
+            .columns
+            .get(col)?
+            .portals
+            .iter()
+            .find(|p| p.target == target)?;
         Some(PortalDesired {
             position: [portal.position.x, portal.position.y],
             polar: [portal.polar.x, portal.polar.y],
@@ -843,15 +907,35 @@ impl Bridge {
         let _ = self.bus.set(p.polar, Value::Vec2(model.polar));
         let _ = self.bus.set(p.axes, Value::Vec2(model.axes));
         let _ = self.bus.set(p.offset, Value::F32(model.offset));
-        let _ = self.bus.set(p.send_periodically, Value::Bool(model.send_periodically));
-        let _ = self.bus.set(p.poll_regularly, Value::Bool(model.poll_regularly));
-        let _ = self.bus.set(p.poll_interval_s, Value::F32(model.poll_interval_s));
-        let _ = self.bus.set(p.mds_current_amps, Value::F32(model.mds_current));
-        let _ = self.bus.set(p.mds_microstep_resolution, Value::Enum(model.mds_microstep_idx));
+        let _ = self
+            .bus
+            .set(p.send_periodically, Value::Bool(model.send_periodically));
+        let _ = self
+            .bus
+            .set(p.poll_regularly, Value::Bool(model.poll_regularly));
+        let _ = self
+            .bus
+            .set(p.poll_interval_s, Value::F32(model.poll_interval_s));
+        let _ = self
+            .bus
+            .set(p.mds_current_amps, Value::F32(model.mds_current));
+        let _ = self.bus.set(
+            p.mds_microstep_resolution,
+            Value::Enum(model.mds_microstep_idx),
+        );
         for axis in 0..2 {
-            let _ = self.bus.set(p.axis[axis].max_velocity, Value::I32(model.profiles[axis][0]));
-            let _ = self.bus.set(p.axis[axis].acceleration, Value::I32(model.profiles[axis][1]));
-            let _ = self.bus.set(p.axis[axis].min_velocity, Value::I32(model.profiles[axis][2]));
+            let _ = self.bus.set(
+                p.axis[axis].max_velocity,
+                Value::I32(model.profiles[axis][0]),
+            );
+            let _ = self.bus.set(
+                p.axis[axis].acceleration,
+                Value::I32(model.profiles[axis][1]),
+            );
+            let _ = self.bus.set(
+                p.axis[axis].min_velocity,
+                Value::I32(model.profiles[axis][2]),
+            );
         }
         self.mirrors.portal = model.clone();
         self.mirrors.portal_model = model.clone();
@@ -973,10 +1057,20 @@ impl Bridge {
         let _ = self.bus.set(exists_id, Value::Bool(portal.is_some()));
         let Some(portal) = portal else { return };
         let p = &self.params.portal;
-        let _ = self.bus.set(p.target_id, Value::I32(i32::from(portal.target)));
-        let _ = self.bus.set(p.leading, Value::Enum(leading_index(portal.leading_control)));
-        let _ = self.bus.set(p.uptime_ms, Value::I64(portal.up_time_ms.unwrap_or(0) as i64));
-        let _ = self.bus.set(p.in_position, Value::Bool(portal.in_target_position));
+        let _ = self
+            .bus
+            .set(p.target_id, Value::I32(i32::from(portal.target)));
+        let _ = self.bus.set(
+            p.leading,
+            Value::Enum(leading_index(portal.leading_control)),
+        );
+        let _ = self.bus.set(
+            p.uptime_ms,
+            Value::I64(portal.up_time_ms.unwrap_or(0) as i64),
+        );
+        let _ = self
+            .bus
+            .set(p.in_position, Value::Bool(portal.in_target_position));
         let version = portal.version.clone().unwrap_or_default();
         let (log_text, log_level) = match &portal.last_log {
             Some((level, message, count)) if *count > 1 => {
@@ -988,8 +1082,14 @@ impl Bridge {
         for axis in 0..2 {
             let mc = &portal.mc[axis];
             let a = &p.axis[axis];
-            let _ = self.bus.set(a.reported_position, Value::I32(mc.reported_position.unwrap_or(0)));
-            let _ = self.bus.set(a.reported_target, Value::I32(mc.reported_target.unwrap_or(0)));
+            let _ = self.bus.set(
+                a.reported_position,
+                Value::I32(mc.reported_position.unwrap_or(0)),
+            );
+            let _ = self.bus.set(
+                a.reported_target,
+                Value::I32(mc.reported_target.unwrap_or(0)),
+            );
             let health = match mc.health_ok {
                 None => -1,
                 Some(false) => 0,
@@ -1008,9 +1108,17 @@ impl Bridge {
     /// Serialize one source's *writable* params from the bus into a JSON patch document.
     fn read_source_bus(&self, i: usize) -> SourceState {
         let mut doc = serde_json::Map::new();
-        let Some(source) = self.params.sources.get(i) else { return SourceState(doc) };
-        doc.insert("visible".into(), bool_of(self.bus.get(source.visible)).into());
-        doc.insert("renderEnabled".into(), bool_of(self.bus.get(source.render_enabled)).into());
+        let Some(source) = self.params.sources.get(i) else {
+            return SourceState(doc);
+        };
+        doc.insert(
+            "visible".into(),
+            bool_of(self.bus.get(source.visible)).into(),
+        );
+        doc.insert(
+            "renderEnabled".into(),
+            bool_of(self.bus.get(source.render_enabled)).into(),
+        );
         doc.insert("alpha".into(), f32_of(self.bus.get(source.alpha)).into());
         if let Some(style) = source_enum_string("style", enum_of(self.bus.get(source.style))) {
             doc.insert("style".into(), style.into());
@@ -1098,7 +1206,9 @@ impl Bridge {
     }
 
     fn seed_source(&self, i: usize, doc: &SourceState) {
-        let Some(source) = self.params.sources.get(i) else { return };
+        let Some(source) = self.params.sources.get(i) else {
+            return;
+        };
         let get = |key: &str| doc.0.get(key);
         if let Some(v) = get("visible").and_then(|v| v.as_bool()) {
             let _ = self.bus.set(source.visible, Value::Bool(v));
@@ -1109,14 +1219,17 @@ impl Bridge {
         if let Some(v) = get("alpha").and_then(|v| v.as_f64()) {
             let _ = self.bus.set(source.alpha, Value::F32(v as f32));
         }
-        if let Some(idx) = get("style")
-            .and_then(|v| v.as_str())
-            .and_then(|s| ["Direct", "HV_ThetaR", "Centered"].iter().position(|w| *w == s))
-        {
+        if let Some(idx) = get("style").and_then(|v| v.as_str()).and_then(|s| {
+            ["Direct", "HV_ThetaR", "Centered"]
+                .iter()
+                .position(|w| *w == s)
+        }) {
             let _ = self.bus.set(source.style, Value::Enum(idx as u32));
         }
         for (leaf, id) in &source.extras {
-            let Some(value) = get(source_json_key(leaf)) else { continue };
+            let Some(value) = get(source_json_key(leaf)) else {
+                continue;
+            };
             match value {
                 serde_json::Value::Bool(b) => {
                     let _ = self.bus.set(*id, Value::Bool(*b));
@@ -1124,9 +1237,13 @@ impl Bridge {
                 serde_json::Value::Number(n) => {
                     // The declaration decides the kind; i32 params get ints.
                     if matches!(leaf.as_str(), "size" | "border") {
-                        let _ = self.bus.set(*id, Value::I32(n.as_i64().unwrap_or(0) as i32));
+                        let _ = self
+                            .bus
+                            .set(*id, Value::I32(n.as_i64().unwrap_or(0) as i32));
                     } else {
-                        let _ = self.bus.set(*id, Value::F32(n.as_f64().unwrap_or(0.0) as f32));
+                        let _ = self
+                            .bus
+                            .set(*id, Value::F32(n.as_f64().unwrap_or(0.0) as f32));
                     }
                 }
                 serde_json::Value::String(s) => {
@@ -1147,30 +1264,48 @@ impl Bridge {
     }
 
     fn publish_source_mirrors(&mut self, i: usize, model: &serde_json::Value) {
-        let Some(source) = self.params.sources.get(i) else { return };
+        let Some(source) = self.params.sources.get(i) else {
+            return;
+        };
         let mirrors: Vec<(String, ParamId)> = source.mirrors.clone();
         for (leaf, id) in mirrors {
             match leaf.as_str() {
                 "file" => {
-                    let text = model.get("file").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                    let text = model
+                        .get("file")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
                     self.set_text_cached(id, &text);
                 }
                 "loaded" => {
-                    let loaded = model.get("loaded").and_then(|v| v.as_bool()).unwrap_or(false);
+                    let loaded = model
+                        .get("loaded")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false);
                     let _ = self.bus.set(id, Value::Bool(loaded));
                 }
                 "duration_s" => {
                     let d = model.get("durationS").or_else(|| model.get("duration_s"));
-                    let _ = self
-                        .bus
-                        .set(id, Value::F32(d.and_then(|v| v.as_f64()).unwrap_or(0.0) as f32));
+                    let _ = self.bus.set(
+                        id,
+                        Value::F32(d.and_then(|v| v.as_f64()).unwrap_or(0.0) as f32),
+                    );
                 }
                 "error" => {
-                    let text = model.get("error").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                    let text = model
+                        .get("error")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
                     self.set_text_cached(id, &text);
                 }
                 "status" => {
-                    let text = model.get("status").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                    let text = model
+                        .get("status")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
                     self.set_text_cached(id, &text);
                 }
                 _ => {}
@@ -1237,7 +1372,12 @@ impl Bridge {
 
         // columns
         let mut columns = vec![f32::NAN; self.shape.columns.len().max(1) * 4];
-        for (i, column) in snap.columns.iter().enumerate().take(self.shape.columns.len()) {
+        for (i, column) in snap
+            .columns
+            .iter()
+            .enumerate()
+            .take(self.shape.columns.len())
+        {
             let o = i * 4;
             columns[o] = column.stats.last_rx_age_ms.map_or(f32::NAN, |v| v as f32);
             columns[o + 1] = column.stats.last_tx_age_ms.map_or(f32::NAN, |v| v as f32);
@@ -1256,7 +1396,8 @@ impl Bridge {
             .and_then(|c| c.portals.iter().find(|p| p.target == target))
         {
             let nan = f32::NAN;
-            let opt = |v: Option<glam::Vec2>, i: usize| v.map_or(nan, |v| if i == 0 { v.x } else { v.y });
+            let opt =
+                |v: Option<glam::Vec2>, i: usize| v.map_or(nan, |v| if i == 0 { v.x } else { v.y });
             let row = [
                 portal.position.x,
                 portal.position.y,
@@ -1306,12 +1447,25 @@ impl Bridge {
     fn publish_observed(&mut self, snap: &UiSnapshot) {
         // Per-column counters (change-detected by the bus's own delta encoding; cheap).
         for (i, column) in snap.columns.iter().enumerate() {
-            let Some(c) = self.params.columns.get(i) else { continue };
-            let _ = self.bus.set(c.connected, Value::Bool(column.stats.connected));
-            let _ = self.bus.set(c.tx_count, Value::I64(column.stats.tx_count as i64));
-            let _ = self.bus.set(c.rx_count, Value::I64(column.stats.rx_count as i64));
-            let _ = self.bus.set(c.ack_timeouts, Value::I64(column.stats.ack_timeouts as i64));
-            let _ = self.bus.set(c.decode_errors, Value::I64(column.stats.decode_errors as i64));
+            let Some(c) = self.params.columns.get(i) else {
+                continue;
+            };
+            let _ = self
+                .bus
+                .set(c.connected, Value::Bool(column.stats.connected));
+            let _ = self
+                .bus
+                .set(c.tx_count, Value::I64(column.stats.tx_count as i64));
+            let _ = self
+                .bus
+                .set(c.rx_count, Value::I64(column.stats.rx_count as i64));
+            let _ = self
+                .bus
+                .set(c.ack_timeouts, Value::I64(column.stats.ack_timeouts as i64));
+            let _ = self.bus.set(
+                c.decode_errors,
+                Value::I64(column.stats.decode_errors as i64),
+            );
             let device_description_id = c.device_description;
             let description = column.stats.device_description.clone();
             self.set_text_cached(device_description_id, &description);
@@ -1326,18 +1480,25 @@ impl Bridge {
         };
         if observed != self.mirrors.observed {
             let p = &self.params;
-            let _ = self.bus.set(p.servers_osc_running, Value::Bool(observed.osc_running));
-            let _ = self.bus.set(p.servers_osc_port, Value::I32(observed.osc_port));
-            let _ = self.bus.set(p.servers_rest_running, Value::Bool(observed.rest_running));
-            let _ = self.bus.set(p.servers_rest_port, Value::I32(observed.rest_port));
+            let _ = self
+                .bus
+                .set(p.servers_osc_running, Value::Bool(observed.osc_running));
+            let _ = self
+                .bus
+                .set(p.servers_osc_port, Value::I32(observed.osc_port));
+            let _ = self
+                .bus
+                .set(p.servers_rest_running, Value::Bool(observed.rest_running));
+            let _ = self
+                .bus
+                .set(p.servers_rest_port, Value::I32(observed.rest_port));
             self.mirrors.observed = observed;
         }
 
         // Tx/Rx rate EMA, published at ≤4 Hz.
-        let totals = snap
-            .columns
-            .iter()
-            .fold((0u64, 0u64), |acc, c| (acc.0 + c.stats.tx_count, acc.1 + c.stats.rx_count));
+        let totals = snap.columns.iter().fold((0u64, 0u64), |acc, c| {
+            (acc.0 + c.stats.tx_count, acc.1 + c.stats.rx_count)
+        });
         let dt = self.last_rates_at.elapsed().as_secs_f32();
         if dt >= 0.25 {
             let tx_rate = (totals.0.saturating_sub(self.prev_totals.0)) as f32 / dt;
@@ -1347,8 +1508,12 @@ impl Bridge {
             self.tx_rx_ema.1 += alpha * (rx_rate - self.tx_rx_ema.1);
             self.prev_totals = totals;
             self.last_rates_at = Instant::now();
-            let _ = self.bus.set(self.params.stats_tx_per_s, Value::F32(self.tx_rx_ema.0));
-            let _ = self.bus.set(self.params.stats_rx_per_s, Value::F32(self.tx_rx_ema.1));
+            let _ = self
+                .bus
+                .set(self.params.stats_tx_per_s, Value::F32(self.tx_rx_ema.0));
+            let _ = self
+                .bus
+                .set(self.params.stats_rx_per_s, Value::F32(self.tx_rx_ema.1));
         }
     }
 
@@ -1364,15 +1529,25 @@ impl Bridge {
             .iter()
             .filter(|p| matches!(p.state, PortalState::Faulty | PortalState::Silent))
             .count() as i32;
-        let _ = self.bus.set(self.params.health_faulty_units, Value::I32(faulty));
+        let _ = self
+            .bus
+            .set(self.params.health_faulty_units, Value::I32(faulty));
         let session_file_id = self.params.report_session_file;
         let session_file = diag.session_file.clone();
         self.set_text_cached(session_file_id, &session_file);
-        let _ = self.bus.set(self.params.report_file_bytes, Value::I64(diag.file_bytes as i64));
-        let _ = self.bus.set(self.params.report_dropped, Value::I64(diag.dropped_events as i64));
+        let _ = self.bus.set(
+            self.params.report_file_bytes,
+            Value::I64(diag.file_bytes as i64),
+        );
+        let _ = self.bus.set(
+            self.params.report_dropped,
+            Value::I64(diag.dropped_events as i64),
+        );
         // Reporter-side verbose is authoritative when the bus didn't just change it.
         if diag.verbose != self.mirrors.verbose {
-            let _ = self.bus.set(self.params.report_verbose, Value::Bool(diag.verbose));
+            let _ = self
+                .bus
+                .set(self.params.report_verbose, Value::Bool(diag.verbose));
             self.mirrors.verbose = diag.verbose;
         }
         *self.shared.diag.lock().unwrap() = diag;

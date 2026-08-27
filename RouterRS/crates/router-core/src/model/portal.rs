@@ -65,10 +65,7 @@ impl MotionControl {
         }
         self.sent_profile = Some(profile);
         Some(commands::mc_motion_profile(
-            self.axis,
-            profile.0,
-            profile.1,
-            profile.2,
+            self.axis, profile.0, profile.1, profile.2,
         ))
     }
 
@@ -160,7 +157,9 @@ impl MotorDriverSettings {
         }
         if self.sent_microstep != Some(self.microstep_resolution) {
             self.sent_microstep = Some(self.microstep_resolution);
-            messages.push(commands::mds_set_microstep_resolution(self.microstep_resolution));
+            messages.push(commands::mds_set_microstep_resolution(
+                self.microstep_resolution,
+            ));
         }
         messages
     }

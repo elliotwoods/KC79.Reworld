@@ -272,7 +272,11 @@ fn receive_into_inbox(
                     });
                 }
             },
-            Err(e @ (ProtoError::CobsZeroInFrame { .. } | ProtoError::CobsTruncated | ProtoError::CobsEmpty)) => {
+            Err(
+                e @ (ProtoError::CobsZeroInFrame { .. }
+                | ProtoError::CobsTruncated
+                | ProtoError::CobsEmpty),
+            ) => {
                 shared.decode_errors.fetch_add(1, Ordering::Relaxed);
                 ctx.reporter.emit(router_report::Event::CobsError {
                     col: ctx.col,
@@ -342,13 +346,8 @@ fn send_packet(
         }
         if seen {
             let latency_ms = sent_at.elapsed().as_secs_f32() * 1000.0;
-            ctx.reporter.packet_rx(
-                ctx.col,
-                packet.target,
-                RxKind::Ack,
-                0,
-                Some(latency_ms),
-            );
+            ctx.reporter
+                .packet_rx(ctx.col, packet.target, RxKind::Ack, 0, Some(latency_ms));
         } else {
             shared.ack_timeouts.fetch_add(1, Ordering::Relaxed);
             if packet.target > 0 {

@@ -28,6 +28,7 @@ constexpr VerbName VERB_NAMES[] = {
     {ControlVerb::OtaBoot, "ota-boot"},
     {ControlVerb::OtaConfirm, "ota-confirm"},
     {ControlVerb::OtaAbort, "ota-abort"},
+    {ControlVerb::SetPolarity, "set-polarity"},
 };
 
 ControlVerb verbFromName(const uint8_t* name, uint32_t length) {

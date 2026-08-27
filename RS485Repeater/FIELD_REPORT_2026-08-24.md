@@ -418,3 +418,66 @@ other.
 Addressed polling of the branch, the learned-range and filtering checks, and the V3
 batch/gap topology soak — unchanged from the 2026-08-25 resolution, and now blocked on the
 repeater front end rather than on the adapter.
+
+## Full-bench session — 2026-08-26 (evening)
+
+Bench: portals 1,2,4,6,7 (IDs) on side 2; FTDI `B003AHF1` also on side 2 as a
+sniffer; FTDI `B003ASAG` on side 1 as the host; ST-Link on ID 2; repeater index 1.
+
+### The repeater's USB can wedge while the relay runs
+
+The console and esptool were both silent ("No serial data received") while the
+bridge demonstrably relayed — a delimited junk burst from side 2 appeared on
+side 1, an undelimited one did not. The USB device itself had stopped taking
+OUT data (`tcdrain` hung). `libusb_reset_device` on VID 303A PID 1001 revived
+console and esptool without touching the hardware. Hold the console open in one
+long-lived process; opening and closing it per command toggles DTR/RTS, which
+is what produced the wedge.
+
+### Side 1 is wired with its pair swapped, and that is now absorbed
+
+With both UARTs at normal polarity, every `B003ASAG` frame arrived as exactly
+one side-1 UART error and zero bytes, and relayed traffic reached the adapter
+as an inverted-polarity garble (verified by UART simulation of the observed
+bytes). The wiring stays; the firmware now runs a per-side polarity hunter
+(`auto`): two errors with nothing decoded flips the UART inversion, two decoded
+frames lock it, the locked value persists in NVS. On the bench the first two
+polls were eaten, the third and every one after answered, and the lock survived
+reboot and OTA.
+
+### The upload corruption was the host's pacing, not the wire
+
+A v6 application upload to ID 2 (100,744 B, 788 chunks) first ran at ~34 % chunk
+loss, repaired by the map pass. The sampler timeline pinned it: clean for the
+first ~230 frames, errors ramping from t+4 s to the end of the pass, and the
+short repair pass clean again. The host was sleeping its 6 ms gap after
+`write()` while a 176-byte frame takes 15 ms on the wire; once the OS buffer
+filled, the FTDI was topped up packet-by-packet, its FIFO ran dry mid-frame and
+TXDEN dropped — an undriven gap that the inverted side reads as a break. Fix:
+`SerialPortDevice::transmit` now drains (`tcdrain`) before the gap. The repeater
+also gained phantom-delimiter tolerance (a delimiter that closes nothing
+COBS-valid is skipped once per frame) as the belt to that brace.
+
+### Results after the fixes
+
+- v6 application upload through the repeater: 867 frames, side 1 zero UART
+  errors / zero phantoms / zero parse errors, map complete on first read, no
+  repair, `verify` CRC match, bootloader `drops: 0`, 28 s.
+- In-band bootloader replacement (§10.5) on ID 2 through the repeater: 125
+  ACKed frames, zero errors, confirmed `Bootloader v6`, 11 s.
+- Repeater control plane over the inverted side: `status` (long reply) and
+  `set-polarity` verbs answered; driver-enable is now timed by the UART
+  peripheral (`de-mode hw`), which removed the milliseconds-deaf turnaround.
+- Repeater self-OTA over RS485 through side 1: 707/707 chunks, 0 parse
+  failures, 0 repairs, ~50 s. Four consecutive updates committed but never
+  rebooted: the `ota-end` reply's driver release left one debris byte in the
+  repeater's own receiver, and `ota-boot`, arriving 5–20 ms later, was glued to
+  it and lost (`ctrl_seen` froze across the boot window while a hand-sent
+  `ota-boot` minutes later rebooted instantly). Fixed in the bridge — bytes
+  arriving in a 3 ms post-transmit shadow with no frame in progress are
+  discarded — plus a 50 ms host pause before `ota-boot` for bridges that
+  predate the fix. The updated image then rebooted, self-validated on traffic
+  and reported `confirmed`.
+- Portal ID 1 answers nothing, on the direct side-2 adapter as well as through
+  the repeater, while 2, 4, 6, 7 answer everything. That board needs its own
+  investigation; it is not an RS485 or repeater fault.

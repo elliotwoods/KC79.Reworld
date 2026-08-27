@@ -51,6 +51,19 @@ void FrameRouter::ingest(Side source, const uint8_t* bytes, size_t count, uint32
 void FrameRouter::ingestByte(Side source, uint8_t value, uint32_t nowUs) {
     auto& acc = accumulator(source);
     auto& dir = direction(source);
+
+    // Turnaround debris. Only while nothing is being assembled: this side's own transmission
+    // cannot interrupt a frame it is receiving (`nextFrame` requires the destination quiet),
+    // so an empty accumulator inside the shadow means whatever arrives is the line settling,
+    // and letting it open a partial frame is what glued it to the front of the next request.
+    if(acc.size == 0 && !acc.discardingOversize) {
+        const uint32_t until = shadowUntilUs_[source == Side::Two ? 1 : 0];
+        if(until != 0 && static_cast<int32_t>(until - nowUs) > 0) {
+            dir.shadowBytes++;
+            return;
+        }
+    }
+
     dir.rxBytes++;
     acc.lastByteUs = nowUs;
 
@@ -78,6 +91,7 @@ void FrameRouter::ingestByte(Side source, uint8_t value, uint32_t nowUs) {
     if(acc.size >= acc.data.size()) {
         dir.oversizedFrames++;
         acc.size = 0;
+        acc.phantoms = 0;
         acc.discardingOversize = value != 0;
         return;
     }
@@ -87,9 +101,33 @@ void FrameRouter::ingestByte(Side source, uint8_t value, uint32_t nowUs) {
 
 void FrameRouter::finishFrame(Side source) {
     auto& acc = accumulator(source);
-    direction(source).receivedFrames++;
+    auto& dir = direction(source);
+
+    // A delimiter that closes something which is not a COBS frame is, once per frame, taken
+    // to be a phantom rather than an end. Measured on the bench 2026-08-26: a host adapter
+    // whose 128-byte FIFO ran dry between the USB packets of a 176-byte frame let its driver
+    // go for a moment, and on a pair landed the wrong way round the undriven line reads as a
+    // break -- a zero with a framing error -- in the middle of the frame. The frame's own
+    // delimiter still arrives, so the whole thing decodes once the phantom is dropped.
+    //
+    // Once, not indefinitely: if the next delimiter does not close a frame either, the bytes
+    // were corrupt rather than merely split, and holding them open would swallow the frame
+    // behind them as well. A genuine COBS frame can never fail this check, so nothing that
+    // used to be relayed is held back by it.
+    size_t decodedSize = 0;
+    const bool structurallyValid = acc.size >= 2
+        && cobsDecode(acc.data.data(), acc.size - 1, decodeBuffer_.data(), decodeBuffer_.size(), decodedSize);
+    if(!structurallyValid && acc.phantoms == 0) {
+        acc.phantoms++;
+        acc.size--; // drop the zero; the frame stays open
+        dir.phantomDelimiters++;
+        return;
+    }
+
+    dir.receivedFrames++;
     if(shouldForward(source, acc.data.data(), acc.size)) enqueue(source, acc.data.data(), acc.size);
     acc.size = 0;
+    acc.phantoms = 0;
 }
 
 bool FrameRouter::enqueue(Side source, const uint8_t* data, size_t size) {
@@ -107,6 +145,13 @@ bool FrameRouter::enqueue(Side source, const uint8_t* data, size_t size) {
     return true;
 }
 
+void FrameRouter::noteTransmissionEnd(Side side, uint32_t nowUs) {
+    if(side == Side::None || nowUs == 0) return;
+    uint32_t until = nowUs + turnaroundShadowUs_;
+    if(until == 0) until = 1; // 0 is the unarmed sentinel
+    shadowUntilUs_[side == Side::Two ? 1 : 0] = until;
+}
+
 void FrameRouter::expireIncomplete(uint32_t nowUs) {
     for(Side side : {Side::One, Side::Two}) {
         auto& acc = accumulator(side);
@@ -115,6 +160,7 @@ void FrameRouter::expireIncomplete(uint32_t nowUs) {
             if(!acc.discardingOversize) direction(side).incompleteFrames++;
             acc.size = 0;
             acc.discardingOversize = false;
+            acc.phantoms = 0;
         }
     }
 }
@@ -223,6 +269,7 @@ void FrameRouter::completeTransmission(Side source, bool success) {
 bool FrameRouter::shouldForward(Side source, const uint8_t* data, size_t size) {
     const EnvelopeInfo envelope = inspectEnvelope(data, size);
     if(!envelope.valid || envelope.parseError) stats_.parseErrors++;
+    else direction(source).validFrames++;
     if(source == Side::Two) {
         // A local subsystem may claim a reply it solicited itself, so a snapshot
         // sweep's own polls do not also surface upstream as loose replies.
@@ -332,6 +379,14 @@ FrameRouter::EnvelopeInfo FrameRouter::inspectEnvelope(const uint8_t* data, size
     }
     result.valid = true;
     return result;
+}
+
+void FrameRouter::abandonPartial(Side source) {
+    if(source == Side::None) return;
+    auto& acc = accumulator(source);
+    acc.size = 0;
+    acc.discardingOversize = false;
+    acc.phantoms = 0;
 }
 
 void FrameRouter::clearLocalBlock() {

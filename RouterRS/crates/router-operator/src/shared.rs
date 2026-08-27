@@ -2,8 +2,8 @@
 //! handlers. Handlers never touch the runtime: they read these mirrors or append a request
 //! and return; the bridge drains requests into the one command queue on its next tick.
 
-use std::sync::Mutex;
 use std::sync::Arc;
+use std::sync::Mutex;
 
 use router_core::runtime::{Command, UiSnapshot};
 use router_report::DiagnosticsSnapshot;

@@ -288,6 +288,10 @@ pub struct BlStatus {
     pub received: u32,
     /// Last error, if any.
     pub err: Option<u8>,
+    /// Bit 0: a frame longer than the receive window was dropped. Bit 1: the UART receive ring
+    /// overran. Accumulated on the board since it last reset, so an upload that lost chunks
+    /// between the last repeater and this board says so here rather than only in the map.
+    pub drops: u32,
     /// The installed application, if one is present and has a descriptor.
     pub app: Option<BlApp>,
 }
@@ -296,15 +300,36 @@ pub struct BlStatus {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BlReply {
     Status(Box<BlStatus>),
-    Begin { ok: bool, err: Option<u8> },
-    Map { chunk: u32, len: u32, bitmap: Vec<u8> },
-    Verify { ok: bool, crc32: u32, len: u32 },
-    Run { ok: bool, err: Option<u8>, base: u32 },
-    Adopt { id: i8 },
-    Reset { ok: bool },
+    Begin {
+        ok: bool,
+        err: Option<u8>,
+    },
+    Map {
+        chunk: u32,
+        len: u32,
+        bitmap: Vec<u8>,
+    },
+    Verify {
+        ok: bool,
+        crc32: u32,
+        len: u32,
+    },
+    Run {
+        ok: bool,
+        err: Option<u8>,
+        base: u32,
+    },
+    Adopt {
+        id: i8,
+    },
+    Reset {
+        ok: bool,
+    },
     /// A verb this host does not know. Forward-compatible by design: a newer bootloader answering
     /// a verb added after this build should not look like a protocol error.
-    Other { verb: String },
+    Other {
+        verb: String,
+    },
 }
 
 impl BlReply {
@@ -435,15 +460,21 @@ fn field<'a>(fields: &'a [(Value, Value)], name: &str) -> Option<&'a Value> {
 }
 
 fn u32_field(fields: &[(Value, Value)], name: &str) -> Option<u32> {
-    field(fields, name)?.as_u64().and_then(|v| u32::try_from(v).ok())
+    field(fields, name)?
+        .as_u64()
+        .and_then(|v| u32::try_from(v).ok())
 }
 
 fn u8_field(fields: &[(Value, Value)], name: &str) -> Option<u8> {
-    field(fields, name)?.as_u64().and_then(|v| u8::try_from(v).ok())
+    field(fields, name)?
+        .as_u64()
+        .and_then(|v| u8::try_from(v).ok())
 }
 
 fn i8_field(fields: &[(Value, Value)], name: &str) -> Option<i8> {
-    field(fields, name)?.as_i64().and_then(|v| i8::try_from(v).ok())
+    field(fields, name)?
+        .as_i64()
+        .and_then(|v| i8::try_from(v).ok())
 }
 
 fn bool_field(fields: &[(Value, Value)], name: &str) -> Option<bool> {
@@ -514,6 +545,7 @@ pub fn parse_reply(body: &Value) -> Result<Option<BlReply>, ProtoError> {
                 high_water: u32_field(fields, "wp").unwrap_or(0),
                 received: u32_field(fields, "n").unwrap_or(0),
                 err: error,
+                drops: u32_field(fields, "drops").unwrap_or(0),
                 app,
             }))
         }
@@ -560,7 +592,11 @@ mod tests {
     use crate::envelope::{decode_envelope, encode_reply_trailer, Trailer};
 
     fn hex(bytes: &[u8]) -> String {
-        bytes.iter().map(|b| format!("{b:02X}")).collect::<Vec<_>>().join(" ")
+        bytes
+            .iter()
+            .map(|b| format!("{b:02X}"))
+            .collect::<Vec<_>>()
+            .join(" ")
     }
 
     /// Decode a request the way a bootloader would, so the tests below assert against the wire
@@ -568,15 +604,23 @@ mod tests {
     fn inner_fields(frame: &[u8]) -> Vec<(Value, Value)> {
         let env = decode_envelope(frame).unwrap();
         assert!(env.trailer.acceptable(), "request carried a bad trailer");
-        let Value::Map(entries) = env.body else { panic!("body is not a map") };
+        let Value::Map(entries) = env.body else {
+            panic!("body is not a map")
+        };
         assert_eq!(entries.len(), 1, "exactly one body key");
         assert_eq!(entries[0].0.as_str(), Some(KEY));
-        let Value::Map(fields) = &entries[0].1 else { panic!("bl is not a map") };
+        let Value::Map(fields) = &entries[0].1 else {
+            panic!("bl is not a map")
+        };
         fields.clone()
     }
 
     fn verb_of(frame: &[u8]) -> String {
-        field(&inner_fields(frame), "q").unwrap().as_str().unwrap().to_string()
+        field(&inner_fields(frame), "q")
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .to_string()
     }
 
     #[test]
@@ -622,7 +666,10 @@ mod tests {
         );
 
         assert_eq!(verb_of(&map_request(2, None, 0)), "map");
-        assert_eq!(field(&inner_fields(&map_request(2, None, 0)), "chunk"), None);
+        assert_eq!(
+            field(&inner_fields(&map_request(2, None, 0)), "chunk"),
+            None
+        );
         assert_eq!(
             u32_field(&inner_fields(&map_request(2, Some(32), 0)), "chunk"),
             Some(32)
@@ -765,15 +812,24 @@ mod tests {
         assert_eq!(status.state, BlState::Held);
         assert_eq!(status.err, Some(err::NO_APP));
         assert_eq!(error_name(err::NO_APP), "no valid application installed");
-        assert!(!status.id_source.is_authoritative(), "a DIP id is a fallback");
+        assert!(
+            !status.id_source.is_authoritative(),
+            "a DIP id is a fallback"
+        );
     }
 
     #[test]
     fn the_other_replies_parse() {
         let cases: Vec<(Vec<(Value, Value)>, BlReply)> = vec![
             (
-                vec![(key("q"), Value::from("begin")), (key("ok"), Value::from(true))],
-                BlReply::Begin { ok: true, err: None },
+                vec![
+                    (key("q"), Value::from("begin")),
+                    (key("ok"), Value::from(true)),
+                ],
+                BlReply::Begin {
+                    ok: true,
+                    err: None,
+                },
             ),
             (
                 vec![
@@ -826,11 +882,17 @@ mod tests {
                 },
             ),
             (
-                vec![(key("q"), Value::from("adopt")), (key("id"), Value::from(9))],
+                vec![
+                    (key("q"), Value::from("adopt")),
+                    (key("id"), Value::from(9)),
+                ],
                 BlReply::Adopt { id: 9 },
             ),
             (
-                vec![(key("q"), Value::from("reset")), (key("ok"), Value::from(true))],
+                vec![
+                    (key("q"), Value::from("reset")),
+                    (key("ok"), Value::from(true)),
+                ],
                 BlReply::Reset { ok: true },
             ),
         ];
@@ -921,7 +983,10 @@ mod tests {
     /// that lets `map` be a single request/reply rather than a paged one.
     #[test]
     fn a_full_bank_bitmap_fits_in_one_reply() {
-        let chunks = chunk_count(layout::app_bank_bytes(layout::APP_BASE), layout::BL_CHUNK_MAX);
+        let chunks = chunk_count(
+            layout::app_bank_bytes(layout::APP_BASE),
+            layout::BL_CHUNK_MAX,
+        );
         assert_eq!(chunks, 424);
         let bitmap_bytes = chunks.div_ceil(8);
         assert_eq!(bitmap_bytes, 53);

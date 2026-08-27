@@ -19,10 +19,8 @@ use espflash::connection::{Connection, ResetAfterOperation, ResetBeforeOperation
 use espflash::flasher::Flasher;
 use espflash::target::{Chip, ProgressCallbacks};
 
-use super::identity::{RepeaterPort, ESPRESSIF_VID, USB_SERIAL_JTAG_PID};
-use super::programmer::{
-    ConsoleSession, Progress, RepeaterProgrammer, UsbIdentity, WriteReport,
-};
+use super::identity::{ESPRESSIF_VID, RepeaterPort, USB_SERIAL_JTAG_PID};
+use super::programmer::{ConsoleSession, Progress, RepeaterProgrammer, UsbIdentity, WriteReport};
 use super::provision::RepeaterError;
 
 /// The ROM loader is met at 115200 and the transfer is renegotiated up.
@@ -197,9 +195,9 @@ impl ProgressCallbacks for ProgressAdapter<'_, '_> {
 
 fn explain_open(port: &str, error: &serialport::Error) -> String {
     match error.kind() {
-        serialport::ErrorKind::NoDevice => format!(
-            "{port} is not there any more -- the repeater may have re-enumerated. Rescan."
-        ),
+        serialport::ErrorKind::NoDevice => {
+            format!("{port} is not there any more -- the repeater may have re-enumerated. Rescan.")
+        }
         serialport::ErrorKind::Io(std::io::ErrorKind::PermissionDenied) => format!(
             "{port} is already open -- close the serial monitor, or disconnect the Test tab's \
              link, and try again."

@@ -145,15 +145,18 @@ mod tests {
             vec![0x11, 0x22, 0x00, 0x33],
             vec![0x11, 0x00],
             vec![0x00, 0x11],
-            (1..=255u8).collect(),          // no zeros, crosses the 254 block boundary
-            (0..=255u8).collect(),          // contains a zero
-            vec![1u8; 254],                 // exactly one full block
+            (1..=255u8).collect(), // no zeros, crosses the 254 block boundary
+            (0..=255u8).collect(), // contains a zero
+            vec![1u8; 254],        // exactly one full block
             vec![1u8; 255],
             vec![1u8; 508],
         ];
         for case in cases {
             let encoded = cobs_encode(&case);
-            assert!(!encoded.contains(&0), "encoded must not contain zero: {case:?}");
+            assert!(
+                !encoded.contains(&0),
+                "encoded must not contain zero: {case:?}"
+            );
             let decoded = cobs_decode(&encoded).unwrap();
             assert_eq!(decoded, case);
         }
@@ -164,9 +167,18 @@ mod tests {
         // Classic COBS test vectors
         assert_eq!(cobs_encode(&[0x00]), vec![0x01, 0x01]);
         assert_eq!(cobs_encode(&[0x00, 0x00]), vec![0x01, 0x01, 0x01]);
-        assert_eq!(cobs_encode(&[0x11, 0x22, 0x00, 0x33]), vec![0x03, 0x11, 0x22, 0x02, 0x33]);
-        assert_eq!(cobs_encode(&[0x11, 0x22, 0x33, 0x44]), vec![0x05, 0x11, 0x22, 0x33, 0x44]);
-        assert_eq!(cobs_encode(&[0x11, 0x00, 0x00, 0x00]), vec![0x02, 0x11, 0x01, 0x01, 0x01]);
+        assert_eq!(
+            cobs_encode(&[0x11, 0x22, 0x00, 0x33]),
+            vec![0x03, 0x11, 0x22, 0x02, 0x33]
+        );
+        assert_eq!(
+            cobs_encode(&[0x11, 0x22, 0x33, 0x44]),
+            vec![0x05, 0x11, 0x22, 0x33, 0x44]
+        );
+        assert_eq!(
+            cobs_encode(&[0x11, 0x00, 0x00, 0x00]),
+            vec![0x02, 0x11, 0x01, 0x01, 0x01]
+        );
     }
 
     #[test]

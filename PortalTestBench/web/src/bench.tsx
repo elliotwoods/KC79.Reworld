@@ -12,6 +12,7 @@ import { SessionLog } from './bench-log';
 import { MotionGraphs, MotionPilot } from './motion';
 import { InspectTab } from './inspect';
 import { FirmwareDrop, FirmwareDropStrip } from './firmware-drop';
+import { DatabaseTab } from './database';
 
 function useEnumName(path: string): string {
   const p = useParam<number>(path);
@@ -30,6 +31,8 @@ function useSerialView(): SerialView {
     boardSerial: useNumber('/provision/on_board_serial'),
     entered: useNumber('/provision/serial_to_provision'),
     pending: useBool('/provision/pending_replug'),
+    dbSerial: useNumber('/provision/database_serial'),
+    heldBy: useText('/provision/entered_serial_holder'),
   };
 }
 
@@ -317,7 +320,9 @@ function SettingsLock() {
 
 function SerialNumberCard() {
   const state = serialState(useSerialView());
-  return <BoardValueCard kind="serial" title="Serial Number" hint={SERIAL_HINT} state={state}>
+  // The three sources sit inside the card, between the number and the verdict: they are what the
+  // number in the box could be, so putting them anywhere else makes them a separate subject.
+  return <BoardValueCard kind="serial" title="Serial Number" hint={SERIAL_HINT} state={state} trailing={<SerialSources />}>
     <span className="board-value-hint" title={SERIAL_HINT}><NumberField path="/provision/serial_to_provision" /></span>
   </BoardValueCard>;
 }
@@ -384,7 +389,224 @@ function FlashActionStrip({ soundEnabled, onSoundEnabledChange }: { soundEnabled
   </section>;
 }
 
-interface ProvisionActionRow { id: number; at_ms: number; serial?: number; uid?: string; action: string; outcome: string; detail: string }
+interface AssociationRow { serial: number; uid: string; status: string; active: boolean; created_ms: number; updated_ms: number }
+
+interface SerialCandidateRow { source: string; serial: number; blocked_by: string | null; needs_override: boolean; action: string; detail: string }
+
+interface DeviceHistoryRow { uid: string; first_seen_ms: number; last_seen_ms: number; last_seen_serial: number | null; reads: number }
+
+interface ProvisionDoc {
+  candidates: SerialCandidateRow[];
+  suggested_serial: number | null;
+  next_free_serial: number;
+  on_board_serial: number | null;
+  database_serial: number | null;
+  database_status: string;
+  entered_serial_holder: string | null;
+  device_history: DeviceHistoryRow | null;
+  registry: AssociationRow[];
+}
+
+/**
+ * One poll of `/api/bench/provision`, shared by every reader.
+ *
+ * The serial strip at the top and the chooser at the bottom want the same document, and two
+ * independent intervals would double the request rate and let the two halves of one answer
+ * disagree for up to a second — which is exactly the kind of flicker that makes an operator
+ * distrust a number. Module-level rather than context because the two live in different subtrees
+ * of the page and threading a provider between them buys nothing.
+ */
+let provisionDoc: ProvisionDoc | null = null;
+const provisionReaders = new Set<(doc: ProvisionDoc | null) => void>();
+let provisionTimer: number | undefined;
+
+function useProvisionDoc(): ProvisionDoc | null {
+  const [doc, setDoc] = useState<ProvisionDoc | null>(provisionDoc);
+  useEffect(() => {
+    provisionReaders.add(setDoc);
+    if (provisionTimer === undefined) {
+      const load = async () => {
+        try {
+          const response = await fetch('/api/bench/provision', { cache: 'no-store' });
+          if (!response.ok) return;
+          provisionDoc = await response.json();
+          for (const reader of provisionReaders) reader(provisionDoc);
+        } catch { /* the host may be restarting */ }
+      };
+      void load();
+      provisionTimer = window.setInterval(load, 1000);
+    }
+    return () => {
+      provisionReaders.delete(setDoc);
+      if (provisionReaders.size === 0 && provisionTimer !== undefined) {
+        window.clearInterval(provisionTimer);
+        provisionTimer = undefined;
+      }
+    };
+  }, []);
+  return doc;
+}
+
+/** `1` → "1", `null`/`0` → an em dash, so an absent number reads as absent rather than as zero. */
+function serialText(serial: number | null | undefined): string {
+  return serial && serial > 0 ? String(serial) : '—';
+}
+
+/**
+ * The three places a serial can come from, at the top of the page, one press each.
+ *
+ * This exists because the answer to "what number should this board have?" was three scrolls below
+ * the fold. The strip is where an operator already looks — it carries READY and the flash button —
+ * so the sources belong here, as small as they can be while still being readable and clickable.
+ *
+ * DATABASE is shown even when empty, and that is the whole point of the element. A board whose
+ * identity page was erased looks identical to a new one until something says the registry knows
+ * it; leaving the chip out when there is no number would hide exactly the case it was added for.
+ */
+function SerialSources() {
+  const doc = useProvisionDoc();
+  const boardPresent = useBool('/probe/target_present');
+  if (!doc || !boardPresent) return null;
+  const byAction = (name: string) => doc.candidates.find((candidate) => candidate.action === name);
+  return <div className="serial-sources" role="group" aria-label="Serial sources">
+    <SerialSourceChip label="board" serial={doc.on_board_serial} doc={doc}
+      candidate={byAction('take_onboard_serial')} action="take_onboard_serial"
+      empty="No serial on this board's identity page." />
+    <SerialSourceChip label="database" serial={doc.database_serial} doc={doc}
+      candidate={byAction('use_database_serial')} action="use_database_serial"
+      empty={databaseEmptyReason(doc)} />
+    <SerialSourceChip label="free" serial={doc.next_free_serial} doc={doc}
+      candidate={byAction('take_next_free_serial')} action="take_next_free_serial" empty="" />
+  </div>;
+}
+
+/** One source chip. Its own component so the action counter can be a hook, not a callback. */
+function SerialSourceChip({ label, serial, doc, candidate, action, empty }: { label: string; serial: number | null; doc: ProvisionDoc; candidate?: SerialCandidateRow; action: string; empty: string }) {
+  const counter = useParam<number>(`/actions/${action}`);
+  const entered = useNumber('/provision/serial_to_provision');
+  const has = !!serial && serial > 0;
+  const blocked = !!candidate?.blocked_by;
+  const current = has && serial === entered;
+  const suggested = has && serial === doc.suggested_serial;
+  const seen = !has && !!doc.device_history;
+  const title = has
+    ? `${candidate?.detail ?? ''}${blocked ? ` Held by ${candidate?.blocked_by}.` : ''} Click to use serial ${serial}.`
+    : empty;
+  // The title lives on a wrapper, not on the button: a disabled button does not raise hover
+  // events in WebKit, so the one explanation an empty chip exists to give would never be read.
+  return <span className="serial-source-slot" title={title}>
+    <button
+      type="button"
+      className={`serial-source${current ? ' is-current' : ''}${blocked ? ' is-blocked' : ''}${suggested ? ' is-suggested' : ''}${seen ? ' is-seen' : ''}`}
+      aria-label={`${label}: ${serialText(serial)}. ${title}`}
+      disabled={!candidate || !counter.decl}
+      onClick={() => counter.set((counter.value ?? 0) + 1)}
+    >
+      <span className="label-caps">{label}</span>
+      <span className="serial-source-value">{serialText(serial)}</span>
+    </button>
+  </span>;
+}
+
+/**
+ * Why the database has no number for this MCU — which is two different situations.
+ *
+ * "Never seen" and "seen repeatedly but never registered" look the same in the registry and mean
+ * opposite things. The second is a board whose reservation kept failing, and telling an operator
+ * it is new is how it gets issued a second serial.
+ */
+function databaseEmptyReason(doc: ProvisionDoc): string {
+  const history = doc.device_history;
+  if (!history) return 'This MCU is new to this bench — no record of it at all.';
+  const when = new Date(history.last_seen_ms).toLocaleString();
+  const claimed = history.last_seen_serial
+    ? ` It was last read carrying serial ${history.last_seen_serial}, but that was never recorded against it — check whether something else holds that number.`
+    : '';
+  return `Seen before (${history.reads} reads, last ${when}) but never registered.${claimed}`;
+}
+
+const CANDIDATE_TITLE: Record<string, string> = {
+  registry: 'In the registry',
+  'on-board': 'On the board',
+  'next-free': 'Next free',
+};
+
+const PREFER_REGISTRY_HINT = 'Lock: on every board read, take the serial the registry already holds for that MCU instead of the one written on its identity page. For re-flashing boards that are already registered. Leave it off while first provisioning, when the board is the only source there is.';
+
+/**
+ * Which serial this board should get, and one press to give it that.
+ *
+ * The panel this replaces stated the problem twice — a badge reading "conflict" and a sentence
+ * naming the other MCU — and then left the operator to work out the answer in a number box. The
+ * question it never answered is the only one being asked: *which number should this board have?*
+ *
+ * So the candidates are the interface. Each is a real number with its provenance, its consequence
+ * and its cost, and taking one is a single press that also arms the override when — and only
+ * when — that number renumbers something. The worker computes them (`serial_candidates`), so what
+ * is offered here and what is enforced at reservation cannot drift apart.
+ */
+function SerialChooser({ uid }: { uid: string }) {
+  const snapshot = useProvisionDoc();
+  const entered = useNumber('/provision/serial_to_provision');
+  const candidates = snapshot?.candidates ?? [];
+  const holder = snapshot?.entered_serial_holder ?? '';
+  // The blocking row carries the status and dates the bare UID cannot. Worth the lookup: "held by
+  // a board provisioned months ago" and "held by this morning's simulator run" are the same
+  // sentence with very different answers.
+  const holderRow = holder ? snapshot?.registry.find((row) => row.active && row.uid === holder) : undefined;
+  if (!uid) return <div className="serial-chooser is-idle"><small>Connect and read a board to choose its serial.</small></div>;
+  return <div className={`serial-chooser${holder ? ' is-conflict' : ''}`}>
+    <header>
+      <div>
+        <strong>Serial for this board</strong>
+        <small>MCU <code>{uid}</code></small>
+      </div>
+      <PreferRegistryLock />
+    </header>
+    {holder && <div className="serial-clash" role="alert">
+      <div className="serial-clash-head"><Badge tone="error">conflict</Badge><strong>Serial {entered} already belongs to a different MCU.</strong></div>
+      <div className="serial-clash-holder">
+        <code>{holder}</code>
+        <small>{holderRow ? `${holderRow.status} · last updated ${new Date(holderRow.updated_ms).toLocaleString()}` : 'held in the registry'}</small>
+      </div>
+      <small className="serial-clash-note">Pick one of the numbers below. Only the number you pick is written; nothing is changed until you flash.</small>
+    </div>}
+    <div className="candidate-row" role="group" aria-label="Serial candidates">
+      {candidates.length === 0 ? <small>No serial can be offered yet — the provisioning database is unavailable.</small> : candidates.map((candidate) => {
+        const suggested = candidate.serial === snapshot?.suggested_serial;
+        const chosen = candidate.serial === entered;
+        return <div key={candidate.source} className={`candidate${suggested ? ' is-suggested' : ''}${candidate.blocked_by ? ' is-blocked' : ''}${chosen ? ' is-chosen' : ''}`}>
+          <div className="candidate-head">
+            <span className="candidate-serial">{candidate.serial}</span>
+            <div className="candidate-tags">
+              <span className="label-caps">{CANDIDATE_TITLE[candidate.source] ?? candidate.source}</span>
+              {suggested && <Badge tone="ok">suggested</Badge>}
+              {chosen && !suggested && <Badge tone="idle">in the box</Badge>}
+            </div>
+          </div>
+          <small className="candidate-detail">{candidate.detail}</small>
+          {candidate.blocked_by && <small className="candidate-blocked">held by <code>{candidate.blocked_by}</code></small>}
+          <Action
+            path={`/actions/${candidate.action}`}
+            variant={candidate.blocked_by ? 'danger' : suggested ? 'primary' : 'default'}
+            className="candidate-take"
+          >{candidate.blocked_by ? `Move ${candidate.serial} here` : `Take ${candidate.serial}`}</Action>
+        </div>;
+      })}
+    </div>
+  </div>;
+}
+
+function PreferRegistryLock() {
+  const p = useParam<boolean>('/provision/prefer_registry_serial');
+  const on = !!p.value;
+  return <label className={`prefer-registry${on ? ' is-on' : ''}`} title={PREFER_REGISTRY_HINT}>
+    <Toggle path="/provision/prefer_registry_serial" />
+    <span>Always take the registry serial</span>
+    <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><rect x="3" y="7.5" width="10" height="6.5" rx="1.5" fill="currentColor" /><path d={on ? 'M5 7.5V5a3 3 0 0 1 6 0v2.5' : 'M5 7.5V5a3 3 0 0 1 6 0'} fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></svg>
+    {!p.decl && <small>unavailable</small>}
+  </label>;
+}
 
 function ProvisionPanel() {
   const dbOk = useBool('/provision/database_ok');
@@ -394,34 +616,23 @@ function ProvisionPanel() {
   const pending = useBool('/provision/pending_replug');
   const reservation = useText('/provision/reservation');
   const source = useText('/provision/settings/source');
+  const dbSerial = useNumber('/provision/database_serial');
+  const dbStatus = useText('/provision/database_status');
+  const mcuUid = useText('/mcu/uid');
   const serial = serialState(useSerialView());
   const settingsView = useSettingsView();
   const settings = settingsState(settingsView);
   const settingsWhy = !settingsView.boardPresent ? 'no MCU is answering' : null;
   const readWhy = settingsView.locked ? 'Module Settings are locked; unlock them to read into them' : settingsWhy;
-  const [query, setQuery] = useState('');
-  const [history, setHistory] = useState<ProvisionActionRow[]>([]);
-  useEffect(() => {
-    let active = true;
-    const load = async () => {
-      try {
-        const response = await fetch(`/api/bench/provision/history?q=${encodeURIComponent(query)}`, { cache: 'no-store' });
-        if (active && response.ok) setHistory((await response.json()).actions ?? []);
-      } catch { /* the host may be restarting */ }
-    };
-    void load();
-    const id = window.setInterval(load, 2000);
-    return () => { active = false; window.clearInterval(id); };
-  }, [query]);
   return <section className="provision-panel" aria-label="Board provisioning">
     <header><div><strong>Board provisioning</strong><small>Serial identity is durable and separate from the 1–127 RS485 address.</small></div><Badge tone={serial.tone}>{serial.word}</Badge></header>
     {!dbOk && <Banner tone="error">Provisioning is blocked: {dbError || 'the local database is unavailable'}. Diagnostics and tests remain usable.</Banner>}
     {pending && <Banner tone="warn">Remove and reconnect this board. Its pending UID, serial, and firmware will be verified without another flash.</Banner>}
+    <SerialChooser uid={mcuUid} />
     <div className="provision-grid">
-      <section className="provision-fields"><header><strong>Serial allocation</strong><small>The Serial Number above is the number printed on the PCB.</small></header><Row label="Next available serial number"><NumberField path="/provision/next_serial" /></Row><Fact label="On-board serial number" value={existing > 0 ? String(existing) : 'none'} /><Fact label="Identity status" value={identity || 'unknown'} tone={identity === 'corrupt' || identity === 'foreign-uid' ? 'error' : undefined} /><Fact label="Reservation" value={reservation || 'none'} /><div className="button-row"><Action path="/actions/keep_onboard_serial" why={existing <= 0 ? 'no valid on-board serial' : null}>Keep on-board serial</Action><Action path="/actions/use_pcb_serial" variant="danger">Use entered serial number</Action></div></section>
+      <section className="provision-fields"><header><strong>Serial for this board</strong><small>Where each offered number comes from. The Database tab owns the library and next-serial floor.</small></header><Fact label="On-board serial number" value={existing > 0 ? String(existing) : 'none'} /><Fact label="Registry serial for this MCU" value={dbSerial > 0 ? `${dbSerial}${dbStatus ? ` · ${dbStatus}` : ''}` : 'not in registry'} tone={dbSerial > 0 && existing > 0 && dbSerial !== existing ? 'warn' : undefined} /><Fact label="Identity status" value={identity || 'unknown'} tone={identity === 'corrupt' || identity === 'foreign-uid' ? 'error' : undefined} /><Fact label="Reservation" value={reservation || 'none'} /><div className="button-row"><Action path="/actions/keep_onboard_serial" why={existing <= 0 ? 'no valid on-board serial' : null} variant="quiet">Keep on-board serial</Action><Action path="/actions/use_pcb_serial" variant="danger">Override with typed serial</Action></div></section>
       <section className="provision-fields"><header><strong>Module settings</strong><small>Edit them in the Module Settings card above; they are written with the serial on the next flash. Read from board discards your edits; the padlock on the card keeps them across boards.</small></header><Fact label="On board" value={settings.detail.replace(/^board: /, '')} /><Fact label="Entered" value={settingsSummary(settingsView.currentMa, settingsView.recovery)} tone={settings.changed ? 'warn' : undefined} /><Fact label="Settings source" value={source === 'flash' ? 'settings journal' : 'firmware defaults'} /><div className="button-row"><Action path="/actions/read_settings" why={readWhy}>Read from board</Action><Action path="/actions/write_settings" variant="primary" why={settingsWhy}>Write to board</Action></div></section>
     </div>
-    <div className="provision-history"><header><strong>Provisioning history</strong><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search serial, UID, action…" aria-label="Search provisioning history" /></header>{history.length === 0 ? <small>No matching actions.</small> : <div className="history-list">{history.slice(0, 30).map((item) => <div key={item.id}><code>{item.serial ?? '—'}</code><span><strong>{item.action}</strong><small>{item.uid ? `…${item.uid.slice(-8)} · ` : ''}{item.detail || item.outcome}</small></span><Badge tone={item.outcome === 'failed' ? 'error' : item.outcome === 'ok' ? 'ok' : 'idle'}>{item.outcome}</Badge></div>)}</div>}</div>
   </section>;
 }
 
@@ -913,7 +1124,7 @@ function App() {
     setSoundEnabled(enabled);
     if (enabled) sounds.play('tick_small', `portal-test-bench:sound-enabled:${Date.now()}`);
   };
-  const [tab, setTab] = useState<'flash' | 'test' | 'inspect'>('flash');
+  const [tab, setTab] = useState<'flash' | 'database' | 'test' | 'inspect'>('flash');
   const serial = useBool('/serial/connected'), rs485 = useBool('/rs485/connected');
   const serialKind = useEnumName('/serial/observed');
   const rs485Target = useNumber('/rs485/target');
@@ -928,9 +1139,9 @@ function App() {
       <div className="bench-shared">
         <HardwareBand />
         <FlashActionStrip soundEnabled={soundEnabled} onSoundEnabledChange={changeSoundEnabled} />
-        <Tabs value={tab} onChange={setTab} label="Portal test bench workspaces" items={[{ id: 'flash', label: 'Flash' }, { id: 'test', label: 'Test', count: faults || undefined }, { id: 'inspect', label: 'Inspect' }]} />
+        <Tabs value={tab} onChange={setTab} label="Portal test bench workspaces" items={[{ id: 'flash', label: 'Flash' }, { id: 'database', label: 'Database' }, { id: 'test', label: 'Test', count: faults || undefined }, { id: 'inspect', label: 'Inspect' }]} />
       </div>
-      <div className="tab-content"><div className="stack bench-stack">{tab === 'flash' ? <FlashTab /> : tab === 'test' ? <TestTab /> : <InspectTab />}</div></div>
+      <div className="tab-content"><div className="stack bench-stack">{tab === 'flash' ? <FlashTab /> : tab === 'database' ? <DatabaseTab /> : tab === 'test' ? <TestTab /> : <InspectTab />}</div></div>
     </div><SessionLog /></div>
     <StatusBar stream={null}><StatusItem label="serial" value={serial ? serialKind : 'down'} tone={serial ? 'ok' : 'warn'} /><StatusItem label="RS485" value={rs485 ? `target ${rs485Target}` : 'down'} tone={rs485 ? 'ok' : 'warn'} /><StatusItem label="probe" value={target ? 'MCU present' : probe ? 'ready' : 'down'} tone={target ? 'ok' : probe ? 'warn' : 'error'} /><StatusItem label="runs" value={`${passed} pass · ${failed} fail`} />{faults > 0 && <StatusItem label="faults" value={String(faults)} tone="error" />}</StatusBar>
   </div>;

@@ -745,7 +745,10 @@ impl SimBus {
             BlVerb::Reset => {
                 let base = boot.base;
                 *boot = BootSim::new(base);
-                Some((reply(vec![(key("ok"), Value::Boolean(true))]), Duration::ZERO))
+                Some((
+                    reply(vec![(key("ok"), Value::Boolean(true))]),
+                    Duration::ZERO,
+                ))
             }
         }
     }
@@ -848,7 +851,15 @@ impl SimBus {
     /// The only way to check what the *blind* path actually delivered: it has no
     /// verify verb, so the bytes themselves are the only evidence there is.
     pub fn portal_bank(&self, id: u8) -> Option<Vec<u8>> {
-        Some(self.portals.iter().find(|p| p.id == id)?.boot.as_ref()?.bank.clone())
+        Some(
+            self.portals
+                .iter()
+                .find(|p| p.id == id)?
+                .boot
+                .as_ref()?
+                .bank
+                .clone(),
+        )
     }
 
     pub fn portal_positions(&self, id: u8) -> Option<([i32; 2], [i32; 2])> {
@@ -879,7 +890,9 @@ impl SerialDevice for SimBus {
         let results = self.acc.push(data);
         for result in results {
             let Ok(payload) = result else { continue };
-            let Ok(envelope) = decode_envelope(&payload) else { continue };
+            let Ok(envelope) = decode_envelope(&payload) else {
+                continue;
+            };
             // A frame whose trailer failed the CRC is discarded, as the firmware
             // discards it: it decoded to a plausible body, and acting on it is how
             // a corrupted offset writes a chunk into the wrong place.
@@ -958,7 +971,11 @@ mod tests {
         }
 
         fn drain(&self) -> Vec<Envelope> {
-            let bytes = self.sim.borrow_mut().receive_available().unwrap_or_default();
+            let bytes = self
+                .sim
+                .borrow_mut()
+                .receive_available()
+                .unwrap_or_default();
             self.accumulator
                 .borrow_mut()
                 .push(&bytes)
@@ -1071,7 +1088,11 @@ mod tests {
         let progress = drive(&bus, &mut session);
         assert!(progress.done && progress.ok, "{}", progress.detail);
 
-        let view = bus.sim.borrow().portal_bootloader(1).expect("in bootloader");
+        let view = bus
+            .sim
+            .borrow()
+            .portal_bootloader(1)
+            .expect("in bootloader");
         assert!(view.session_open);
         assert_eq!(view.session_len as usize, session.image_len());
         assert_eq!(view.received_bytes as usize, session.image_len());
@@ -1115,7 +1136,11 @@ mod tests {
         // number of bytes accepted is a multiple of the image and proves nothing.
         let want = fw_update::prepare_image(&firmware, &FwUpdateParams::resilient());
         for id in [1u8, 2u8] {
-            let view = bus.sim.borrow().portal_bootloader(id).expect("in bootloader");
+            let view = bus
+                .sim
+                .borrow()
+                .portal_bootloader(id)
+                .expect("in bootloader");
             assert_eq!(view.base, layout::APP_BASE_LEGACY, "board {id}");
             assert_eq!(
                 view.high_water as usize,
@@ -1123,7 +1148,11 @@ mod tests {
                 "board {id} did not receive the whole image"
             );
             let bank = bus.sim.borrow().portal_bank(id).expect("a bank");
-            assert_eq!(&bank[..want.len()], &want[..], "board {id} holds other bytes");
+            assert_eq!(
+                &bank[..want.len()],
+                &want[..],
+                "board {id} holds other bytes"
+            );
         }
     }
 
@@ -1152,7 +1181,10 @@ mod tests {
         // opened a session.
         for id in [1u8, 2u8, 4u8] {
             let view = bus.sim.borrow().portal_bootloader(id).expect("recalled");
-            assert!(!view.session_open, "board {id} answered a selector for board 3");
+            assert!(
+                !view.session_open,
+                "board {id} answered a selector for board 3"
+            );
         }
     }
 }

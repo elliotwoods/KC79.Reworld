@@ -112,7 +112,10 @@ pub struct Reporter {
 }
 
 impl Reporter {
-    pub fn start(config: ReportConfig, session: SessionInfo) -> std::io::Result<(Reporter, ReporterHandle)> {
+    pub fn start(
+        config: ReportConfig,
+        session: SessionInfo,
+    ) -> std::io::Result<(Reporter, ReporterHandle)> {
         let (tx, rx): (SyncSender<Msg>, Receiver<Msg>) = sync_channel(config.channel_capacity);
         let shared = Arc::new(Shared {
             dropped: AtomicU64::new(0),
@@ -126,8 +129,17 @@ impl Reporter {
             .name("report-writer".into())
             .spawn(move || writer::run(config, session, rx, writer_shared))?;
 
-        let reporter = Reporter { tx: Some(tx.clone()), shared };
-        Ok((reporter, ReporterHandle { tx, join: Some(join) }))
+        let reporter = Reporter {
+            tx: Some(tx.clone()),
+            shared,
+        };
+        Ok((
+            reporter,
+            ReporterHandle {
+                tx,
+                join: Some(join),
+            },
+        ))
     }
 
     /// A reporter that discards everything.
@@ -205,10 +217,22 @@ impl Reporter {
                 needs_ack,
             }));
         }
-        self.send(Msg::Tx { col, target, needs_ack, bytes: bytes as u32 });
+        self.send(Msg::Tx {
+            col,
+            target,
+            needs_ack,
+            bytes: bytes as u32,
+        });
     }
 
-    pub fn packet_rx(&self, col: u8, source: i8, kind: RxKind, bytes: usize, latency_ms: Option<f32>) {
+    pub fn packet_rx(
+        &self,
+        col: u8,
+        source: i8,
+        kind: RxKind,
+        bytes: usize,
+        latency_ms: Option<f32>,
+    ) {
         if self.is_verbose() {
             self.send(Msg::Event(Event::PacketRx {
                 col,
@@ -218,11 +242,20 @@ impl Reporter {
                 latency_ms,
             }));
         }
-        self.send(Msg::Rx { col, source, kind, bytes: bytes as u32, latency_ms });
+        self.send(Msg::Rx {
+            col,
+            source,
+            kind,
+            bytes: bytes as u32,
+            latency_ms,
+        });
     }
 
     pub fn outbox_depth(&self, col: u8, depth: usize) {
-        self.send(Msg::OutboxDepth { col, depth: depth as u32 });
+        self.send(Msg::OutboxDepth {
+            col,
+            depth: depth as u32,
+        });
     }
 }
 

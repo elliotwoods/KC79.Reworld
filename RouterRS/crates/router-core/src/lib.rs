@@ -19,7 +19,7 @@ pub use router_link::{fw_update, repeater_ota, rs485, sim};
 pub use glam::Vec2;
 pub use router_link as link;
 
+pub use router_proto as proto;
 /// Repeaters per shared outer bus in the V3 topology.
 pub use router_proto::REPEATER_COUNT;
-pub use router_proto as proto;
 pub use router_report as report;

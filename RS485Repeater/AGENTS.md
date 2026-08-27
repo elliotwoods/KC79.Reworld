@@ -12,7 +12,9 @@ This directory is the ESP32-C3 Reworld V3 frame router. Before hardware work, re
 - V1 and V2 remain supported and have no ESP32 repeaters.
 - V3 has one shared outer host bus and six repeaters, each serving one isolated nine-Portal branch.
 - Repeater side 1 is always the shared host/WaveShare bus; side 2 is always the local Portal bus.
-- Both sides use 115200/8N1. Production v2.2.0 has logical inversion off on both sides.
+- Both sides use 115200/8N1. Polarity is decided per side on the wire (`Polarity.*`, mode `auto`
+  by default, persisted in NVS); the build flags are only a starting point. A pair landed the wrong
+  way round is absorbed, not diagnosed.
 - Firmware-update broadcasts must remain fail-open and reach every branch.
 - The repeater learns its local contiguous nine-ID block from a valid side-2 reply. Unknown traffic
   is fail-open; a conflicting block puts it in conflict/transparent mode.
@@ -65,16 +67,24 @@ For an upstream-only electrical test, disconnect side 2 physically or use a deli
 valid frame after the local range is learned. Remember that malformed traffic is fail-open and can
 reach side 2. Stop any Portal routine with Escape before starting RS485 measurements.
 
-If normal polarity gives UART errors and inverted polarity gives only partial/incomplete data,
-neither polarity passes. Check MAX3362 A−B, common mode, tied `DE`/`RE#`, and `RO` at the ESP RX pin;
-do not choose the setting with fewer errors.
+If `polarity` shows a side flipping repeatedly (`flips` climbing, never `locked`), neither polarity
+decodes. Check MAX3362 A−B, common mode, tied `DE`/`RE#`, and `RO` at the ESP RX pin; do not pin the
+setting with fewer errors.
+
+## Host pacing
+
+A serial `write()` that has returned is not a frame on the wire. RouterRS drains the port
+(`tcdrain`) before it sleeps the inter-frame gap, and every host tool must: a host that queues
+faster than 115200 baud fills the OS buffer within seconds, after which the adapter is fed one USB
+packet at a time, its FIFO runs dry mid-frame and its driver drops -- invisible on a pair at the
+receiver's polarity, fatal on an inverted one. Measured 2026-08-26: the first ~230 frames of an
+upload were clean, every frame after that was hit, and the short repair pass was clean again.
 
 ## Firmware changes and restoration
 
 - Back up the full 4 MB flash before replacing an unknown field image; preserve its SHA-256.
-- Temporary polarity builds are allowed for controlled diagnosis, but restore both `platformio.ini`
-  and the installed production image to normal polarity unless the user explicitly authorises a
-  documented installation override.
+- Do not pin a side's polarity (`polarity <side> normal|inverted`) except as a documented
+  installation override; `auto` is the production setting and the proven value persists on its own.
 - Do not modify PortalFW to solve repeater topology, pacing, or upstream electrical faults.
 - Preserve unrelated dirty-tree changes and field artifacts.
 
@@ -86,8 +96,8 @@ do not choose the setting with fewer errors.
 cd RouterRS && cargo test -p router-proto -p router-link -p router-core
 ```
 
-All four native suites (`test_bridge`, `test_control`, `test_ota`, `test_snapshot`) and the embedded
-release build must pass. Check the live USB `version` response after upload so the device's polarity
+All five native suites (`test_bridge`, `test_control`, `test_ota`, `test_polarity`, `test_snapshot`)
+and the embedded release build must pass. Check the live USB `version` response after upload so the device's polarity
 agrees with `platformio.ini`.
 
 The control plane, OTA session and snapshot engine live in `lib/BridgeCore` behind injectable clocks
