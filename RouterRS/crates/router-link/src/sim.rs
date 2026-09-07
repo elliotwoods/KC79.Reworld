@@ -487,6 +487,27 @@ impl SimBus {
                             }
                             reply = Some(portal.positions_body());
                         }
+                        Some("motionControlA") | Some("motionControlB") => {
+                            let axis = usize::from(k.as_str() == Some("motionControlB"));
+                            if let Value::Map(commands) = v {
+                                for (command, args) in commands {
+                                    if command.as_str() == Some("move") {
+                                        let target = match args {
+                                            Value::Array(values) => values.first().and_then(Value::as_i64),
+                                            _ => args.as_i64(),
+                                        };
+                                        if let Some(target) = target.and_then(|n| i32::try_from(n).ok()) {
+                                            portal.target[axis] = target;
+                                        }
+                                    }
+                                }
+                            }
+                            reply = Some(Value::Boolean(true));
+                        }
+                        Some("escapeFromRoutine") => {
+                            portal.target = portal.position.map(|p| p as i32);
+                            reply = Some(Value::Boolean(true));
+                        }
                         Some("keyframe") => {
                             if !broadcast {
                                 reply = Some(Value::Boolean(true));
@@ -1040,6 +1061,19 @@ mod tests {
             progress = session.tick(bus, now, &envelopes);
         }
         progress
+    }
+
+    #[test]
+    fn single_axis_move_and_escape_update_the_model() {
+        let mut sim = SimBus::new(SimConfig { portal_count: 1, ..Default::default() });
+        let move_b = Value::Map(vec![(key("motionControlB"), Value::Map(vec![
+            (key("move"), Value::Array(vec![Value::from(-1897), Value::from(24000), Value::from(100000), Value::from(100)]))
+        ]))]);
+        sim.handle_application(0, &move_b, false);
+        assert_eq!(sim.portals[0].target, [0, -1897]);
+        sim.portals[0].integrate(0.1, 1000.0);
+        sim.handle_application(0, &Value::Map(vec![(key("escapeFromRoutine"), Value::Nil)]), false);
+        assert_eq!(sim.portals[0].target, [0, -100]);
     }
 
     #[test]

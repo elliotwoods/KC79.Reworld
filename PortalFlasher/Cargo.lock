@@ -171,6 +171,7 @@ version = "0.1.0"
 dependencies = [
  "av-control-surface",
  "av-plugin",
+ "cc",
 ]
 
 [[package]]

@@ -1,0 +1,12 @@
+
+ RUN  v3.2.7 /Users/elliot/dev/KC79.Reworld/PortalFlasher/third_party/av-frameworks/web
+
+ ✓ src/styles.test.ts (8 tests) 15ms
+ ✓ src/runtime/controlSurfaceFocus.test.ts (7 tests) 22ms
+ ✓ src/runtime/controlSurfaceSelection.test.ts (14 tests) 30ms
+
+ Test Files  3 passed (3)
+      Tests  29 passed (29)
+   Start at  17:55:06
+   Duration  513ms (transform 66ms, setup 16ms, collect 95ms, tests 66ms, environment 556ms, prepare 102ms)
+

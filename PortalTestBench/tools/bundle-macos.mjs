@@ -39,7 +39,7 @@ const APP_NAME = 'PortalTestBench';
 const BUNDLE_ID = 'com.kimchiandchips.portal-test-bench';
 const BINARY = 'portal-test-bench';
 /** The agent's CLI, shipped beside the bench so one package serves a person and a script. */
-const COMPANIONS = ['ptb'];
+const COMPANIONS = ['ptb', 'av-frameworks-daemon'];
 
 function parseArgs(argv) {
   const options = { profile: 'release', sign: '-', resources: null, out: null };
@@ -125,6 +125,10 @@ main(() => {
       `${BINARY} is not built in ${options.profile}.\n` +
         `  Run: node tools/build.mjs${options.profile === 'release' ? ' --release' : ''}`,
     );
+  }
+
+  for (const name of COMPANIONS) {
+    if (!fs.existsSync(path.join(targetDir, name))) fail(`${name} is missing; run tools/build.mjs first`);
   }
 
   const version =

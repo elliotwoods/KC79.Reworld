@@ -1084,9 +1084,21 @@ function Evidence() {
   </section>;
 }
 
+function ManualControl() {
+  const position = useText('/manual/position');
+  const status = useText('/manual/status');
+  return <Panel title="Manual control">
+    <div className="manual-overview"><div><small>ACTUAL POSITION</small><strong>{position || 'Unknown'} <small>rev</small></strong><span role="status">{status}</span></div>
+      <div className="manual-settings"><Row label="Axis"><EnumSelect path="/manual/axis" /></Row><Row label="Jog increment [rev]"><NumberField path="/manual/increment" /></Row><Row label="Speed [µsteps/s]"><NumberField path="/motion/profile/max_velocity" /></Row></div>
+    </div>
+    <div className="button-row manual-actions"><Action path="/actions/manual_jog_minus">Jog −</Action><Action path="/actions/manual_jog_plus">Jog +</Action><Action path="/actions/manual_home">Home</Action><Action path="/actions/manual_stop" variant="danger">Stop / Escape</Action></div>
+  </Panel>;
+}
+
 function TestTab() {
   return <>
     <LinkPanel />
+    <ManualControl />
     <ProcedureRunner />
     <QuickCommands />
     <HomingDiagnostics />

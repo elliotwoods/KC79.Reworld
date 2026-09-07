@@ -694,6 +694,10 @@ impl Worker {
     }
 
     fn act(&mut self, name: &str, now: u64) {
+        if name.starts_with("manual_") {
+            self.manual_action(name, now);
+            return;
+        }
         match name {
             "connect_serial" => self.connect_from(Channel::Serial, now),
             "disconnect_serial" => self.bench.disconnect_channel(Channel::Serial, now),
@@ -847,6 +851,65 @@ impl Worker {
                 bench_core::LOG_LEVEL_WARNING,
                 format!("`{other}` is not wired up yet"),
             ),
+        }
+    }
+
+    fn manual_action(&mut self, name: &str, now: u64) {
+        let status = self.bus.id_of("/manual/status").unwrap();
+        let channel = self.motion_channel();
+        if name == "manual_stop" || name == "manual_stop_settings" {
+            self.bench.stop_manual(channel, now);
+            let _ = self.bus.set_text(status, "Stop requested");
+            return;
+        }
+        let refusal =
+            if self.flash.snapshot().armed || self.flash.snapshot().busy || self.bench.is_busy() {
+                Some("Fixture or test is busy")
+            } else if self.page_is_stale(now) {
+                Some("Open the bench window first")
+            } else {
+                None
+            };
+        if let Some(reason) = refusal {
+            let _ = self.bus.set_text(status, reason);
+            self.bench.note(now, bench_core::LOG_LEVEL_WARNING, reason);
+            return;
+        }
+        self.bench.select_channel(channel);
+        let state = self.bench.state();
+        let axis = crate::manual::axis(&self.bus);
+        let command = match name {
+            "manual_home" => bench_core::manual::Command::Home,
+            "manual_move" => bench_core::manual::Command::Move(crate::manual::number(
+                &self.bus,
+                "/manual/target",
+            )),
+            "manual_jog_minus" => bench_core::manual::Command::Jog(-crate::manual::number(
+                &self.bus,
+                "/manual/increment",
+            )),
+            "manual_jog_plus" => bench_core::manual::Command::Jog(crate::manual::number(
+                &self.bus,
+                "/manual/increment",
+            )),
+            _ => return,
+        };
+        let profile = MotionProfile {
+            max_velocity: schema::get_i32(&self.bus, self.params.motion.max_velocity),
+            acceleration: schema::get_i32(&self.bus, self.params.motion.acceleration),
+            min_velocity: schema::get_i32(&self.bus, self.params.motion.min_velocity),
+        };
+        let result =
+            bench_core::manual::prepare(&state.dut, state.link.connected, axis, command, profile);
+        match result {
+            Ok(op) => {
+                self.bench.submit_to(channel, op);
+                let _ = self.bus.set_text(status, "Command submitted");
+            }
+            Err(reason) => {
+                let _ = self.bus.set_text(status, reason);
+                self.bench.note(now, bench_core::LOG_LEVEL_WARNING, reason);
+            }
         }
     }
 
@@ -2640,6 +2703,39 @@ impl Worker {
     /// Mirror everything the bench knows into the bus and the shared snapshot.
     fn publish(&mut self, now: u64) {
         let state = self.bench.state().clone();
+        let axis = crate::manual::axis(&self.bus);
+        let manual_connected = match self.motion_channel() {
+            Channel::Serial => state.channels.serial.link.connected,
+            Channel::Rs485 => state.channels.rs485.link.connected,
+        };
+        let _ = self.bus.set(
+            self.bus.id_of("/manual/connected").unwrap(),
+            Value::Bool(manual_connected),
+        );
+        let manual_dut = match self.motion_channel() {
+            Channel::Serial => &state.channels.serial.dut,
+            Channel::Rs485 => &state.channels.rs485.dut,
+        };
+        let position = manual_dut
+            .axis(axis)
+            .position
+            .zip(manual_dut.usteps_per_rev)
+            .filter(|(_, n)| *n > 0)
+            .map(|(p, n)| {
+                format!(
+                    "{:.4}",
+                    f64::from(p) / f64::from(n) * if axis == Axis::B { -1.0 } else { 1.0 }
+                )
+            })
+            .unwrap_or_else(|| "Unknown".into());
+        let _ = self
+            .bus
+            .set_text(self.bus.id_of("/manual/position").unwrap(), &position);
+        let status = schema::get_text(&self.bus, self.bus.id_of("/manual/status").unwrap());
+        let _ = self.bus.set_text(
+            self.bus.id_of("/manual/readout").unwrap(),
+            &format!("{position}\n{status}"),
+        );
         let set = |id, value| {
             let _ = self.bus.set(id, value);
         };

@@ -1679,6 +1679,12 @@ impl Params {
 
 /// The action names, declared once so `declare` and `resolve` cannot drift apart.
 pub const ACTIONS: &[&str] = &[
+    "manual_jog_minus",
+    "manual_jog_plus",
+    "manual_home",
+    "manual_stop",
+    "manual_stop_settings",
+    "manual_move",
     "rescan",
     "connect_serial",
     "disconnect_serial",

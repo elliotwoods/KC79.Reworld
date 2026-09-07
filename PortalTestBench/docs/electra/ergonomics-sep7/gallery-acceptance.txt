@@ -1,0 +1,12 @@
+scope: confirmed 4 fields
+scope: confirmed 4 fields
+console: confirmed 10 fields
+charts: confirmed 4 fields
+electra-one: confirmed 18 fields
+electra-one: confirmed 18 fields
+electra-one: confirmed 5 fields
+electra-one: confirmed 64 fields
+console: confirmed 10 fields
+scope: confirmed 4 fields
+charts: confirmed 4 fields
+PASS: four apps, sustained telemetry, value round trip, enums, vectors, RGBA, 64-field paging and handoff

@@ -64,3 +64,11 @@ PortalFW/src/Version.h
 # build output, and the thing that makes it reproducible is the pinned platform versions and the
 # commit recorded in its own MANIFEST.md, not the archive being in git.
 /dist/
+
+# Separate local firmware checkout; reproducible changes are in PortalTestBench/docs/electra.
+/.local/
+
+# Keep the curated device integration notes and reproducible firmware patch.
+!/PortalTestBench/docs/
+/PortalTestBench/docs/*
+!/PortalTestBench/docs/electra/

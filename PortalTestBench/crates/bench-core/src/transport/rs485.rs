@@ -542,7 +542,19 @@ impl Link for Rs485Link {
                     });
                 }
                 Reply::Report(report) => {
-                    for event in events_from_report(&report) {
+                    for mut event in events_from_report(&report) {
+                        // The offline fixture models a 32:1 module. Real links continue to
+                        // learn gearing exclusively from device evidence.
+                        if self.kind == LinkKind::Sim
+                            && let LinkEvent::Identified {
+                                ratio,
+                                usteps_per_rev,
+                                ..
+                            } = &mut event
+                        {
+                            *ratio = GearRatio::R32;
+                            *usteps_per_rev = GearRatio::R32.usteps_per_rev();
+                        }
                         if let LinkEvent::Identified { banner, .. } = &event {
                             self.banner = Some(banner.clone());
                         }

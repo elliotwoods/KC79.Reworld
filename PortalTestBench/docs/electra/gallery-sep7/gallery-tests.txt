@@ -1,0 +1,13 @@
+
+Running 6 tests using 1 worker
+
+(node:50478) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  1 tests/launcher.spec.ts:55:1 › launcher tabs, history details, secrets, and the Running panel (2.2s)
+  ✓  2 tests/launcher.spec.ts:108:1 › a delayed initial snapshot cannot replace a tab the user chose (137ms)
+  ✓  3 tests/launcher.spec.ts:124:1 › a run that is not answering can still be force quit (115ms)
+  ✓  4 tests/launcher.spec.ts:139:1 › force quit confirms in-page and posts exactly the expected body (612ms)
+  ✓  5 tests/launcher.spec.ts:171:1 › a recent with no live run shows its last address as text, not a button (110ms)
+  ✓  6 tests/launcher.spec.ts:182:1 › launcher controls expose hover, pressed, focus and danger states (780ms)
+
+  6 passed (4.4s)

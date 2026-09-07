@@ -10,6 +10,7 @@
 pub mod bench;
 pub mod dut;
 pub mod engine;
+pub mod manual;
 pub mod plan;
 pub mod provisioning;
 pub mod repeater;

@@ -39,7 +39,7 @@ const web = path.join(app, 'web');
 const dist = path.join(web, 'dist');
 
 /** Every binary this workspace ships. Order is cosmetic; membership is not. */
-const PACKAGES = ['portal-test-bench', 'ptb'];
+const PACKAGES = ['portal-test-bench', 'ptb', 'av-frameworks-daemon-helper'];
 
 function parseArgs(argv) {
   const options = { release: false, skipWeb: false };
@@ -92,8 +92,8 @@ main(() => {
   console.log(`  ${path.join(target, `ptb${suffix}`)} state                     # the agent's view of the same bench`);
   if (IS_MACOS) {
     console.log('');
-    console.log('  A native macOS run needs a bundle -- CEF resolves its framework relative to the');
-    console.log('  main bundle and cannot find it beside a bare binary:');
+    console.log('  The control window runs directly on macOS. To create a named app bundle:');
+    console.log('');
     console.log(`      node tools/bundle-macos.mjs${options.release ? ' --profile release' : ''}`);
   }
 });

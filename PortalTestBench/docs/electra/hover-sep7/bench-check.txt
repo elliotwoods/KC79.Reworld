@@ -1,0 +1,6 @@
+{
+  requested: 'ready',
+  background: 'color(srgb 0.133333 0.827451 0.933333 / 0.04)',
+  outline: 'solid'
+}
+{"app":"portal-test-bench","phase":"ready","screen":{"visible_ids":[0,1,2,3,4,5,6,7],"focused_id":null,"confirmed":true},"errors":0}

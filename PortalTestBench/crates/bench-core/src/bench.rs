@@ -306,6 +306,16 @@ impl Bench {
         self.queue.push_back((channel, Outbound::Op(op)));
     }
 
+    /// Escape takes priority over queued commands on this route.
+    pub fn stop_manual(&mut self, channel: Channel, now_ms: u64) {
+        self.abort(now_ms);
+        if self.state.field_update.running() {
+            return;
+        }
+        self.queue.retain(|(queued, _)| *queued != channel);
+        self.queue.push_front((channel, Outbound::Op(Op::Escape)));
+    }
+
     pub fn submit_raw(&mut self, channel: Channel, signal: RawSignal, now_ms: u64) {
         if self.state.field_update.running() {
             self.note(
@@ -884,10 +894,29 @@ pub enum StartError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::dut::Axis;
     use crate::plan::{Body, Step};
 
     fn bench() -> Bench {
         Bench::new(Report::disabled())
+    }
+
+    #[test]
+    fn manual_stop_cancels_queued_route_commands_and_runs_first() {
+        let mut bench = bench();
+        bench.submit_to(Channel::Rs485, Op::Home { axis: Axis::A });
+        bench.submit_to(Channel::Serial, Op::Identify);
+        bench.submit_to(Channel::Rs485, Op::Home { axis: Axis::B });
+        bench.stop_manual(Channel::Rs485, 0);
+        assert_eq!(bench.queue.len(), 2);
+        assert!(matches!(
+            bench.queue.front(),
+            Some((Channel::Rs485, Outbound::Op(Op::Escape)))
+        ));
+        assert!(matches!(
+            bench.queue.back(),
+            Some((Channel::Serial, Outbound::Op(Op::Identify)))
+        ));
     }
 
     #[test]

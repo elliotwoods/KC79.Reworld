@@ -1,0 +1,1943 @@
+[
+  {
+    "t": 69.39999997615814,
+    "kind": "wire-send",
+    "bytes": [
+      20,
+      5,
+      13,
+      0,
+      0,
+      0,
+      9,
+      0,
+      47,
+      111,
+      118,
+      101
+    ]
+  },
+  {
+    "t": 70.39999997615814,
+    "kind": "wire-receive"
+  },
+  {
+    "t": 70.69999992847443,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/enabled",
+    "value": "true"
+  },
+  {
+    "t": 70.69999992847443,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/enabled",
+    "value": "true"
+  },
+  {
+    "t": 70.69999992847443,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/rgb",
+    "value": "true"
+  },
+  {
+    "t": 70.69999992847443,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/rgb",
+    "value": "true"
+  },
+  {
+    "t": 70.69999992847443,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/rgb",
+    "value": "true"
+  },
+  {
+    "t": 70.69999992847443,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/rgb",
+    "value": "true"
+  },
+  {
+    "t": 70.69999992847443,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/rgb",
+    "value": "true"
+  },
+  {
+    "t": 70.69999992847443,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/rgb",
+    "value": "true"
+  },
+  {
+    "t": 70.69999992847443,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/rgb",
+    "value": "true"
+  },
+  {
+    "t": 70.69999992847443,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/rgb",
+    "value": "true"
+  },
+  {
+    "t": 70.69999992847443,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/rgba",
+    "value": "true"
+  },
+  {
+    "t": 70.69999992847443,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/rgba",
+    "value": "true"
+  },
+  {
+    "t": 70.69999992847443,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/rgba",
+    "value": "true"
+  },
+  {
+    "t": 70.69999992847443,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/rgba",
+    "value": "true"
+  },
+  {
+    "t": 70.69999992847443,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/rgba",
+    "value": "true"
+  },
+  {
+    "t": 70.69999992847443,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/rgba",
+    "value": "true"
+  },
+  {
+    "t": 70.69999992847443,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/rgba",
+    "value": "true"
+  },
+  {
+    "t": 70.69999992847443,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/rgba",
+    "value": "true"
+  },
+  {
+    "t": 70.69999992847443,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/rgba",
+    "value": "true"
+  },
+  {
+    "t": 70.69999992847443,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/rgba",
+    "value": "true"
+  },
+  {
+    "t": 70.69999992847443,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/pan",
+    "value": "true"
+  },
+  {
+    "t": 70.69999992847443,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/pan",
+    "value": "true"
+  },
+  {
+    "t": 70.69999992847443,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/tilt",
+    "value": "true"
+  },
+  {
+    "t": 70.69999992847443,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/tilt",
+    "value": "true"
+  },
+  {
+    "t": 71.69999992847443,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/rgba",
+    "value": "true"
+  },
+  {
+    "t": 71.69999992847443,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/rgba",
+    "value": "true"
+  },
+  {
+    "t": 71.69999992847443,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/rgba",
+    "value": "true"
+  },
+  {
+    "t": 71.69999992847443,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/rgba",
+    "value": "true"
+  },
+  {
+    "t": 71.69999992847443,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/pan",
+    "value": "true"
+  },
+  {
+    "t": 71.69999992847443,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/pan",
+    "value": "true"
+  },
+  {
+    "t": 71.69999992847443,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/pan",
+    "value": "true"
+  },
+  {
+    "t": 71.69999992847443,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/pan",
+    "value": "true"
+  },
+  {
+    "t": 111.5,
+    "kind": "wire-receive"
+  },
+  {
+    "t": 111.69999992847443,
+    "kind": "wire-receive"
+  },
+  {
+    "t": 111.89999997615814,
+    "kind": "wire-receive"
+  },
+  {
+    "t": 321.1999999284744,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/enabled",
+    "value": null
+  },
+  {
+    "t": 321.1999999284744,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/enabled",
+    "value": null
+  },
+  {
+    "t": 321.1999999284744,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/rgb",
+    "value": null
+  },
+  {
+    "t": 321.1999999284744,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/rgb",
+    "value": null
+  },
+  {
+    "t": 321.1999999284744,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/rgb",
+    "value": null
+  },
+  {
+    "t": 321.1999999284744,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/rgb",
+    "value": null
+  },
+  {
+    "t": 321.1999999284744,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/rgb",
+    "value": null
+  },
+  {
+    "t": 321.1999999284744,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/rgba",
+    "value": null
+  },
+  {
+    "t": 321.1999999284744,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/rgba",
+    "value": null
+  },
+  {
+    "t": 321.1999999284744,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/rgba",
+    "value": null
+  },
+  {
+    "t": 321.1999999284744,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/rgba",
+    "value": null
+  },
+  {
+    "t": 321.1999999284744,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/rgba",
+    "value": null
+  },
+  {
+    "t": 321.1999999284744,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/rgba",
+    "value": null
+  },
+  {
+    "t": 321.1999999284744,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/rgba",
+    "value": null
+  },
+  {
+    "t": 321.1999999284744,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/rgba",
+    "value": null
+  },
+  {
+    "t": 321.1999999284744,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/pan",
+    "value": null
+  },
+  {
+    "t": 321.1999999284744,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/pan",
+    "value": null
+  },
+  {
+    "t": 321.1999999284744,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/pan",
+    "value": null
+  },
+  {
+    "t": 321.1999999284744,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/pan",
+    "value": null
+  },
+  {
+    "t": 321.1999999284744,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/tilt",
+    "value": null
+  },
+  {
+    "t": 321.1999999284744,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/tilt",
+    "value": null
+  },
+  {
+    "t": 321.1999999284744,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/overflow/field-00",
+    "value": "true"
+  },
+  {
+    "t": 321.1999999284744,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/overflow/field-00",
+    "value": "true"
+  },
+  {
+    "t": 321.1999999284744,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/overflow/field-01",
+    "value": "true"
+  },
+  {
+    "t": 321.1999999284744,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/overflow/field-01",
+    "value": "true"
+  },
+  {
+    "t": 321.1999999284744,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/overflow/field-02",
+    "value": "true"
+  },
+  {
+    "t": 321.1999999284744,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/overflow/field-02",
+    "value": "true"
+  },
+  {
+    "t": 321.1999999284744,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/overflow/field-03",
+    "value": "true"
+  },
+  {
+    "t": 321.1999999284744,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/overflow/field-03",
+    "value": "true"
+  },
+  {
+    "t": 321.1999999284744,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/overflow/field-04",
+    "value": "true"
+  },
+  {
+    "t": 321.1999999284744,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/overflow/field-04",
+    "value": "true"
+  },
+  {
+    "t": 321.1999999284744,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/overflow/field-05",
+    "value": "true"
+  },
+  {
+    "t": 321.2999999523163,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/overflow/field-05",
+    "value": "true"
+  },
+  {
+    "t": 321.2999999523163,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/overflow/field-06",
+    "value": "true"
+  },
+  {
+    "t": 321.2999999523163,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/overflow/field-06",
+    "value": "true"
+  },
+  {
+    "t": 321.2999999523163,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/overflow/field-07",
+    "value": "true"
+  },
+  {
+    "t": 321.2999999523163,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/overflow/field-07",
+    "value": "true"
+  },
+  {
+    "t": 324.09999990463257,
+    "kind": "wire-receive"
+  },
+  {
+    "t": 572,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/overflow/field-00",
+    "value": "true"
+  },
+  {
+    "t": 572,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/overflow/field-00",
+    "value": "true"
+  },
+  {
+    "t": 572,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/overflow/field-01",
+    "value": "true"
+  },
+  {
+    "t": 572,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/overflow/field-01",
+    "value": "true"
+  },
+  {
+    "t": 572,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/overflow/field-02",
+    "value": "true"
+  },
+  {
+    "t": 572,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/overflow/field-02",
+    "value": "true"
+  },
+  {
+    "t": 572,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/overflow/field-03",
+    "value": "true"
+  },
+  {
+    "t": 572,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/overflow/field-03",
+    "value": "true"
+  },
+  {
+    "t": 572,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/overflow/field-04",
+    "value": "true"
+  },
+  {
+    "t": 572,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/overflow/field-04",
+    "value": "true"
+  },
+  {
+    "t": 572,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/overflow/field-05",
+    "value": "true"
+  },
+  {
+    "t": 572,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/overflow/field-05",
+    "value": "true"
+  },
+  {
+    "t": 572,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/overflow/field-06",
+    "value": "true"
+  },
+  {
+    "t": 572,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/overflow/field-06",
+    "value": "true"
+  },
+  {
+    "t": 572,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/overflow/field-07",
+    "value": "true"
+  },
+  {
+    "t": 572,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/overflow/field-07",
+    "value": "true"
+  },
+  {
+    "t": 572,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/overflow/field-00",
+    "value": "true"
+  },
+  {
+    "t": 572,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/overflow/field-00",
+    "value": "true"
+  },
+  {
+    "t": 572,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/overflow/field-01",
+    "value": "true"
+  },
+  {
+    "t": 572,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/overflow/field-01",
+    "value": "true"
+  },
+  {
+    "t": 572,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/overflow/field-02",
+    "value": "true"
+  },
+  {
+    "t": 572,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/overflow/field-02",
+    "value": "true"
+  },
+  {
+    "t": 572,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/overflow/field-03",
+    "value": "true"
+  },
+  {
+    "t": 572,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/overflow/field-03",
+    "value": "true"
+  },
+  {
+    "t": 572,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/overflow/field-04",
+    "value": "true"
+  },
+  {
+    "t": 572,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/overflow/field-04",
+    "value": "true"
+  },
+  {
+    "t": 572,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/overflow/field-05",
+    "value": "true"
+  },
+  {
+    "t": 572,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/overflow/field-05",
+    "value": "true"
+  },
+  {
+    "t": 572,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/overflow/field-06",
+    "value": "true"
+  },
+  {
+    "t": 572,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/overflow/field-06",
+    "value": "true"
+  },
+  {
+    "t": 572,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/overflow/field-07",
+    "value": "true"
+  },
+  {
+    "t": 572,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/overflow/field-07",
+    "value": "true"
+  },
+  {
+    "t": 1863.2999999523163,
+    "kind": "hover",
+    "path": "/synth/waveform"
+  },
+  {
+    "t": 1863.3999999761581,
+    "kind": "wire-send",
+    "bytes": [
+      20,
+      5,
+      25,
+      0,
+      0,
+      0,
+      6,
+      0,
+      47,
+      115,
+      121,
+      110
+    ]
+  },
+  {
+    "t": 1876.1999999284744,
+    "kind": "wire-receive"
+  },
+  {
+    "t": 1876.5,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/overflow/field-00",
+    "value": "true"
+  },
+  {
+    "t": 1876.5,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/overflow/field-00",
+    "value": "true"
+  },
+  {
+    "t": 1876.5,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/overflow/field-01",
+    "value": "true"
+  },
+  {
+    "t": 1876.5,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/overflow/field-01",
+    "value": "true"
+  },
+  {
+    "t": 1876.5,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/overflow/field-02",
+    "value": "true"
+  },
+  {
+    "t": 1876.5,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/overflow/field-02",
+    "value": "true"
+  },
+  {
+    "t": 1876.5,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/overflow/field-03",
+    "value": "true"
+  },
+  {
+    "t": 1876.5,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/overflow/field-03",
+    "value": "true"
+  },
+  {
+    "t": 1876.5,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/overflow/field-04",
+    "value": "true"
+  },
+  {
+    "t": 1876.5,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/overflow/field-04",
+    "value": "true"
+  },
+  {
+    "t": 1876.5,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/overflow/field-05",
+    "value": "true"
+  },
+  {
+    "t": 1876.5,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/overflow/field-05",
+    "value": "true"
+  },
+  {
+    "t": 1876.5,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/overflow/field-06",
+    "value": "true"
+  },
+  {
+    "t": 1876.5,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/overflow/field-06",
+    "value": "true"
+  },
+  {
+    "t": 1876.5,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/overflow/field-07",
+    "value": "true"
+  },
+  {
+    "t": 1876.5,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/overflow/field-07",
+    "value": "true"
+  },
+  {
+    "t": 1876.5,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/overflow/field-00",
+    "value": "true"
+  },
+  {
+    "t": 1876.5,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/overflow/field-00",
+    "value": "true"
+  },
+  {
+    "t": 1876.5,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/overflow/field-01",
+    "value": "true"
+  },
+  {
+    "t": 1876.5,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/overflow/field-01",
+    "value": "true"
+  },
+  {
+    "t": 1876.5,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/overflow/field-02",
+    "value": "true"
+  },
+  {
+    "t": 1876.5,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/overflow/field-02",
+    "value": "true"
+  },
+  {
+    "t": 1876.5,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/overflow/field-03",
+    "value": "true"
+  },
+  {
+    "t": 1876.5,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/overflow/field-03",
+    "value": "true"
+  },
+  {
+    "t": 1876.5,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/overflow/field-04",
+    "value": "true"
+  },
+  {
+    "t": 1876.5,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/overflow/field-04",
+    "value": "true"
+  },
+  {
+    "t": 1876.5,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/overflow/field-05",
+    "value": "true"
+  },
+  {
+    "t": 1876.5,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/overflow/field-05",
+    "value": "true"
+  },
+  {
+    "t": 1876.5,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/overflow/field-06",
+    "value": "true"
+  },
+  {
+    "t": 1876.5,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/overflow/field-06",
+    "value": "true"
+  },
+  {
+    "t": 1876.5,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/overflow/field-07",
+    "value": "true"
+  },
+  {
+    "t": 1876.5,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/overflow/field-07",
+    "value": "true"
+  },
+  {
+    "t": 1883.1999999284744,
+    "kind": "wire-receive"
+  },
+  {
+    "t": 1884.1999999284744,
+    "kind": "wire-receive"
+  },
+  {
+    "t": 2029.8999999761581,
+    "kind": "hover",
+    "path": "/lighting/rgba"
+  },
+  {
+    "t": 2029.8999999761581,
+    "kind": "wire-send",
+    "bytes": [
+      20,
+      5,
+      27,
+      0,
+      0,
+      0,
+      9,
+      0,
+      47,
+      108,
+      105,
+      103
+    ]
+  },
+  {
+    "t": 2040,
+    "kind": "wire-receive"
+  },
+  {
+    "t": 2050.1999999284744,
+    "kind": "wire-receive"
+  },
+  {
+    "t": 2052.0999999046326,
+    "kind": "wire-receive"
+  },
+  {
+    "t": 2105.5999999046326,
+    "kind": "wire-receive"
+  },
+  {
+    "t": 2127.0999999046326,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/overflow/field-00",
+    "value": null
+  },
+  {
+    "t": 2127.0999999046326,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/overflow/field-00",
+    "value": null
+  },
+  {
+    "t": 2127.0999999046326,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/overflow/field-01",
+    "value": null
+  },
+  {
+    "t": 2127.0999999046326,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/overflow/field-01",
+    "value": null
+  },
+  {
+    "t": 2127.0999999046326,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/overflow/field-02",
+    "value": null
+  },
+  {
+    "t": 2127.0999999046326,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/overflow/field-02",
+    "value": null
+  },
+  {
+    "t": 2127.0999999046326,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/overflow/field-03",
+    "value": null
+  },
+  {
+    "t": 2127.0999999046326,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/overflow/field-03",
+    "value": null
+  },
+  {
+    "t": 2127.0999999046326,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/overflow/field-04",
+    "value": null
+  },
+  {
+    "t": 2127.0999999046326,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/overflow/field-04",
+    "value": null
+  },
+  {
+    "t": 2127.0999999046326,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/overflow/field-05",
+    "value": null
+  },
+  {
+    "t": 2127.0999999046326,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/overflow/field-05",
+    "value": null
+  },
+  {
+    "t": 2127.0999999046326,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/overflow/field-06",
+    "value": null
+  },
+  {
+    "t": 2127.0999999046326,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/overflow/field-06",
+    "value": null
+  },
+  {
+    "t": 2127.0999999046326,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/overflow/field-07",
+    "value": null
+  },
+  {
+    "t": 2127.0999999046326,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/overflow/field-07",
+    "value": null
+  },
+  {
+    "t": 2127.0999999046326,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/enabled",
+    "value": "true"
+  },
+  {
+    "t": 2127.0999999046326,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/enabled",
+    "value": "true"
+  },
+  {
+    "t": 2127.0999999046326,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/rgb",
+    "value": "true"
+  },
+  {
+    "t": 2127.0999999046326,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/rgb",
+    "value": "true"
+  },
+  {
+    "t": 2127.0999999046326,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/rgb",
+    "value": "true"
+  },
+  {
+    "t": 2127.0999999046326,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/rgb",
+    "value": "true"
+  },
+  {
+    "t": 2127.0999999046326,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/rgb",
+    "value": "true"
+  },
+  {
+    "t": 2127.0999999046326,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/rgb",
+    "value": "true"
+  },
+  {
+    "t": 2127.0999999046326,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/rgb",
+    "value": "true"
+  },
+  {
+    "t": 2127.0999999046326,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/rgb",
+    "value": "true"
+  },
+  {
+    "t": 2127.0999999046326,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/rgba",
+    "value": "true"
+  },
+  {
+    "t": 2127.0999999046326,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/rgba",
+    "value": "true"
+  },
+  {
+    "t": 2127.0999999046326,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/rgba",
+    "value": "true"
+  },
+  {
+    "t": 2127.0999999046326,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/rgba",
+    "value": "true"
+  },
+  {
+    "t": 2127.0999999046326,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/rgba",
+    "value": "true"
+  },
+  {
+    "t": 2127.0999999046326,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/rgba",
+    "value": "true"
+  },
+  {
+    "t": 2127.0999999046326,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/rgba",
+    "value": "true"
+  },
+  {
+    "t": 2127.0999999046326,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/rgba",
+    "value": "true"
+  },
+  {
+    "t": 2127.0999999046326,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/rgba",
+    "value": "true"
+  },
+  {
+    "t": 2127.0999999046326,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/rgba",
+    "value": "true"
+  },
+  {
+    "t": 2127.0999999046326,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/rgba",
+    "value": "true"
+  },
+  {
+    "t": 2127.0999999046326,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/rgba",
+    "value": "true"
+  },
+  {
+    "t": 2127.0999999046326,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/rgba",
+    "value": "true"
+  },
+  {
+    "t": 2127.0999999046326,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/rgba",
+    "value": "true"
+  },
+  {
+    "t": 2127.0999999046326,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/pan",
+    "value": "true"
+  },
+  {
+    "t": 2127.0999999046326,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/pan",
+    "value": "true"
+  },
+  {
+    "t": 2127.0999999046326,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/pan",
+    "value": "true"
+  },
+  {
+    "t": 2127.0999999046326,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/pan",
+    "value": "true"
+  },
+  {
+    "t": 2127.0999999046326,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/pan",
+    "value": "true"
+  },
+  {
+    "t": 2127.0999999046326,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/pan",
+    "value": "true"
+  },
+  {
+    "t": 2127.0999999046326,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/tilt",
+    "value": "true"
+  },
+  {
+    "t": 2127.0999999046326,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/tilt",
+    "value": "true"
+  },
+  {
+    "t": 2196.6999999284744,
+    "kind": "hover",
+    "path": "/synth/position"
+  },
+  {
+    "t": 2196.899999976158,
+    "kind": "wire-send",
+    "bytes": [
+      20,
+      5,
+      25,
+      0,
+      0,
+      0,
+      6,
+      0,
+      47,
+      115,
+      121,
+      110
+    ]
+  },
+  {
+    "t": 2214.1999999284744,
+    "kind": "wire-receive"
+  },
+  {
+    "t": 2215.2999999523163,
+    "kind": "wire-receive"
+  },
+  {
+    "t": 2215.5,
+    "kind": "wire-receive"
+  },
+  {
+    "t": 2218.899999976158,
+    "kind": "wire-receive"
+  },
+  {
+    "t": 2363.6999999284744,
+    "kind": "hover",
+    "path": "/lighting/rgba"
+  },
+  {
+    "t": 2363.7999999523163,
+    "kind": "wire-send",
+    "bytes": [
+      20,
+      5,
+      27,
+      0,
+      0,
+      0,
+      9,
+      0,
+      47,
+      108,
+      105,
+      103
+    ]
+  },
+  {
+    "t": 2365.399999976158,
+    "kind": "wire-receive"
+  },
+  {
+    "t": 2371.399999976158,
+    "kind": "wire-receive"
+  },
+  {
+    "t": 2376.5,
+    "kind": "wire-receive"
+  },
+  {
+    "t": 2376.6999999284744,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/enabled",
+    "value": null
+  },
+  {
+    "t": 2376.6999999284744,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/enabled",
+    "value": null
+  },
+  {
+    "t": 2376.6999999284744,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/rgb",
+    "value": null
+  },
+  {
+    "t": 2376.6999999284744,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/rgb",
+    "value": null
+  },
+  {
+    "t": 2376.6999999284744,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/rgb",
+    "value": null
+  },
+  {
+    "t": 2376.6999999284744,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/rgb",
+    "value": null
+  },
+  {
+    "t": 2376.6999999284744,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/rgb",
+    "value": null
+  },
+  {
+    "t": 2376.6999999284744,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/rgba",
+    "value": null
+  },
+  {
+    "t": 2376.6999999284744,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/rgba",
+    "value": null
+  },
+  {
+    "t": 2376.6999999284744,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/rgba",
+    "value": null
+  },
+  {
+    "t": 2376.6999999284744,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/rgba",
+    "value": null
+  },
+  {
+    "t": 2376.6999999284744,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/rgba",
+    "value": null
+  },
+  {
+    "t": 2376.6999999284744,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/rgba",
+    "value": null
+  },
+  {
+    "t": 2376.6999999284744,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/rgba",
+    "value": null
+  },
+  {
+    "t": 2376.6999999284744,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/rgba",
+    "value": null
+  },
+  {
+    "t": 2376.6999999284744,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/pan",
+    "value": null
+  },
+  {
+    "t": 2376.6999999284744,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/pan",
+    "value": null
+  },
+  {
+    "t": 2376.6999999284744,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/pan",
+    "value": null
+  },
+  {
+    "t": 2376.6999999284744,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/pan",
+    "value": null
+  },
+  {
+    "t": 2376.6999999284744,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/tilt",
+    "value": null
+  },
+  {
+    "t": 2376.6999999284744,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/lighting/tilt",
+    "value": null
+  },
+  {
+    "t": 2377.6999999284744,
+    "kind": "wire-receive"
+  },
+  {
+    "t": 2530.399999976158,
+    "kind": "hover",
+    "path": "/synth/waveform"
+  },
+  {
+    "t": 2530.5,
+    "kind": "wire-send",
+    "bytes": [
+      20,
+      5,
+      25,
+      0,
+      0,
+      0,
+      6,
+      0,
+      47,
+      115,
+      121,
+      110
+    ]
+  },
+  {
+    "t": 2542.5,
+    "kind": "wire-receive"
+  },
+  {
+    "t": 2545.899999976158,
+    "kind": "wire-receive"
+  },
+  {
+    "t": 2616.5,
+    "kind": "wire-receive"
+  },
+  {
+    "t": 2619.1999999284744,
+    "kind": "wire-receive"
+  },
+  {
+    "t": 2627.5,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/synth/enabled",
+    "value": "true"
+  },
+  {
+    "t": 2627.5,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/synth/enabled",
+    "value": "true"
+  },
+  {
+    "t": 2627.5,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/synth/waveform",
+    "value": "true"
+  },
+  {
+    "t": 2627.5,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/synth/waveform",
+    "value": "true"
+  },
+  {
+    "t": 2627.5,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/synth/octave",
+    "value": "true"
+  },
+  {
+    "t": 2627.5,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/synth/octave",
+    "value": "true"
+  },
+  {
+    "t": 2627.5,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/synth/voices",
+    "value": "true"
+  },
+  {
+    "t": 2627.5,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/synth/voices",
+    "value": "true"
+  },
+  {
+    "t": 2627.5,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/synth/gain",
+    "value": "true"
+  },
+  {
+    "t": 2627.5,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/synth/gain",
+    "value": "true"
+  },
+  {
+    "t": 2627.5,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/synth/frequency",
+    "value": "true"
+  },
+  {
+    "t": 2627.5,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/synth/frequency",
+    "value": "true"
+  },
+  {
+    "t": 2627.5,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/synth/detune",
+    "value": "true"
+  },
+  {
+    "t": 2627.5,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/synth/detune",
+    "value": "true"
+  },
+  {
+    "t": 2741.7999999523163,
+    "kind": "wire-receive"
+  },
+  {
+    "t": 2877.899999976158,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/synth/enabled",
+    "value": "true"
+  },
+  {
+    "t": 2877.899999976158,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/synth/enabled",
+    "value": "true"
+  },
+  {
+    "t": 2877.899999976158,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/synth/waveform",
+    "value": "true"
+  },
+  {
+    "t": 2877.899999976158,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/synth/waveform",
+    "value": "true"
+  },
+  {
+    "t": 2877.899999976158,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/synth/octave",
+    "value": "true"
+  },
+  {
+    "t": 2877.899999976158,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/synth/octave",
+    "value": "true"
+  },
+  {
+    "t": 2877.899999976158,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/synth/voices",
+    "value": "true"
+  },
+  {
+    "t": 2877.899999976158,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/synth/voices",
+    "value": "true"
+  },
+  {
+    "t": 2877.899999976158,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/synth/gain",
+    "value": "true"
+  },
+  {
+    "t": 2877.899999976158,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/synth/gain",
+    "value": "true"
+  },
+  {
+    "t": 2877.899999976158,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/synth/frequency",
+    "value": "true"
+  },
+  {
+    "t": 2877.899999976158,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/synth/frequency",
+    "value": "true"
+  },
+  {
+    "t": 2877.899999976158,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/synth/detune",
+    "value": "true"
+  },
+  {
+    "t": 2877.899999976158,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/synth/detune",
+    "value": "true"
+  },
+  {
+    "t": 2877.899999976158,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/synth/enabled",
+    "value": "true"
+  },
+  {
+    "t": 2877.899999976158,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/synth/enabled",
+    "value": "true"
+  },
+  {
+    "t": 2877.899999976158,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/synth/waveform",
+    "value": "true"
+  },
+  {
+    "t": 2877.899999976158,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/synth/waveform",
+    "value": "true"
+  },
+  {
+    "t": 2877.899999976158,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/synth/octave",
+    "value": "true"
+  },
+  {
+    "t": 2877.899999976158,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/synth/octave",
+    "value": "true"
+  },
+  {
+    "t": 2877.899999976158,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/synth/voices",
+    "value": "true"
+  },
+  {
+    "t": 2877.899999976158,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/synth/voices",
+    "value": "true"
+  },
+  {
+    "t": 2877.899999976158,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/synth/gain",
+    "value": "true"
+  },
+  {
+    "t": 2877.899999976158,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/synth/gain",
+    "value": "true"
+  },
+  {
+    "t": 2877.899999976158,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/synth/frequency",
+    "value": "true"
+  },
+  {
+    "t": 2877.899999976158,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/synth/frequency",
+    "value": "true"
+  },
+  {
+    "t": 2877.899999976158,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/synth/detune",
+    "value": "true"
+  },
+  {
+    "t": 2877.899999976158,
+    "kind": "paint",
+    "attribute": "data-av-surface-mapped",
+    "path": "/synth/detune",
+    "value": "true"
+  }
+]

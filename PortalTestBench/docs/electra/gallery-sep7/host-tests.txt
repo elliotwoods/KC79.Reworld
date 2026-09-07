@@ -1,0 +1,66 @@
+   Compiling av-gui-host v0.1.0 (/Users/elliot/dev/KC79.Reworld/PortalFlasher/third_party/av-frameworks/crates/av-gui-host)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.34s
+     Running unittests src/lib.rs (/Users/elliot/dev/KC79.Reworld/PortalTestBench/target/debug/deps/av_gui_host-b1a892d04021edd9)
+
+running 19 tests
+test viewport::tests::a_window_can_be_held_without_the_page_drawing_its_buttons ... ok
+test viewport::tests::the_caption_inset_rides_after_the_capabilities ... ok
+test viewport::tests::session_info_roundtrips ... ok
+test viewport::tests::capabilities_ride_after_the_id_without_disturbing_it ... ok
+test tls::tests::loopback_is_always_covered ... ok
+test viewport::tests::hidden_is_distinct_from_zero_sized ... ok
+test viewport::tests::truncated_session_info_is_rejected_without_panicking ... ok
+test viewport::tests::a_report_roundtrips ... ok
+test window::tests::a_window_command_is_one_byte_or_nothing ... ok
+test viewport::tests::malformed_reports_are_rejected_without_panicking ... ok
+test tls::tests::sha256_matches_the_published_vectors ... ok
+test window::tests::a_token_this_table_never_minted_marks_nothing ... ok
+test window::tests::holding_a_window_is_not_compositor_liveness ... ok
+test window::tests::only_the_token_holder_is_offered_the_window ... ok
+test window::tests::the_token_goes_on_a_url_that_may_already_have_a_query ... ok
+test window::tests::only_the_window_holder_can_actuate_it ... ok
+test window::tests::a_second_holder_waits_for_the_first_to_end ... ok
+test window::tests::multi_window_is_one_slot_per_call ... ok
+test tls::tests::a_self_signed_certificate_is_generated_with_the_right_shape ... ok
+
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/epoch.rs (/Users/elliot/dev/KC79.Reworld/PortalTestBench/target/debug/deps/epoch-814233c455b8cfaa)
+
+running 3 tests
+test the_new_schema_arrives_before_any_frame_of_the_new_epoch ... ok
+test a_client_keeps_its_session_id_across_a_reseal_and_a_new_client_cannot_reuse_it ... ok
+test telemetry_resumes_after_the_writer_is_reacquired ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/push.rs (/Users/elliot/dev/KC79.Reworld/PortalTestBench/target/debug/deps/push-0cc6a6df9bcad52a)
+
+running 2 tests
+test an_application_write_reaches_a_client_without_waiting_for_a_tick ... ok
+test dropping_a_client_leaves_the_bus_correct ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.21s
+
+     Running tests/server_channels.rs (/Users/elliot/dev/KC79.Reworld/PortalTestBench/target/debug/deps/server_channels-4d287334d2a8479c)
+
+running 2 tests
+test retained_payloads_are_bounded ... ok
+test current_state_replays_and_updates_every_session_without_hiding_client_channels ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/viewport_channel.rs (/Users/elliot/dev/KC79.Reworld/PortalTestBench/target/debug/deps/viewport_channel-29bced2f4e9c1066)
+
+running 8 tests
+test a_refusal_is_reported_rather_than_left_to_time_out ... ok
+test a_presenter_sees_the_geometry_and_its_verdict_reaches_the_client ... ok
+test the_upgrade_query_reaches_the_presenter ... ok
+test each_session_is_told_its_own_id ... ok
+test hostile_channel_traffic_leaves_the_session_alive ... ok
+test every_started_session_eventually_ends ... ok
+test ending_one_session_leaves_the_other_driving ... ok
+test no_presenter_means_no_acknowledgement ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.41s
+

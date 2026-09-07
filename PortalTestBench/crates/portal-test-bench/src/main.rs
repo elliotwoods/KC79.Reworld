@@ -25,6 +25,7 @@ use av_operator_app::{AppBuilder, AppResult, OperatorApp, RunContext, UiKind, Wi
 
 mod bench_api;
 mod flash;
+mod manual;
 mod schema;
 mod worker;
 
@@ -152,6 +153,7 @@ impl OperatorApp for PortalTestBenchApp {
     }
 
     fn configure(&mut self, context: &RunContext, app: &mut AppBuilder) -> AppResult<()> {
+        app.control_surfaces(manual::config());
         app.assets(av_operator_app::web_assets!("../../web/dist", "index.html"));
 
         let port = match context.pinned_port()? {
@@ -178,6 +180,7 @@ impl OperatorApp for PortalTestBenchApp {
     }
 
     fn declare(&mut self, _context: &RunContext, builder: &mut SchemaBuilder) -> AppResult<()> {
+        manual::declare(builder).map_err(std::io::Error::other)?;
         schema::declare(builder, self.simulate).map_err(std::io::Error::other)?;
         Ok(())
     }

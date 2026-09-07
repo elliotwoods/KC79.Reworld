@@ -1,0 +1,34 @@
+{
+  "trace": [
+    {
+      "path": "/synth/waveform",
+      "ms": 24.200000047683716,
+      "state": "pending"
+    },
+    {
+      "path": "/lighting/rgba",
+      "ms": 1.4000000953674316,
+      "state": "pending"
+    },
+    {
+      "path": "/synth/position",
+      "ms": 1.1999999284744263,
+      "state": "pending"
+    },
+    {
+      "path": "/lighting/rgba",
+      "ms": 1,
+      "state": "pending"
+    },
+    {
+      "path": "/synth/waveform",
+      "ms": 0.2999999523162842,
+      "state": "pending"
+    }
+  ],
+  "style": {
+    "background": "color(srgb 0.133333 0.827451 0.933333 / 0.04)",
+    "outline": "solid",
+    "labelColor": "rgb(232, 234, 237)"
+  }
+}
