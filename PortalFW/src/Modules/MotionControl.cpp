@@ -2309,8 +2309,25 @@ namespace Modules {
 	};
 
 	// 32:1, the production gearing. Rev = exact rational 32*118*9759*32/(296*21) rounded.
+	//
+	// seekSpeed and reposSpeed were 24,000, chosen on the bench rig as >=20% below a stall cliff
+	// measured at 30-32k. That margin is not universal. On a production module (bench,
+	// 2026-09-08) axis B lost steps at 24,000 on most laps of a census -- 800 to 11,000
+	// microsteps per revolution, growing as the motor warmed, enough that one lap saw no flag at
+	// all because the slip had carried it past the lap's end -- while axis A of the same module
+	// held to +/-200 per lap, and B itself held to +/-200 at 14,000 and 8,000. 14,000 is
+	// MOTION_DEFAULT_SPEED, the speed every module runs at all day and the speed the startup
+	// cycle check already trusts for its geometry measurement.
+	//
+	// The seek tolerates slip (its budget is 1.25 revolutions and the edge it latches is
+	// re-measured at edgeSpeed anyway), but the reposition moves do not: the phase 6 park onto
+	// the datum runs at reposSpeed, and a slip there leaves the axis short of the datum with the
+	// position counter saying it arrived -- a silent, permanent datum error for the session,
+	// which is the failure the 16:1 notes recorded as a ~780 microstep park error. A warm home
+	// that has to seek a whole revolution costs about six seconds more at 14,000 (measured 22 s
+	// against ~16); a cold one about twelve.
 	static const FastHomeParams FASTHOME_32 =
-		{ 32, 24000, 100000, 24000, 2000, 32, 5000, 2000, 4200, 3000, 189704 };
+		{ 32, 14000, 100000, 14000, 2000, 32, 5000, 2000, 4200, 3000, 189704 };
 
 	// Starting acquisition ceiling when the background is censored -- i.e. when the ring never
 	// crosses at any threshold, the measured situation on both axes of this board. It is only a
@@ -2388,7 +2405,29 @@ namespace Modules {
 	#define FASTHOME_T_OP_MIN          226
 	#define FASTHOME_T_OP_MAX          246
 	#define FASTHOME_W_MIN             120
-	#define FASTHOME_W_MAX             520
+	// W_MAX was 520, which sat comfortably above the reference module's widest in-band reading
+	// (432 at T=245). That turned out to be a property of ONE module, not of painted flags. A
+	// second production module (bench, 2026-09-08), measured by the same census one lap per
+	// threshold, gave a flag about twice as wide at every threshold on BOTH axes, with exactly
+	// one clean segment per lap throughout:
+	//
+	//        T    200  210  220  226  230  235  240  245  250  253  255
+	//   A width    -    -   53  331  362  565  742  918 1266 1360 1933
+	//   B width  210  192  347  583  574  650   (B lost steps at the 24k census speed above
+	//                                            235, so its wider readings are inflated)
+	//
+	// Its flag crossing (223 on A, 227 on B) is the same as the reference's, so the core is no
+	// brighter -- the painted patch is simply longer. At the seed threshold that is W 565/650,
+	// and every path refused it: the warm pass ("out of band after passes: T=235 W=629"), the
+	// seed gate ("w=627 outside band [120..520]") and the cold path, whose T_op of 240/241
+	// measured 715/857. Both axes failed startup, 126 s at a time, on a module whose sensor,
+	// flag, two-pass repeatability and backlash were all fine.
+	//
+	// The smear this ceiling exists to reject begins at T>=250 (W 866-973 on the reference,
+	// 1266+ here) and is already excluded by FASTHOME_T_OP_MAX; within T<=246 the widest honest
+	// reading seen on any module is 918 (A at T=245, above). 1000 keeps a real ceiling below the
+	// smear while admitting a flag that is merely generously painted.
+	#define FASTHOME_W_MAX             1000
 	// Width gate for the first pass on a SEEDED run, as a fraction of W_DEFAULT. Much looser
 	// than the warm gate below, because W_DEFAULT is a fleet constant rather than this axis's
 	// own measurement -- the census spread across two axes was already 258 to 275, and paint
