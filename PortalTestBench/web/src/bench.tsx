@@ -1,9 +1,10 @@
 import {
   Badge, Banner, Button, EmptyState, EnumSelect, NumberField, Panel, ParamTree, Row, StatusBar, StatusItem,
-  Tabs, TextField, TitleBar, Toggle,
+  PageBar, TextField, TitleBar, Toggle,
 } from '@auroravision/av-gui/controls';
+import { Database, FlaskConical, Search, Zap } from '@auroravision/av-gui/icons';
 import { SystemSounds } from '@auroravision/av-gui/calibration';
-import { mount, useParam, useSchema } from '@auroravision/av-gui/runtime';
+import { mount, useParam, usePage, useSchema } from '@auroravision/av-gui/runtime';
 import '@auroravision/av-gui/styles.css';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { type BoardValue, type Cue, type FirmwareItem, type LinkView, type SerialView, type SettingsView, connectBlocker, eraseWarning, firmwareRow, flashButtonLabel, linkBlocker, omitDetail, omitLabel, probeListEmpty, sortFirmware, serialState, settingsState, settingsSummary, soundFor } from './bench-model';
@@ -1123,6 +1124,13 @@ function useCueSounds(sounds: SystemSounds, cue: Cue, seq: number) {
   }, [sounds, cue, seq]);
 }
 
+const BENCH_PAGES = [
+  { id: 'flash', label: 'Flash', icon: <Zap /> },
+  { id: 'database', label: 'Database', icon: <Database /> },
+  { id: 'test', label: 'Test', icon: <FlaskConical /> },
+  { id: 'inspect', label: 'Inspect', icon: <Search /> },
+] as const;
+
 function App() {
   const schema = useSchema(); useHeartbeat();
   const sounds = useMemo(() => new SystemSounds(), []);
@@ -1136,7 +1144,9 @@ function App() {
     setSoundEnabled(enabled);
     if (enabled) sounds.play('tick_small', `portal-test-bench:sound-enabled:${Date.now()}`);
   };
-  const [tab, setTab] = useState<'flash' | 'database' | 'test' | 'inspect'>('flash');
+  // The bench's four interfaces are Pages on the framework bar at the bottom of the window
+  // (av-frameworks `docs/patterns.md` §18), remembered per viewer.
+  const [tab, setTab] = usePage<'flash' | 'database' | 'test' | 'inspect'>('bench', BENCH_PAGES, 'flash');
   const serial = useBool('/serial/connected'), rs485 = useBool('/rs485/connected');
   const serialKind = useEnumName('/serial/observed');
   const rs485Target = useNumber('/rs485/target');
@@ -1151,10 +1161,10 @@ function App() {
       <div className="bench-shared">
         <HardwareBand />
         <FlashActionStrip soundEnabled={soundEnabled} onSoundEnabledChange={changeSoundEnabled} />
-        <Tabs value={tab} onChange={setTab} label="Portal test bench workspaces" items={[{ id: 'flash', label: 'Flash' }, { id: 'database', label: 'Database' }, { id: 'test', label: 'Test', count: faults || undefined }, { id: 'inspect', label: 'Inspect' }]} />
       </div>
       <div className="tab-content"><div className="stack bench-stack">{tab === 'flash' ? <FlashTab /> : tab === 'database' ? <DatabaseTab /> : tab === 'test' ? <TestTab /> : <InspectTab />}</div></div>
     </div><SessionLog /></div>
+    <PageBar label="Portal test bench pages" pages={BENCH_PAGES.map((page) => page.id === 'test' ? { ...page, count: faults || undefined } : page)} value={tab} onChange={setTab} />
     <StatusBar stream={null}><StatusItem label="serial" value={serial ? serialKind : 'down'} tone={serial ? 'ok' : 'warn'} /><StatusItem label="RS485" value={rs485 ? `target ${rs485Target}` : 'down'} tone={rs485 ? 'ok' : 'warn'} /><StatusItem label="probe" value={target ? 'MCU present' : probe ? 'ready' : 'down'} tone={target ? 'ok' : probe ? 'warn' : 'error'} /><StatusItem label="runs" value={`${passed} pass · ${failed} fail`} />{faults > 0 && <StatusItem label="faults" value={String(faults)} tone="error" />}</StatusBar>
   </div>;
 }

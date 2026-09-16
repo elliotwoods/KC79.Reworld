@@ -2,10 +2,10 @@
 // inspector, and the status bar. Layout only — every control binds a schema path and every
 // live mark reads a telemetry ring.
 
-import { EnumSelect, StatusBar, StatusItem, Tabs, TitleBar, Toggle } from '@auroravision/av-gui/controls';
-import { mount, useParam, useSchema } from '@auroravision/av-gui/runtime';
+import { EnumSelect, PageBar, StatusBar, StatusItem, TitleBar, Toggle } from '@auroravision/av-gui/controls';
+import { mount, usePage, useParam, useSchema } from '@auroravision/av-gui/runtime';
 import '@auroravision/av-gui/styles.css';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { Action } from './bits';
 import {
   AlertTriangle,
@@ -30,6 +30,15 @@ import { ServersPanel } from './panels/servers';
 
 type Tab = 'installation' | 'renderer' | 'servers' | 'diagnostics';
 
+// The four workspaces are Pages on the framework bar at the bottom of the window (av-frameworks
+// `docs/patterns.md` §18). The icons stay this app's own set; the bar takes any node.
+const PAGES = [
+  { id: 'installation', label: 'Installation', icon: <House /> },
+  { id: 'renderer', label: 'Renderer', icon: <Image /> },
+  { id: 'servers', label: 'Servers', icon: <Network /> },
+  { id: 'diagnostics', label: 'Diagnostics', icon: <HeartPulse /> },
+] as const satisfies ReadonlyArray<{ id: Tab; label: string; icon: unknown }>;
+
 function useHeartbeat() {
   // The page's liveness counter, bumped once a second while any page is open.
   const heartbeat = useParam<number>('/ui/heartbeat');
@@ -43,7 +52,7 @@ function useHeartbeat() {
 
 function App() {
   const schema = useSchema();
-  const [tab, setTab] = useState<Tab>('installation');
+  const [tab, setTab] = usePage<Tab>('router', PAGES, 'installation');
   const simulated = useBool('/app/simulated');
   const transmit = useEnumName('/installation/messaging/transmit');
   const connectedColumns = useConnectedColumns();
@@ -67,17 +76,6 @@ function App() {
         sub={schema ? (simulated ? 'simulated installation' : transmit.toLowerCase()) : 'connecting'}
       />
       <div className="router-topbar">
-        <Tabs
-          value={tab}
-          onChange={setTab}
-          label="Router workspaces"
-          items={[
-            { id: 'installation', label: <><House />Installation</> },
-            { id: 'renderer', label: <><Image />Renderer</> },
-            { id: 'servers', label: <><Network />Servers</> },
-            { id: 'diagnostics', label: <><HeartPulse />Diagnostics</>, count: faulty || undefined },
-          ]}
-        />
         <span className="topbar-controls">
           <label className="topbar-field">
             Transmit
@@ -102,6 +100,12 @@ function App() {
         </main>
         <Inspector />
       </div>
+      <PageBar
+        label="Router pages"
+        pages={PAGES.map((page) => (page.id === 'diagnostics' ? { ...page, count: faulty || undefined } : page))}
+        value={tab}
+        onChange={setTab}
+      />
       <div data-av-surface="status">
         <StatusBar stream={null}>
           {/* The glyph leads each label rather than replacing it. A status bar is read at a
