@@ -139,6 +139,7 @@ name = "av-app-registry"
 version = "0.1.0"
 dependencies = [
  "getrandom 0.3.4",
+ "libc",
  "serde",
  "serde_json",
  "windows 0.62.2",
@@ -195,6 +196,7 @@ dependencies = [
  "av-control-surface",
  "av-control-surface-router-protocol",
  "av-plugin",
+ "libc",
 ]
 
 [[package]]
@@ -206,7 +208,16 @@ dependencies = [
  "libc",
  "serde",
  "serde_json",
- "windows 0.62.2",
+]
+
+[[package]]
+name = "av-files"
+version = "0.1.0"
+dependencies = [
+ "av-app-registry",
+ "serde",
+ "serde_json",
+ "tracing",
 ]
 
 [[package]]
@@ -227,6 +238,7 @@ version = "0.1.0"
 dependencies = [
  "av-app-icon",
  "cc",
+ "tempfile",
 ]
 
 [[package]]
@@ -243,6 +255,7 @@ dependencies = [
  "hyper",
  "hyper-util",
  "rcgen",
+ "ring",
  "rustls",
  "tokio",
  "tokio-tungstenite",
@@ -322,6 +335,7 @@ dependencies = [
  "av-control-surface-electra-mini-fw",
  "av-control-surface-electra-one",
  "av-control-surface-remote",
+ "av-files",
  "av-gui-bus",
  "av-gui-host",
  "av-gui-shell",
@@ -330,6 +344,7 @@ dependencies = [
  "av-params",
  "av-plugin",
  "axum",
+ "serde",
  "serde_json",
  "tokio",
  "tracing",
