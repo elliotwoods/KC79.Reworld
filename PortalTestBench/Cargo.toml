@@ -7,6 +7,12 @@ resolver = "3"
 members = ["crates/bench-core", "crates/portal-test-bench", "crates/ptb", "crates/av-frameworks-daemon"]
 exclude = ["third_party/av-frameworks"]
 
+# How av-gallery (av-frameworks' launcher) groups this workspace's binaries. All three KC79
+# workspaces share the group, so the Reworld tools read as one product. Keys:
+# av-frameworks' docs/extended/architecture.md, "av-gallery's discovery".
+[workspace.metadata.av-gallery]
+group = "KC79 Reworld"
+
 [workspace.package]
 version = "0.1.0"
 edition = "2024"

@@ -9,6 +9,12 @@ members = [
 # it and resolve features over a subgraph that is not the one either tree was tested against.
 exclude = ["third_party/av-frameworks"]
 
+# How av-gallery (av-frameworks' launcher) groups this workspace's binaries. All three KC79
+# workspaces share the group, so the Reworld tools read as one product. Keys:
+# av-frameworks' docs/extended/architecture.md, "av-gallery's discovery".
+[workspace.metadata.av-gallery]
+group = "KC79 Reworld"
+
 [workspace.package]
 version = "0.1.0"
 edition = "2024"

@@ -12,6 +12,12 @@ license.workspace = true
 name = "router"
 path = "src/main.rs"
 
+# The binary is `router`, not the package name, so av-gallery would not assume a window: say so.
+[package.metadata.av-gallery.binaries.router]
+name = "Router"
+windowed = true
+kind = "app"
+
 [dependencies]
 router-core = { path = "../router-core" }
 router-proto = { path = "../router-proto" }
