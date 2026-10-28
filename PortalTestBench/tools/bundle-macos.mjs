@@ -79,7 +79,7 @@ ${body}
 `;
 }
 
-function appPlist(version) {
+function appPlist(version, hasIcon) {
   return plist({
     CFBundleExecutable: BINARY,
     CFBundleName: APP_NAME,
@@ -89,6 +89,12 @@ function appPlist(version) {
     CFBundleInfoDictionaryVersion: '6.0',
     CFBundleShortVersionString: version,
     CFBundleVersion: version,
+    // `Contents/Resources/av-icon.icns`, copied by `stageIcon`. This is what the Dock draws for
+    // the bench when it is kept in the Dock and not running; without it the tile is macOS's
+    // generic one, which is what it was until the framework started shipping `.icns`. Named
+    // only when the file was actually staged: a plist naming an icon that is not there is the
+    // exact silent failure the framework's own bundler had for the whole macOS port.
+    ...(hasIcon ? { CFBundleIconFile: 'av-icon' } : {}),
     LSMinimumSystemVersion: '12.0',
     // Without this every pixel is magnified and resampled: the Info.plist equivalent of
     // SetProcessDpiAwarenessContext, and worse, because nothing in the code will remind you.
@@ -107,6 +113,38 @@ function copyTree(src, dst) {
     if (entry.isDirectory()) copyTree(from, to);
     else fs.copyFileSync(from, to);
   }
+}
+
+/**
+ * The bundle's icon: the mark `av_app_icon::embed` resolves for `portal-test-bench`, as the
+ * `.icns` the framework generates beside every `.ico`.
+ *
+ * The framework's `tools/lib/app-icon.mjs` restates that resolution and is asked as a child
+ * process rather than imported, because a `third_party/av-frameworks` pinned before the
+ * `.icns` files existed has neither the module nor the assets, and a bundle without an icon is
+ * a warning here, not a refusal to package. The running tile is set by `av-gui-webview` from
+ * `.ico` bytes either way; the `.icns` is what the Dock shows when the bench is kept and closed.
+ */
+function stageIcon(resources) {
+  const framework = path.join(app, 'third_party', 'av-frameworks');
+  const lib = path.join(framework, 'tools', 'lib', 'app-icon.mjs');
+  if (!fs.existsSync(lib)) {
+    warn('third_party/av-frameworks predates brand/**/*.icns: this bundle carries no Dock icon');
+    return false;
+  }
+  const resolved = tryRun('node', [lib, '--resolve', BINARY]);
+  if (!resolved.ok) {
+    warn(`app-icon.mjs --resolve failed: ${resolved.stderr}; this bundle carries no Dock icon`);
+    return false;
+  }
+  const icns = path.join(framework, 'brand', `${resolved.stdout.trim()}.icns`);
+  if (!fs.existsSync(icns)) {
+    warn(`${path.relative(app, icns)} is missing: this bundle carries no Dock icon`);
+    return false;
+  }
+  fs.copyFileSync(icns, path.join(resources, 'av-icon.icns'));
+  step(`Staged ${path.relative(app, icns)} as the Dock icon`);
+  return true;
 }
 
 function copyExecutable(src, dst) {
@@ -150,7 +188,8 @@ main(() => {
   fs.mkdirSync(resources, { recursive: true });
 
   step(`Bundling ${APP_NAME} ${version} (${options.profile})`);
-  fs.writeFileSync(path.join(contents, 'Info.plist'), appPlist(version));
+  const hasIcon = stageIcon(resources);
+  fs.writeFileSync(path.join(contents, 'Info.plist'), appPlist(version, hasIcon));
   fs.writeFileSync(path.join(contents, 'PkgInfo'), 'APPL????');
 
   copyExecutable(binary, path.join(macos, BINARY));
