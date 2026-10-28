@@ -1,5 +1,8 @@
 .bench { overflow: hidden; }
-.bench-main { display: grid; grid-template-rows: minmax(0, 1fr) auto; min-height: 0; }
+/* The zoom seam. The framework applies `--ui-zoom` to `.app-body`, which the bench does not use,
+   so without this the title bar's readout stepped and nothing scaled (av-frameworks #15). The
+   title bar, page bar and status bar stay outside it, as they do in every framework page. */
+.bench-main { display: grid; grid-template-rows: minmax(0, 1fr) auto; min-height: 0; zoom: var(--ui-zoom, 1); }
 .bench-workspace { display: grid; grid-template-rows: auto minmax(0, 1fr); min-height: 0; overflow: hidden; }
 .bench-shared { display: grid; gap: var(--space-2); padding: var(--space-3) var(--space-3) 0; }
 .tab-content { min-height: 0; overflow: auto; }
